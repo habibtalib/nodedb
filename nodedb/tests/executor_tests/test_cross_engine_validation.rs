@@ -256,6 +256,7 @@ fn rrf_fusion_mathematically_correct() {
             vector_weight: 0.5,
             filter_bitmap: None,
             rls_filters: Vec::new(),
+            score_alias: None,
         }),
     );
     assert_eq!(resp_equal.status, Status::Ok);
@@ -277,6 +278,7 @@ fn rrf_fusion_mathematically_correct() {
             vector_weight: 0.9,
             filter_bitmap: None,
             rls_filters: Vec::new(),
+            score_alias: None,
         }),
     );
     assert_eq!(resp_vec_heavy.status, Status::Ok);
