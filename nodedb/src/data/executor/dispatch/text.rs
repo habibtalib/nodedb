@@ -38,6 +38,7 @@ impl CoreLoop {
                 vector_weight,
                 filter_bitmap,
                 rls_filters,
+                score_alias,
             } => self.execute_hybrid_search(
                 task,
                 tid,
@@ -50,6 +51,7 @@ impl CoreLoop {
                 *vector_weight,
                 filter_bitmap.as_ref(),
                 rls_filters,
+                score_alias.as_deref(),
             ),
         }
     }

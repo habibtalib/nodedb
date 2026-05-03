@@ -56,5 +56,8 @@ pub(crate) fn build_hybrid_search(
         vector_weight,
         filter_bitmap: None,
         rls_filters: Vec::new(),
+        // Native-protocol path: the wire schema does not carry a
+        // SELECT-style alias. Falls back to the executor's default name.
+        score_alias: None,
     }))
 }

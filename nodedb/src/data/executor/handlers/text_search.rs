@@ -104,6 +104,9 @@ impl CoreLoop {
     }
 
     /// Execute a hybrid search: vector + text, fused via weighted RRF.
+    ///
+    /// `score_alias` overrides the response field name for the RRF score
+    /// column. When `None` the executor uses the fixed default `rrf_score`.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::data::executor) fn execute_hybrid_search(
         &self,
@@ -118,6 +121,7 @@ impl CoreLoop {
         vector_weight: f32,
         filter_bitmap: Option<&nodedb_types::SurrogateBitmap>,
         rls_filters: &[u8],
+        score_alias: Option<&str>,
     ) -> Response {
         let tenant_id = TenantId::new(tid);
         debug!(
@@ -264,6 +268,7 @@ impl CoreLoop {
 
                 super::super::response_codec::HybridSearchHit {
                     doc_id: &f.document_id,
+                    score_field: score_alias.unwrap_or("rrf_score"),
                     rrf_score: f.rrf_score,
                     vector_rank,
                     text_rank,

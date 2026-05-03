@@ -192,23 +192,38 @@ pub(super) async fn reproject_response(
     let mut pgwire_rows = Vec::with_capacity(flat_rows.len());
     for obj in &flat_rows {
         let mut encoder = DataRowEncoder::new(schema.clone());
-        for lookup_key in lookup_keys {
+        for (i, lookup_key) in lookup_keys.iter().enumerate() {
             // Try the full lookup key first (handles qualified `table.col`
             // references against join-prefixed row objects). If that misses,
             // fall back to the bare column name (last dot-segment) so that
             // plain single-table queries continue to work against row objects
-            // that store unqualified keys.
+            // that store unqualified keys. Last resort: fall back to the
+            // display name (the SELECT alias) — required for aliased function
+            // calls like `rrf_score(...) AS score` whose response uses the
+            // alias as the field key, not the function-call expression text.
             let bare = lookup_key
                 .rfind('.')
                 .map(|i| &lookup_key[i + 1..])
                 .unwrap_or(lookup_key.as_str());
-            let value = obj.get(lookup_key.as_str()).or_else(|| {
-                if bare != lookup_key {
-                    obj.get(bare)
-                } else {
-                    None
-                }
-            });
+            let display_name: Option<&str> = result_fields.get(i).map(|f| f.name().as_ref());
+            let value = obj
+                .get(lookup_key.as_str())
+                .or_else(|| {
+                    if bare != lookup_key {
+                        obj.get(bare)
+                    } else {
+                        None
+                    }
+                })
+                .or_else(|| {
+                    display_name.and_then(|n| {
+                        if n != lookup_key.as_str() && Some(n) != Some(bare) {
+                            obj.get(n)
+                        } else {
+                            None
+                        }
+                    })
+                });
             match value {
                 None | Some(serde_json::Value::Null) => {
                     let _ = encoder.encode_field(&Option::<String>::None);

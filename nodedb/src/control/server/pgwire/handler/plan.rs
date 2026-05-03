@@ -138,7 +138,9 @@ pub(super) fn describe_plan(plan: &PhysicalPlan) -> PlanKind {
         | PhysicalPlan::Query(QueryOp::InlineHashJoin { .. })
         | PhysicalPlan::Query(QueryOp::RecursiveScan { .. })
         | PhysicalPlan::Graph(GraphOp::Algo { .. })
-        | PhysicalPlan::Graph(GraphOp::Match { .. }) => PlanKind::MultiRow,
+        | PhysicalPlan::Graph(GraphOp::Match { .. })
+        | PhysicalPlan::Text(TextOp::Search { .. })
+        | PhysicalPlan::Text(TextOp::HybridSearch { .. }) => PlanKind::MultiRow,
 
         PhysicalPlan::Kv(KvOp::Get { .. }) | PhysicalPlan::Kv(KvOp::FieldGet { .. }) => {
             PlanKind::SingleDocument

@@ -42,5 +42,10 @@ pub enum TextOp {
         filter_bitmap: Option<SurrogateBitmap>,
         /// RLS post-fusion filters.
         rls_filters: Vec<u8>,
+        /// SELECT-list alias the response should use for the RRF score
+        /// column. `None` means the executor uses the fixed internal name
+        /// `rrf_score`. Set by the planner from the SELECT alias for the
+        /// `rrf_score(...)` call.
+        score_alias: Option<String>,
     },
 }

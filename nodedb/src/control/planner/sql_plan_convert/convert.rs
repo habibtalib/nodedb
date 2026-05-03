@@ -309,6 +309,7 @@ pub(super) fn convert_one(
             ef_search,
             vector_weight,
             fuzzy,
+            score_alias,
         } => super::scan::convert_hybrid_search(super::scan_params::HybridSearchParams {
             collection,
             query_vector,
@@ -317,6 +318,7 @@ pub(super) fn convert_one(
             ef_search,
             vector_weight,
             fuzzy,
+            score_alias: score_alias.as_deref(),
             tenant_id,
         }),
 

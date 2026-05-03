@@ -356,6 +356,11 @@ pub enum SqlPlan {
         ef_search: usize,
         vector_weight: f32,
         fuzzy: bool,
+        /// SELECT-list alias the response should use for the RRF score
+        /// column. `None` means the executor falls back to the fixed
+        /// internal field name `rrf_score`. Set by the planner from the
+        /// SELECT projection's `AS <alias>` for the `rrf_score(...)` call.
+        score_alias: Option<String>,
     },
     SpatialScan {
         collection: String,

@@ -97,6 +97,10 @@ pub(super) struct HybridSearchParams<'a> {
     pub ef_search: &'a usize,
     pub vector_weight: &'a f32,
     pub fuzzy: &'a bool,
+    /// SELECT-list alias for the RRF score column. Forwarded to
+    /// `TextOp::HybridSearch.score_alias` so the executor renames the
+    /// response field.
+    pub score_alias: Option<&'a str>,
     pub tenant_id: TenantId,
 }
 
