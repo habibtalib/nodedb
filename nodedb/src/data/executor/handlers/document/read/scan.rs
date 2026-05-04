@@ -1,0 +1,309 @@
+//! Document collection scan handler.
+
+use tracing::{debug, warn};
+
+use super::decode::{decode_scanned_document, decode_scanned_document_msgpack};
+use super::projection::{apply_projection, apply_projection_msgpack};
+use crate::bridge::envelope::{ErrorCode, Response};
+use crate::bridge::scan_filter::ScanFilter;
+use crate::data::executor::core_loop::CoreLoop;
+use crate::data::executor::doc_format;
+use crate::data::executor::handlers::document::sort;
+use crate::data::executor::response_codec::DocumentRow;
+use crate::data::executor::strict_format;
+use crate::data::executor::task::ExecutionTask;
+
+impl CoreLoop {
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::data::executor) fn execute_document_scan(
+        &mut self,
+        task: &ExecutionTask,
+        tid: u64,
+        collection: &str,
+        limit: usize,
+        offset: usize,
+        sort_keys: &[(String, bool)],
+        filters: &[u8],
+        distinct: bool,
+        projection: &[String],
+        computed_columns_bytes: &[u8],
+        window_functions_bytes: &[u8],
+        prefilter: Option<&nodedb_types::SurrogateBitmap>,
+    ) -> Response {
+        debug!(
+            core = self.core_id,
+            %collection,
+            limit,
+            offset,
+            sort_fields = sort_keys.len(),
+            "document scan"
+        );
+
+        let _scan_guard = match self.acquire_scan_guard(task, tid, collection) {
+            Ok(g) => g,
+            Err(resp) => return resp,
+        };
+
+        let window_specs: Vec<crate::bridge::window_func::WindowFuncSpec> =
+            if window_functions_bytes.is_empty() {
+                Vec::new()
+            } else {
+                zerompk::from_msgpack(window_functions_bytes).unwrap_or_default()
+            };
+
+        let computed_cols: Vec<crate::bridge::expr_eval::ComputedColumn> =
+            if computed_columns_bytes.is_empty() {
+                Vec::new()
+            } else {
+                zerompk::from_msgpack(computed_columns_bytes).unwrap_or_default()
+            };
+
+        let fetch_limit = (limit + offset).saturating_mul(2).max(1000);
+
+        let filter_predicates: Vec<ScanFilter> = if filters.is_empty() {
+            Vec::new()
+        } else {
+            match zerompk::from_msgpack(filters) {
+                Ok(f) => f,
+                Err(e) => {
+                    warn!(core = self.core_id, error = %e, "failed to parse scan filters");
+                    return self.response_error(
+                        task,
+                        ErrorCode::Internal {
+                            detail: format!("malformed scan filters: {e}"),
+                        },
+                    );
+                }
+            }
+        };
+
+        let config_key = (crate::types::TenantId::new(tid), collection.to_string());
+        let strict_schema = self.doc_configs.get(&config_key).and_then(|c| {
+            if let crate::bridge::physical_plan::StorageMode::Strict { ref schema } = c.storage_mode
+            {
+                Some(schema.clone())
+            } else {
+                None
+            }
+        });
+
+        // Scan strategy:
+        // 1. Try sparse engine first (with optimized push-down filters when present).
+        // 2. If sparse returns empty, fall back to scan_collection which routes
+        //    to the correct engine (KV → columnar → sparse). This makes
+        //    DocumentOp::Scan the universal scan for ALL collection types.
+        //
+        // Strict (Binary Tuple) collections need JSON-level filter evaluation
+        // because `matches_binary` operates on MessagePack, not Binary Tuples.
+        let scan_result = if filter_predicates.is_empty() {
+            let sparse_result = self.sparse.scan_documents(tid, collection, fetch_limit);
+            match &sparse_result {
+                Ok(docs) if docs.is_empty() => {
+                    let fallback = self.scan_collection(tid, collection, fetch_limit);
+                    if let Ok(ref docs) = fallback
+                        && !docs.is_empty()
+                    {
+                        warn!(
+                            core = self.core_id,
+                            %collection,
+                            count = docs.len(),
+                            "document scan fallback to scan_collection"
+                        );
+                    }
+                    fallback
+                }
+                _ => sparse_result,
+            }
+        } else if let Some(ref schema) = strict_schema {
+            self.sparse
+                .scan_documents_filtered(tid, collection, fetch_limit, &|value: &[u8]| {
+                    match strict_format::binary_tuple_to_msgpack(value, schema) {
+                        Some(mp) => filter_predicates.iter().all(|f| f.matches_binary(&mp)),
+                        None => false,
+                    }
+                })
+        } else {
+            let sparse_result = self.sparse.scan_documents_filtered(
+                tid,
+                collection,
+                fetch_limit,
+                &|value: &[u8]| filter_predicates.iter().all(|f| f.matches_binary(value)),
+            );
+            match &sparse_result {
+                Ok(docs) if docs.is_empty() => self
+                    .scan_collection(tid, collection, fetch_limit)
+                    .map(|docs| {
+                        docs.into_iter()
+                            .filter(|(_, data)| {
+                                filter_predicates.iter().all(|f| f.matches_binary(data))
+                            })
+                            .collect()
+                    }),
+                _ => sparse_result,
+            }
+        };
+
+        match scan_result {
+            Ok(mut filtered) => {
+                if let Some(ref m) = self.metrics {
+                    m.record_document_read();
+                }
+
+                if let Some(pf) = prefilter {
+                    filtered.retain(|(doc_id, _)| {
+                        if let Ok(n) = u32::from_str_radix(doc_id, 16) {
+                            pf.contains(nodedb_types::Surrogate::new(n))
+                        } else {
+                            false
+                        }
+                    });
+                }
+
+                // Strict collections may store binary tuples. Sort and projection
+                // operate on msgpack, so normalize binary tuples here.
+                let filtered = if !sort_keys.is_empty() || !projection.is_empty() {
+                    if let Some(ref schema) = strict_schema {
+                        filtered
+                            .into_iter()
+                            .map(|(id, bytes)| {
+                                match strict_format::binary_tuple_to_msgpack(&bytes, schema) {
+                                    Some(mp) => (id, mp),
+                                    None => (id, bytes),
+                                }
+                            })
+                            .collect()
+                    } else {
+                        filtered
+                    }
+                } else {
+                    filtered
+                };
+
+                let sorted = if sort_keys.is_empty() {
+                    filtered
+                } else if filtered.len() <= self.query_tuning.sort_run_size {
+                    let mut v = filtered;
+                    sort::sort_rows(&mut v, sort_keys);
+                    v
+                } else {
+                    match self.external_sort(filtered, sort_keys, limit + offset) {
+                        Ok(merged) => merged,
+                        Err(e) => {
+                            warn!(core = self.core_id, error = %e, "external sort failed");
+                            return self.response_error(
+                                task,
+                                ErrorCode::Internal {
+                                    detail: format!("external sort failed: {e}"),
+                                },
+                            );
+                        }
+                    }
+                };
+
+                let stream_chunk_size = self.query_tuning.stream_chunk_size;
+
+                if let Some(ref schema) = strict_schema
+                    && window_specs.is_empty()
+                {
+                    let deduped = if distinct {
+                        let mut seen = std::collections::HashSet::new();
+                        sorted
+                            .into_iter()
+                            .filter(|(_, value)| seen.insert(value.clone()))
+                            .collect::<Vec<_>>()
+                    } else {
+                        sorted
+                    };
+                    let result: Vec<_> = deduped
+                        .into_iter()
+                        .skip(offset)
+                        .take(limit)
+                        .map(|(doc_id, val)| {
+                            let mp = decode_scanned_document_msgpack(&val, Some(schema));
+                            let projected =
+                                apply_projection_msgpack(&mp, &computed_cols, projection);
+                            (doc_id, projected)
+                        })
+                        .collect();
+                    return self.send_document_rows_raw(task, &result, stream_chunk_size);
+                }
+
+                if !window_specs.is_empty() {
+                    let mut decoded_rows: Vec<(String, serde_json::Value)> = sorted
+                        .into_iter()
+                        .map(|(id, val)| {
+                            let doc = decode_scanned_document(&val, strict_schema.as_ref());
+                            (id, doc)
+                        })
+                        .collect();
+                    crate::bridge::window_func::evaluate_window_functions(
+                        &mut decoded_rows,
+                        &window_specs,
+                    );
+
+                    let deduped: Vec<_> = if distinct {
+                        let mut seen = std::collections::HashSet::new();
+                        decoded_rows
+                            .into_iter()
+                            .filter(|(_, v)| seen.insert(v.to_string()))
+                            .collect()
+                    } else {
+                        decoded_rows
+                    };
+
+                    let result: Vec<_> = deduped
+                        .into_iter()
+                        .skip(offset)
+                        .take(limit)
+                        .map(|(doc_id, data)| {
+                            let projected = apply_projection(data, &computed_cols, projection);
+                            DocumentRow {
+                                id: doc_id,
+                                data: projected,
+                            }
+                        })
+                        .collect();
+
+                    self.send_document_rows_transformed(task, &result, stream_chunk_size)
+                } else {
+                    let deduped = if distinct {
+                        let mut seen = std::collections::HashSet::new();
+                        sorted
+                            .into_iter()
+                            .filter(|(_, value)| seen.insert(value.clone()))
+                            .collect()
+                    } else {
+                        sorted
+                    };
+
+                    let needs_transform = !computed_cols.is_empty() || !projection.is_empty();
+
+                    if needs_transform {
+                        let result: Vec<_> = deduped
+                            .into_iter()
+                            .skip(offset)
+                            .take(limit)
+                            .map(|(doc_id, value)| {
+                                let mp = doc_format::json_to_msgpack(&value);
+                                let projected =
+                                    apply_projection_msgpack(&mp, &computed_cols, projection);
+                                (doc_id, projected)
+                            })
+                            .collect();
+
+                        self.send_document_rows_raw(task, &result, stream_chunk_size)
+                    } else {
+                        let rows: Vec<_> = deduped.into_iter().skip(offset).take(limit).collect();
+                        self.send_document_rows_raw(task, &rows, stream_chunk_size)
+                    }
+                }
+            }
+            Err(e) => self.response_error(
+                task,
+                ErrorCode::Internal {
+                    detail: e.to_string(),
+                },
+            ),
+        }
+    }
+}
