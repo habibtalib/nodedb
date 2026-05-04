@@ -220,6 +220,41 @@ mod tests {
             "got: {}",
             result.sql
         );
+        // Regression guard: the rewriter used to compute the left-operand
+        // start with `before.len() - left.len()`, which is off-by-one when
+        // there is whitespace between the column and `<->` — the column's
+        // leading character was left in the prefix, producing
+        // `WHERE evector_distance(embedding, ...)`. Lock the corrected slice.
+        assert!(
+            !result.sql.contains("evector_distance"),
+            "rewriter must not leave the column's leading char in the prefix; got: {}",
+            result.sql
+        );
+        assert!(
+            result.sql.contains("WHERE vector_distance("),
+            "rewritten WHERE clause must start `WHERE vector_distance(`; got: {}",
+            result.sql
+        );
+    }
+
+    #[test]
+    fn arrow_distance_operator_where_no_whitespace_before_op() {
+        // No whitespace between column and `<->` — the spacing-sensitive
+        // off-by-one cannot fire here; the rewriter must still produce a
+        // clean `vector_distance(embedding, ARRAY[...])` form.
+        let result = pp("SELECT id FROM docs WHERE embedding<->ARRAY[1.0, 2.0]").unwrap();
+        assert!(
+            result
+                .sql
+                .contains("vector_distance(embedding, ARRAY[1.0, 2.0])"),
+            "got: {}",
+            result.sql
+        );
+        assert!(
+            !result.sql.contains("evector_distance"),
+            "got: {}",
+            result.sql
+        );
     }
 
     #[test]

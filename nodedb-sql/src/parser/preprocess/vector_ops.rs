@@ -122,7 +122,14 @@ fn rewrite_binary_op(sql: &str, op: &str, func_name: &str) -> Option<String> {
 
         let before = &sql[consumed..op_pos];
         let left = extract_left_operand(before)?;
-        let left_start = consumed + (before.len() - left.len());
+        // The left operand is the trailing identifier of `before`. Subtract
+        // its length from the *trimmed* end of `before` — using `before.len()`
+        // directly is off-by-one whenever there is whitespace between the
+        // column and the operator (e.g. `embedding <-> ARRAY[...]`), which
+        // would leave the column's first character behind in the result and
+        // corrupt the rewritten function name (`evector_distance(...)`).
+        let trimmed_end_len = before.trim_end().len();
+        let left_start = consumed + (trimmed_end_len - left.len());
 
         let after_op = &sql[op_pos + op.len()..];
         let (right, right_len) = extract_right_operand(after_op.trim_start())?;
