@@ -183,6 +183,23 @@ pub fn extract_float(expr: &ast::Expr) -> Result<f64> {
     }
 }
 
+/// Map a vector distance function name to its `DistanceMetric`.
+///
+/// `vector_distance` (and the rewritten `<->` operator) → L2;
+/// `vector_cosine_distance` (and `<=>`) → Cosine;
+/// `vector_neg_inner_product` (and `<#>`) → InnerProduct.
+/// Unknown names default to L2 — callers must gate on a `VectorSearch`
+/// search-trigger before invoking this so unknown names cannot leak in.
+pub(super) fn metric_from_func_name(name: &str) -> DistanceMetric {
+    if name.eq_ignore_ascii_case("vector_cosine_distance") {
+        DistanceMetric::Cosine
+    } else if name.eq_ignore_ascii_case("vector_neg_inner_product") {
+        DistanceMetric::InnerProduct
+    } else {
+        DistanceMetric::L2
+    }
+}
+
 /// Extract a float array from ARRAY[...] or make_array(...) expression.
 pub(super) fn extract_float_array(expr: &ast::Expr) -> Result<Vec<f32>> {
     match expr {

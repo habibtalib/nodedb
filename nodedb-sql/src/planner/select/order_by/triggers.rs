@@ -10,6 +10,7 @@ use sqlparser::ast::{self, FunctionArg, FunctionArguments};
 use super::super::entry_ann::parse_ann_options;
 use super::super::helpers::{
     extract_column_name, extract_float_array, extract_func_args, extract_string_literal,
+    metric_from_func_name,
 };
 use super::aliases::function_call_name;
 use super::hybrid::{no_args_rrf_score_error, plan_hybrid_from_sort};
@@ -115,16 +116,5 @@ pub(super) fn try_extract_sort_search(
             plan_hybrid_from_sort(&args, &collection, plan, score_alias)
         }
         _ => Ok(None),
-    }
-}
-
-/// Map a vector distance function name to its `DistanceMetric`.
-fn metric_from_func_name(name: &str) -> DistanceMetric {
-    if name.eq_ignore_ascii_case("vector_cosine_distance") {
-        DistanceMetric::Cosine
-    } else if name.eq_ignore_ascii_case("vector_neg_inner_product") {
-        DistanceMetric::InnerProduct
-    } else {
-        DistanceMetric::L2
     }
 }
