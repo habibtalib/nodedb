@@ -205,7 +205,7 @@ pub(super) async fn reproject_response(
                 .rfind('.')
                 .map(|i| &lookup_key[i + 1..])
                 .unwrap_or(lookup_key.as_str());
-            let display_name: Option<&str> = result_fields.get(i).map(|f| f.name().as_ref());
+            let display_name: Option<&str> = result_fields.get(i).map(|f| f.name());
             let value = obj
                 .get(lookup_key.as_str())
                 .or_else(|| {

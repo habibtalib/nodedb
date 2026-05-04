@@ -95,10 +95,8 @@ pub(super) fn build_csr_for_collection(
         if *rec_tid != target_tid || coll != collection {
             continue;
         }
-        if let Some(el) = edge_label {
-            if label != el {
-                continue;
-            }
+        if edge_label.is_some_and(|el| label != el) {
+            continue;
         }
         csr.add_node(src).map_err(|e| crate::Error::Internal {
             detail: format!("build_csr_for_collection add src: {e}"),
@@ -113,10 +111,8 @@ pub(super) fn build_csr_for_collection(
         if *rec_tid != target_tid || coll != collection {
             continue;
         }
-        if let Some(el) = edge_label {
-            if label != el {
-                continue;
-            }
+        if edge_label.is_some_and(|el| label != el) {
+            continue;
         }
         let weight = extract_weight_from_properties(props);
         let res = if weight != 1.0 {
