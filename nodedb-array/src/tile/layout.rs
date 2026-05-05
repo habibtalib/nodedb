@@ -34,7 +34,8 @@ pub fn tile_indices_for_cell(schema: &ArraySchema, coord: &[CoordValue]) -> Arra
                 if v < lo {
                     return out_of_domain(schema, dim.name.as_str(), "below domain_lo");
                 }
-                ((v - lo) as u64) / extent
+                let delta = (*v as i128) - (*lo as i128);
+                (delta as u128 / u128::from(extent)) as u64
             }
             (DimType::Float64, CoordValue::Float64(v), DomainBound::Float64(lo)) => {
                 if !v.is_finite() || v < lo {

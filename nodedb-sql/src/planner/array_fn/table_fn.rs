@@ -112,7 +112,12 @@ fn plan_slice(
     }
 
     let attr_projection = if args.len() >= 3 {
-        expect_string_array(&args[2], "NDARRAY_SLICE attr projection")?
+        match &args[2] {
+            ast::Expr::Value(v) if matches!(v.value, ast::Value::SingleQuotedString(ref s) if s == "*") => {
+                Vec::new()
+            }
+            _ => expect_string_array(&args[2], "NDARRAY_SLICE attr projection")?,
+        }
     } else {
         Vec::new()
     };

@@ -218,11 +218,18 @@ impl<'a> Parser<'a> {
         let type_name = self.expect_ident()?;
         let dtype = parse_dim_type(&type_name)
             .ok_or_else(|| self.err(format!("unknown dim type `{type_name}`")))?;
-        self.expect(&Tok::LBracket)?;
-        let lo = self.parse_domain_bound(dtype)?;
-        self.expect(&Tok::DotDot)?;
-        let hi = self.parse_domain_bound(dtype)?;
-        self.expect(&Tok::RBracket)?;
+        // Domain bounds [lo..hi] are optional — omitting them defaults to the
+        // full representable range for the dim type.
+        let (lo, hi) = if self.match_token(&Tok::LBracket) {
+            let lo = self.parse_domain_bound(dtype)?;
+            self.expect(&Tok::DotDot)?;
+            let hi = self.parse_domain_bound(dtype)?;
+            self.expect(&Tok::RBracket)?;
+            (lo, hi)
+        } else {
+            let (lo, hi) = default_domain_bounds(dtype);
+            (lo, hi)
+        };
         Ok(ArrayDimAst {
             name,
             dtype,
@@ -472,6 +479,27 @@ impl<'a> Parser<'a> {
             )));
         }
         Ok(DeleteArrayAst { name, coords })
+    }
+}
+
+fn default_domain_bounds(dtype: ArrayDimType) -> (ArrayDomainBound, ArrayDomainBound) {
+    match dtype {
+        ArrayDimType::Int64 => (
+            ArrayDomainBound::Int64(i64::MIN),
+            ArrayDomainBound::Int64(i64::MAX),
+        ),
+        ArrayDimType::Float64 => (
+            ArrayDomainBound::Float64(f64::MIN),
+            ArrayDomainBound::Float64(f64::MAX),
+        ),
+        ArrayDimType::TimestampMs => (
+            ArrayDomainBound::TimestampMs(0),
+            ArrayDomainBound::TimestampMs(i64::MAX),
+        ),
+        ArrayDimType::String => (
+            ArrayDomainBound::String(String::new()),
+            ArrayDomainBound::String("\u{FFFF}".repeat(8)),
+        ),
     }
 }
 

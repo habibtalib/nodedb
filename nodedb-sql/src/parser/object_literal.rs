@@ -126,6 +126,43 @@ fn parse_string(chars: &[char], pos: &mut usize) -> Result<String, SqlError> {
     Ok(s)
 }
 
+fn parse_double_quoted_string(chars: &[char], pos: &mut usize) -> Result<String, SqlError> {
+    if *pos >= chars.len() || chars[*pos] != '"' {
+        return Err(SqlError::Parse {
+            detail: format!(
+                "expected double quote at position {}, found {:?}",
+                pos,
+                chars.get(*pos)
+            ),
+        });
+    }
+    *pos += 1;
+    let mut s = String::new();
+    loop {
+        if *pos >= chars.len() {
+            return Err(SqlError::Parse {
+                detail: "unterminated double-quoted string literal".to_string(),
+            });
+        }
+        match chars[*pos] {
+            '"' => {
+                *pos += 1;
+                if *pos < chars.len() && chars[*pos] == '"' {
+                    s.push('"');
+                    *pos += 1;
+                } else {
+                    break;
+                }
+            }
+            c => {
+                s.push(c);
+                *pos += 1;
+            }
+        }
+    }
+    Ok(s)
+}
+
 fn parse_number(chars: &[char], pos: &mut usize) -> Result<Value, SqlError> {
     let start = *pos;
     if *pos < chars.len() && chars[*pos] == '-' {
@@ -224,20 +261,24 @@ fn parse_object(chars: &[char], pos: &mut usize) -> Result<HashMap<String, Value
             continue;
         }
 
-        // Parse key (must be an unquoted identifier)
+        // Parse key (identifier or JSON-style quoted key).
         skip_ws(chars, pos);
         if *pos >= chars.len() {
             return Err(SqlError::Parse {
                 detail: "expected key, reached end of input".to_string(),
             });
         }
-        let first = chars[*pos];
-        if !(first.is_ascii_alphabetic() || first == '_') {
-            return Err(SqlError::Parse {
-                detail: format!("expected identifier key at position {pos}, found '{first}'"),
-            });
-        }
-        let key = parse_ident(chars, pos);
+        let key = if chars[*pos] == '"' {
+            parse_double_quoted_string(chars, pos)?
+        } else {
+            let first = chars[*pos];
+            if !(first.is_ascii_alphabetic() || first == '_') {
+                return Err(SqlError::Parse {
+                    detail: format!("expected identifier key at position {pos}, found '{first}'"),
+                });
+            }
+            parse_ident(chars, pos)
+        };
         if key.is_empty() {
             return Err(SqlError::Parse {
                 detail: format!("expected non-empty key at position {pos}"),
