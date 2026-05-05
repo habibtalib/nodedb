@@ -68,27 +68,37 @@ impl StoredSequence {
     }
 
     /// Validate the sequence definition for consistency.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> crate::Result<()> {
         if self.name.is_empty() {
-            return Err("sequence name is empty".into());
+            return Err(crate::Error::BadRequest {
+                detail: "sequence name is empty".to_string(),
+            });
         }
         if self.increment == 0 {
-            return Err("INCREMENT must not be zero".into());
+            return Err(crate::Error::BadRequest {
+                detail: "INCREMENT must not be zero".to_string(),
+            });
         }
         if self.min_value > self.max_value {
-            return Err(format!(
-                "MINVALUE ({}) must be less than or equal to MAXVALUE ({})",
-                self.min_value, self.max_value
-            ));
+            return Err(crate::Error::BadRequest {
+                detail: format!(
+                    "MINVALUE ({}) must be less than or equal to MAXVALUE ({})",
+                    self.min_value, self.max_value
+                ),
+            });
         }
         if self.start_value < self.min_value || self.start_value > self.max_value {
-            return Err(format!(
-                "START value ({}) is outside range [{}, {}]",
-                self.start_value, self.min_value, self.max_value
-            ));
+            return Err(crate::Error::BadRequest {
+                detail: format!(
+                    "START value ({}) is outside range [{}, {}]",
+                    self.start_value, self.min_value, self.max_value
+                ),
+            });
         }
         if self.cache_size < 1 {
-            return Err("CACHE must be at least 1".into());
+            return Err(crate::Error::BadRequest {
+                detail: "CACHE must be at least 1".to_string(),
+            });
         }
         Ok(())
     }

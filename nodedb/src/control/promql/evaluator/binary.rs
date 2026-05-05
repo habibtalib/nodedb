@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use super::super::ast::BinOp;
+use super::super::error::PromqlError;
 use super::super::types::*;
 use super::helpers::match_key;
 
@@ -12,7 +13,7 @@ pub fn eval_binary_op(
     rhs: Value,
     return_bool: bool,
     ts: i64,
-) -> Result<Value, String> {
+) -> Result<Value, PromqlError> {
     match (&lhs, &rhs) {
         (Value::Scalar(a, _), Value::Scalar(b, _)) => {
             Ok(Value::Scalar(apply_binop(op, *a, *b, return_bool), ts))
@@ -42,7 +43,10 @@ pub fn eval_binary_op(
         (Value::Vector(left), Value::Vector(right)) => {
             eval_vector_binop(op, left, right, return_bool, ts)
         }
-        _ => Err("unsupported binary operation between matrix types".into()),
+        _ => Err(PromqlError::TypeError {
+            context: "binary op".to_string(),
+            detail: "unsupported operation between matrix types".to_string(),
+        }),
     }
 }
 
@@ -52,7 +56,7 @@ fn eval_vector_binop(
     right: &[InstantSample],
     return_bool: bool,
     ts: i64,
-) -> Result<Value, String> {
+) -> Result<Value, PromqlError> {
     let right_map: BTreeMap<String, &InstantSample> =
         right.iter().map(|s| (match_key(&s.labels), s)).collect();
 

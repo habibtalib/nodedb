@@ -1,8 +1,9 @@
 use super::*;
+use crate::bridge::dispatch::{BridgeRequest, BridgeResponse};
 use crate::bridge::envelope::{ErrorCode, PhysicalPlan, Priority, Request, Status};
 use crate::bridge::physical_plan::{DocumentOp, MetaOp};
 use crate::types::*;
-use nodedb_bridge::buffer::RingBuffer;
+use nodedb_bridge::buffer::{Consumer, Producer, RingBuffer};
 use nodedb_types::{Surrogate, SurrogateBitmap};
 use std::time::{Duration, Instant};
 

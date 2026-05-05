@@ -281,6 +281,86 @@ Native opcodes are used internally by the Rust SDK (`nodedb-client`), FFI bindin
 | `VectorSearch`       | `0x80` | ANN search (HNSW) with optional pre-filter       |
 | `VectorDelete`       | `0x81` | Delete a vector by ID                            |
 
+## TLS
+
+### Default behaviour
+
+All five listeners (`pgwire`, `native`, `http`, `resp`, `ilp`) default to
+**plaintext** when no `[tls]` section is present in the configuration file.
+This is suitable for local development and for deployments where TLS is
+terminated at an external load balancer or sidecar proxy.
+
+**Production deployments MUST configure `[tls] cert_path` and
+`[tls] key_path`** whenever clients connect over any untrusted network.
+Without TLS, credentials (including SCRAM-SHA-256 client proofs), query
+text, and result data are transmitted in plaintext.
+
+### Enabling TLS
+
+```toml
+[tls]
+cert_path = "/etc/nodedb/tls/server.crt"
+key_path  = "/etc/nodedb/tls/server.key"
+```
+
+When `[tls]` is present, TLS is enabled on all five listeners by default.
+The certificate must be PEM-encoded. Generate a self-signed cert for
+testing with `openssl req -x509 -newkey rsa:4096 -nodes ...` or a
+production certificate from any ACME-compatible CA.
+
+### Per-protocol overrides
+
+Individual listeners can opt out of TLS using the per-protocol flags:
+
+```toml
+[tls]
+cert_path = "/etc/nodedb/tls/server.crt"
+key_path  = "/etc/nodedb/tls/server.key"
+pgwire    = true   # default when [tls] is set
+native    = true
+http      = true
+resp      = true
+ilp       = false  # example: trusted loopback ingest
+```
+
+Setting any flag to `false` on an internet-facing deployment is **not
+recommended** even for write-only ingest protocols.
+
+### Certificate hot-reload
+
+NodeDB watches cert/key files for modification-time changes and atomically
+swaps the TLS configuration without restarting listeners:
+
+```toml
+[tls]
+cert_path                 = "/etc/nodedb/tls/server.crt"
+key_path                  = "/etc/nodedb/tls/server.key"
+cert_reload_interval_secs = 3600   # default: 1 hour; 0 to disable
+```
+
+This supports automated rotation (certbot, cert-manager) without downtime.
+
+### Cipher suites and TLS version
+
+NodeDB delegates cipher suite selection to
+[rustls](https://github.com/rustls/rustls) defaults, which enable
+TLS 1.2 and TLS 1.3. TLS 1.3 is preferred by clients that support it.
+TLS 1.0 and 1.1 are not offered. Production environments that require
+TLS 1.3 exclusively should enforce the version constraint at the load
+balancer or TLS terminator.
+
+### pgwire TLS negotiation
+
+NodeDB follows the PostgreSQL wire protocol SSLRequest flow:
+
+1. Client sends an 8-byte `SSLRequest` packet.
+2. Server replies with single byte `S` (TLS available) or `N` (plaintext only).
+3. When the server replies `S`, the client initiates a TLS handshake on the
+   same connection.
+
+Standard PostgreSQL client libraries (libpq, JDBC, tokio-postgres, etc.)
+handle this automatically. No application-level changes are required.
+
 ## Which Protocol Should I Use?
 
 | Use case                                  | Protocol                                      |

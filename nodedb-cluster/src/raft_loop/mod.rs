@@ -16,6 +16,7 @@
 pub mod handle_rpc;
 pub mod join;
 pub mod loop_core;
+pub mod proposals;
 pub mod tick;
 
 pub use loop_core::{CommitApplier, RaftLoop, SnapshotQuarantineHook, VShardEnvelopeHandler};

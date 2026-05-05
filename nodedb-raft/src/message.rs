@@ -153,6 +153,12 @@ pub struct InstallSnapshotRequest {
     pub done: bool,
     /// Raft group ID for Multi-Raft routing.
     pub group_id: u64,
+    /// Total snapshot size in bytes. `0` means "unknown" (legacy senders or
+    /// bootstrap stubs). Receivers use this only as an advisory hint; they
+    /// must not reject chunks when `total_size == 0`.
+    #[serde(default)]
+    #[msgpack(default)]
+    pub total_size: u64,
 }
 
 #[derive(

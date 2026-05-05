@@ -172,7 +172,7 @@ async fn enforce_subquery_check(
 /// Response format is typically `{"cnt":N}` or `[{"cnt":N}]`.
 fn check_count_is_positive(json: &str) -> bool {
     // Parse as JSON to reliably check the count value.
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(json) {
+    if let Ok(v) = sonic_rs::from_str::<serde_json::Value>(json) {
         // Check for {"cnt": N} or [{"cnt": N}]
         let obj = if let Some(arr) = v.as_array() {
             arr.first().and_then(|r| r.as_object())

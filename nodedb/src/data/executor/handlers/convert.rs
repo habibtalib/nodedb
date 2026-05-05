@@ -137,7 +137,7 @@ impl CoreLoop {
                     converted += 1;
                 }
                 Err(e) => {
-                    tracing::warn!(doc_id, error = e, "strict conversion failed");
+                    tracing::warn!(doc_id, error = %e, "strict conversion failed");
                     errors += 1;
                 }
             }

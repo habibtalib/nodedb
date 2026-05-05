@@ -133,6 +133,81 @@ impl<A: CommitApplier, P: PlanExecutor> RaftRpcHandler for RaftLoop<A, P> {
 
                 let last_included_index = req.last_included_index;
                 let group_id = req.group_id;
+
+                // Route through the chunk accumulator when a data directory is
+                // configured. The accumulator writes chunks to a `.partial` file,
+                // validates the full CRC on the final chunk, and then calls
+                // `mr.handle_install_snapshot` after atomic rename.
+                //
+                // When `data_dir` is `None` (unit tests that don't set a data
+                // directory) fall through to the original direct call so test
+                // coverage for Raft state-machine transitions is unaffected.
+                //
+                // Quarantine accounting for offset regression and CRC errors is
+                // preserved: the `SnapshotOffsetRegression` and
+                // `SnapshotCrcMismatch` error paths in the receiver both surface
+                // as `ClusterError` variants that are propagated here.
+                if let Some(ref data_dir) = self.data_dir {
+                    match crate::install_snapshot::receiver::handle_chunk(
+                        &req,
+                        &self.partial_snapshots,
+                        data_dir,
+                        &self.multi_raft,
+                    )
+                    .await
+                    {
+                        Ok(crate::install_snapshot::ChunkOutcome::Committed(snap_resp)) => {
+                            // Final chunk committed — bump watcher for metadata group.
+                            if group_id == TOPOLOGY_GROUP_ID {
+                                self.group_watchers.bump(group_id, last_included_index);
+                            }
+                            return Ok(RaftRpc::InstallSnapshotResponse(snap_resp));
+                        }
+                        Ok(crate::install_snapshot::ChunkOutcome::Pending) => {
+                            // Non-final chunk — pass a done=false stub to MultiRaft so
+                            // it resets its election timeout and returns the current term.
+                            let pending_req = nodedb_raft::InstallSnapshotRequest {
+                                term: req.term,
+                                leader_id: req.leader_id,
+                                last_included_index: req.last_included_index,
+                                last_included_term: req.last_included_term,
+                                offset: req.offset,
+                                data: vec![],
+                                done: false,
+                                group_id,
+                                total_size: 0,
+                            };
+                            let resp = {
+                                let mut mr =
+                                    self.multi_raft.lock().unwrap_or_else(|p| p.into_inner());
+                                mr.handle_install_snapshot(&pending_req)?
+                            };
+                            return Ok(RaftRpc::InstallSnapshotResponse(resp));
+                        }
+                        Err(e @ crate::error::ClusterError::SnapshotOffsetRegression { .. }) => {
+                            // Record the regression as a quarantine strike so the
+                            // sender knows to retransmit from offset 0.
+                            if let Some(ref hook) = self.snapshot_quarantine_hook {
+                                hook.record_failure(group_id, last_included_index, &e.to_string());
+                            }
+                            // Reset partial state so the next offset-0 chunk starts fresh.
+                            self.partial_snapshots
+                                .lock()
+                                .unwrap_or_else(|p| p.into_inner())
+                                .remove(&group_id);
+                            return Err(e);
+                        }
+                        Err(e @ crate::error::ClusterError::SnapshotCrcMismatch { .. }) => {
+                            if let Some(ref hook) = self.snapshot_quarantine_hook {
+                                hook.record_failure(group_id, last_included_index, &e.to_string());
+                            }
+                            return Err(e);
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+
+                // Fallback: no data_dir — direct call (unit test path).
                 let resp = {
                     let mut mr = self.multi_raft.lock().unwrap_or_else(|p| p.into_inner());
                     mr.handle_install_snapshot(&req)?

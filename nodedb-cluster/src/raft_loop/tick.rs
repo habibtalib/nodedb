@@ -35,15 +35,15 @@ impl<A: CommitApplier, P: PlanExecutor> RaftLoop<A, P> {
     /// Execute a single tick: drive Raft, dispatch outbound messages,
     /// apply commits, promote caught-up learners.
     pub(super) fn do_tick(&self) {
-        // Phase 1: tick under lock, extract Ready.
+        // Tick under lock and extract Ready.
         let ready = {
             let mut mr = self.multi_raft.lock().unwrap_or_else(|p| p.into_inner());
             mr.tick()
         };
 
-        // Phase 2+3: dispatch messages first (even if ready looks "empty"
-        // we still want to run the learner-promotion phase each tick so a
-        // just-caught-up learner is promoted promptly).
+        // Dispatch outgoing messages and persist log/HardState first (even if
+        // ready looks "empty" we still want to run the learner-promotion step
+        // each tick so a just-caught-up learner is promoted promptly).
         if !ready.is_empty() {
             let mut ae_batches: BatchMap<u64, Vec<(u64, nodedb_raft::AppendEntriesRequest)>> =
                 BatchMap::new();
@@ -144,7 +144,7 @@ impl<A: CommitApplier, P: PlanExecutor> RaftLoop<A, P> {
                 });
             }
 
-            // Phase 4: apply committed entries and conf-changes.
+            // Apply committed entries and conf-changes.
             for (group_id, group_ready) in ready.groups {
                 if !group_ready.committed_entries.is_empty() {
                     for entry in &group_ready.committed_entries {
@@ -255,7 +255,7 @@ impl<A: CommitApplier, P: PlanExecutor> RaftLoop<A, P> {
                     }
                 }
 
-                // Phase 5: install-snapshot dispatch for lagging peers.
+                // Install-snapshot dispatch for lagging peers.
                 if !group_ready.snapshots_needed.is_empty() {
                     let snapshot_meta = {
                         let mr = self.multi_raft.lock().unwrap_or_else(|p| p.into_inner());
@@ -267,16 +267,8 @@ impl<A: CommitApplier, P: PlanExecutor> RaftLoop<A, P> {
                             let transport = self.transport.clone();
                             let mr = self.multi_raft.clone();
                             let mut shutdown_rx = self.shutdown_watch.subscribe();
-                            let req = nodedb_raft::InstallSnapshotRequest {
-                                term,
-                                leader_id: self.node_id,
-                                last_included_index: snap_index,
-                                last_included_term: snap_term,
-                                offset: 0,
-                                data: vec![],
-                                done: true,
-                                group_id,
-                            };
+                            let node_id = self.node_id;
+                            let chunk_bytes = self.snapshot_chunk_bytes;
                             tokio::spawn(async move {
                                 if *shutdown_rx.borrow() {
                                     return;
@@ -284,10 +276,22 @@ impl<A: CommitApplier, P: PlanExecutor> RaftLoop<A, P> {
                                 tokio::select! {
                                     biased;
                                     _ = shutdown_rx.changed() => {}
-                                    rpc = transport.install_snapshot(peer, req) => {
-                                        match rpc {
-                                            Ok(resp) => {
-                                                if resp.term > term {
+                                    result = crate::install_snapshot::sender::send_chunked(
+                                        &transport,
+                                        crate::install_snapshot::sender::SendChunkedParams {
+                                            peer,
+                                            group_id,
+                                            term,
+                                            leader_id: node_id,
+                                            last_included_index: snap_index,
+                                            last_included_term: snap_term,
+                                            snapshot_bytes: &[], // empty until engines fill in data
+                                            chunk_bytes,
+                                        },
+                                    ) => {
+                                        match result {
+                                            Ok(resp_term) => {
+                                                if resp_term > term {
                                                     let mut mr =
                                                         mr.lock().unwrap_or_else(|p| p.into_inner());
                                                     // Higher term — let the tick loop handle step-down.
@@ -295,7 +299,7 @@ impl<A: CommitApplier, P: PlanExecutor> RaftLoop<A, P> {
                                                         group_id,
                                                         peer,
                                                         &nodedb_raft::AppendEntriesResponse {
-                                                            term: resp.term,
+                                                            term: resp_term,
                                                             success: false,
                                                             last_log_index: 0,
                                                         },
@@ -319,7 +323,7 @@ impl<A: CommitApplier, P: PlanExecutor> RaftLoop<A, P> {
             }
         }
 
-        // Phase 6: promote caught-up learners. Runs every tick so a
+        // Promote caught-up learners. Runs every tick so a
         // just-caught-up learner is promoted within one tick interval of
         // catching up. Idempotent: once promoted, the peer is in
         // `members` and `ready_learners` no longer returns it.

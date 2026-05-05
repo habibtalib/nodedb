@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use super::super::ast::{AggOp, Grouping};
+use super::super::error::PromqlError;
 use super::super::types::*;
 use super::helpers::{group_key, group_labels};
 
@@ -12,9 +13,12 @@ pub fn eval_aggregation(
     param: Option<f64>,
     grouping: &Grouping,
     ts: i64,
-) -> Result<Value, String> {
+) -> Result<Value, PromqlError> {
     let Value::Vector(samples) = val else {
-        return Err("aggregation requires instant vector".into());
+        return Err(PromqlError::TypeError {
+            context: "aggregation".to_string(),
+            detail: "requires instant vector".to_string(),
+        });
     };
 
     let mut groups: BTreeMap<String, Vec<&InstantSample>> = BTreeMap::new();

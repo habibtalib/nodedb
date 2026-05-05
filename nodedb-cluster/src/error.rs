@@ -132,4 +132,26 @@ pub enum ClusterError {
 
     #[error("calvin error: {0}")]
     Calvin(#[from] CalvinError),
+
+    #[error(
+        "snapshot CRC mismatch for group {group_id}: stored {stored:#010x}, computed {computed:#010x}"
+    )]
+    SnapshotCrcMismatch {
+        group_id: u64,
+        stored: u32,
+        computed: u32,
+    },
+
+    #[error("snapshot offset regression for group {group_id}: expected {expected}, got {actual}")]
+    SnapshotOffsetRegression {
+        group_id: u64,
+        expected: u64,
+        actual: u64,
+    },
+
+    #[error("partial snapshot file corrupt for group {group_id}: {detail}")]
+    PartialSnapshotCorrupt { group_id: u64, detail: String },
+
+    #[error("partial snapshot cleanup failed for group {group_id}: {detail}")]
+    PartialSnapshotCleanupFailed { group_id: u64, detail: String },
 }

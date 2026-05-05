@@ -102,14 +102,22 @@ pub fn decode_tseg_header(data: &[u8]) -> Result<usize, SegmentReadError> {
 
     let mut cur = Cursor::new(data);
 
-    let magic = cur.read_bytes(4).unwrap();
+    let magic = cur
+        .read_bytes(4)
+        .expect("invariant: TSEG_HEADER_SIZE guard at line 99 ensures header bytes available");
     if magic != SEGMENT_MAGIC {
         return Err(SegmentReadError::InvalidMagic);
     }
 
-    let version = cur.read_u16_le().unwrap();
-    let _reserved = cur.read_u16_le().unwrap();
-    let crc_stored = cur.read_u32_le().unwrap();
+    let version = cur
+        .read_u16_le()
+        .expect("invariant: TSEG_HEADER_SIZE guard at line 99 ensures 2 bytes for version field");
+    let _reserved = cur
+        .read_u16_le()
+        .expect("invariant: TSEG_HEADER_SIZE guard at line 99 ensures 2 bytes for reserved field");
+    let crc_stored = cur
+        .read_u32_le()
+        .expect("invariant: TSEG_HEADER_SIZE guard at line 99 ensures 4 bytes for crc field");
 
     if version != TSEG_HEADER_VERSION {
         return Err(SegmentReadError::UnsupportedVersion { version });
@@ -258,8 +266,13 @@ pub fn read_log_segment_from_bytes(
     let mut raw_cur = Cursor::new(&raw);
 
     while raw_cur.remaining() >= 12 && entries.len() < entry_count {
-        let timestamp_ms = raw_cur.read_u64_le().unwrap() as i64;
-        let data_len = raw_cur.read_u32_le().unwrap() as usize;
+        let timestamp_ms = raw_cur.read_u64_le().expect(
+            "invariant: 'while raw_cur.remaining() >= 12' loop guard ensures 8 bytes for timestamp",
+        ) as i64;
+        let data_len = raw_cur
+            .read_u32_le()
+            .expect("invariant: remaining >= 12, u64 consumed 8, leaving 4 for data_len")
+            as usize;
 
         let entry_data = match raw_cur.read_bytes(data_len) {
             Some(b) => b.to_vec(),

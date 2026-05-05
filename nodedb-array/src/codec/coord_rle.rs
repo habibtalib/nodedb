@@ -98,7 +98,11 @@ pub fn decode_coord_axis_rle(data: &[u8], pos: &mut usize) -> ArrayResult<DimDic
             detail: "rle coord: truncated mode marker".into(),
         });
     }
-    let first_u32 = u32::from_le_bytes(data[*pos..*pos + 4].try_into().unwrap());
+    let first_u32 = u32::from_le_bytes(
+        data[*pos..*pos + 4]
+            .try_into()
+            .expect("invariant: bounds check at line 96 guarantees 4 bytes available"),
+    );
 
     if first_u32 == RLE_MARKER {
         *pos += 4;
@@ -115,7 +119,11 @@ fn decode_rle(data: &[u8], pos: &mut usize) -> ArrayResult<DimDict> {
             detail: "rle coord: truncated run count".into(),
         });
     }
-    let run_count = u32::from_le_bytes(data[*pos..*pos + 4].try_into().unwrap()) as usize;
+    let run_count = u32::from_le_bytes(
+        data[*pos..*pos + 4]
+            .try_into()
+            .expect("invariant: bounds check at line 113 guarantees 4 bytes available"),
+    ) as usize;
     *pos += 4;
     check_decoded_size(run_count, MAX_RLE_RUNS, "rle run_count")?;
 
@@ -127,9 +135,15 @@ fn decode_rle(data: &[u8], pos: &mut usize) -> ArrayResult<DimDict> {
                 detail: "rle coord: truncated run entry".into(),
             });
         }
-        let val = u32::from_le_bytes(data[*pos..*pos + 4].try_into().unwrap());
+        let val =
+            u32::from_le_bytes(data[*pos..*pos + 4].try_into().expect(
+                "invariant: bounds check at line 125 guarantees 8 bytes available; first 4",
+            ));
         *pos += 4;
-        let len = u32::from_le_bytes(data[*pos..*pos + 4].try_into().unwrap()) as usize;
+        let len =
+            u32::from_le_bytes(data[*pos..*pos + 4].try_into().expect(
+                "invariant: bounds check at line 125 guarantees 8 bytes available; second 4",
+            )) as usize;
         *pos += 4;
         check_decoded_size(len, MAX_RLE_RUN_LEN, "rle run len")?;
         total_len = total_len.saturating_add(len);
@@ -145,7 +159,11 @@ fn decode_rle(data: &[u8], pos: &mut usize) -> ArrayResult<DimDict> {
             detail: "rle coord: truncated dict count".into(),
         });
     }
-    let dict_count = u32::from_le_bytes(data[*pos..*pos + 4].try_into().unwrap()) as usize;
+    let dict_count = u32::from_le_bytes(
+        data[*pos..*pos + 4]
+            .try_into()
+            .expect("invariant: bounds check at line 143 guarantees 4 bytes available"),
+    ) as usize;
     *pos += 4;
     check_decoded_size(dict_count, MAX_DICT_CARDINALITY, "rle dict_count")?;
 
@@ -156,7 +174,11 @@ fn decode_rle(data: &[u8], pos: &mut usize) -> ArrayResult<DimDict> {
                 detail: "rle coord: truncated dict entry len".into(),
             });
         }
-        let len = u32::from_le_bytes(data[*pos..*pos + 4].try_into().unwrap()) as usize;
+        let len = u32::from_le_bytes(
+            data[*pos..*pos + 4]
+                .try_into()
+                .expect("invariant: bounds check at line 154 guarantees 4 bytes available"),
+        ) as usize;
         *pos += 4;
         if *pos + len > data.len() {
             return Err(ArrayError::SegmentCorruption {

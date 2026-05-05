@@ -355,7 +355,7 @@ fn parse_compare_op(tokens: &[String], pos: &mut usize) -> Result<CompareOp, Pre
 /// Validate that all `$auth.*` references in a predicate are known fields.
 ///
 /// Called at policy creation time to reject typos like `$auth.usrname`.
-pub fn validate_auth_refs(predicate: &RlsPredicate) -> Result<(), String> {
+pub fn validate_auth_refs(predicate: &RlsPredicate) -> crate::Result<()> {
     let known_fields = [
         "id",
         "username",
@@ -372,7 +372,7 @@ pub fn validate_auth_refs(predicate: &RlsPredicate) -> Result<(), String> {
         "session_id",
     ];
 
-    fn check(pred: &RlsPredicate, known: &[&str]) -> Result<(), String> {
+    fn check(pred: &RlsPredicate, known: &[&str]) -> crate::Result<()> {
         match pred {
             RlsPredicate::Compare { value, .. } => check_value(value, known),
             RlsPredicate::Contains { set, element } => {
@@ -394,7 +394,7 @@ pub fn validate_auth_refs(predicate: &RlsPredicate) -> Result<(), String> {
         }
     }
 
-    fn check_value(val: &PredicateValue, known: &[&str]) -> Result<(), String> {
+    fn check_value(val: &PredicateValue, known: &[&str]) -> crate::Result<()> {
         match val {
             PredicateValue::AuthRef(field) => {
                 let base = field.split('.').next().unwrap_or(field);
@@ -403,10 +403,12 @@ pub fn validate_auth_refs(predicate: &RlsPredicate) -> Result<(), String> {
                     return Ok(());
                 }
                 if !known.contains(&base) {
-                    return Err(format!(
-                        "unknown $auth field: '{field}'. Valid fields: {}",
-                        known.join(", ")
-                    ));
+                    return Err(crate::Error::BadRequest {
+                        detail: format!(
+                            "unknown $auth field: '{field}'. Valid fields: {}",
+                            known.join(", ")
+                        ),
+                    });
                 }
             }
             PredicateValue::AuthFunc { func, .. } => {
@@ -417,10 +419,12 @@ pub fn validate_auth_refs(predicate: &RlsPredicate) -> Result<(), String> {
                     "quota_pct",
                 ];
                 if !KNOWN_FUNCS.contains(&func.as_str()) {
-                    return Err(format!(
-                        "unknown $auth function: '{func}'. Valid functions: {}",
-                        KNOWN_FUNCS.join(", ")
-                    ));
+                    return Err(crate::Error::BadRequest {
+                        detail: format!(
+                            "unknown $auth function: '{func}'. Valid functions: {}",
+                            KNOWN_FUNCS.join(", ")
+                        ),
+                    });
                 }
             }
             _ => {}

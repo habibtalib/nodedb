@@ -25,7 +25,11 @@ fn read_framed<'a>(data: &'a [u8], pos: &mut usize) -> ArrayResult<&'a [u8]> {
             detail: "framed block: truncated length".into(),
         });
     }
-    let len = u32::from_le_bytes(data[*pos..*pos + 4].try_into().unwrap()) as usize;
+    let len = u32::from_le_bytes(
+        data[*pos..*pos + 4]
+            .try_into()
+            .expect("invariant: bounds-checked above (*pos + 4 <= data.len())"),
+    ) as usize;
     *pos += 4;
     if *pos + len > data.len() {
         return Err(ArrayError::SegmentCorruption {
@@ -89,10 +93,18 @@ fn decode_structural(body: &[u8]) -> ArrayResult<SparseTile> {
             detail: "structural tile: truncated counts".into(),
         });
     }
-    let cell_count = u32::from_le_bytes(body[pos..pos + 4].try_into().unwrap()) as usize;
+    let cell_count = u32::from_le_bytes(
+        body[pos..pos + 4]
+            .try_into()
+            .expect("invariant: bounds-checked above (pos + 8 <= body.len())"),
+    ) as usize;
     pos += 4;
     check_decoded_size(cell_count, MAX_CELLS_PER_TILE, "cell_count")?;
-    let axis_count = u32::from_le_bytes(body[pos..pos + 4].try_into().unwrap()) as usize;
+    let axis_count = u32::from_le_bytes(
+        body[pos..pos + 4]
+            .try_into()
+            .expect("invariant: bounds-checked above (pos + 4 <= body.len())"),
+    ) as usize;
     pos += 4;
     check_decoded_size(axis_count, MAX_AXES_PER_TILE, "axis_count")?;
 
@@ -130,7 +142,11 @@ fn decode_structural(body: &[u8]) -> ArrayResult<SparseTile> {
             detail: "structural tile: truncated attr count".into(),
         });
     }
-    let attr_count = u32::from_le_bytes(body[pos..pos + 4].try_into().unwrap()) as usize;
+    let attr_count = u32::from_le_bytes(
+        body[pos..pos + 4]
+            .try_into()
+            .expect("invariant: bounds-checked above (pos + 4 <= body.len())"),
+    ) as usize;
     pos += 4;
     check_decoded_size(attr_count, MAX_ATTRS_PER_TILE, "attr_count")?;
 

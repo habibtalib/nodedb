@@ -3,18 +3,22 @@
 use super::super::ast::*;
 
 /// Parse a node binding: `(a:Person)`, `(:Person)`, `(a)`, `()`.
-pub(super) fn parse_node_binding(text: &str) -> Result<(NodeBinding, usize), String> {
+pub(super) fn parse_node_binding(text: &str) -> crate::Result<(NodeBinding, usize)> {
     let trimmed = text.trim_start();
     let offset = text.len() - trimmed.len();
 
     if !trimmed.starts_with('(') {
-        return Err(format!(
-            "expected '(' for node binding, got: '{}'",
-            &trimmed[..trimmed.len().min(20)]
-        ));
+        return Err(crate::Error::BadRequest {
+            detail: format!(
+                "expected '(' for node binding, got: '{}'",
+                &trimmed[..trimmed.len().min(20)]
+            ),
+        });
     }
 
-    let close = trimmed.find(')').ok_or("unclosed '(' in node binding")?;
+    let close = trimmed.find(')').ok_or(crate::Error::BadRequest {
+        detail: "unclosed '(' in node binding".to_string(),
+    })?;
     let inner = trimmed[1..close].trim();
 
     let (name, label) = if inner.is_empty() {
@@ -42,7 +46,7 @@ pub(super) fn parse_node_binding(text: &str) -> Result<(NodeBinding, usize), Str
 }
 
 /// Parse an edge binding: `-[:KNOWS]->`, `<-[:KNOWS]-`, `-[r:KNOWS*1..3]->`, `-[]-`, etc.
-pub(super) fn parse_edge_binding(text: &str) -> Result<(EdgeBinding, usize), String> {
+pub(super) fn parse_edge_binding(text: &str) -> crate::Result<(EdgeBinding, usize)> {
     let trimmed = text.trim_start();
     let offset = text.len() - trimmed.len();
 
@@ -52,18 +56,20 @@ pub(super) fn parse_edge_binding(text: &str) -> Result<(EdgeBinding, usize), Str
     } else if let Some(after) = trimmed.strip_prefix('-') {
         (false, after)
     } else {
-        return Err(format!(
-            "expected '-' or '<-' for edge, got: '{}'",
-            &trimmed[..trimmed.len().min(20)]
-        ));
+        return Err(crate::Error::BadRequest {
+            detail: format!(
+                "expected '-' or '<-' for edge, got: '{}'",
+                &trimmed[..trimmed.len().min(20)]
+            ),
+        });
     };
 
     // Parse bracket content.
     let (name, edge_type, min_hops, max_hops, after_bracket, bracket_len) =
         if after_prefix.starts_with('[') {
-            let close = after_prefix
-                .find(']')
-                .ok_or("unclosed '[' in edge binding")?;
+            let close = after_prefix.find(']').ok_or(crate::Error::BadRequest {
+                detail: "unclosed '[' in edge binding".to_string(),
+            })?;
             let inner = after_prefix[1..close].trim();
             let (n, t, mi, ma) = parse_edge_inner(inner)?;
             (n, t, mi, ma, &after_prefix[close + 1..], close + 1)
@@ -77,10 +83,12 @@ pub(super) fn parse_edge_binding(text: &str) -> Result<(EdgeBinding, usize), Str
     } else if after_bracket.starts_with('-') {
         (false, 1)
     } else {
-        return Err(format!(
-            "expected '->' or '-' after edge, got: '{}'",
-            &after_bracket[..after_bracket.len().min(20)]
-        ));
+        return Err(crate::Error::BadRequest {
+            detail: format!(
+                "expected '->' or '-' after edge, got: '{}'",
+                &after_bracket[..after_bracket.len().min(20)]
+            ),
+        });
     };
 
     let direction = match (left_arrow, right_arrow) {
@@ -88,7 +96,9 @@ pub(super) fn parse_edge_binding(text: &str) -> Result<(EdgeBinding, usize), Str
         (true, false) => EdgeDirection::Left,
         (false, false) => EdgeDirection::Both,
         (true, true) => {
-            return Err("<-[]-> is not valid; use -[]- for undirected".into());
+            return Err(crate::Error::BadRequest {
+                detail: "<-[]-> is not valid; use -[]- for undirected".to_string(),
+            });
         }
     };
 
@@ -107,7 +117,7 @@ pub(super) fn parse_edge_binding(text: &str) -> Result<(EdgeBinding, usize), Str
 }
 
 /// Parse the inner content of an edge bracket: `r:KNOWS*1..3`, `:KNOWS`, `r`, `*2..5`.
-fn parse_edge_inner(inner: &str) -> Result<(Option<String>, Option<String>, usize, usize), String> {
+fn parse_edge_inner(inner: &str) -> crate::Result<(Option<String>, Option<String>, usize, usize)> {
     if inner.is_empty() {
         return Ok((None, None, 1, 1));
     }
@@ -151,7 +161,7 @@ fn parse_edge_inner(inner: &str) -> Result<(Option<String>, Option<String>, usiz
 }
 
 /// Parse hop range: `1..3`, `2`, `..5`, `1..`.
-pub(super) fn parse_hop_range(s: &str) -> Result<(usize, usize), String> {
+pub(super) fn parse_hop_range(s: &str) -> crate::Result<(usize, usize)> {
     if s.is_empty() {
         return Ok((1, 1));
     }
@@ -163,26 +173,30 @@ pub(super) fn parse_hop_range(s: &str) -> Result<(usize, usize), String> {
         let min = if min_str.is_empty() {
             1
         } else {
-            min_str
-                .parse()
-                .map_err(|_| format!("invalid min hops: '{min_str}'"))?
+            min_str.parse().map_err(|_| crate::Error::BadRequest {
+                detail: format!("invalid min hops: '{min_str}'"),
+            })?
         };
 
         let max = if max_str.is_empty() {
             10
         } else {
-            max_str
-                .parse()
-                .map_err(|_| format!("invalid max hops: '{max_str}'"))?
+            max_str.parse().map_err(|_| crate::Error::BadRequest {
+                detail: format!("invalid max hops: '{max_str}'"),
+            })?
         };
 
         if min > max {
-            return Err(format!("min hops ({min}) > max hops ({max})"));
+            return Err(crate::Error::BadRequest {
+                detail: format!("min hops ({min}) > max hops ({max})"),
+            });
         }
 
         Ok((min, max))
     } else {
-        let n: usize = s.parse().map_err(|_| format!("invalid hop count: '{s}'"))?;
+        let n: usize = s.parse().map_err(|_| crate::Error::BadRequest {
+            detail: format!("invalid hop count: '{s}'"),
+        })?;
         Ok((n, n))
     }
 }

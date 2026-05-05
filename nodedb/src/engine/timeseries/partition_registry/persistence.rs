@@ -28,14 +28,20 @@ impl PartitionRegistry {
     /// - Rename `{path}.tmp` → `{path}` (atomic on most filesystems)
     ///   If crash during write: `.tmp` file is orphaned, original intact.
     ///   If crash during rename: atomic — either old or new version visible.
-    pub fn persist(&self, path: &std::path::Path) -> Result<(), String> {
+    pub fn persist(&self, path: &std::path::Path) -> crate::Result<()> {
         let entries = self.export();
-        let json = sonic_rs::to_vec_pretty(&entries)
-            .map_err(|e| format!("serialize partition registry: {e}"))?;
+        let json = sonic_rs::to_vec_pretty(&entries).map_err(|e| crate::Error::Serialization {
+            format: "json".to_string(),
+            detail: format!("serialize partition registry: {e}"),
+        })?;
 
         let tmp_path = path.with_extension("tmp");
-        nodedb_wal::segment::atomic_write_fsync(&tmp_path, path, &json)
-            .map_err(|e| format!("atomic write {}: {e}", path.display()))?;
+        nodedb_wal::segment::atomic_write_fsync(&tmp_path, path, &json).map_err(|e| {
+            crate::Error::Storage {
+                engine: "timeseries".to_string(),
+                detail: format!("atomic write {}: {e}", path.display()),
+            }
+        })?;
         Ok(())
     }
 
@@ -44,10 +50,16 @@ impl PartitionRegistry {
     /// Loads partition entries, filters out stale states:
     /// - `Merging` → rolled back to `Sealed` (incomplete merge on crash)
     /// - `Deleted` → removed (cleanup on recovery)
-    pub fn recover(path: &std::path::Path, config: TieredPartitionConfig) -> Result<Self, String> {
-        let data = std::fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    pub fn recover(path: &std::path::Path, config: TieredPartitionConfig) -> crate::Result<Self> {
+        let data = std::fs::read(path).map_err(|e| crate::Error::Storage {
+            engine: "timeseries".to_string(),
+            detail: format!("read {}: {e}", path.display()),
+        })?;
         let entries: Vec<(i64, PartitionEntry)> =
-            sonic_rs::from_slice(&data).map_err(|e| format!("parse {}: {e}", path.display()))?;
+            sonic_rs::from_slice(&data).map_err(|e| crate::Error::Serialization {
+                format: "json".to_string(),
+                detail: format!("parse {}: {e}", path.display()),
+            })?;
 
         let mut registry = Self::new(config);
 

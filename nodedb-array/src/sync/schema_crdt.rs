@@ -5,10 +5,9 @@
 //! `"content"` in a root Loro map named `"root"`. HLC tracking ensures that
 //! schema changes can be causally ordered with cell ops.
 //!
-//! This is the minimum surface needed by Phase A. ALTER NDARRAY support
-//! (incremental dimension/attribute add, domain expansion) is tracked as
-//! Phase F work and will build on top of the `replace_schema` path exposed
-//! here.
+//! This is the minimum surface needed for the initial Array sync. ALTER
+//! NDARRAY support (incremental dimension/attribute add, domain expansion)
+//! will build on top of the `replace_schema` path exposed here.
 
 use loro::{LoroDoc, LoroMap, LoroValue};
 

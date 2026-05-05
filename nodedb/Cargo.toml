@@ -153,6 +153,7 @@ nodedb-types = { workspace = true }
 reqwest = { workspace = true }
 nodedb-array = { workspace = true, features = ["test-utils", "encryption"] }
 tower = { workspace = true }
+rcgen = "0.13"
 
 [features]
 default = []

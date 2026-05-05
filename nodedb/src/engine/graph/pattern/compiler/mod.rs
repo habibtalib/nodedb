@@ -25,7 +25,7 @@ use helpers::{find_next_match_keyword, find_top_level_keyword, split_top_level_c
 /// Parse a MATCH query string into a `MatchQuery` AST.
 ///
 /// The input should start with `MATCH` or `OPTIONAL MATCH`.
-pub fn parse(sql: &str) -> Result<MatchQuery, String> {
+pub fn parse(sql: &str) -> crate::Result<MatchQuery> {
     let mut where_predicates = Vec::new();
     let mut return_columns = Vec::new();
     let mut distinct = false;
@@ -94,7 +94,7 @@ pub fn parse(sql: &str) -> Result<MatchQuery, String> {
 }
 
 /// Parse MATCH and OPTIONAL MATCH clauses from the pattern section.
-pub(super) fn parse_match_clauses(section: &str) -> Result<Vec<MatchClause>, String> {
+pub(super) fn parse_match_clauses(section: &str) -> crate::Result<Vec<MatchClause>> {
     let mut clauses = Vec::new();
     let upper = section.to_uppercase();
 
@@ -127,14 +127,16 @@ pub(super) fn parse_match_clauses(section: &str) -> Result<Vec<MatchClause>, Str
     }
 
     if clauses.is_empty() {
-        return Err("no MATCH clause found".into());
+        return Err(crate::Error::BadRequest {
+            detail: "no MATCH clause found".to_string(),
+        });
     }
 
     Ok(clauses)
 }
 
 /// Parse comma-separated pattern chains.
-fn parse_pattern_chains(text: &str) -> Result<Vec<PatternChain>, String> {
+fn parse_pattern_chains(text: &str) -> crate::Result<Vec<PatternChain>> {
     let chain_texts = split_top_level_commas(text);
     let mut chains = Vec::new();
     for chain_text in chain_texts {
@@ -144,7 +146,7 @@ fn parse_pattern_chains(text: &str) -> Result<Vec<PatternChain>, String> {
 }
 
 /// Parse a single pattern chain: `(a:Person)-[:KNOWS]->(b:Person)-[:KNOWS]->(c)`.
-fn parse_single_chain(text: &str) -> Result<PatternChain, String> {
+fn parse_single_chain(text: &str) -> crate::Result<PatternChain> {
     let mut triples = Vec::new();
     let mut pos = 0;
 
@@ -176,7 +178,9 @@ fn parse_single_chain(text: &str) -> Result<PatternChain, String> {
     }
 
     if triples.is_empty() {
-        return Err(format!("empty pattern chain: '{text}'"));
+        return Err(crate::Error::BadRequest {
+            detail: format!("empty pattern chain: '{text}'"),
+        });
     }
 
     Ok(PatternChain { triples })

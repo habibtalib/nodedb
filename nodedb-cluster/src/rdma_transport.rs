@@ -9,8 +9,9 @@
 //! - Kernel bypass: no syscall overhead on the data path
 //! - Low latency: ~1µs per transfer vs ~50µs for QUIC
 //!
-//! The RDMA transport is only used for Phase 1 (base copy) of shard
-//! migration. All other communication uses QUIC/TCP.
+//! The RDMA transport is only used for the base-copy step of shard
+//! migration (`MigrationPhase::BaseCopy`). All other communication uses
+//! QUIC/TCP.
 
 use std::net::SocketAddr;
 

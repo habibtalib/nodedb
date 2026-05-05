@@ -3,15 +3,23 @@
 //! Extracted from `consumer.rs` to keep the main consumer module focused
 //! on the state machine and dispatch orchestration.
 
+use std::sync::Arc;
+
 use tracing::{trace, warn};
 
+use super::bus::EventConsumerRx;
 use super::metrics::CoreMetrics;
+use super::trigger::retry::TriggerRetryQueue;
 use super::types::WriteEvent;
 use super::watermark::WatermarkStore;
+use crate::control::state::SharedState;
 use crate::types::Lsn;
 
 /// How often to persist the watermark to redb (avoid fsync on every event).
 pub const WATERMARK_FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Maximum events to process per ring buffer drain before yielding.
+pub const DRAIN_BATCH_LIMIT: u32 = 1024;
 
 /// Detect sequence gaps (events dropped by the producer due to buffer overflow).
 pub fn detect_sequence_gap(
@@ -73,4 +81,115 @@ pub fn flush_watermark(store: &WatermarkStore, core_id: usize, lsn: Lsn) {
     } else {
         trace!(core_id, lsn = lsn.as_u64(), "watermark flushed");
     }
+}
+
+/// Drain all available events from the ring buffer (up to DRAIN_BATCH_LIMIT).
+/// Returns the drained events for async processing (trigger dispatch).
+pub fn drain_ring_buffer(
+    rx: &mut EventConsumerRx,
+    metrics: &CoreMetrics,
+    core_id: usize,
+    last_sequence: &mut u64,
+    last_lsn: &mut Lsn,
+) -> Vec<WriteEvent> {
+    let mut events = Vec::new();
+    while let Some(event) = rx.try_recv() {
+        detect_sequence_gap(core_id, &event, *last_sequence, metrics);
+        record_event(core_id, &event, metrics);
+
+        *last_sequence = event.sequence;
+        if event.lsn.is_ahead_of(*last_lsn) {
+            *last_lsn = event.lsn;
+        }
+
+        events.push(event);
+        if (events.len() as u32).is_multiple_of(DRAIN_BATCH_LIMIT) {
+            break;
+        }
+    }
+    events
+}
+
+/// Drain the ring buffer, skipping events with sequence <= last_sequence.
+/// Used after WAL catchup to discard stale events that overlap with replay.
+pub fn drain_and_skip_stale(rx: &mut EventConsumerRx, last_sequence: u64) {
+    let mut skipped = 0u32;
+    while let Some(event) = rx.try_recv() {
+        if event.sequence <= last_sequence {
+            skipped += 1;
+        } else {
+            // Shouldn't happen — we just caught up. But if it does,
+            // the event is newer than what we replayed. Log and drop
+            // (next normal poll will process new events).
+            break;
+        }
+    }
+    if skipped > 0 {
+        trace!(
+            skipped,
+            "drained stale events from ring buffer after WAL catchup"
+        );
+    }
+}
+
+/// Dispatch a single write event: triggers, CDC, permission cache, streaming MVs, CRDT sync.
+///
+/// Called for both Normal-mode ring-buffer events and WAL-catchup-replayed events.
+pub async fn dispatch_event(
+    event: &WriteEvent,
+    shared_state: &Arc<SharedState>,
+    retry_queue: &mut TriggerRetryQueue,
+    cdc_router: &Arc<super::cdc::CdcRouter>,
+) {
+    shared_state
+        .watermark_tracker
+        .advance_lsn_only(event.vshard_id.as_u32(), event.lsn.as_u64());
+
+    super::trigger::dispatcher::dispatch_triggers(event, shared_state, retry_queue).await;
+    cdc_router.route_event(event, &shared_state.watermark_tracker);
+}
+
+/// Dispatch a data write event (op.is_data_event() == true): advances wall-time watermark,
+/// batches triggers, routes CDC, updates permission cache, feeds streaming MVs and CRDT sync.
+///
+/// Returns a completed trigger batch if the collector filled on this event.
+pub fn accumulate_data_event(
+    event: &WriteEvent,
+    shared_state: &Arc<SharedState>,
+    trigger_collector: &mut crate::control::trigger::batch::collector::TriggerBatchCollector,
+    cdc_router: &Arc<super::cdc::CdcRouter>,
+) -> Option<crate::control::trigger::batch::collector::TriggerBatch> {
+    let event_time_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    shared_state.watermark_tracker.advance(
+        event.vshard_id.as_u32(),
+        event.lsn.as_u64(),
+        event_time_ms,
+    );
+
+    let batch =
+        crate::control::trigger::batch::collector::push_write_event(trigger_collector, event);
+
+    cdc_router.route_event(event, &shared_state.watermark_tracker);
+    crate::control::security::permission_tree::event_handler::handle_permission_event(
+        event,
+        &shared_state.permission_cache,
+    );
+    let matching_streams = shared_state
+        .stream_registry
+        .find_matching(event.tenant_id.as_u64(), &event.collection);
+    for stream_def in &matching_streams {
+        super::streaming_mv::processor::process_write_event_for_mvs(
+            event,
+            &shared_state.mv_registry,
+            &stream_def.name,
+        );
+    }
+    shared_state
+        .delta_packager
+        .package_and_enqueue(event, &shared_state.crdt_sync_delivery);
+
+    batch
 }

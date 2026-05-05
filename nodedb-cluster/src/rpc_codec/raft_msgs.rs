@@ -232,6 +232,7 @@ mod tests {
             data: data.clone(),
             done: false,
             group_id: 3,
+            total_size: 0,
         };
         match roundtrip(RaftRpc::InstallSnapshotRequest(req)) {
             RaftRpc::InstallSnapshotRequest(d) => {
@@ -254,6 +255,7 @@ mod tests {
             data: vec![0xFF; 128],
             done: true,
             group_id: 3,
+            total_size: 0,
         };
         match roundtrip(RaftRpc::InstallSnapshotRequest(req)) {
             RaftRpc::InstallSnapshotRequest(d) => {
@@ -285,6 +287,7 @@ mod tests {
             data: data.clone(),
             done: false,
             group_id: 0,
+            total_size: 0,
         };
         match roundtrip(RaftRpc::InstallSnapshotRequest(req)) {
             RaftRpc::InstallSnapshotRequest(d) => {

@@ -23,7 +23,7 @@ impl Value {
                 format!("ARRAY[{}]", elements.join(", "))
             }
             Value::Object(map) => {
-                let json_str = serde_json::to_string(&serde_json::Value::Object(
+                let json_str = sonic_rs::to_string(&serde_json::Value::Object(
                     map.iter()
                         .map(|(k, v)| (k.clone(), value_to_json(v)))
                         .collect(),
@@ -34,7 +34,7 @@ impl Value {
             Value::DateTime(dt) | Value::NaiveDateTime(dt) => format!("'{dt}'"),
             Value::Duration(d) => format!("'{d}'"),
             Value::Decimal(d) => d.to_string(),
-            Value::Geometry(g) => format!("'{}'", serde_json::to_string(g).unwrap_or_default()),
+            Value::Geometry(g) => format!("'{}'", sonic_rs::to_string(g).unwrap_or_default()),
             Value::Range { .. } | Value::Record { .. } => "NULL".into(),
             Value::Vector(v) => {
                 let elements: Vec<String> = v.iter().map(|f| f.to_string()).collect();

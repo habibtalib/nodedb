@@ -230,7 +230,7 @@ async fn scheduler_loop(
                 let result = tokio::select! {
                     r = execute_job(&state_clone, &sched_clone, job_timeout_secs) => r,
                     _ = shutdown_rx.changed() => {
-                        return Err("scheduler shutdown".to_string());
+                        return Err(crate::Error::Dispatch { detail: "scheduler shutdown".to_string() });
                     }
                 };
                 let now_ms = SystemTime::now()

@@ -107,7 +107,9 @@ fn parse_segment_with_brackets(
     steps: &mut Vec<PathStep>,
 ) -> Result<(), PathError> {
     // Find the first `[`.
-    let bracket_pos = segment.find('[').unwrap();
+    let bracket_pos = segment
+        .find('[')
+        .expect("invariant: caller checks segment.contains('[') before calling this function");
     let key_part = &segment[..bracket_pos];
     let rest = &segment[bracket_pos..];
 

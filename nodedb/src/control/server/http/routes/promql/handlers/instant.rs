@@ -25,11 +25,11 @@ pub async fn instant_query(
 
     let tokens = match promql::lexer::tokenize(&params.query) {
         Ok(t) => t,
-        Err(e) => return prom_error("bad_data", &e),
+        Err(e) => return prom_error("bad_data", &e.to_string()),
     };
     let expr = match promql::parse(&tokens) {
         Ok(e) => e,
-        Err(e) => return prom_error("bad_data", &e),
+        Err(e) => return prom_error("bad_data", &e.to_string()),
     };
 
     let series =
@@ -43,6 +43,6 @@ pub async fn instant_query(
 
     match promql::evaluate_instant(&ctx, &expr) {
         Ok(value) => prom_success(value),
-        Err(e) => prom_error("execution", &e),
+        Err(e) => prom_error("execution", &e.to_string()),
     }
 }

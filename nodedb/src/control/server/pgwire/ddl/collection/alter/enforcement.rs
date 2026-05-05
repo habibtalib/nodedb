@@ -27,7 +27,7 @@ pub fn alter_collection_set_retention(
         .ok_or_else(|| sqlstate_error("42P01", &format!("collection '{name}' not found")))?;
 
     crate::data::executor::enforcement::retention::parse_retention_period(value)
-        .map_err(|e| sqlstate_error("22023", &e))?;
+        .map_err(|e| sqlstate_error("22023", &e.to_string()))?;
 
     coll.retention_period = Some(value.to_string());
     persist_and_bump(state, catalog, &coll)

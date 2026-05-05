@@ -89,7 +89,11 @@ impl TableScope {
             0 => {
                 // For single-table queries with schemaless, accept anything.
                 if self.tables.len() == 1 {
-                    let table = self.tables.values().next().unwrap();
+                    let table = self
+                        .tables
+                        .values()
+                        .next()
+                        .expect("invariant: self.tables.len() == 1 checked immediately above");
                     if table.info.engine == EngineType::DocumentSchemaless {
                         return Ok((table.name.clone(), col));
                     }
@@ -103,7 +107,13 @@ impl TableScope {
                     column: col,
                 })
             }
-            1 => Ok((matches.into_iter().next().unwrap(), col)),
+            1 => Ok((
+                matches
+                    .into_iter()
+                    .next()
+                    .expect("invariant: matches.len() == 1 guaranteed by this match arm"),
+                col,
+            )),
             _ => Err(SqlError::AmbiguousColumn { column: col }),
         }
     }

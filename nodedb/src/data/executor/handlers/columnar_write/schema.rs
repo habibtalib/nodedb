@@ -22,7 +22,7 @@ pub(super) fn row_values_to_object(schema: &ColumnarSchema, row: &[Value]) -> no
 pub(super) fn ndb_field_to_value(
     val: Option<&Value>,
     col_type: &ColumnType,
-) -> Result<Value, String> {
+) -> crate::Result<Value> {
     let Some(val) = val else {
         return Ok(Value::Null);
     };
@@ -40,24 +40,36 @@ pub(super) fn ndb_field_to_value(
         }
         (ColumnType::Bool, Value::Bool(_)) => val.clone(),
         (ColumnType::String, Value::String(_)) => val.clone(),
-        (ColumnType::Timestamp, Value::Integer(n)) => Value::NaiveDateTime(
-            nodedb_types::NdbDateTime::from_millis(*n)
-                .map_err(|e| format!("timestamp coercion: {e}"))?,
-        ),
-        (ColumnType::Timestamp, Value::Float(f)) => Value::NaiveDateTime(
-            nodedb_types::NdbDateTime::from_millis(*f as i64)
-                .map_err(|e| format!("timestamp coercion: {e}"))?,
-        ),
+        (ColumnType::Timestamp, Value::Integer(n)) => {
+            Value::NaiveDateTime(nodedb_types::NdbDateTime::from_millis(*n).map_err(|e| {
+                crate::Error::BadRequest {
+                    detail: format!("timestamp coercion: {e}"),
+                }
+            })?)
+        }
+        (ColumnType::Timestamp, Value::Float(f)) => {
+            Value::NaiveDateTime(nodedb_types::NdbDateTime::from_millis(*f as i64).map_err(
+                |e| crate::Error::BadRequest {
+                    detail: format!("timestamp coercion: {e}"),
+                },
+            )?)
+        }
         (ColumnType::Timestamp, Value::String(s)) => nodedb_types::datetime::NdbDateTime::parse(s)
             .map(Value::NaiveDateTime)
             .unwrap_or_else(|| Value::String(s.clone())),
-        (ColumnType::Timestamptz, Value::Integer(n)) => Value::DateTime(
-            nodedb_types::NdbDateTime::from_millis(*n)
-                .map_err(|e| format!("timestamptz coercion: {e}"))?,
-        ),
+        (ColumnType::Timestamptz, Value::Integer(n)) => {
+            Value::DateTime(nodedb_types::NdbDateTime::from_millis(*n).map_err(|e| {
+                crate::Error::BadRequest {
+                    detail: format!("timestamptz coercion: {e}"),
+                }
+            })?)
+        }
         (ColumnType::Timestamptz, Value::Float(f)) => Value::DateTime(
-            nodedb_types::NdbDateTime::from_millis(*f as i64)
-                .map_err(|e| format!("timestamptz coercion: {e}"))?,
+            nodedb_types::NdbDateTime::from_millis(*f as i64).map_err(|e| {
+                crate::Error::BadRequest {
+                    detail: format!("timestamptz coercion: {e}"),
+                }
+            })?,
         ),
         (ColumnType::Timestamptz, Value::String(s)) => {
             nodedb_types::datetime::NdbDateTime::parse(s)

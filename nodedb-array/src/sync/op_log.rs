@@ -1,8 +1,8 @@
 //! Append-only operation log abstraction for array CRDT sync.
 //!
 //! [`OpLog`] is a storage-agnostic trait. Concrete implementations live in
-//! `nodedb-lite` (redb-backed) and `nodedb` (WAL-backed) and are added in
-//! Phase C. An in-memory implementation is provided here for tests.
+//! `nodedb-lite` (redb-backed) and `nodedb` (WAL-backed); an in-memory
+//! implementation is provided here for tests.
 
 #[cfg(any(test, feature = "test-utils"))]
 use std::collections::BTreeMap;

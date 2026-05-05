@@ -51,7 +51,7 @@ pub fn evaluate_conditions(
     conditions: &[GrantCondition],
     auth: &AuthContext,
     client_ip: &str,
-) -> Result<(), String> {
+) -> crate::Result<()> {
     for cond in conditions {
         match cond {
             GrantCondition::Temporal {
@@ -64,14 +64,18 @@ pub fn evaluate_conditions(
                 let weekday = now.1;
 
                 if hour < *start_hour || hour >= *end_hour {
-                    return Err(format!(
-                        "temporal condition failed: current hour {hour} not in {start_hour}..{end_hour}"
-                    ));
+                    return Err(crate::Error::RejectedAuthz {
+                        tenant_id: auth.tenant_id,
+                        resource: format!(
+                            "temporal condition: current hour {hour} not in {start_hour}..{end_hour}"
+                        ),
+                    });
                 }
                 if !days.is_empty() && !days.contains(&weekday) {
-                    return Err(format!(
-                        "temporal condition failed: day {weekday} not in allowed days"
-                    ));
+                    return Err(crate::Error::RejectedAuthz {
+                        tenant_id: auth.tenant_id,
+                        resource: format!("temporal condition: day {weekday} not in allowed days"),
+                    });
                 }
             }
 
@@ -82,7 +86,10 @@ pub fn evaluate_conditions(
                     .get("mfa_verified")
                     .is_some_and(|v| v == "true");
                 if !mfa_ok {
-                    return Err("MFA verification required".into());
+                    return Err(crate::Error::RejectedAuthz {
+                        tenant_id: auth.tenant_id,
+                        resource: "MFA verification required".to_string(),
+                    });
                 }
             }
 
@@ -90,7 +97,10 @@ pub fn evaluate_conditions(
                 let ip_ok = super::blacklist::ip::check_ip_against_cidrs(client_ip, allowed_cidrs)
                     .is_some();
                 if !ip_ok {
-                    return Err(format!("IP {client_ip} not in allowed ranges"));
+                    return Err(crate::Error::RejectedAuthz {
+                        tenant_id: auth.tenant_id,
+                        resource: format!("IP {client_ip} not in allowed ranges"),
+                    });
                 }
             }
 
@@ -101,10 +111,13 @@ pub fn evaluate_conditions(
                     .as_secs();
                 let auth_time = auth.auth_time.unwrap_or(0);
                 if auth_time == 0 || now.saturating_sub(auth_time) > *max_age_secs {
-                    return Err(format!(
-                        "step-up auth required: last auth {0}s ago, max {max_age_secs}s",
-                        now.saturating_sub(auth_time)
-                    ));
+                    return Err(crate::Error::RejectedAuthz {
+                        tenant_id: auth.tenant_id,
+                        resource: format!(
+                            "step-up auth required: last auth {}s ago, max {max_age_secs}s",
+                            now.saturating_sub(auth_time)
+                        ),
+                    });
                 }
             }
 
@@ -114,7 +127,10 @@ pub fn evaluate_conditions(
                     .get("device_trusted")
                     .is_some_and(|v| v == "true");
                 if !trusted {
-                    return Err("device trust required".into());
+                    return Err(crate::Error::RejectedAuthz {
+                        tenant_id: auth.tenant_id,
+                        resource: "device trust required".to_string(),
+                    });
                 }
             }
         }

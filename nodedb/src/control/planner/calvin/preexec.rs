@@ -100,14 +100,12 @@ fn decode_scan_surrogates(payload: &[u8]) -> Vec<u32> {
         use sonic_rs::{JsonContainerTrait, JsonValueTrait};
         if rows.is_array() {
             for row in rows.as_array().into_iter().flatten() {
-                if let Some(id_val) = row.get("id") {
-                    if let Some(id_str) = id_val.as_str() {
-                        if id_str.len() == 8 {
-                            if let Ok(surrogate) = u32::from_str_radix(id_str, 16) {
-                                surrogates.push(surrogate);
-                            }
-                        }
-                    }
+                if let Some(id_val) = row.get("id")
+                    && let Some(id_str) = id_val.as_str()
+                    && id_str.len() == 8
+                    && let Ok(surrogate) = u32::from_str_radix(id_str, 16)
+                {
+                    surrogates.push(surrogate);
                 }
             }
         }

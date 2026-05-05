@@ -1,3 +1,4 @@
+pub mod bootstrap;
 pub mod bridge;
 pub mod config;
 pub mod control;
@@ -5,6 +6,7 @@ pub mod ctl;
 pub mod data;
 pub mod engine;
 pub mod error;
+mod error_from;
 pub mod event;
 pub mod fail_point;
 pub mod memory;

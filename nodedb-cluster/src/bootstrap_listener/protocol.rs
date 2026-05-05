@@ -14,6 +14,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::ClusterError;
+
 /// Maximum accepted request/response frame size (1 MiB). A real
 /// bundle is under 8 KiB; the cap guards against a malformed
 /// `len` prefix exhausting memory before decode.
@@ -66,20 +68,28 @@ impl BootstrapCredsResponse {
     }
 }
 
-pub(super) fn encode_request(v: &BootstrapCredsRequest) -> Result<Vec<u8>, String> {
-    zerompk::to_msgpack_vec(v).map_err(|e| format!("msgpack encode: {e}"))
+pub(super) fn encode_request(v: &BootstrapCredsRequest) -> Result<Vec<u8>, ClusterError> {
+    zerompk::to_msgpack_vec(v).map_err(|e| ClusterError::Transport {
+        detail: format!("msgpack encode: {e}"),
+    })
 }
 
-pub(super) fn decode_request(bytes: &[u8]) -> Result<BootstrapCredsRequest, String> {
-    zerompk::from_msgpack(bytes).map_err(|e| format!("msgpack decode: {e}"))
+pub(super) fn decode_request(bytes: &[u8]) -> Result<BootstrapCredsRequest, ClusterError> {
+    zerompk::from_msgpack(bytes).map_err(|e| ClusterError::Transport {
+        detail: format!("msgpack decode: {e}"),
+    })
 }
 
-pub(super) fn encode_response(v: &BootstrapCredsResponse) -> Result<Vec<u8>, String> {
-    zerompk::to_msgpack_vec(v).map_err(|e| format!("msgpack encode: {e}"))
+pub(super) fn encode_response(v: &BootstrapCredsResponse) -> Result<Vec<u8>, ClusterError> {
+    zerompk::to_msgpack_vec(v).map_err(|e| ClusterError::Transport {
+        detail: format!("msgpack encode: {e}"),
+    })
 }
 
-pub(super) fn decode_response(bytes: &[u8]) -> Result<BootstrapCredsResponse, String> {
-    zerompk::from_msgpack(bytes).map_err(|e| format!("msgpack decode: {e}"))
+pub(super) fn decode_response(bytes: &[u8]) -> Result<BootstrapCredsResponse, ClusterError> {
+    zerompk::from_msgpack(bytes).map_err(|e| ClusterError::Transport {
+        detail: format!("msgpack decode: {e}"),
+    })
 }
 
 #[cfg(test)]

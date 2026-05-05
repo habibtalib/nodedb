@@ -131,35 +131,36 @@ fn default_otlp_http_listen() -> SocketAddr {
 ///
 /// Call after loading config + env overrides. Returns an error message
 /// if the user enabled a feature that wasn't compiled in.
-pub fn validate_feature_availability(config: &ObservabilityConfig) -> Result<(), String> {
+pub fn validate_feature_availability(config: &ObservabilityConfig) -> crate::Result<()> {
     if config.promql.enabled {
         #[cfg(not(feature = "promql"))]
-        return Err(
-            "observability.promql.enabled = true, but this binary was built without \
-             the `promql` feature. Rebuild with `--features promql` or \
-             `--features monitoring`, or set enabled = false."
-                .into(),
-        );
+        return Err(crate::Error::Config {
+            detail: "observability.promql.enabled = true, but this binary was built without \
+                     the `promql` feature. Rebuild with `--features promql` or \
+                     `--features monitoring`, or set enabled = false."
+                .to_string(),
+        });
     }
 
     if config.otlp.receiver.enabled {
         #[cfg(not(feature = "otel"))]
-        return Err(
-            "observability.otlp.receiver.enabled = true, but this binary was built without \
-             the `otel` feature. Rebuild with `--features otel` or \
-             `--features monitoring`, or set enabled = false."
-                .into(),
-        );
+        return Err(crate::Error::Config {
+            detail:
+                "observability.otlp.receiver.enabled = true, but this binary was built without \
+                     the `otel` feature. Rebuild with `--features otel` or \
+                     `--features monitoring`, or set enabled = false."
+                    .to_string(),
+        });
     }
 
     if config.otlp.export.enabled {
         #[cfg(not(feature = "otel"))]
-        return Err(
-            "observability.otlp.export.enabled = true, but this binary was built without \
-             the `otel` feature. Rebuild with `--features otel` or \
-             `--features monitoring`, or set enabled = false."
-                .into(),
-        );
+        return Err(crate::Error::Config {
+            detail: "observability.otlp.export.enabled = true, but this binary was built without \
+                     the `otel` feature. Rebuild with `--features otel` or \
+                     `--features monitoring`, or set enabled = false."
+                .to_string(),
+        });
     }
 
     Ok(())

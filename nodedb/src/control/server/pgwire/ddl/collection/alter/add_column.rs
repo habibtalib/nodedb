@@ -24,7 +24,8 @@ pub async fn alter_table_add_column(
 ) -> PgWireResult<Vec<Response>> {
     let tenant_id = identity.tenant_id;
 
-    let column = parse_origin_column_def(col_def_str).map_err(|e| sqlstate_error("42601", &e))?;
+    let column = parse_origin_column_def(col_def_str)
+        .map_err(|e| sqlstate_error("42601", &e.to_string()))?;
     let column_name = column.name.clone();
 
     // Validate: new column must be nullable or have a default.

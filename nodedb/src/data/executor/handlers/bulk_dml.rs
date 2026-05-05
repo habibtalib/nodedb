@@ -77,7 +77,18 @@ impl CoreLoop {
         }
         Ok(ids)
     }
+}
 
+/// Parameters for a bulk update operation.
+pub(in crate::data::executor) struct BulkUpdateParams<'a> {
+    pub collection: &'a str,
+    pub filter_bytes: &'a [u8],
+    pub updates: &'a [(String, crate::bridge::physical_plan::UpdateValue)],
+    pub returning: Option<&'a ReturningSpec>,
+    pub ollp_predicted_surrogates: Option<&'a [u32]>,
+}
+
+impl CoreLoop {
     /// Bulk update: scan documents matching filters, apply field updates.
     ///
     /// When `returning` is `None`, returns affected row count as JSON:
@@ -90,12 +101,15 @@ impl CoreLoop {
         &mut self,
         task: &ExecutionTask,
         tid: u64,
-        collection: &str,
-        filter_bytes: &[u8],
-        updates: &[(String, crate::bridge::physical_plan::UpdateValue)],
-        returning: Option<&ReturningSpec>,
-        ollp_predicted_surrogates: Option<&[u32]>,
+        params: BulkUpdateParams<'_>,
     ) -> Response {
+        let BulkUpdateParams {
+            collection,
+            filter_bytes,
+            updates,
+            returning,
+            ollp_predicted_surrogates,
+        } = params;
         debug!(core = self.core_id, %collection, has_returning = returning.is_some(), "bulk update");
 
         // Reject direct updates to generated columns.

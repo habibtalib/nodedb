@@ -88,7 +88,7 @@ pub fn create_sequence(
         PgWireError::UserError(Box::new(ErrorInfo::new(
             "ERROR".to_owned(),
             "42P17".to_owned(),
-            e,
+            e.to_string(),
         )))
     })?;
 

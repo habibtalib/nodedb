@@ -14,7 +14,6 @@ use nodedb_raft::message::LogEntry;
 
 use crate::applied_watcher::GroupAppliedWatchers;
 use crate::catalog::ClusterCatalog;
-use crate::conf_change::ConfChange;
 use crate::error::Result;
 use crate::forward::{NoopPlanExecutor, PlanExecutor};
 use crate::loop_metrics::LoopMetrics;
@@ -159,6 +158,25 @@ pub struct RaftLoop<A: CommitApplier, P: PlanExecutor = NoopPlanExecutor> {
     /// Cluster-only tests leave this as `None`, which disables all quarantine
     /// accounting for snapshot chunks.
     pub(super) snapshot_quarantine_hook: Option<Arc<dyn SnapshotQuarantineHook>>,
+
+    /// In-progress partial snapshot receives, keyed by `group_id`.
+    ///
+    /// Each entry tracks the `.partial` file, running CRC, and expected next
+    /// byte offset for a follower that is currently receiving a chunked snapshot.
+    /// Entries are created on `offset == 0`, updated on each chunk, and removed
+    /// on finalization or offset regression.
+    pub(super) partial_snapshots: Arc<crate::install_snapshot::PartialSnapshotMap>,
+
+    /// Data directory for persistent partial-snapshot files and the
+    /// `recv_snapshots/` subdirectory. `None` in tests that don't exercise
+    /// the disk path.
+    pub(super) data_dir: Option<std::path::PathBuf>,
+
+    /// Snapshot chunk size for the sender path (bytes).
+    pub(super) snapshot_chunk_bytes: u64,
+
+    /// Orphan partial-snapshot max age for the GC sweeper (seconds).
+    pub(super) orphan_partial_max_age_secs: u64,
 }
 
 impl<A: CommitApplier> RaftLoop<A> {
@@ -188,6 +206,10 @@ impl<A: CommitApplier> RaftLoop<A> {
             group_watchers: Arc::new(GroupAppliedWatchers::new()),
             prev_metadata_leader: std::sync::atomic::AtomicBool::new(false),
             snapshot_quarantine_hook: None,
+            partial_snapshots: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            data_dir: None,
+            snapshot_chunk_bytes: 4 * 1024 * 1024,
+            orphan_partial_max_age_secs: 300,
         }
     }
 }
@@ -219,6 +241,10 @@ impl<A: CommitApplier, P: PlanExecutor> RaftLoop<A, P> {
             group_watchers: self.group_watchers,
             prev_metadata_leader: self.prev_metadata_leader,
             snapshot_quarantine_hook: self.snapshot_quarantine_hook,
+            partial_snapshots: self.partial_snapshots,
+            data_dir: self.data_dir,
+            snapshot_chunk_bytes: self.snapshot_chunk_bytes,
+            orphan_partial_max_age_secs: self.orphan_partial_max_age_secs,
         }
     }
 
@@ -239,6 +265,30 @@ impl<A: CommitApplier, P: PlanExecutor> RaftLoop<A, P> {
     /// handler to check for, record, and short-circuit quarantined chunks.
     pub fn with_snapshot_quarantine_hook(mut self, hook: Arc<dyn SnapshotQuarantineHook>) -> Self {
         self.snapshot_quarantine_hook = Some(hook);
+        self
+    }
+
+    /// Set the data directory for partial-snapshot persistence and GC.
+    ///
+    /// When set, the `InstallSnapshotRequest` handler writes chunks to
+    /// `<data_dir>/recv_snapshots/<group_id>.partial` and the GC sweeper
+    /// removes stale partials on startup. When `None` (the default, used by
+    /// unit tests), disk writes are skipped — the receiver operates in-memory
+    /// only with empty chunk data.
+    pub fn with_data_dir(mut self, data_dir: std::path::PathBuf) -> Self {
+        self.data_dir = Some(data_dir);
+        self
+    }
+
+    /// Override the snapshot chunk byte size (default: 4 MiB).
+    pub fn with_snapshot_chunk_bytes(mut self, chunk_bytes: u64) -> Self {
+        self.snapshot_chunk_bytes = chunk_bytes;
+        self
+    }
+
+    /// Override the orphan-partial max age for the GC sweeper (default: 300 s).
+    pub fn with_orphan_partial_max_age_secs(mut self, secs: u64) -> Self {
+        self.orphan_partial_max_age_secs = secs;
         self
     }
 
@@ -343,6 +393,25 @@ impl<A: CommitApplier, P: PlanExecutor> RaftLoop<A, P> {
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         self.loop_metrics.set_up(true);
 
+        // Startup GC sweep: remove orphaned partial-snapshot files from
+        // previous runs that did not complete.
+        if let Some(ref dir) = self.data_dir {
+            match crate::install_snapshot::gc::sweep_orphans(dir, self.orphan_partial_max_age_secs)
+            {
+                Ok((removed, errs)) => {
+                    if removed > 0 {
+                        tracing::info!(removed, "startup: removed orphaned partial snapshot files");
+                    }
+                    for e in errs {
+                        tracing::warn!(error = %e, "startup: partial snapshot GC error");
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "startup: failed to sweep partial snapshot directory");
+                }
+            }
+        }
+
         loop {
             tokio::select! {
                 _ = interval.tick() => {
@@ -362,138 +431,6 @@ impl<A: CommitApplier, P: PlanExecutor> RaftLoop<A, P> {
         self.loop_metrics.set_up(false);
     }
 
-    /// Propose a command to the Raft group owning the given vShard.
-    ///
-    /// Returns `(group_id, log_index)` on success.
-    pub fn propose(&self, vshard_id: u32, data: Vec<u8>) -> Result<(u64, u64)> {
-        let mut mr = self.multi_raft.lock().unwrap_or_else(|p| p.into_inner());
-        mr.propose(vshard_id, data)
-    }
-
-    /// Propose a command directly to the metadata Raft group (group 0).
-    ///
-    /// Used by the host crate's metadata proposer and by integration
-    /// tests that exercise the replicated-catalog path without a
-    /// pgwire client. Fails with `ClusterError::GroupNotFound` if
-    /// group 0 does not exist on this node, and with
-    /// `ClusterError::Raft(NotLeader)` if this node is not the
-    /// current leader of group 0.
-    pub fn propose_to_metadata_group(&self, data: Vec<u8>) -> Result<u64> {
-        let mut mr = self.multi_raft.lock().unwrap_or_else(|p| p.into_inner());
-        mr.propose_to_group(crate::metadata_group::METADATA_GROUP_ID, data)
-    }
-
-    /// Propose to the metadata Raft group, transparently forwarding
-    /// to the current leader if this node is not it.
-    ///
-    /// Tries a local propose first. On
-    /// `ClusterError::Raft(NotLeader { leader_hint })`, looks up the
-    /// hinted leader's address in cluster topology and sends a
-    /// [`crate::rpc_codec::MetadataProposeRequest`] over QUIC. The
-    /// receiving leader applies the proposal locally and returns
-    /// the log index.
-    ///
-    /// On `NotLeader { leader_hint: None }` (election in progress,
-    /// no observed leader yet) the call returns the original
-    /// `NotLeader` error so the caller can decide whether to retry.
-    /// We deliberately do not implement a wait-and-retry loop here
-    /// because the caller (the host-side proposer) may have a
-    /// shorter deadline than any reasonable retry budget.
-    ///
-    /// The leader-side path through this function is identical to
-    /// the bare `propose_to_metadata_group` — the only extra cost is
-    /// an `is_leader_locally` check before the local propose.
-    pub async fn propose_to_metadata_group_via_leader(&self, data: Vec<u8>) -> Result<u64> {
-        // Phase 1: try local propose.
-        match self.propose_to_metadata_group(data.clone()) {
-            Ok(idx) => Ok(idx),
-            Err(crate::error::ClusterError::Raft(nodedb_raft::RaftError::NotLeader {
-                leader_hint,
-            })) => {
-                let Some(leader_id) = leader_hint else {
-                    return Err(crate::error::ClusterError::Raft(
-                        nodedb_raft::RaftError::NotLeader { leader_hint: None },
-                    ));
-                };
-                if leader_id == self.node_id {
-                    // Should not happen — local propose said we
-                    // weren't leader but the hint points at us. Fall
-                    // through to the original error so the caller
-                    // sees the contradiction.
-                    return Err(crate::error::ClusterError::Raft(
-                        nodedb_raft::RaftError::NotLeader {
-                            leader_hint: Some(leader_id),
-                        },
-                    ));
-                }
-                // Phase 2: forward to the hinted leader.
-                self.forward_metadata_propose(leader_id, data).await
-            }
-            Err(other) => Err(other),
-        }
-    }
-
-    /// Send a `MetadataProposeRequest` to `leader_id`. Looks up the
-    /// leader's listen address via the local topology snapshot and
-    /// dispatches through the existing peer transport.
-    async fn forward_metadata_propose(&self, leader_id: u64, data: Vec<u8>) -> Result<u64> {
-        // Resolve and register the leader's address with the
-        // transport so `send_rpc` has a destination. Topology is
-        // updated by the membership / health subsystem; if the
-        // leader isn't in our local topology yet we fail loudly so
-        // the caller can fall back to its own retry policy rather
-        // than silently dropping the proposal.
-        {
-            let topo = self.topology.read().unwrap_or_else(|p| p.into_inner());
-            let Some(node) = topo.get_node(leader_id) else {
-                return Err(crate::error::ClusterError::Transport {
-                    detail: format!(
-                        "metadata propose forward: leader {leader_id} not in local topology"
-                    ),
-                });
-            };
-            let Some(addr) = node.socket_addr() else {
-                return Err(crate::error::ClusterError::Transport {
-                    detail: format!(
-                        "metadata propose forward: leader {leader_id} has unparseable addr {:?}",
-                        node.addr
-                    ),
-                });
-            };
-            // Idempotent: register_peer overwrites any prior mapping.
-            self.transport.register_peer(leader_id, addr);
-        }
-
-        let req = crate::rpc_codec::RaftRpc::MetadataProposeRequest(
-            crate::rpc_codec::MetadataProposeRequest { bytes: data },
-        );
-        let resp = self.transport.send_rpc(leader_id, req).await?;
-        match resp {
-            crate::rpc_codec::RaftRpc::MetadataProposeResponse(r) => {
-                if r.success {
-                    Ok(r.log_index)
-                } else if let Some(hint) = r.leader_hint {
-                    // The receiving node was also not the leader
-                    // (rare: leader changed between our local check
-                    // and the forwarded RPC). Surface as NotLeader
-                    // so the caller's normal retry path runs.
-                    Err(crate::error::ClusterError::Raft(
-                        nodedb_raft::RaftError::NotLeader {
-                            leader_hint: Some(hint),
-                        },
-                    ))
-                } else {
-                    Err(crate::error::ClusterError::Transport {
-                        detail: format!("metadata propose forward failed: {}", r.error_message),
-                    })
-                }
-            }
-            other => Err(crate::error::ClusterError::Transport {
-                detail: format!("metadata propose forward: unexpected response variant {other:?}"),
-            }),
-        }
-    }
-
     /// Returns the inner multi-raft handle. Exposed for tests and for
     /// the host crate's metadata proposer so it can hold a second
     /// reference to the same underlying mutex without pulling the
@@ -506,109 +443,6 @@ impl<A: CommitApplier, P: PlanExecutor> RaftLoop<A, P> {
     pub fn group_statuses(&self) -> Vec<crate::multi_raft::GroupStatus> {
         let mr = self.multi_raft.lock().unwrap_or_else(|p| p.into_inner());
         mr.group_statuses()
-    }
-
-    /// Propose a command to the data Raft group owning the given vShard,
-    /// transparently forwarding to the group leader if this node is not it.
-    ///
-    /// Tries a local propose first. On `NotLeader { leader_hint: Some(id) }`,
-    /// looks up the hinted leader's address in the cluster topology and sends
-    /// a `DataProposeRequest` over QUIC. The receiving leader applies the
-    /// proposal locally and returns `(group_id, log_index)`.
-    ///
-    /// On `NotLeader { leader_hint: None }` (election in progress) the call
-    /// returns the original `NotLeader` error so the caller can retry.
-    pub async fn propose_via_data_leader(
-        &self,
-        vshard_id: u32,
-        data: Vec<u8>,
-    ) -> Result<(u64, u64)> {
-        // Phase 1: try local propose.
-        match self.propose(vshard_id, data.clone()) {
-            Ok(pair) => Ok(pair),
-            Err(crate::error::ClusterError::Raft(nodedb_raft::RaftError::NotLeader {
-                leader_hint,
-            })) => {
-                let Some(leader_id) = leader_hint else {
-                    return Err(crate::error::ClusterError::Raft(
-                        nodedb_raft::RaftError::NotLeader { leader_hint: None },
-                    ));
-                };
-                if leader_id == self.node_id {
-                    return Err(crate::error::ClusterError::Raft(
-                        nodedb_raft::RaftError::NotLeader {
-                            leader_hint: Some(leader_id),
-                        },
-                    ));
-                }
-                // Phase 2: forward to the hinted leader.
-                self.forward_data_propose(leader_id, vshard_id, data).await
-            }
-            Err(other) => Err(other),
-        }
-    }
-
-    /// Send a `DataProposeRequest` to `leader_id`.
-    async fn forward_data_propose(
-        &self,
-        leader_id: u64,
-        vshard_id: u32,
-        data: Vec<u8>,
-    ) -> Result<(u64, u64)> {
-        {
-            let topo = self.topology.read().unwrap_or_else(|p| p.into_inner());
-            let Some(node) = topo.get_node(leader_id) else {
-                return Err(crate::error::ClusterError::Transport {
-                    detail: format!(
-                        "data propose forward: leader {leader_id} not in local topology"
-                    ),
-                });
-            };
-            let Some(addr) = node.socket_addr() else {
-                return Err(crate::error::ClusterError::Transport {
-                    detail: format!(
-                        "data propose forward: leader {leader_id} has unparseable addr {:?}",
-                        node.addr
-                    ),
-                });
-            };
-            self.transport.register_peer(leader_id, addr);
-        }
-
-        let req =
-            crate::rpc_codec::RaftRpc::DataProposeRequest(crate::rpc_codec::DataProposeRequest {
-                vshard_id,
-                bytes: data,
-            });
-        let resp = self.transport.send_rpc(leader_id, req).await?;
-        match resp {
-            crate::rpc_codec::RaftRpc::DataProposeResponse(r) => {
-                if r.success {
-                    Ok((r.group_id, r.log_index))
-                } else if let Some(hint) = r.leader_hint {
-                    Err(crate::error::ClusterError::Raft(
-                        nodedb_raft::RaftError::NotLeader {
-                            leader_hint: Some(hint),
-                        },
-                    ))
-                } else {
-                    Err(crate::error::ClusterError::Transport {
-                        detail: format!("data propose forward failed: {}", r.error_message),
-                    })
-                }
-            }
-            other => Err(crate::error::ClusterError::Transport {
-                detail: format!("data propose forward: unexpected response variant {other:?}"),
-            }),
-        }
-    }
-
-    /// Propose a configuration change to a Raft group.
-    ///
-    /// Returns `(group_id, log_index)` on success.
-    pub fn propose_conf_change(&self, group_id: u64, change: &ConfChange) -> Result<(u64, u64)> {
-        let mut mr = self.multi_raft.lock().unwrap_or_else(|p| p.into_inner());
-        mr.propose_conf_change(group_id, change)
     }
 }
 

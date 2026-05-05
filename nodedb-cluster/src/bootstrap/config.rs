@@ -97,6 +97,18 @@ pub struct ClusterConfig {
     /// before starting an election after losing contact with the leader.
     pub election_timeout_min: Duration,
     pub election_timeout_max: Duration,
+    /// Maximum byte size of each `InstallSnapshot` RPC chunk.
+    ///
+    /// Defaults to 4 MiB. Larger values reduce round-trip count at the cost
+    /// of higher per-RPC memory pressure. Smaller values improve retry
+    /// granularity for flaky links.
+    pub install_snapshot_chunk_bytes: u64,
+    /// Age in seconds beyond which a `.partial` snapshot file is considered
+    /// orphaned and can be removed by the GC sweep.
+    ///
+    /// Defaults to 300 s (5 min). A partial file is orphaned when the
+    /// leader that was sending it has since lost leadership or crashed.
+    pub orphan_partial_max_age_secs: u64,
 }
 
 /// Result of cluster startup — everything needed to run the Raft loop.

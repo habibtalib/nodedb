@@ -78,6 +78,12 @@ async fn lease_renews_before_expiry() {
         descriptor_lease_duration_secs: 3,
         descriptor_lease_renewal_check_interval_secs: 1, // min granularity
         descriptor_lease_renewal_threshold_pct: 80,
+        // Match spawn_three()'s election headroom — under parallel nextest
+        // load the default 150/300 ms windows trigger spurious re-elections
+        // before the metadata group converges within the 10 s wait.
+        election_timeout_min_ms: 500,
+        election_timeout_max_ms: 1000,
+        health_ping_interval_secs: 1,
         ..ClusterTransportTuning::default()
     };
 

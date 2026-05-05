@@ -127,7 +127,7 @@ impl CoreLoop {
                     }),
                     _ => ndb_field_to_value(obj.get(&col.name), &col.column_type),
                 })
-                .collect::<Result<Vec<Value>, String>>()
+                .collect::<Result<Vec<Value>, crate::Error>>()
             {
                 Ok(v) => v,
                 Err(e) => {
@@ -204,7 +204,7 @@ impl CoreLoop {
                                 .map(|col| {
                                     ndb_field_to_value(merged_obj.get(&col.name), &col.column_type)
                                 })
-                                .collect::<Result<Vec<Value>, String>>()
+                                .collect::<Result<Vec<Value>, crate::Error>>()
                             {
                                 Ok(v) => v,
                                 Err(e) => {

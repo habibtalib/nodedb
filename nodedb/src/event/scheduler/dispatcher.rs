@@ -76,7 +76,7 @@ impl JobDispatcher {
     pub fn try_spawn<F, Fut>(&self, job: F) -> DispatchOutcome
     where
         F: FnOnce(watch::Receiver<bool>) -> Fut + Send + 'static,
-        Fut: Future<Output = Result<(), String>> + Send + 'static,
+        Fut: Future<Output = crate::Result<()>> + Send + 'static,
     {
         let Ok(permit) = Arc::clone(&self.semaphore).try_acquire_owned() else {
             return DispatchOutcome::OverBudget;
@@ -104,7 +104,7 @@ impl JobDispatcher {
     ) -> DispatchOutcome
     where
         F: FnOnce(watch::Receiver<bool>) -> Fut + Send + 'static,
-        Fut: Future<Output = Result<(), String>> + Send + 'static,
+        Fut: Future<Output = crate::Result<()>> + Send + 'static,
     {
         if declared_result_bytes > self.config.max_result_bytes {
             return DispatchOutcome::OverBudget;

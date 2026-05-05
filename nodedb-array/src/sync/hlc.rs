@@ -91,9 +91,20 @@ impl Hlc {
     /// No range validation is performed; the caller should use [`Hlc::new`]
     /// if validation is required.
     pub fn from_bytes(b: &[u8; 18]) -> Self {
-        let physical_ms = u64::from_be_bytes(b[0..8].try_into().unwrap());
-        let logical = u16::from_be_bytes(b[8..10].try_into().unwrap());
-        let replica_id = ReplicaId(u64::from_be_bytes(b[10..18].try_into().unwrap()));
+        let physical_ms = u64::from_be_bytes(
+            b[0..8]
+                .try_into()
+                .expect("invariant: b is [u8; 18], slice [0..8] is exactly 8 bytes"),
+        );
+        let logical = u16::from_be_bytes(
+            b[8..10]
+                .try_into()
+                .expect("invariant: b is [u8; 18], slice [8..10] is exactly 2 bytes"),
+        );
+        let replica_id =
+            ReplicaId(u64::from_be_bytes(b[10..18].try_into().expect(
+                "invariant: b is [u8; 18], slice [10..18] is exactly 8 bytes",
+            )));
         Self {
             physical_ms,
             logical,

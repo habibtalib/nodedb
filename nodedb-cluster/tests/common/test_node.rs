@@ -192,6 +192,8 @@ impl TestNode {
             swim_udp_addr: None,
             election_timeout_min: std::time::Duration::from_millis(150),
             election_timeout_max: std::time::Duration::from_millis(300),
+            install_snapshot_chunk_bytes: 4 * 1024 * 1024,
+            orphan_partial_max_age_secs: 300,
         };
 
         let lifecycle = ClusterLifecycleTracker::new();

@@ -130,85 +130,95 @@ pub fn decode_coord_axis(data: &[u8], pos: &mut usize) -> ArrayResult<DimDict> {
     let dict_tag = data[*pos];
     *pos += 1;
 
-    let dict_values: Vec<CoordValue> = match dict_tag {
-        DICT_TAG_MSGPACK => {
-            if *pos + 4 > data.len() {
-                return Err(ArrayError::SegmentCorruption {
-                    detail: "coord axis: truncated dict count".into(),
-                });
-            }
-            let dict_count = u32::from_le_bytes(data[*pos..*pos + 4].try_into().unwrap()) as usize;
-            *pos += 4;
-            check_decoded_size(dict_count, MAX_DICT_CARDINALITY, "coord_delta dict_count")?;
-
-            let mut out: Vec<CoordValue> = Vec::with_capacity(dict_count);
-            for _ in 0..dict_count {
+    let dict_values: Vec<CoordValue> =
+        match dict_tag {
+            DICT_TAG_MSGPACK => {
                 if *pos + 4 > data.len() {
                     return Err(ArrayError::SegmentCorruption {
-                        detail: "coord axis: truncated dict entry len".into(),
+                        detail: "coord axis: truncated dict count".into(),
                     });
                 }
-                let len = u32::from_le_bytes(data[*pos..*pos + 4].try_into().unwrap()) as usize;
+                let dict_count = u32::from_le_bytes(
+                    data[*pos..*pos + 4]
+                        .try_into()
+                        .expect("invariant: preceding bounds check guarantees 4 bytes available"),
+                ) as usize;
                 *pos += 4;
-                if *pos + len > data.len() {
+                check_decoded_size(dict_count, MAX_DICT_CARDINALITY, "coord_delta dict_count")?;
+
+                let mut out: Vec<CoordValue> = Vec::with_capacity(dict_count);
+                for _ in 0..dict_count {
+                    if *pos + 4 > data.len() {
+                        return Err(ArrayError::SegmentCorruption {
+                            detail: "coord axis: truncated dict entry len".into(),
+                        });
+                    }
+                    let len =
+                        u32::from_le_bytes(data[*pos..*pos + 4].try_into().expect(
+                            "invariant: preceding bounds check guarantees 4 bytes available",
+                        )) as usize;
+                    *pos += 4;
+                    if *pos + len > data.len() {
+                        return Err(ArrayError::SegmentCorruption {
+                            detail: "coord axis: truncated dict entry bytes".into(),
+                        });
+                    }
+                    let cv: CoordValue =
+                        zerompk::from_msgpack(&data[*pos..*pos + len]).map_err(|e| {
+                            ArrayError::SegmentCorruption {
+                                detail: format!("coord dict decode: {e}"),
+                            }
+                        })?;
+                    *pos += len;
+                    out.push(cv);
+                }
+                out
+            }
+            DICT_TAG_INT64_FASTLANES => {
+                if *pos + 8 > data.len() {
                     return Err(ArrayError::SegmentCorruption {
-                        detail: "coord axis: truncated dict entry bytes".into(),
+                        detail: "coord axis: truncated int64-dict header".into(),
                     });
                 }
-                let cv: CoordValue =
-                    zerompk::from_msgpack(&data[*pos..*pos + len]).map_err(|e| {
-                        ArrayError::SegmentCorruption {
-                            detail: format!("coord dict decode: {e}"),
-                        }
-                    })?;
-                *pos += len;
-                out.push(cv);
-            }
-            out
-        }
-        DICT_TAG_INT64_FASTLANES => {
-            if *pos + 8 > data.len() {
-                return Err(ArrayError::SegmentCorruption {
-                    detail: "coord axis: truncated int64-dict header".into(),
-                });
-            }
-            let dict_count = u32::from_le_bytes(data[*pos..*pos + 4].try_into().unwrap()) as usize;
-            *pos += 4;
-            check_decoded_size(
-                dict_count,
-                MAX_DICT_CARDINALITY,
-                "coord_delta int64-dict count",
-            )?;
-            let payload_len = u32::from_le_bytes(data[*pos..*pos + 4].try_into().unwrap()) as usize;
-            *pos += 4;
-            if *pos + payload_len > data.len() {
-                return Err(ArrayError::SegmentCorruption {
-                    detail: "coord axis: truncated int64-dict payload".into(),
-                });
-            }
-            let ints =
-                nodedb_codec::fastlanes::decode(&data[*pos..*pos + payload_len]).map_err(|e| {
-                    ArrayError::SegmentCorruption {
+                let dict_count = u32::from_le_bytes(data[*pos..*pos + 4].try_into().expect(
+                    "invariant: preceding bounds check guarantees 8 bytes available; first 4",
+                )) as usize;
+                *pos += 4;
+                check_decoded_size(
+                    dict_count,
+                    MAX_DICT_CARDINALITY,
+                    "coord_delta int64-dict count",
+                )?;
+                let payload_len = u32::from_le_bytes(data[*pos..*pos + 4].try_into().expect(
+                    "invariant: preceding bounds check guarantees 8 bytes available; second 4",
+                )) as usize;
+                *pos += 4;
+                if *pos + payload_len > data.len() {
+                    return Err(ArrayError::SegmentCorruption {
+                        detail: "coord axis: truncated int64-dict payload".into(),
+                    });
+                }
+                let ints = nodedb_codec::fastlanes::decode(&data[*pos..*pos + payload_len])
+                    .map_err(|e| ArrayError::SegmentCorruption {
                         detail: format!("coord dict fastlanes decode: {e}"),
-                    }
-                })?;
-            *pos += payload_len;
-            if ints.len() != dict_count {
+                    })?;
+                *pos += payload_len;
+                if ints.len() != dict_count {
+                    return Err(ArrayError::SegmentCorruption {
+                        detail: format!(
+                            "coord dict count mismatch: declared {dict_count}, decoded {}",
+                            ints.len()
+                        ),
+                    });
+                }
+                ints.into_iter().map(CoordValue::Int64).collect()
+            }
+            other => {
                 return Err(ArrayError::SegmentCorruption {
-                    detail: format!(
-                        "coord dict count mismatch: declared {dict_count}, decoded {}",
-                        ints.len()
-                    ),
+                    detail: format!("coord axis: unknown dict tag {other:#04x}"),
                 });
             }
-            ints.into_iter().map(CoordValue::Int64).collect()
-        }
-        other => {
-            return Err(ArrayError::SegmentCorruption {
-                detail: format!("coord axis: unknown dict tag {other:#04x}"),
-            });
-        }
-    };
+        };
 
     // Index stream.
     if *pos + 4 > data.len() {
@@ -216,7 +226,11 @@ pub fn decode_coord_axis(data: &[u8], pos: &mut usize) -> ArrayResult<DimDict> {
             detail: "coord axis: truncated index count".into(),
         });
     }
-    let idx_count = u32::from_le_bytes(data[*pos..*pos + 4].try_into().unwrap()) as usize;
+    let idx_count = u32::from_le_bytes(
+        data[*pos..*pos + 4]
+            .try_into()
+            .expect("invariant: preceding bounds check guarantees 4 bytes available"),
+    ) as usize;
     *pos += 4;
     check_decoded_size(idx_count, MAX_CELLS_PER_TILE, "coord_delta idx_count")?;
 

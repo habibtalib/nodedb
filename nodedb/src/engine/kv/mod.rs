@@ -4,6 +4,7 @@ mod engine_helpers;
 mod engine_index;
 pub mod engine_sorted;
 mod engine_stats;
+mod engine_write;
 pub mod entry;
 pub mod expiry_wheel;
 mod hash_helpers;

@@ -363,7 +363,7 @@ impl MmapVectorSegment {
             return None;
         }
         let bytes = unsafe { std::slice::from_raw_parts(self.base.add(offset), 8) };
-        Some(u64::from_le_bytes(bytes.try_into().unwrap()))
+        Some(u64::from_le_bytes(bytes.try_into().expect("invariant: from_raw_parts constructed with len=8, so try_into::<[u8;8]> always succeeds")))
     }
 
     /// The full vector data block as a contiguous `&[f32]` of length `D × N`.

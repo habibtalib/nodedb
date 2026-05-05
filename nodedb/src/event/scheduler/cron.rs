@@ -50,13 +50,15 @@ pub struct CronExpr {
 
 impl CronExpr {
     /// Parse a 5-field cron expression.
-    pub fn parse(expr: &str) -> Result<Self, String> {
+    pub fn parse(expr: &str) -> crate::Result<Self> {
         let fields: Vec<&str> = expr.split_whitespace().collect();
         if fields.len() != 5 {
-            return Err(format!(
-                "expected 5 fields (minute hour dom month dow), got {}",
-                fields.len()
-            ));
+            return Err(crate::Error::BadRequest {
+                detail: format!(
+                    "expected 5 fields (minute hour dom month dow), got {}",
+                    fields.len()
+                ),
+            });
         }
 
         Ok(Self {
@@ -145,7 +147,7 @@ impl CronExpr {
 }
 
 /// Parse one cron field (e.g., "*/5", "1-3", "1,2,3", "*").
-fn parse_field(field: &str, min: u8, max: u8) -> Result<BTreeSet<u8>, String> {
+fn parse_field(field: &str, min: u8, max: u8) -> crate::Result<BTreeSet<u8>> {
     let mut result = BTreeSet::new();
 
     for part in field.split(',') {
@@ -155,11 +157,13 @@ fn parse_field(field: &str, min: u8, max: u8) -> Result<BTreeSet<u8>, String> {
                 result.insert(v);
             }
         } else if let Some(step_str) = part.strip_prefix("*/") {
-            let step: u8 = step_str
-                .parse()
-                .map_err(|_| format!("invalid step: '{step_str}'"))?;
+            let step: u8 = step_str.parse().map_err(|_| crate::Error::BadRequest {
+                detail: format!("invalid step: '{step_str}'"),
+            })?;
             if step == 0 {
-                return Err("step cannot be zero".into());
+                return Err(crate::Error::BadRequest {
+                    detail: "step cannot be zero".to_string(),
+                });
             }
             let mut v = min;
             while v <= max {
@@ -168,14 +172,18 @@ fn parse_field(field: &str, min: u8, max: u8) -> Result<BTreeSet<u8>, String> {
             }
         } else if part.contains('/') {
             // range/step: "1-10/2"
-            let (range_part, step_str) = part
-                .split_once('/')
-                .ok_or_else(|| format!("invalid field: '{part}'"))?;
-            let step: u8 = step_str
-                .parse()
-                .map_err(|_| format!("invalid step: '{step_str}'"))?;
+            let (range_part, step_str) =
+                part.split_once('/')
+                    .ok_or_else(|| crate::Error::BadRequest {
+                        detail: format!("invalid field: '{part}'"),
+                    })?;
+            let step: u8 = step_str.parse().map_err(|_| crate::Error::BadRequest {
+                detail: format!("invalid step: '{step_str}'"),
+            })?;
             if step == 0 {
-                return Err("step cannot be zero".into());
+                return Err(crate::Error::BadRequest {
+                    detail: "step cannot be zero".to_string(),
+                });
             }
             let (lo, hi) = parse_range(range_part, min, max)?;
             let mut v = lo;
@@ -189,34 +197,40 @@ fn parse_field(field: &str, min: u8, max: u8) -> Result<BTreeSet<u8>, String> {
                 result.insert(v);
             }
         } else {
-            let v: u8 = part
-                .parse()
-                .map_err(|_| format!("invalid value: '{part}'"))?;
+            let v: u8 = part.parse().map_err(|_| crate::Error::BadRequest {
+                detail: format!("invalid value: '{part}'"),
+            })?;
             if v < min || v > max {
-                return Err(format!("value {v} out of range {min}-{max}"));
+                return Err(crate::Error::BadRequest {
+                    detail: format!("value {v} out of range {min}-{max}"),
+                });
             }
             result.insert(v);
         }
     }
 
     if result.is_empty() {
-        return Err(format!("field '{field}' produced no values"));
+        return Err(crate::Error::BadRequest {
+            detail: format!("field '{field}' produced no values"),
+        });
     }
     Ok(result)
 }
 
-fn parse_range(s: &str, min: u8, max: u8) -> Result<(u8, u8), String> {
-    let (lo_str, hi_str) = s
-        .split_once('-')
-        .ok_or_else(|| format!("invalid range: '{s}'"))?;
-    let lo: u8 = lo_str
-        .parse()
-        .map_err(|_| format!("invalid range start: '{lo_str}'"))?;
-    let hi: u8 = hi_str
-        .parse()
-        .map_err(|_| format!("invalid range end: '{hi_str}'"))?;
+fn parse_range(s: &str, min: u8, max: u8) -> crate::Result<(u8, u8)> {
+    let (lo_str, hi_str) = s.split_once('-').ok_or_else(|| crate::Error::BadRequest {
+        detail: format!("invalid range: '{s}'"),
+    })?;
+    let lo: u8 = lo_str.parse().map_err(|_| crate::Error::BadRequest {
+        detail: format!("invalid range start: '{lo_str}'"),
+    })?;
+    let hi: u8 = hi_str.parse().map_err(|_| crate::Error::BadRequest {
+        detail: format!("invalid range end: '{hi_str}'"),
+    })?;
     if lo < min || hi > max || lo > hi {
-        return Err(format!("range {lo}-{hi} out of bounds {min}-{max}"));
+        return Err(crate::Error::BadRequest {
+            detail: format!("range {lo}-{hi} out of bounds {min}-{max}"),
+        });
     }
     Ok((lo, hi))
 }

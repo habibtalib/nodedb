@@ -118,7 +118,7 @@ pub fn deny_to_json(deny: &DenyError, policy_name: &str, collection: &str) -> se
 /// Syntax:
 /// - `ON DENY SILENT`
 /// - `ON DENY ERROR 'CODE' MESSAGE 'text' [DETAIL 'text']`
-pub fn parse_on_deny(parts: &[&str]) -> Result<DenyMode, String> {
+pub fn parse_on_deny(parts: &[&str]) -> crate::Result<DenyMode> {
     if parts.is_empty() {
         return Ok(DenyMode::Silent);
     }
@@ -128,9 +128,10 @@ pub fn parse_on_deny(parts: &[&str]) -> Result<DenyMode, String> {
         "SILENT" => Ok(DenyMode::Silent),
         "ERROR" => {
             if parts.len() < 2 {
-                return Err(
-                    "ON DENY ERROR requires a code: ON DENY ERROR 'CODE' MESSAGE '...'".into(),
-                );
+                return Err(crate::Error::BadRequest {
+                    detail: "ON DENY ERROR requires a code: ON DENY ERROR 'CODE' MESSAGE '...'"
+                        .to_string(),
+                });
             }
             let code = parts[1].trim_matches('\'').to_string();
 
@@ -175,9 +176,9 @@ pub fn parse_on_deny(parts: &[&str]) -> Result<DenyMode, String> {
                 detail,
             }))
         }
-        other => Err(format!(
-            "unknown ON DENY mode: '{other}'. Expected SILENT or ERROR"
-        )),
+        other => Err(crate::Error::BadRequest {
+            detail: format!("unknown ON DENY mode: '{other}'. Expected SILENT or ERROR"),
+        }),
     }
 }
 

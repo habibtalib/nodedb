@@ -88,7 +88,9 @@ pub async fn convert_collection(
     let new_type = match target_type.as_str() {
         "document_schemaless" => nodedb_types::CollectionType::document(),
         "document_strict" | "kv" => {
-            let columns = columns.unwrap(); // safe: validated above
+            let columns = columns.expect(
+                "invariant: columns is Some for document_strict/kv targets, validated above",
+            );
             let schema = nodedb_types::columnar::StrictSchema {
                 columns,
                 version: 1,

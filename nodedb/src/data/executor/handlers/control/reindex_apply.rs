@@ -37,17 +37,20 @@ pub(super) fn rebuild_hnsw_thread(
     vectors: Vec<Vec<f32>>,
     dim: usize,
     params: nodedb_vector::HnswParams,
-) -> Result<RebuildOutput, String> {
+) -> crate::Result<RebuildOutput> {
     let mut index = nodedb_vector::HnswIndex::new(dim, params);
     for v in vectors {
-        index.insert(v).map_err(|e| format!("HNSW insert: {e}"))?;
+        index.insert(v).map_err(|e| crate::Error::Storage {
+            engine: "vector".to_string(),
+            detail: format!("HNSW insert: {e}"),
+        })?;
     }
     Ok(RebuildOutput::Hnsw {
         bytes: index.checkpoint_to_bytes(),
     })
 }
 
-pub(super) fn rebuild_fts_thread(input: FtsRebuild) -> Result<RebuildOutput, String> {
+pub(super) fn rebuild_fts_thread(input: FtsRebuild) -> crate::Result<RebuildOutput> {
     // Compact: deduplicate posting entries by surrogate, keeping highest TF.
     let mut compacted: Vec<(String, Vec<nodedb_fts::posting::Posting>)> =
         Vec::with_capacity(input.postings.len());
@@ -69,17 +72,29 @@ pub(super) fn rebuild_fts_thread(input: FtsRebuild) -> Result<RebuildOutput, Str
     }))
 }
 
-pub(super) fn rebuild_csr_thread(snapshot_bytes: Vec<u8>) -> Result<RebuildOutput, String> {
+pub(super) fn rebuild_csr_thread(snapshot_bytes: Vec<u8>) -> crate::Result<RebuildOutput> {
     let restored = nodedb_graph::CsrIndex::from_checkpoint(&snapshot_bytes)
-        .map_err(|e| format!("CSR restore: {e}"))?
-        .ok_or_else(|| "CSR checkpoint bytes missing magic header".to_string())?;
+        .map_err(|e| crate::Error::Storage {
+            engine: "graph".to_string(),
+            detail: format!("CSR restore: {e}"),
+        })?
+        .ok_or_else(|| crate::Error::Storage {
+            engine: "graph".to_string(),
+            detail: "CSR checkpoint bytes missing magic header".to_string(),
+        })?;
 
     let mut rebuilt = restored;
-    rebuilt.compact().map_err(|e| format!("CSR compact: {e}"))?;
+    rebuilt.compact().map_err(|e| crate::Error::Storage {
+        engine: "graph".to_string(),
+        detail: format!("CSR compact: {e}"),
+    })?;
 
     let bytes = rebuilt
         .checkpoint_to_bytes()
-        .map_err(|e| format!("CSR re-serialize: {e}"))?;
+        .map_err(|e| crate::Error::Storage {
+            engine: "graph".to_string(),
+            detail: format!("CSR re-serialize: {e}"),
+        })?;
 
     Ok(RebuildOutput::Csr { bytes })
 }

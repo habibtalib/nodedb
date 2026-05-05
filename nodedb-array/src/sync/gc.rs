@@ -110,12 +110,17 @@ impl MockSnapshotSink {
 
     /// Return the number of snapshots written so far.
     pub fn snapshot_count(&self) -> usize {
-        self.snapshots.lock().unwrap().len()
+        self.snapshots
+            .lock()
+            .expect("invariant: MockSnapshotSink mutex is not poisoned")
+            .len()
     }
 
     /// Consume the sink, returning all written snapshots.
     pub fn into_snapshots(self) -> Vec<TileSnapshot> {
-        self.snapshots.into_inner().unwrap()
+        self.snapshots
+            .into_inner()
+            .expect("invariant: MockSnapshotSink mutex is not poisoned")
     }
 }
 
@@ -129,7 +134,10 @@ impl Default for MockSnapshotSink {
 #[cfg(any(test, feature = "test-utils"))]
 impl SnapshotSink for MockSnapshotSink {
     fn write_snapshot(&self, snapshot: &TileSnapshot) -> crate::error::ArrayResult<()> {
-        self.snapshots.lock().unwrap().push(snapshot.clone());
+        self.snapshots
+            .lock()
+            .expect("invariant: MockSnapshotSink mutex is not poisoned")
+            .push(snapshot.clone());
         Ok(())
     }
 }

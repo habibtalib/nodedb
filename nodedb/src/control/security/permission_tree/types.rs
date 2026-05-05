@@ -90,22 +90,33 @@ impl PermissionTreeDef {
     }
 
     /// Validate that all configured levels and thresholds are consistent.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> crate::Result<()> {
         if self.levels.len() < 2 {
-            return Err("permission levels must have at least 2 entries (including 'none')".into());
+            return Err(crate::Error::BadRequest {
+                detail: "permission levels must have at least 2 entries (including 'none')"
+                    .to_string(),
+            });
         }
         if self.resource_column.is_empty() {
-            return Err("resource_column must not be empty".into());
+            return Err(crate::Error::BadRequest {
+                detail: "resource_column must not be empty".to_string(),
+            });
         }
         if self.graph_index.is_empty() {
-            return Err("graph_index must not be empty".into());
+            return Err(crate::Error::BadRequest {
+                detail: "graph_index must not be empty".to_string(),
+            });
         }
         if self.permission_table.is_empty() {
-            return Err("permission_table must not be empty".into());
+            return Err(crate::Error::BadRequest {
+                detail: "permission_table must not be empty".to_string(),
+            });
         }
         for level in [&self.read_level, &self.write_level, &self.delete_level] {
             if self.level_ordinal(level).is_none() {
-                return Err(format!("level '{level}' not found in levels list"));
+                return Err(crate::Error::BadRequest {
+                    detail: format!("level '{level}' not found in levels list"),
+                });
             }
         }
         Ok(())

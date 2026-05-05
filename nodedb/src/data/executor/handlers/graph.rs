@@ -23,6 +23,9 @@ use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;
 use crate::types::TenantId;
 
+#[path = "graph_traversal.rs"]
+mod graph_traversal;
+
 impl CoreLoop {
     #[allow(clippy::too_many_arguments)]
     pub(in crate::data::executor) fn execute_edge_put(
@@ -391,105 +394,6 @@ impl CoreLoop {
                     error = %e,
                     "graph neighbors-multi serialization failed"
                 );
-                self.response_error(
-                    task,
-                    ErrorCode::Internal {
-                        detail: e.to_string(),
-                    },
-                )
-            }
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(in crate::data::executor) fn execute_graph_path(
-        &self,
-        task: &ExecutionTask,
-        tid: u64,
-        src: &str,
-        dst: &str,
-        edge_label: &Option<String>,
-        max_depth: usize,
-        frontier_bitmap: Option<&nodedb_types::SurrogateBitmap>,
-    ) -> Response {
-        let max_depth =
-            max_depth.min(crate::engine::graph::traversal_options::MAX_GRAPH_TRAVERSAL_DEPTH);
-        debug!(core = self.core_id, tid, %src, %dst, ?edge_label, max_depth, "graph path");
-        let path = match self.csr_partition(tid) {
-            Some(partition) => partition.shortest_path(
-                src,
-                dst,
-                edge_label.as_deref(),
-                max_depth,
-                self.graph_tuning.max_visited,
-                frontier_bitmap,
-            ),
-            None => None,
-        };
-        match path {
-            Some(path) => {
-                if let Some(ref m) = self.metrics {
-                    m.record_graph_traversal();
-                }
-                match super::super::response_codec::encode(&path) {
-                    Ok(payload) => self.response_with_payload(task, payload),
-                    Err(e) => {
-                        warn!(core = self.core_id, error = %e, "graph path serialization failed");
-                        self.response_error(
-                            task,
-                            ErrorCode::Internal {
-                                detail: e.to_string(),
-                            },
-                        )
-                    }
-                }
-            }
-            None => self.response_error(task, ErrorCode::NotFound),
-        }
-    }
-
-    pub(in crate::data::executor) fn execute_graph_subgraph(
-        &self,
-        task: &ExecutionTask,
-        tid: u64,
-        start_nodes: &[String],
-        edge_label: &Option<String>,
-        depth: usize,
-    ) -> Response {
-        debug!(
-            core = self.core_id,
-            tid,
-            ?start_nodes,
-            ?edge_label,
-            depth,
-            "graph subgraph"
-        );
-        let depth = depth.min(crate::engine::graph::traversal_options::MAX_GRAPH_TRAVERSAL_DEPTH);
-        let refs: Vec<&str> = start_nodes.iter().map(String::as_str).collect();
-        let edges: Vec<(String, String, String)> = match self.csr_partition(tid) {
-            Some(partition) => partition.subgraph(
-                &refs,
-                edge_label.as_deref(),
-                depth,
-                self.graph_tuning.max_visited,
-            ),
-            None => Vec::new(),
-        };
-        let result: Vec<_> = edges
-            .iter()
-            .map(|(s, l, d)| super::super::response_codec::SubgraphEdge {
-                src: s.as_str(),
-                label: l.as_str(),
-                dst: d.as_str(),
-            })
-            .collect();
-        if let Some(ref m) = self.metrics {
-            m.record_graph_traversal();
-        }
-        match super::super::response_codec::encode(&result) {
-            Ok(payload) => self.response_with_payload(task, payload),
-            Err(e) => {
-                warn!(core = self.core_id, error = %e, "graph subgraph serialization failed");
                 self.response_error(
                     task,
                     ErrorCode::Internal {

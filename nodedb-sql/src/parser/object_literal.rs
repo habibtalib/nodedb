@@ -4,12 +4,14 @@ use std::collections::HashMap;
 
 use nodedb_types::Value;
 
+use crate::error::SqlError;
+
 /// Parse a `{ key: value, ... }` object literal into a field map.
 ///
 /// Returns `None` if the input doesn't start with `{` (not an object literal).
 /// Returns `Some(Err(msg))` on parse errors (malformed object literal).
 /// Returns `Some(Ok(fields))` on success.
-pub fn parse_object_literal(s: &str) -> Option<Result<HashMap<String, Value>, String>> {
+pub fn parse_object_literal(s: &str) -> Option<Result<HashMap<String, Value>, SqlError>> {
     let trimmed = s.trim();
     if !trimmed.starts_with('{') {
         return None;
@@ -24,7 +26,9 @@ pub fn parse_object_literal(s: &str) -> Option<Result<HashMap<String, Value>, St
 /// Returns `None` if the input doesn't start with `[` (not an array literal).
 /// Returns `Some(Err(msg))` on parse errors.
 /// Returns `Some(Ok(vec))` on success — each element must be an object.
-pub fn parse_object_literal_array(s: &str) -> Option<Result<Vec<HashMap<String, Value>>, String>> {
+pub fn parse_object_literal_array(
+    s: &str,
+) -> Option<Result<Vec<HashMap<String, Value>>, SqlError>> {
     let trimmed = s.trim();
     if !trimmed.starts_with('[') {
         return None;
@@ -38,7 +42,9 @@ pub fn parse_object_literal_array(s: &str) -> Option<Result<Vec<HashMap<String, 
     loop {
         skip_ws(&chars, &mut pos);
         if pos >= chars.len() {
-            return Some(Err("unterminated array of objects".to_string()));
+            return Some(Err(SqlError::Parse {
+                detail: "unterminated array of objects".to_string(),
+            }));
         }
         if chars[pos] == ']' {
             break;
@@ -48,10 +54,9 @@ pub fn parse_object_literal_array(s: &str) -> Option<Result<Vec<HashMap<String, 
             continue;
         }
         if chars[pos] != '{' {
-            return Some(Err(format!(
-                "expected '{{' at position {pos}, found '{}'",
-                chars[pos]
-            )));
+            return Some(Err(SqlError::Parse {
+                detail: format!("expected '{{' at position {pos}, found '{}'", chars[pos]),
+            }));
         }
         match parse_object(&chars, &mut pos) {
             Ok(obj) => objects.push(obj),
@@ -85,20 +90,24 @@ fn parse_ident(chars: &[char], pos: &mut usize) -> String {
     s
 }
 
-fn parse_string(chars: &[char], pos: &mut usize) -> Result<String, String> {
+fn parse_string(chars: &[char], pos: &mut usize) -> Result<String, SqlError> {
     // Expect opening single-quote
     if *pos >= chars.len() || chars[*pos] != '\'' {
-        return Err(format!(
-            "expected single quote at position {}, found {:?}",
-            pos,
-            chars.get(*pos)
-        ));
+        return Err(SqlError::Parse {
+            detail: format!(
+                "expected single quote at position {}, found {:?}",
+                pos,
+                chars.get(*pos)
+            ),
+        });
     }
     *pos += 1; // consume opening quote
     let mut s = String::new();
     loop {
         if *pos >= chars.len() {
-            return Err("unterminated string literal".to_string());
+            return Err(SqlError::Parse {
+                detail: "unterminated string literal".to_string(),
+            });
         }
         if chars[*pos] == '\'' {
             *pos += 1; // consume quote
@@ -117,7 +126,7 @@ fn parse_string(chars: &[char], pos: &mut usize) -> Result<String, String> {
     Ok(s)
 }
 
-fn parse_number(chars: &[char], pos: &mut usize) -> Result<Value, String> {
+fn parse_number(chars: &[char], pos: &mut usize) -> Result<Value, SqlError> {
     let start = *pos;
     if *pos < chars.len() && chars[*pos] == '-' {
         *pos += 1;
@@ -136,28 +145,36 @@ fn parse_number(chars: &[char], pos: &mut usize) -> Result<Value, String> {
     if is_float {
         raw.parse::<f64>()
             .map(Value::Float)
-            .map_err(|_| format!("invalid float: {raw}"))
+            .map_err(|_| SqlError::Parse {
+                detail: format!("invalid float: {raw}"),
+            })
     } else {
         raw.parse::<i64>()
             .map(Value::Integer)
-            .map_err(|_| format!("invalid integer: {raw}"))
+            .map_err(|_| SqlError::Parse {
+                detail: format!("invalid integer: {raw}"),
+            })
     }
 }
 
-fn parse_array(chars: &[char], pos: &mut usize) -> Result<Vec<Value>, String> {
+fn parse_array(chars: &[char], pos: &mut usize) -> Result<Vec<Value>, SqlError> {
     // Expect '['
     if *pos >= chars.len() || chars[*pos] != '[' {
-        return Err(format!(
-            "expected '[' at position {pos}, found {:?}",
-            chars.get(*pos)
-        ));
+        return Err(SqlError::Parse {
+            detail: format!(
+                "expected '[' at position {pos}, found {:?}",
+                chars.get(*pos)
+            ),
+        });
     }
     *pos += 1; // consume '['
     let mut items = Vec::new();
     loop {
         skip_ws(chars, pos);
         if *pos >= chars.len() {
-            return Err("unterminated array literal".to_string());
+            return Err(SqlError::Parse {
+                detail: "unterminated array literal".to_string(),
+            });
         }
         if chars[*pos] == ']' {
             *pos += 1; // consume ']'
@@ -178,20 +195,24 @@ fn parse_array(chars: &[char], pos: &mut usize) -> Result<Vec<Value>, String> {
     Ok(items)
 }
 
-fn parse_object(chars: &[char], pos: &mut usize) -> Result<HashMap<String, Value>, String> {
+fn parse_object(chars: &[char], pos: &mut usize) -> Result<HashMap<String, Value>, SqlError> {
     // Expect '{'
     if *pos >= chars.len() || chars[*pos] != '{' {
-        return Err(format!(
-            "expected '{{' at position {pos}, found {:?}",
-            chars.get(*pos)
-        ));
+        return Err(SqlError::Parse {
+            detail: format!(
+                "expected '{{' at position {pos}, found {:?}",
+                chars.get(*pos)
+            ),
+        });
     }
     *pos += 1; // consume '{'
     let mut map = HashMap::new();
     loop {
         skip_ws(chars, pos);
         if *pos >= chars.len() {
-            return Err("unterminated object literal".to_string());
+            return Err(SqlError::Parse {
+                detail: "unterminated object literal".to_string(),
+            });
         }
         if chars[*pos] == '}' {
             *pos += 1; // consume '}'
@@ -206,41 +227,46 @@ fn parse_object(chars: &[char], pos: &mut usize) -> Result<HashMap<String, Value
         // Parse key (must be an unquoted identifier)
         skip_ws(chars, pos);
         if *pos >= chars.len() {
-            return Err("expected key, reached end of input".to_string());
+            return Err(SqlError::Parse {
+                detail: "expected key, reached end of input".to_string(),
+            });
         }
         let first = chars[*pos];
         if !(first.is_ascii_alphabetic() || first == '_') {
-            return Err(format!(
-                "expected identifier key at position {pos}, found '{first}'"
-            ));
+            return Err(SqlError::Parse {
+                detail: format!("expected identifier key at position {pos}, found '{first}'"),
+            });
         }
         let key = parse_ident(chars, pos);
         if key.is_empty() {
-            return Err(format!("expected non-empty key at position {pos}"));
+            return Err(SqlError::Parse {
+                detail: format!("expected non-empty key at position {pos}"),
+            });
         }
 
         // Expect ':'
         skip_ws(chars, pos);
         if *pos >= chars.len() || chars[*pos] != ':' {
-            return Err(format!(
-                "expected ':' after key '{key}' at position {pos}, found {:?}",
-                chars.get(*pos)
-            ));
+            return Err(SqlError::Parse {
+                detail: format!(
+                    "expected ':' after key '{key}' at position {pos}, found {:?}",
+                    chars.get(*pos)
+                ),
+            });
         }
         *pos += 1; // consume ':'
 
         // Parse value
         skip_ws(chars, pos);
         if *pos >= chars.len() {
-            return Err(format!(
-                "expected value for key '{key}', reached end of input"
-            ));
+            return Err(SqlError::Parse {
+                detail: format!("expected value for key '{key}', reached end of input"),
+            });
         }
         if chars[*pos] == '}' || chars[*pos] == ',' {
-            return Err(format!(
-                "expected value for key '{key}', found '{}'",
-                chars[*pos]
-            ));
+            return Err(SqlError::Parse {
+                detail: format!("expected value for key '{key}', found '{}'", chars[*pos]),
+            });
         }
         let val = parse_value(chars, pos)?;
         map.insert(key, val);
@@ -254,10 +280,12 @@ fn parse_object(chars: &[char], pos: &mut usize) -> Result<HashMap<String, Value
     Ok(map)
 }
 
-fn parse_value(chars: &[char], pos: &mut usize) -> Result<Value, String> {
+fn parse_value(chars: &[char], pos: &mut usize) -> Result<Value, SqlError> {
     skip_ws(chars, pos);
     if *pos >= chars.len() {
-        return Err("unexpected end of input while parsing value".to_string());
+        return Err(SqlError::Parse {
+            detail: "unexpected end of input while parsing value".to_string(),
+        });
     }
     match chars[*pos] {
         '\'' => parse_string(chars, pos).map(Value::String),
@@ -271,11 +299,12 @@ fn parse_value(chars: &[char], pos: &mut usize) -> Result<Value, String> {
                 "true" => Ok(Value::Bool(true)),
                 "false" => Ok(Value::Bool(false)),
                 "null" => Ok(Value::Null),
-                _ if word.is_empty() => Err(format!(
-                    "unexpected character '{}' at position {pos}",
-                    chars[*pos]
-                )),
-                _ => Err(format!("unknown bare word: '{word}'")),
+                _ if word.is_empty() => Err(SqlError::Parse {
+                    detail: format!("unexpected character '{}' at position {pos}", chars[*pos]),
+                }),
+                _ => Err(SqlError::Parse {
+                    detail: format!("unknown bare word: '{word}'"),
+                }),
             }
         }
     }

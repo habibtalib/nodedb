@@ -309,7 +309,7 @@ impl DoubleWriteBuffer {
         header[8..12].copy_from_slice(&self.write_pos.to_le_bytes());
 
         match self.mode {
-            DwbMode::Off => unreachable!(),
+            DwbMode::Off => unreachable!("invariant: flush() is gated on mode != Off by caller"),
             DwbMode::Buffered => {
                 self.file.seek(SeekFrom::Start(0)).map_err(WalError::Io)?;
                 self.file.write_all(&header).map_err(WalError::Io)?;

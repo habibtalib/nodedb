@@ -286,7 +286,7 @@ impl NodeDb for NativeClient {
 
         let json_text = rows[0].first().and_then(|v| v.as_str()).unwrap_or("{}");
         let mut doc = Document::new(id);
-        if let Ok(obj) = serde_json::from_str::<HashMap<String, serde_json::Value>>(json_text) {
+        if let Ok(obj) = sonic_rs::from_str::<HashMap<String, serde_json::Value>>(json_text) {
             for (k, v) in obj {
                 doc.set(&k, json_to_value(v));
             }

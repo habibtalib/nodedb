@@ -120,19 +120,14 @@ async fn handle_connection<H: BootstrapHandler>(
         })?;
 
     let req_bytes = read_frame(&mut recv).await?;
-    let req: BootstrapCredsRequest =
-        decode_request(&req_bytes).map_err(|e| ClusterError::Transport {
-            detail: format!("decode request: {e}"),
-        })?;
+    let req: BootstrapCredsRequest = decode_request(&req_bytes)?;
     debug!(
         node_id = req.node_id,
         "bootstrap-listener: handling request"
     );
 
     let resp = handler.handle(req).await;
-    let resp_bytes = encode_response(&resp).map_err(|e| ClusterError::Transport {
-        detail: format!("encode response: {e}"),
-    })?;
+    let resp_bytes = encode_response(&resp)?;
     write_frame(&mut send, &resp_bytes).await?;
     send.finish().map_err(|e| ClusterError::Transport {
         detail: format!("finish stream: {e}"),

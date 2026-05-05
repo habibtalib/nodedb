@@ -3,17 +3,15 @@
 use sonic_rs;
 
 /// Parse a single column definition: `name TYPE [NOT NULL] [PRIMARY KEY] [DEFAULT expr]`
-pub(super) fn parse_origin_column_def(
-    s: &str,
-) -> Result<nodedb_types::columnar::ColumnDef, String> {
+pub(super) fn parse_origin_column_def(s: &str) -> crate::Result<nodedb_types::columnar::ColumnDef> {
     use nodedb_types::columnar::{ColumnDef, ColumnType};
 
     let upper = s.to_uppercase();
     let tokens: Vec<&str> = s.split_whitespace().collect();
     if tokens.len() < 2 {
-        return Err(format!(
-            "column definition requires name and type, got: '{s}'"
-        ));
+        return Err(crate::Error::BadRequest {
+            detail: format!("column definition requires name and type, got: '{s}'"),
+        });
     }
 
     let name = tokens[0].to_lowercase();
@@ -36,9 +34,14 @@ pub(super) fn parse_origin_column_def(
         .unwrap_or(s.len());
     let type_str = s[name.len()..type_end].trim();
 
-    let column_type: ColumnType = type_str
-        .parse()
-        .map_err(|e: nodedb_types::columnar::ColumnTypeParseError| e.to_string())?;
+    let column_type: ColumnType =
+        type_str
+            .parse()
+            .map_err(|e: nodedb_types::columnar::ColumnTypeParseError| {
+                crate::Error::BadRequest {
+                    detail: e.to_string(),
+                }
+            })?;
 
     let is_not_null = upper.contains("NOT NULL");
     let is_pk = upper.contains("PRIMARY KEY");
@@ -102,10 +105,16 @@ pub(super) fn parse_origin_column_def(
                 if end > 1 {
                     let expr_text = &after_gen[1..end];
                     let (parsed_expr, deps) =
-                        nodedb_query::expr_parse::parse_generated_expr(expr_text)
-                            .map_err(|e| format!("invalid GENERATED expression: {e}"))?;
-                    let expr_json = sonic_rs::to_string(&parsed_expr)
-                        .map_err(|e| format!("failed to serialize expression: {e}"))?;
+                        nodedb_query::expr_parse::parse_generated_expr(expr_text).map_err(|e| {
+                            crate::Error::BadRequest {
+                                detail: format!("invalid GENERATED expression: {e}"),
+                            }
+                        })?;
+                    let expr_json = sonic_rs::to_string(&parsed_expr).map_err(|e| {
+                        crate::Error::BadRequest {
+                            detail: format!("failed to serialize expression: {e}"),
+                        }
+                    })?;
                     col.generated_expr = Some(expr_json);
                     col.generated_deps = deps;
                     // Generated columns are nullable (computed value may be null).

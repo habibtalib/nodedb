@@ -46,7 +46,7 @@ pub fn json_to_value_display(v: &serde_json::Value) -> Value {
         serde_json::Value::Array(arr) => {
             Value::Array(arr.iter().map(json_to_value_display).collect())
         }
-        serde_json::Value::Object(_) => Value::String(serde_json::to_string(v).unwrap_or_default()),
+        serde_json::Value::Object(_) => Value::String(sonic_rs::to_string(v).unwrap_or_default()),
     }
 }
 

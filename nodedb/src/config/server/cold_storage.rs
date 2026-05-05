@@ -46,6 +46,23 @@ pub struct ColdStorageSettings {
     /// How often to check for tierable segments (seconds).
     #[serde(default = "default_tier_check_interval_secs")]
     pub tier_check_interval_secs: u64,
+    /// Server-side encryption mode for S3-compatible object stores.
+    ///
+    /// Accepted values: `"aes256"` (SSE-S3, S3-managed keys),
+    /// `"kms"` (SSE-KMS, AWS KMS). When absent or empty, NodeDB sends no SSE
+    /// header and bucket-default encryption applies.
+    ///
+    /// Set this explicitly for production deployments to guarantee encryption
+    /// at the application layer rather than relying on bucket defaults.
+    #[serde(default)]
+    pub sse_mode: Option<String>,
+    /// KMS CMK ARN used when `sse_mode = "kms"`.
+    ///
+    /// Full ARN format: `arn:aws:kms:<region>:<account>:key/<id>`.
+    /// When `sse_mode = "kms"` and this is absent, the bucket's default KMS
+    /// key is used.
+    #[serde(default)]
+    pub kms_key_id: Option<String>,
 }
 
 fn default_cold_bucket() -> String {
@@ -85,6 +102,14 @@ impl ColdStorageSettings {
             "none" => crate::storage::cold::ParquetCompression::None,
             _ => crate::storage::cold::ParquetCompression::Zstd,
         };
+        let sse_mode = match self.sse_mode.as_deref() {
+            Some("aes256") => Some(crate::storage::cold::SseMode::Aes256),
+            Some("kms") => Some(crate::storage::cold::SseMode::Kms {
+                key_id: self.kms_key_id.clone(),
+            }),
+            _ => None,
+        };
+
         crate::storage::cold::ColdStorageConfig {
             endpoint: self.endpoint.clone(),
             bucket: self.bucket.clone(),
@@ -95,6 +120,7 @@ impl ColdStorageSettings {
             local_dir: self.local_dir.clone(),
             compression,
             row_group_size: self.row_group_size,
+            sse_mode,
         }
     }
 }

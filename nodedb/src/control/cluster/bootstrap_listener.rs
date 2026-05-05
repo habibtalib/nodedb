@@ -29,13 +29,15 @@ impl HostBootstrapHandler {
         Self { ca, cluster_secret }
     }
 
-    fn issue(&self, node_id: u64) -> Result<BootstrapCredsResponse, String> {
+    fn issue(&self, node_id: u64) -> crate::Result<BootstrapCredsResponse> {
         let node_san = format!("node-{node_id}");
         let creds = nodedb_cluster::issue_leaf_for_sans(
             &self.ca,
             &[&node_san, nodedb_cluster::transport::config::SNI_HOSTNAME],
         )
-        .map_err(|e| format!("issue leaf: {e}"))?;
+        .map_err(|e| crate::Error::Config {
+            detail: format!("issue leaf: {e}"),
+        })?;
         // Preserve the cluster's *existing* secret. `issue_leaf_for_sans`
         // generates a fresh one for the returned bundle; overwrite so
         // the joiner shares the same MAC key as the rest of the cluster.
@@ -70,7 +72,7 @@ impl BootstrapHandler for HostBootstrapHandler {
             }
             match self.issue(req.node_id) {
                 Ok(resp) => resp,
-                Err(e) => BootstrapCredsResponse::error(e),
+                Err(e) => BootstrapCredsResponse::error(e.to_string()),
             }
         })
     }

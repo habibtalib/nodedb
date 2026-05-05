@@ -10,10 +10,12 @@ use super::ServerConfig;
 /// - `"1073741824"` → raw bytes (no suffix)
 ///
 /// Matching is case-insensitive on the suffix.
-pub fn parse_memory_size(s: &str) -> Result<usize, String> {
+pub fn parse_memory_size(s: &str) -> crate::Result<usize> {
     let s = s.trim();
     if s.is_empty() {
-        return Err("empty string".into());
+        return Err(crate::Error::Config {
+            detail: "empty string".to_string(),
+        });
     }
 
     let split_pos = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
@@ -21,29 +23,33 @@ pub fn parse_memory_size(s: &str) -> Result<usize, String> {
     let (num_part, suffix) = s.split_at(split_pos);
     let suffix = suffix.trim();
 
+    let cfg = |detail: String| crate::Error::Config { detail };
+
     let base: u64 = num_part
         .parse()
-        .map_err(|_| format!("invalid number: {num_part}"))?;
+        .map_err(|_| cfg(format!("invalid number: {num_part}")))?;
 
     let bytes: u64 = match suffix.to_ascii_uppercase().as_str() {
         "" => base,
         "B" => base,
         "K" | "KB" | "KIB" => base
             .checked_mul(1024)
-            .ok_or_else(|| format!("overflow parsing memory size: {s}"))?,
+            .ok_or_else(|| cfg(format!("overflow parsing memory size: {s}")))?,
         "M" | "MB" | "MIB" => base
             .checked_mul(1024 * 1024)
-            .ok_or_else(|| format!("overflow parsing memory size: {s}"))?,
+            .ok_or_else(|| cfg(format!("overflow parsing memory size: {s}")))?,
         "G" | "GB" | "GIB" => base
             .checked_mul(1024 * 1024 * 1024)
-            .ok_or_else(|| format!("overflow parsing memory size: {s}"))?,
+            .ok_or_else(|| cfg(format!("overflow parsing memory size: {s}")))?,
         "T" | "TB" | "TIB" => base
             .checked_mul(1024 * 1024 * 1024 * 1024)
-            .ok_or_else(|| format!("overflow parsing memory size: {s}"))?,
-        other => return Err(format!("unknown memory size suffix: '{other}'")),
+            .ok_or_else(|| cfg(format!("overflow parsing memory size: {s}")))?,
+        other => {
+            return Err(cfg(format!("unknown memory size suffix: '{other}'")));
+        }
     };
 
-    usize::try_from(bytes).map_err(|_| format!("memory size too large for this platform: {s}"))
+    usize::try_from(bytes).map_err(|_| cfg(format!("memory size too large for this platform: {s}")))
 }
 
 /// Parse a u16 port from an env var into a required field.
@@ -261,13 +267,12 @@ pub fn apply_env_overrides(config: &mut ServerConfig) {
                     );
                 }
             }
-            Err(bad_entry) => {
+            Err(e) => {
                 tracing::warn!(
                     env_var = "NODEDB_SEED_NODES",
                     value = %val,
-                    failed_entry = %bad_entry,
-                    "ignoring malformed environment variable \
-                     (failed to parse '{bad_entry}' as SocketAddr), using config value"
+                    error = %e,
+                    "ignoring malformed environment variable, using config value"
                 );
             }
         }
@@ -393,7 +398,7 @@ pub fn apply_env_overrides(config: &mut ServerConfig) {
 /// Returns `Ok(Vec<SocketAddr>)` if every entry parses successfully.
 /// Returns `Err(bad_entry)` with the first entry that fails to parse,
 /// so callers can log it and skip the entire override.
-pub fn parse_seed_nodes(s: &str) -> Result<Vec<SocketAddr>, String> {
+pub fn parse_seed_nodes(s: &str) -> crate::Result<Vec<SocketAddr>> {
     let mut addrs = Vec::new();
     for entry in s.split(',') {
         let entry = entry.trim();
@@ -402,7 +407,11 @@ pub fn parse_seed_nodes(s: &str) -> Result<Vec<SocketAddr>, String> {
         }
         match entry.parse::<SocketAddr>() {
             Ok(addr) => addrs.push(addr),
-            Err(_) => return Err(entry.to_owned()),
+            Err(_) => {
+                return Err(crate::Error::Config {
+                    detail: format!("invalid socket address: '{entry}'"),
+                });
+            }
         }
     }
     Ok(addrs)

@@ -162,6 +162,7 @@ async fn install_snapshot_roundtrip() {
         data: vec![0xAB; 4096],
         done: true,
         group_id: 0,
+        total_size: 0,
     };
 
     let resp = client.install_snapshot(1, req).await.unwrap();

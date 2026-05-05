@@ -15,8 +15,8 @@
 //! ## Future: io_uring
 //!
 //! The current implementation uses standard `pwrite` + `fsync` with O_DIRECT.
-//! Phase 1 validates correctness and determinism. io_uring submission will be
-//! added once the bridge crate provides the TPC event loop integration.
+//! io_uring submission can be added once the bridge crate provides the TPC
+//! event loop integration.
 
 use std::fs::{File, OpenOptions};
 use std::os::unix::fs::OpenOptionsExt;

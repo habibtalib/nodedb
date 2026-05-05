@@ -24,14 +24,14 @@ use super::bus::EventConsumerRx;
 use super::metrics::CoreMetrics;
 use super::trigger::dlq::TriggerDlq;
 use super::trigger::retry::TriggerRetryQueue;
-use super::types::WriteEvent;
 use super::watermark::WatermarkStore;
 use crate::control::state::SharedState;
 use crate::types::Lsn;
 use crate::wal::WalManager;
 
 use super::consumer_helpers::{
-    detect_sequence_gap, flush_watermark, maybe_flush_watermark, record_event,
+    accumulate_data_event, dispatch_event, drain_and_skip_stale, drain_ring_buffer,
+    flush_watermark, maybe_flush_watermark, record_event,
 };
 
 /// Initial sleep when the ring buffer is empty. Adaptive backoff ramps
@@ -46,8 +46,8 @@ const EMPTY_POLL_MAX: Duration = Duration::from_millis(50);
 /// switch to the long sleep.
 const EMPTY_POLL_RAMP: u32 = 32;
 
-/// Maximum events to process per ring buffer drain before yielding.
-const DRAIN_BATCH_LIMIT: u32 = 1024;
+/// How often to process the retry queue (check for due retries).
+const RETRY_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 /// Consumer mode state machine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,9 +57,6 @@ enum ConsumerMode {
     /// Ring buffer paused; reading from WAL on disk.
     WalCatchup,
 }
-
-/// How often to process the retry queue (check for due retries).
-const RETRY_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 /// Configuration for spawning a consumer.
 pub struct ConsumerConfig {
@@ -159,7 +156,6 @@ async fn consumer_loop(config: ConsumerConfig, metrics: Arc<CoreMetrics>) {
 
     loop {
         if *shutdown.borrow() {
-            // Final watermark flush before exit.
             if dirty_watermark {
                 flush_watermark(&watermark_store, core_id, last_lsn);
             }
@@ -169,7 +165,6 @@ async fn consumer_loop(config: ConsumerConfig, metrics: Arc<CoreMetrics>) {
 
         match mode {
             ConsumerMode::Normal => {
-                // Drain events from ring buffer.
                 let events = drain_ring_buffer(
                     &mut rx,
                     &metrics,
@@ -183,89 +178,15 @@ async fn consumer_loop(config: ConsumerConfig, metrics: Arc<CoreMetrics>) {
                     empty_polls = 0;
                     dirty_watermark = true;
 
-                    let mut trigger_collector =
-                        crate::control::trigger::batch::collector::TriggerBatchCollector::new(
-                            crate::control::trigger::batch::BatchConfig::default().batch_size,
-                        );
+                    process_normal_batch(
+                        &events,
+                        &shared_state,
+                        &mut retry_queue,
+                        &cdc_router,
+                        &slab_account,
+                    )
+                    .await;
 
-                    // Process events: accumulate triggers in batch collector,
-                    // dispatch CDC/MV/CRDT per-event (they don't benefit from batching).
-                    for event in &events {
-                        if event.op.is_data_event() {
-                            let event_time_ms = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_millis() as u64;
-                            shared_state.watermark_tracker.advance(
-                                event.vshard_id.as_u32(),
-                                event.lsn.as_u64(),
-                                event_time_ms,
-                            );
-                        } else {
-                            shared_state
-                                .watermark_tracker
-                                .advance_lsn_only(event.vshard_id.as_u32(), event.lsn.as_u64());
-                            continue;
-                        }
-
-                        // Accumulate trigger rows into batches.
-                        // Non-triggerable events (Trigger/RaftFollower/CrdtSync) are
-                        // skipped inside push_event. Batch dispatch happens when the
-                        // batch fills or collection changes.
-                        if let Some(batch) =
-                            crate::control::trigger::batch::collector::push_write_event(
-                                &mut trigger_collector,
-                                event,
-                            )
-                        {
-                            super::trigger::dispatcher::dispatch_trigger_batch(
-                                &batch,
-                                &shared_state,
-                                &mut retry_queue,
-                            )
-                            .await;
-                        }
-
-                        // Per-event: CDC routing, streaming MVs, CRDT sync.
-                        // Also dispatch statement-level triggers per-event (they don't batch).
-                        super::trigger::dispatcher::dispatch_triggers(
-                            event,
-                            &shared_state,
-                            &mut retry_queue,
-                        )
-                        .await;
-                        cdc_router.route_event(event, &shared_state.watermark_tracker);
-                        // Update permission tree cache if event affects a permission table/graph.
-                        crate::control::security::permission_tree::event_handler::handle_permission_event(
-                            event,
-                            &shared_state.permission_cache,
-                        );
-                        let matching_streams = shared_state
-                            .stream_registry
-                            .find_matching(event.tenant_id.as_u64(), &event.collection);
-                        for stream_def in &matching_streams {
-                            super::streaming_mv::processor::process_write_event_for_mvs(
-                                event,
-                                &shared_state.mv_registry,
-                                &stream_def.name,
-                            );
-                        }
-                        shared_state
-                            .delta_packager
-                            .package_and_enqueue(event, &shared_state.crdt_sync_delivery);
-                    }
-
-                    // Flush any remaining batched trigger rows.
-                    if let Some(batch) = trigger_collector.flush() {
-                        super::trigger::dispatcher::dispatch_trigger_batch(
-                            &batch,
-                            &shared_state,
-                            &mut retry_queue,
-                        )
-                        .await;
-                    }
-
-                    // Track slab-pinned memory for budget enforcement.
                     let batch_payload_bytes: u64 = events
                         .iter()
                         .map(|e| {
@@ -274,14 +195,11 @@ async fn consumer_loop(config: ConsumerConfig, metrics: Arc<CoreMetrics>) {
                         })
                         .sum();
                     slab_account.add_pinned(batch_payload_bytes);
-
-                    // Release after processing (Arcs dropped when events go out of scope).
                     drop(events);
                     slab_account.release_pinned(batch_payload_bytes);
 
                     trace!(core_id, batch_count, "event batch processed");
 
-                    // Check if slab budget enforcement shed this consumer.
                     if slab_account.is_shed() {
                         info!(core_id, "slab budget shed — entering WAL catchup mode");
                         slab_account.reset();
@@ -291,7 +209,6 @@ async fn consumer_loop(config: ConsumerConfig, metrics: Arc<CoreMetrics>) {
                         continue;
                     }
 
-                    // Check for Suspended backpressure → WAL catchup.
                     if rx.pressure_state() == PressureState::Suspended {
                         info!(
                             core_id,
@@ -308,39 +225,10 @@ async fn consumer_loop(config: ConsumerConfig, metrics: Arc<CoreMetrics>) {
 
                 // No new events — process retry queue if due.
                 if !retry_queue.is_empty() && last_retry_poll.elapsed() >= RETRY_POLL_INTERVAL {
-                    // Step 1: drain exhausted entries and DLQ them (sync, no await).
-                    let (ready, exhausted) = retry_queue.drain_due();
-                    if !exhausted.is_empty() {
-                        let mut dlq = trigger_dlq.lock().unwrap_or_else(|p| p.into_inner());
-                        for entry in &exhausted {
-                            let _ = dlq.enqueue(super::trigger::dlq::DlqEnqueueParams {
-                                tenant_id: entry.tenant_id,
-                                source_collection: entry.collection.clone(),
-                                row_id: entry.row_id.clone(),
-                                operation: entry.operation.clone(),
-                                trigger_name: entry.trigger_name.clone(),
-                                error: entry.last_error.clone(),
-                                retry_count: entry.attempts,
-                                source_lsn: entry.source_lsn,
-                                source_sequence: entry.source_sequence,
-                            });
-                        }
-                        // dlq MutexGuard dropped here before any await.
-                    }
-
-                    // Step 2: retry ready entries (async).
-                    for entry in ready {
-                        super::trigger::dispatcher::retry_single(
-                            &entry,
-                            &shared_state,
-                            &mut retry_queue,
-                        )
-                        .await;
-                    }
+                    process_retry_queue(&mut retry_queue, &trigger_dlq, &shared_state).await;
                     last_retry_poll = tokio::time::Instant::now();
                 }
 
-                // Flush watermark if due, then sleep.
                 maybe_flush_watermark(
                     &watermark_store,
                     core_id,
@@ -377,9 +265,6 @@ async fn consumer_loop(config: ConsumerConfig, metrics: Arc<CoreMetrics>) {
                     "WAL catchup: replaying from WAL"
                 );
 
-                // Use mmap reader for catchup — kernel manages pages without
-                // pinning slab allocator memory. Falls back to sequential reader
-                // if mmap fails (e.g., WAL dir on tmpfs without mmap support).
                 match super::wal_replay::replay_wal_mmap(
                     &wal,
                     last_lsn.next(),
@@ -401,14 +286,8 @@ async fn consumer_loop(config: ConsumerConfig, metrics: Arc<CoreMetrics>) {
                         let count = events.len() as u64;
                         for event in &events {
                             record_event(core_id, event, &metrics);
-                            // Also dispatch triggers + CDC for WAL-replayed events.
-                            super::trigger::dispatcher::dispatch_triggers(
-                                event,
-                                &shared_state,
-                                &mut retry_queue,
-                            )
-                            .await;
-                            cdc_router.route_event(event, &shared_state.watermark_tracker);
+                            dispatch_event(event, &shared_state, &mut retry_queue, &cdc_router)
+                                .await;
                             last_sequence = event.sequence;
                             if event.lsn.is_ahead_of(last_lsn) {
                                 last_lsn = event.lsn;
@@ -435,8 +314,6 @@ async fn consumer_loop(config: ConsumerConfig, metrics: Arc<CoreMetrics>) {
                                 retries = MAX_WAL_RETRIES,
                                 "WAL catchup failed after max retries, returning to Normal mode"
                             );
-                            // Fall through to Normal mode — some events may be lost,
-                            // but the consumer won't loop forever.
                         } else {
                             warn!(
                                 core_id,
@@ -451,11 +328,8 @@ async fn consumer_loop(config: ConsumerConfig, metrics: Arc<CoreMetrics>) {
                     }
                 }
 
-                // Drain any events that accumulated in the ring buffer during catchup.
-                // These may overlap with WAL-replayed events — deduplicate by sequence.
                 drain_and_skip_stale(&mut rx, last_sequence);
 
-                // Flush watermark and return to normal mode.
                 flush_watermark(&watermark_store, core_id, last_lsn);
                 dirty_watermark = false;
                 last_watermark_flush = tokio::time::Instant::now();
@@ -477,52 +351,70 @@ async fn consumer_loop(config: ConsumerConfig, metrics: Arc<CoreMetrics>) {
     );
 }
 
-/// Drain all available events from the ring buffer (up to DRAIN_BATCH_LIMIT).
-/// Returns the drained events for async processing (trigger dispatch).
-fn drain_ring_buffer(
-    rx: &mut EventConsumerRx,
-    metrics: &CoreMetrics,
-    core_id: usize,
-    last_sequence: &mut u64,
-    last_lsn: &mut Lsn,
-) -> Vec<WriteEvent> {
-    let mut events = Vec::new();
-    while let Some(event) = rx.try_recv() {
-        detect_sequence_gap(core_id, &event, *last_sequence, metrics);
-        record_event(core_id, &event, metrics);
+/// Process a batch of Normal-mode events: trigger batching, CDC, permission cache,
+/// streaming MVs, CRDT sync. Statement-level trigger dispatch is per-event (no batching).
+async fn process_normal_batch(
+    events: &[super::types::WriteEvent],
+    shared_state: &Arc<SharedState>,
+    retry_queue: &mut TriggerRetryQueue,
+    cdc_router: &Arc<super::cdc::CdcRouter>,
+    _slab_account: &Arc<super::slab_budget::ConsumerSlabAccount>,
+) {
+    let mut trigger_collector =
+        crate::control::trigger::batch::collector::TriggerBatchCollector::new(
+            crate::control::trigger::batch::BatchConfig::default().batch_size,
+        );
 
-        *last_sequence = event.sequence;
-        if event.lsn.is_ahead_of(*last_lsn) {
-            *last_lsn = event.lsn;
+    for event in events {
+        if !event.op.is_data_event() {
+            shared_state
+                .watermark_tracker
+                .advance_lsn_only(event.vshard_id.as_u32(), event.lsn.as_u64());
+            continue;
         }
 
-        events.push(event);
-        if (events.len() as u32).is_multiple_of(DRAIN_BATCH_LIMIT) {
-            break;
+        if let Some(batch) =
+            accumulate_data_event(event, shared_state, &mut trigger_collector, cdc_router)
+        {
+            super::trigger::dispatcher::dispatch_trigger_batch(&batch, shared_state, retry_queue)
+                .await;
         }
+
+        super::trigger::dispatcher::dispatch_triggers(event, shared_state, retry_queue).await;
     }
-    events
+
+    if let Some(batch) = trigger_collector.flush() {
+        super::trigger::dispatcher::dispatch_trigger_batch(&batch, shared_state, retry_queue).await;
+    }
 }
 
-/// Drain the ring buffer, skipping events with sequence <= last_sequence.
-/// Used after WAL catchup to discard stale events that overlap with replay.
-fn drain_and_skip_stale(rx: &mut EventConsumerRx, last_sequence: u64) {
-    let mut skipped = 0u32;
-    while let Some(event) = rx.try_recv() {
-        if event.sequence <= last_sequence {
-            skipped += 1;
-        } else {
-            // Shouldn't happen — we just caught up. But if it does,
-            // the event is newer than what we replayed. Log and drop
-            // (next normal poll will process new events).
-            break;
+/// Process the retry queue: DLQ exhausted entries and retry ready ones.
+async fn process_retry_queue(
+    retry_queue: &mut TriggerRetryQueue,
+    trigger_dlq: &Arc<std::sync::Mutex<TriggerDlq>>,
+    shared_state: &Arc<SharedState>,
+) {
+    let (ready, exhausted) = retry_queue.drain_due();
+    if !exhausted.is_empty() {
+        let mut dlq = trigger_dlq.lock().unwrap_or_else(|p| p.into_inner());
+        for entry in &exhausted {
+            let _ = dlq.enqueue(super::trigger::dlq::DlqEnqueueParams {
+                tenant_id: entry.tenant_id,
+                source_collection: entry.collection.clone(),
+                row_id: entry.row_id.clone(),
+                operation: entry.operation.clone(),
+                trigger_name: entry.trigger_name.clone(),
+                error: entry.last_error.clone(),
+                retry_count: entry.attempts,
+                source_lsn: entry.source_lsn,
+                source_sequence: entry.source_sequence,
+            });
         }
+        // dlq MutexGuard dropped before any await.
     }
-    if skipped > 0 {
-        trace!(
-            skipped,
-            "drained stale events from ring buffer after WAL catchup"
-        );
+
+    for entry in ready {
+        super::trigger::dispatcher::retry_single(&entry, shared_state, retry_queue).await;
     }
 }
 
@@ -533,8 +425,8 @@ mod tests {
     use crate::event::types::{EventSource, RowId, WriteOp};
     use crate::types::{TenantId, VShardId};
 
-    fn make_event(seq: u64) -> WriteEvent {
-        WriteEvent {
+    fn make_event(seq: u64) -> super::super::types::WriteEvent {
+        super::super::types::WriteEvent {
             sequence: seq,
             collection: Arc::from("test"),
             op: WriteOp::Insert,

@@ -283,7 +283,7 @@ fn propose_and_install(
 /// - `2026-12-31T00:00:00Z`
 /// - `2026-12-31T00:00:00+00:00`
 /// - `2026-12-31` (interpreted as midnight UTC)
-fn parse_iso8601_to_unix(s: &str) -> Result<u64, String> {
+fn parse_iso8601_to_unix(s: &str) -> crate::Result<u64> {
     // Parse as RFC 3339 or ISO 8601 date. Manually handle common forms
     // without pulling in an external datetime crate.
     let s = s.trim();
@@ -315,22 +315,32 @@ fn parse_iso8601_to_unix(s: &str) -> Result<u64, String> {
         return Ok(ts_secs + h * 3600 + m * 60 + sec);
     }
 
-    Err(format!("unrecognised datetime format: '{s}'"))
+    Err(crate::Error::BadRequest {
+        detail: format!("unrecognised datetime format: '{s}'"),
+    })
 }
 
 /// Parse YYYY-MM-DD to midnight UTC Unix timestamp.
-fn parse_date_to_unix(s: &str) -> Result<u64, String> {
+fn parse_date_to_unix(s: &str) -> crate::Result<u64> {
     let parts: Vec<&str> = s.split('-').collect();
     if parts.len() != 3 {
-        return Err(format!("expected YYYY-MM-DD, got '{s}'"));
+        return Err(crate::Error::BadRequest {
+            detail: format!("expected YYYY-MM-DD, got '{s}'"),
+        });
     }
-    let y: i64 = parts[0].parse().map_err(|_| format!("bad year in '{s}'"))?;
-    let mo: u64 = parts[1]
-        .parse()
-        .map_err(|_| format!("bad month in '{s}'"))?;
-    let d: u64 = parts[2].parse().map_err(|_| format!("bad day in '{s}'"))?;
+    let y: i64 = parts[0].parse().map_err(|_| crate::Error::BadRequest {
+        detail: format!("bad year in '{s}'"),
+    })?;
+    let mo: u64 = parts[1].parse().map_err(|_| crate::Error::BadRequest {
+        detail: format!("bad month in '{s}'"),
+    })?;
+    let d: u64 = parts[2].parse().map_err(|_| crate::Error::BadRequest {
+        detail: format!("bad day in '{s}'"),
+    })?;
     if !(1..=12).contains(&mo) || !(1..=31).contains(&d) {
-        return Err(format!("date out of range in '{s}'"));
+        return Err(crate::Error::BadRequest {
+            detail: format!("date out of range in '{s}'"),
+        });
     }
     // Simplified Julian Day → Unix: good for dates after 1970-01-01.
     // Uses the civil calendar formula.
@@ -338,7 +348,7 @@ fn parse_date_to_unix(s: &str) -> Result<u64, String> {
     Ok(days * 86400)
 }
 
-fn days_since_epoch(y: i64, mo: u64, d: u64) -> Result<u64, String> {
+fn days_since_epoch(y: i64, mo: u64, d: u64) -> crate::Result<u64> {
     // JDN formula for Gregorian calendar
     let a = (14_i64 - mo as i64) / 12;
     let yr = y + 4800 - a;
@@ -347,7 +357,9 @@ fn days_since_epoch(y: i64, mo: u64, d: u64) -> Result<u64, String> {
     // Unix epoch = 1970-01-01 = JDN 2440588
     let unix_days = jdn - 2_440_588;
     if unix_days < 0 {
-        return Err(format!("date before Unix epoch: {y}-{mo:02}-{d:02}"));
+        return Err(crate::Error::BadRequest {
+            detail: format!("date before Unix epoch: {y}-{mo:02}-{d:02}"),
+        });
     }
     Ok(unix_days as u64)
 }

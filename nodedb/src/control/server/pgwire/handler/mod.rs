@@ -13,7 +13,9 @@ mod routing;
 mod session_cmds;
 mod sql_exec;
 mod sql_prepared;
+mod sql_split;
 mod transaction_cmds;
+mod transaction_savepoint;
 mod wal_dispatch;
 
 pub use self::copy_handler::NodeDbCopyHandler;

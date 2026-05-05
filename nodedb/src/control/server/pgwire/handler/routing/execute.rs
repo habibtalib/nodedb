@@ -1,29 +1,19 @@
 //! Plan-and-dispatch entry points for SQL queries on the simple-query and
-//! extended-query (prepared-statement) paths, plus per-task consistency
-//! selection.
-
-use std::sync::Arc;
+//! extended-query (prepared-statement) paths.
 
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 
-use super::ollp_helpers::{extract_bulk_predicate_info, inject_ollp_surrogates};
-use crate::control::planner::calvin::preexec::run_preexec_scan;
-use crate::control::planner::calvin::{
-    DispatchClass, DispatchOutcome, build_dependent_tx_class, classify_dispatch,
-    dispatch_calvin_or_fast, dispatch_dependent_read, is_dependent_predicate, predicate_class,
-};
+use crate::control::planner::calvin::{DispatchClass, classify_dispatch};
 use crate::control::planner::physical::{PhysicalTask, PostSetOp};
 use crate::control::security::identity::AuthenticatedIdentity;
-use crate::types::{ReadConsistency, TenantId};
+use crate::types::TenantId;
 
 use super::super::super::types::{error_to_sqlstate, response_status_to_sqlstate};
 use super::super::core::NodeDbPgHandler;
-use super::super::plan::{
-    calvin_tag_for_plan, describe_plan, extract_collection, is_calvin_foldable, payload_to_response,
-};
-use super::catalog::current_descriptor_version;
+use super::super::plan::{describe_plan, extract_collection, payload_to_response};
 use super::kv_wrapping::maybe_wrap_kv_point_get;
+use super::planning::consistency_for_tasks;
 use super::set_ops;
 
 impl NodeDbPgHandler {
@@ -52,12 +42,6 @@ impl NodeDbPgHandler {
 
         // Column projection: re-encode each query response with one pgwire
         // field per named column from the SELECT list.
-        //
-        // `payload_to_response` produces a single-column envelope (`result`
-        // or `document`) with the full row as JSON. SQL clients (psql,
-        // tokio-postgres simple_query, psycopg2, etc.) expect one field per
-        // projected column. Parse the SELECT list and reproject if it
-        // contains named (non-star) columns.
         let projection = {
             use super::super::projection::{
                 fields_for_projection, lookup_keys_for_projection, needs_projection,
@@ -106,197 +90,6 @@ impl NodeDbPgHandler {
             .await
     }
 
-    /// Plan a SQL statement to physical tasks, handling session auth, RETURNING
-    /// strip, CHECK constraints, plan cache, and RETURNING injection.
-    ///
-    /// This is the single planning code path shared by both the simple-query
-    /// (`execute_planned_sql_inner`) and any future callers that need typed
-    /// physical plans without driving the dispatch loop. Returns the ready-to-
-    /// dispatch task list and the plan-lease scope that must be kept alive until
-    /// dispatch completes.
-    pub(in crate::control::server::pgwire::handler) async fn plan_statement_to_tasks(
-        &self,
-        identity: &AuthenticatedIdentity,
-        sql: &str,
-        tenant_id: TenantId,
-        addr: &std::net::SocketAddr,
-        params: &[nodedb_sql::ParamValue],
-    ) -> PgWireResult<(Vec<PhysicalTask>, crate::control::lease::QueryLeaseScope)> {
-        // Resolve opaque session handle if SET LOCAL nodedb.auth_session is set.
-        // Bind the resolve to the caller's (tenant_id, peer IP) fingerprint so
-        // a handle leaked cross-origin does not grant access. The
-        // store also enforces per-connection rate limits + emits audit events
-        // on miss spikes; a `RateLimited` outcome here becomes a
-        // fatal pgwire error that closes the connection.
-        let caller_fp = crate::control::security::session_handle::ClientFingerprint::from_peer(
-            identity.tenant_id,
-            addr,
-        );
-        let conn_key = addr.to_string();
-        let mut auth_ctx =
-            if let Some(handle) = self.sessions.get_parameter(addr, "nodedb.auth_session") {
-                use crate::control::security::session_handle::ResolveOutcome;
-                match self
-                    .state
-                    .session_handles
-                    .resolve(&handle, &conn_key, &caller_fp)
-                {
-                    ResolveOutcome::Resolved(cached) => *cached,
-                    ResolveOutcome::RateLimited => {
-                        return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                            "FATAL".to_owned(),
-                            "53300".to_owned(),
-                            "session handle resolve rate limit exceeded on this \
-                         connection — closing"
-                                .to_owned(),
-                        ))));
-                    }
-                    ResolveOutcome::Miss => {
-                        crate::control::server::session_auth::build_auth_context_with_session(
-                            identity,
-                            &self.sessions,
-                            addr,
-                        )
-                    }
-                }
-            } else {
-                crate::control::server::session_auth::build_auth_context_with_session(
-                    identity,
-                    &self.sessions,
-                    addr,
-                )
-            };
-
-        // Extract per-query ON DENY override.
-        let clean_sql =
-            crate::control::server::session_auth::extract_and_apply_on_deny(sql, &mut auth_ctx);
-
-        // Strip RETURNING clause before DataFusion planning.
-        let (clean_sql, returning_spec) = super::super::returning::strip_returning(&clean_sql)
-            .map_err(|e| {
-                use super::super::super::types::error_to_sqlstate;
-                let (severity, code, message) = error_to_sqlstate(&e);
-                pgwire::error::PgWireError::UserError(Box::new(pgwire::error::ErrorInfo::new(
-                    severity.to_owned(),
-                    code.to_owned(),
-                    message,
-                )))
-            })?;
-        let has_returning = returning_spec.is_some();
-
-        // Enforce general CHECK constraints for INSERT/UPDATE before planning.
-        self.enforce_check_constraints_if_needed(&clean_sql, tenant_id)
-            .await?;
-
-        // Check plan cache before full planning. The cache
-        // hits are per-descriptor-version: unrelated DDLs do
-        // not invalidate unrelated cached plans.
-        let cached_tasks = {
-            let state = Arc::clone(&self.state);
-            let tenant = tenant_id.as_u64();
-            self.sessions.get_cached_plan(addr, &clean_sql, move |id| {
-                current_descriptor_version(&state, tenant, id)
-            })
-        };
-
-        // Produce `(tasks, lease_scope)` for both the cache-hit
-        // and fresh-plan paths so the scope binding can outlive
-        // the planning block. The parameterised path
-        // (prepared statements with bound params) currently
-        // skips the plan cache and the refcounted lease — that
-        // is preserved by returning an empty scope for it.
-        let (tasks, lease_scope) = if !params.is_empty() {
-            let perm_cache = self.state.permission_cache.read().await;
-            let sec = crate::control::planner::context::PlanSecurityContext {
-                identity,
-                auth: &auth_ctx,
-                rls_store: &self.state.rls,
-                permissions: &self.state.permissions,
-                roles: &self.state.roles,
-                permission_cache: Some(&*perm_cache),
-            };
-            let tasks = self
-                .query_ctx
-                .plan_sql_with_params_and_rls(&clean_sql, params, tenant_id, &sec)
-                .await
-                .map_err(|e| {
-                    let (severity, code, message) = error_to_sqlstate(&e);
-                    PgWireError::UserError(Box::new(ErrorInfo::new(
-                        severity.to_owned(),
-                        code.to_owned(),
-                        message,
-                    )))
-                })?;
-            (tasks, crate::control::lease::QueryLeaseScope::empty())
-        } else if let Some((tasks, versions)) = cached_tasks {
-            // Cache hit: tasks were compiled by a prior query
-            // that has since dropped its scope. Re-acquire the
-            // refcount for this query's duration so drain
-            // still sees "leases held" while we execute.
-            let scope = self.state.acquire_plan_lease_scope(&versions);
-            (tasks, scope)
-        } else {
-            // Retry transparently on `RetryableSchemaChanged`
-            // so pgwire clients see a stable view of DDL in
-            // flight. The retry helper re-runs the entire
-            // plan, which re-reads each descriptor and
-            // records its current version. Each iteration
-            // re-reads the permission cache because the
-            // RwLock guard cannot be held across awaits
-            // inside the closure.
-            let (planned, versions) = super::super::retry::retry_on_schema_change(|| async {
-                let perm_cache = self.state.permission_cache.read().await;
-                let sec = crate::control::planner::context::PlanSecurityContext {
-                    identity,
-                    auth: &auth_ctx,
-                    rls_store: &self.state.rls,
-                    permissions: &self.state.permissions,
-                    roles: &self.state.roles,
-                    permission_cache: Some(&*perm_cache),
-                };
-                self.query_ctx
-                    .plan_sql_with_rls_and_versions(&clean_sql, tenant_id, &sec, has_returning)
-                    .await
-            })
-            .await
-            .map_err(|e| {
-                let (severity, code, message) = error_to_sqlstate(&e);
-                PgWireError::UserError(Box::new(ErrorInfo::new(
-                    severity.to_owned(),
-                    code.to_owned(),
-                    message,
-                )))
-            })?;
-
-            // Acquire the scope BEFORE writing the plan into
-            // the cache so a concurrent cache-hit cannot race
-            // us into an empty scope.
-            let scope = self.state.acquire_plan_lease_scope(&versions);
-
-            self.sessions
-                .put_cached_plan(addr, &clean_sql, planned.clone(), versions);
-
-            (planned, scope)
-        };
-
-        // Inject RETURNING spec into DML plans. The planner strips RETURNING
-        // from the SQL before DataFusion sees it; the spec is re-attached here
-        // so the Data Plane knows which columns to project and return.
-        let tasks = if let Some(ref spec) = returning_spec {
-            tasks
-                .into_iter()
-                .map(|mut task| {
-                    inject_returning_spec(&mut task.plan, spec.clone());
-                    task
-                })
-                .collect()
-        } else {
-            tasks
-        };
-
-        Ok((tasks, lease_scope))
-    }
-
     async fn execute_planned_sql_inner(
         &self,
         identity: &AuthenticatedIdentity,
@@ -313,16 +106,13 @@ impl NodeDbPgHandler {
             return Ok(vec![Response::Execution(Tag::new("OK"))]);
         }
 
-        let consistency = self.consistency_for_tasks(&tasks);
+        let consistency = consistency_for_tasks(&tasks);
 
         // When all tasks target a remote leader, route through the gateway.
-        // The gateway ships the pre-planned PhysicalPlan via ExecuteRequest
-        // (plan bytes over QUIC) instead of the old SQL-string ForwardRequest.
         if self.should_forward_via_gateway(&tasks, consistency) {
             return self.dispatch_tasks_via_gateway(tasks, tenant_id).await;
         }
 
-        let cross_shard_mode = self.sessions.cross_shard_txn_mode(addr);
         let tx_state = self.sessions.transaction_state(addr);
         match classify_dispatch(&tasks) {
             DispatchClass::SingleShard { .. } => {}
@@ -337,225 +127,34 @@ impl NodeDbPgHandler {
                     ))));
                 }
 
+                let cross_shard_mode = self.sessions.cross_shard_txn_mode(addr);
                 if cross_shard_mode
                     == crate::control::server::pgwire::session::cross_shard_mode::CrossShardTxnMode::Strict
                 {
-                    let inbox = self.state.sequencer_inbox.get();
-                    let orchestrator = self.state.ollp_orchestrator.get();
-                    let registry = self
-                        .state
-                        .calvin_completion_registry
-                        .get()
-                        .ok_or_else(|| {
-                            let (severity, code, message) =
-                                error_to_sqlstate(&crate::Error::SequencerUnavailable);
-                            PgWireError::UserError(Box::new(ErrorInfo::new(
-                                severity.to_owned(),
-                                code.to_owned(),
-                                message,
-                            )))
-                        })?;
-
-                    // Determine if any write task has a value-dependent predicate
-                    // (BulkUpdate/BulkDelete). If so, use the OLLP dependent-read
-                    // path; otherwise use the static Calvin path.
-                    let dependent_task = tasks
-                        .iter()
-                        .find(|t| is_dependent_predicate(&t.plan));
-
-                    let inbox_seq = if let Some(dep_task) = dependent_task {
-                        // OLLP path: run optimistic pre-execution scan, then submit
-                        // via dispatch_dependent_read with the predicted surrogates
-                        // embedded in the plan.
-                        let orc = orchestrator.ok_or_else(|| {
-                            let (severity, code, message) =
-                                error_to_sqlstate(&crate::Error::SequencerUnavailable);
-                            PgWireError::UserError(Box::new(ErrorInfo::new(
-                                severity.to_owned(),
-                                code.to_owned(),
-                                message,
-                            )))
-                        })?;
-                        let inbox = inbox.ok_or_else(|| {
-                            let (severity, code, message) =
-                                error_to_sqlstate(&crate::Error::SequencerUnavailable);
-                            PgWireError::UserError(Box::new(ErrorInfo::new(
-                                severity.to_owned(),
-                                code.to_owned(),
-                                message,
-                            )))
-                        })?;
-
-                        // Extract collection and filter bytes from the dependent plan.
-                        let (dep_collection, dep_filter_bytes) =
-                            extract_bulk_predicate_info(&dep_task.plan);
-
-                        let pred_class = predicate_class(&dep_collection, &dep_collection);
-
-                        // Run preexec scan to get current matching surrogates.
-                        let predicted = run_preexec_scan(
-                            &self.state,
-                            tenant_id,
-                            &dep_collection,
-                            dep_filter_bytes.clone(),
-                        )
-                        .await
-                        .map_err(|e| {
-                            let (severity, code, message) = error_to_sqlstate(&e);
-                            PgWireError::UserError(Box::new(ErrorInfo::new(
-                                severity.to_owned(),
-                                code.to_owned(),
-                                message,
-                            )))
-                        })?;
-
-                        // Capture for the tx_builder closure (must be Clone-able).
-                        let tasks_snapshot = tasks.clone();
-                        let collection_clone = dep_collection.clone();
-                        let predicted_clone = predicted.clone();
-
-                        dispatch_dependent_read(
-                            orc,
-                            inbox,
-                            pred_class,
-                            tenant_id,
-                            || {
-                                // Inject predicted surrogates into the plans.
-                                let modified_tasks: Vec<PhysicalTask> = tasks_snapshot
-                                    .iter()
-                                    .map(|t| {
-                                        let mut t = t.clone();
-                                        inject_ollp_surrogates(
-                                            &mut t.plan,
-                                            predicted_clone.clone(),
-                                        );
-                                        t
-                                    })
-                                    .collect();
-
-                                build_dependent_tx_class(
-                                    &modified_tasks,
-                                    tenant_id,
-                                    &collection_clone,
-                                    &predicted_clone,
-                                )
-                            },
-                            // Use the orchestrator's configured max retries.
-                            orc.ollp_max_retries(),
-                        )
-                        .await
-                        .map_err(|e| {
-                            let (severity, code, message) = error_to_sqlstate(&e);
-                            PgWireError::UserError(Box::new(ErrorInfo::new(
-                                severity.to_owned(),
-                                code.to_owned(),
-                                message,
-                            )))
-                        })?
-                    } else {
-                        // Static Calvin path: all write keys are statically known.
-                        let dispatch = dispatch_calvin_or_fast(
-                            &tasks,
-                            cross_shard_mode,
-                            tx_state,
-                            inbox,
-                            orchestrator,
-                            tenant_id,
-                        )
-                        .await
-                        .map_err(|e| {
-                            let (severity, code, message) = error_to_sqlstate(&e);
-                            PgWireError::UserError(Box::new(ErrorInfo::new(
-                                severity.to_owned(),
-                                code.to_owned(),
-                                message,
-                            )))
-                        })?;
-
-                        match dispatch {
-                            DispatchOutcome::CalvinStatic { inbox_seq }
-                            | DispatchOutcome::CalvinDependent { inbox_seq } => inbox_seq,
-                            DispatchOutcome::SingleShard
-                            | DispatchOutcome::BestEffortNonAtomic => {
-                                return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                                    "ERROR".to_owned(),
-                                    "XX000".to_owned(),
-                                    "unexpected non-Calvin dispatch outcome for strict \
-                                     multi-shard query"
-                                        .to_owned(),
-                                ))));
-                            }
-                        }
-                    };
-
-                    let assignment_rx = registry.register_submission(inbox_seq);
-                    let timeout = std::time::Duration::from_secs(
-                        self.state.tuning.network.default_deadline_secs,
-                    );
-                    let (epoch, position, _participants) =
-                        tokio::time::timeout(timeout, assignment_rx)
-                            .await
-                            .map_err(|_| {
-                                PgWireError::UserError(Box::new(ErrorInfo::new(
-                                    "ERROR".to_owned(),
-                                    "57014".to_owned(),
-                                    "timed out waiting for Calvin sequencer assignment".to_owned(),
-                                )))
-                            })?
-                            .map_err(|_| {
-                                PgWireError::UserError(Box::new(ErrorInfo::new(
-                                    "ERROR".to_owned(),
-                                    "XX000".to_owned(),
-                                    "Calvin sequencer assignment channel closed".to_owned(),
-                                )))
-                            })?;
-
-                    let completion_rx = registry
-                        .register_completion(nodedb_cluster::calvin::TxnId::new(epoch, position));
-                    tokio::time::timeout(timeout, completion_rx)
-                        .await
-                        .map_err(|_| {
-                            PgWireError::UserError(Box::new(ErrorInfo::new(
-                                "ERROR".to_owned(),
-                                "57014".to_owned(),
-                                "timed out waiting for Calvin transaction completion".to_owned(),
-                            )))
-                        })?
-                        .map_err(|_| {
-                            PgWireError::UserError(Box::new(ErrorInfo::new(
-                                "ERROR".to_owned(),
-                                "XX000".to_owned(),
-                                "Calvin completion channel closed".to_owned(),
-                            )))
-                        })?;
-
-                    // Emit one CommandComplete tag per accumulated task so
-                    // Postgres clients see N tags matching the N statements
-                    // they sent.  For foldable point-write plans we synthesise
-                    // a specific verb+rowcount tag (INSERT 0 1, UPDATE 1, …);
-                    // any non-foldable task gets a plain OK tag.  The Calvin
-                    // batch has already completed at this point (we waited on
-                    // `completion_rx` above), so this is purely response
-                    // shaping — no Data Plane round-trip.
-                    let mut calvin_responses: Vec<Response> =
-                        Vec::with_capacity(tasks.len());
-                    for task in &tasks {
-                        let tag = if is_calvin_foldable(&task.plan) {
-                            calvin_tag_for_plan(&task.plan)
-                        } else {
-                            Tag::new("OK")
-                        };
-                        calvin_responses.push(Response::Execution(tag));
-                    }
-                    return Ok(calvin_responses);
+                    return self
+                        .dispatch_calvin_multishard(tasks, tenant_id, identity, addr)
+                        .await;
                 }
             }
         }
 
+        self.dispatch_task_loop(tasks, tenant_id, identity, addr)
+            .await
+    }
+
+    /// Execute the per-task dispatch loop for non-Calvin queries.
+    async fn dispatch_task_loop(
+        &self,
+        tasks: Vec<PhysicalTask>,
+        tenant_id: TenantId,
+        identity: &AuthenticatedIdentity,
+        addr: &std::net::SocketAddr,
+    ) -> PgWireResult<Vec<Response>> {
         let needs_set_op = tasks.iter().any(|t| t.post_set_op != PostSetOp::None);
         let mut dedup_payloads: Vec<Vec<u8>> = Vec::new();
         let mut dedup_set_op = PostSetOp::None;
         let mut responses = Vec::with_capacity(tasks.len());
+
         for mut task in tasks {
             if task.tenant_id != tenant_id {
                 tracing::error!(
@@ -580,6 +179,7 @@ impl NodeDbPgHandler {
             {
                 use crate::control::cluster::ClusterArrayExecutor;
                 use crate::control::server::pgwire::handler::plan::PlanKind;
+                use std::sync::Arc;
 
                 let transport = self.state.cluster_transport.as_ref().ok_or_else(|| {
                     PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -609,8 +209,6 @@ impl NodeDbPgHandler {
                         message,
                     )))
                 })?;
-                // Slice responses are wrapped in `ArraySliceResponse`; all
-                // other cluster array ops return plain msgpack.
                 let cluster_plan_kind = match cluster_op {
                     crate::bridge::physical_plan::ClusterArrayOp::Slice { .. } => {
                         PlanKind::ArraySlice
@@ -644,18 +242,12 @@ impl NodeDbPgHandler {
             let plan_kind = describe_plan(&task.plan);
             let collection_for_si = extract_collection(&task.plan).map(String::from);
             let resp_post_set_op = task.post_set_op;
-            // Clone the plan up front so response-shaping (which runs after
-            // `dispatch_task` consumes `task`) still has it available.
             let plan_for_response = task.plan.clone();
 
             // --- Trigger interception for DML writes ---
             let mut dml_info = crate::control::trigger::dml_hook::classify_dml_write(&task.plan);
 
             // Fetch OLD row and fire BEFORE/INSTEAD OF triggers if applicable.
-            // UPSERT sets `needs_existence_probe` so the probe decides whether
-            // AFTER INSERT or AFTER UPDATE triggers fire — post-dispatch routing
-            // branches on `info.event`, which we override here based on the
-            // probe result before the BEFORE / AFTER hooks run.
             let old_row = if let Some(ref info) = dml_info
                 && info.document_id.is_some()
                 && (matches!(
@@ -677,10 +269,7 @@ impl NodeDbPgHandler {
                 None
             };
 
-            // Probe-driven reclassification: UPSERT onto an existing row is an
-            // UPDATE for trigger purposes; onto a fresh key it's an INSERT.
-            // `needs_existence_probe` is the signal that `event` was a
-            // placeholder and must be refined from the probe result.
+            // Probe-driven reclassification.
             if let Some(ref mut info) = dml_info
                 && info.needs_existence_probe
             {
@@ -692,8 +281,8 @@ impl NodeDbPgHandler {
             }
 
             if let Some(ref info) = dml_info {
-                use crate::control::trigger::dml_hook::PreDispatchResult;
-                match crate::control::trigger::dml_hook::fire_pre_dispatch_triggers(
+                use crate::control::trigger::dml_hook_fire::PreDispatchResult;
+                match crate::control::trigger::dml_hook_fire::fire_pre_dispatch_triggers(
                     &self.state,
                     identity,
                     tenant_id,
@@ -727,7 +316,7 @@ impl NodeDbPgHandler {
                 }
             }
 
-            // Extract truncate restart_identity info before task is moved into dispatch.
+            // Extract truncate restart_identity info before task is moved.
             let truncate_restart_collection =
                 if let crate::bridge::physical_plan::PhysicalPlan::Document(
                     crate::bridge::physical_plan::DocumentOp::Truncate {
@@ -768,9 +357,9 @@ impl NodeDbPgHandler {
                     .restart_sequences_for_collection(tenant_id.as_u64(), collection);
             }
 
-            // --- SYNC AFTER triggers ---
+            // --- AFTER triggers ---
             if let Some(ref info) = dml_info {
-                crate::control::trigger::dml_hook::fire_post_dispatch_triggers(
+                crate::control::trigger::dml_hook_fire::fire_post_dispatch_triggers(
                     &self.state,
                     identity,
                     tenant_id,
@@ -808,12 +397,6 @@ impl NodeDbPgHandler {
                     dedup_set_op = resp_post_set_op;
                 }
             } else {
-                // KV point-get responses arrive as the stored value map
-                // (`{col: val, ...}`) — the primary-key column isn't in the
-                // stored value, so inject it before the pgwire layer turns
-                // the map into a SQL row. Matches the convention used by
-                // `execute_kv_scan`, which already injects `key` at the
-                // engine level.
                 let payload = maybe_wrap_kv_point_get(&plan_for_response, &resp.payload);
                 let payload = crate::control::server::response_translate::translate_if_vector(
                     &payload,
@@ -834,47 +417,5 @@ impl NodeDbPgHandler {
         }
 
         Ok(responses)
-    }
-
-    /// Determine read consistency for a set of tasks.
-    fn consistency_for_tasks(&self, tasks: &[PhysicalTask]) -> ReadConsistency {
-        let has_writes = tasks.iter().any(|t| {
-            crate::control::wal_replication::to_replicated_entry(t.tenant_id, t.vshard_id, &t.plan)
-                .is_some()
-        });
-
-        if has_writes {
-            ReadConsistency::Strong
-        } else {
-            ReadConsistency::BoundedStaleness(std::time::Duration::from_secs(5))
-        }
-    }
-}
-
-/// Inject a RETURNING spec into a DML physical plan variant.
-///
-/// Only `PointUpdate`, `BulkUpdate`, `PointDelete`, and `BulkDelete` are
-/// affected. All other plan variants are left unchanged.
-fn inject_returning_spec(
-    plan: &mut crate::bridge::envelope::PhysicalPlan,
-    spec: crate::bridge::physical_plan::ReturningSpec,
-) {
-    use crate::bridge::envelope::PhysicalPlan;
-    use crate::bridge::physical_plan::DocumentOp;
-
-    match plan {
-        PhysicalPlan::Document(DocumentOp::PointUpdate { returning, .. }) => {
-            *returning = Some(spec);
-        }
-        PhysicalPlan::Document(DocumentOp::BulkUpdate { returning, .. }) => {
-            *returning = Some(spec);
-        }
-        PhysicalPlan::Document(DocumentOp::PointDelete { returning, .. }) => {
-            *returning = Some(spec);
-        }
-        PhysicalPlan::Document(DocumentOp::BulkDelete { returning, .. }) => {
-            *returning = Some(spec);
-        }
-        _ => {}
     }
 }

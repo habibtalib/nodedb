@@ -1,6 +1,7 @@
 //! Vector and matrix selector evaluation.
 
 use super::super::ast::*;
+use super::super::error::PromqlError;
 use super::super::label::matches_all;
 use super::super::types::*;
 use super::EvalContext;
@@ -10,7 +11,7 @@ pub fn eval_vector_selector(
     name: Option<&str>,
     matchers: &[super::super::label::LabelMatcher],
     offset: Option<Duration>,
-) -> Result<Value, String> {
+) -> Result<Value, PromqlError> {
     let eval_ts = ctx.timestamp_ms - offset.map_or(0, |d| d.ms());
     let min_ts = eval_ts - ctx.lookback_ms;
 
@@ -46,14 +47,16 @@ pub fn eval_matrix_selector(
     ctx: &EvalContext,
     selector: &Expr,
     range: Duration,
-) -> Result<Value, String> {
+) -> Result<Value, PromqlError> {
     let Expr::VectorSelector {
         name,
         matchers,
         offset,
     } = selector
     else {
-        return Err("matrix selector requires vector selector".into());
+        return Err(PromqlError::Selector {
+            detail: "matrix selector requires vector selector".to_string(),
+        });
     };
 
     let eval_ts = ctx.timestamp_ms - offset.map_or(0, |d| d.ms());

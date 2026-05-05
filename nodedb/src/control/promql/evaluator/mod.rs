@@ -12,6 +12,7 @@ mod selector;
 use std::collections::BTreeMap;
 
 use super::ast::*;
+use super::error::PromqlError;
 use super::types::*;
 
 pub use helpers::{group_key, group_labels, labels_key, match_key};
@@ -37,7 +38,7 @@ impl Default for EvalContext {
 }
 
 /// Evaluate a PromQL expression at a single timestamp (instant query).
-pub fn evaluate_instant(ctx: &EvalContext, expr: &Expr) -> Result<Value, String> {
+pub fn evaluate_instant(ctx: &EvalContext, expr: &Expr) -> Result<Value, PromqlError> {
     eval(ctx, expr)
 }
 
@@ -48,7 +49,7 @@ pub fn evaluate_range(
     start_ms: i64,
     end_ms: i64,
     step_ms: i64,
-) -> Result<Value, String> {
+) -> Result<Value, PromqlError> {
     let mut result_series: BTreeMap<String, RangeSeries> = BTreeMap::new();
 
     let mut ts = start_ms;
@@ -90,10 +91,13 @@ pub fn evaluate_range(
     Ok(Value::Matrix(result_series.into_values().collect()))
 }
 
-pub(crate) fn eval(ctx: &EvalContext, expr: &Expr) -> Result<Value, String> {
+pub(crate) fn eval(ctx: &EvalContext, expr: &Expr) -> Result<Value, PromqlError> {
     match expr {
         Expr::Scalar(v) => Ok(Value::Scalar(*v, ctx.timestamp_ms)),
-        Expr::StringLiteral(_) => Err("string literals not supported in evaluation".into()),
+        Expr::StringLiteral(_) => Err(PromqlError::TypeError {
+            context: "evaluation".to_string(),
+            detail: "string literals not supported in evaluation".to_string(),
+        }),
         Expr::VectorSelector {
             name,
             matchers,
@@ -155,7 +159,7 @@ fn eval_subquery(
     inner: &Expr,
     range: Duration,
     step: Option<Duration>,
-) -> Result<Value, String> {
+) -> Result<Value, PromqlError> {
     let end_ms = ctx.timestamp_ms;
     let start_ms = end_ms - range.ms();
     // Default step: evaluation interval, or 1 minute if unset.

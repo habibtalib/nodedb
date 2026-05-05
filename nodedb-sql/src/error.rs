@@ -85,6 +85,14 @@ impl From<crate::catalog::SqlCatalogError> for SqlError {
     }
 }
 
+impl From<nodedb_query::expr_parse::ExprParseError> for SqlError {
+    fn from(e: nodedb_query::expr_parse::ExprParseError) -> Self {
+        Self::Parse {
+            detail: e.to_string(),
+        }
+    }
+}
+
 impl From<sqlparser::parser::ParserError> for SqlError {
     fn from(e: sqlparser::parser::ParserError) -> Self {
         Self::Parse {

@@ -5,7 +5,7 @@ use super::helpers::{split_by_and, split_top_level_commas};
 use super::parse_match_clauses;
 
 /// Parse WHERE predicates.
-pub(super) fn parse_where(text: &str) -> Result<Vec<WherePredicate>, String> {
+pub(super) fn parse_where(text: &str) -> crate::Result<Vec<WherePredicate>> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Ok(Vec::new());
@@ -24,8 +24,12 @@ pub(super) fn parse_where(text: &str) -> Result<Vec<WherePredicate>, String> {
 
         // NOT EXISTS { MATCH ... }
         if upper_part.starts_with("NOT EXISTS") {
-            let brace_start = part.find('{').ok_or("NOT EXISTS requires { MATCH ... }")?;
-            let brace_end = part.rfind('}').ok_or("unclosed '{' in NOT EXISTS")?;
+            let brace_start = part.find('{').ok_or_else(|| crate::Error::BadRequest {
+                detail: "NOT EXISTS requires { MATCH ... }".to_string(),
+            })?;
+            let brace_end = part.rfind('}').ok_or_else(|| crate::Error::BadRequest {
+                detail: "unclosed '{' in NOT EXISTS".to_string(),
+            })?;
             let inner = part[brace_start + 1..brace_end].trim();
             let inner_clauses = parse_match_clauses(inner)?;
             if let Some(clause) = inner_clauses.into_iter().next() {

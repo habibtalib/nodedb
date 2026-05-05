@@ -18,13 +18,13 @@ pub(crate) fn parse_search_results(
     let mut results = Vec::new();
     for row in rows {
         if let Some(text) = row.first().and_then(|v| v.as_str()) {
-            if let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(text) {
+            if let Ok(items) = sonic_rs::from_str::<Vec<serde_json::Value>>(text) {
                 for item in items {
                     if let Some(sr) = parse_single_search_result(&item) {
                         results.push(sr);
                     }
                 }
-            } else if let Ok(item) = serde_json::from_str::<serde_json::Value>(text)
+            } else if let Ok(item) = sonic_rs::from_str::<serde_json::Value>(text)
                 && let Some(sr) = parse_single_search_result(&item)
             {
                 results.push(sr);
@@ -66,7 +66,7 @@ pub(crate) fn parse_subgraph_response(
             None => continue,
         };
 
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(text) {
+        if let Ok(val) = sonic_rs::from_str::<serde_json::Value>(text) {
             if let Some(obj) = val.as_object() {
                 if let Some(ns) = obj.get("nodes").and_then(|v| v.as_array()) {
                     for n in ns {

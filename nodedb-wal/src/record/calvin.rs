@@ -59,9 +59,15 @@ impl CalvinAppliedPayload {
                 ),
             });
         }
-        let epoch = u64::from_le_bytes(bytes[..8].try_into().unwrap());
-        let position = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
-        let vshard_id = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
+        let epoch = u64::from_le_bytes(bytes[..8].try_into().expect(
+            "invariant: bounds-checked above (bytes.len() >= CALVIN_APPLIED_PAYLOAD_SIZE >= 8)",
+        ));
+        let position = u32::from_le_bytes(bytes[8..12].try_into().expect(
+            "invariant: bounds-checked above (bytes.len() >= CALVIN_APPLIED_PAYLOAD_SIZE >= 12)",
+        ));
+        let vshard_id = u32::from_le_bytes(bytes[12..16].try_into().expect(
+            "invariant: bounds-checked above (bytes.len() >= CALVIN_APPLIED_PAYLOAD_SIZE >= 16)",
+        ));
         Ok(Self {
             epoch,
             position,

@@ -30,6 +30,7 @@ fluxbench = { workspace = true }
 tracing-subscriber = { workspace = true }
 tempfile = "3"
 io-uring = { workspace = true }
+rand = { workspace = true }
 
 [[bench]]
 name = "wal_throughput"

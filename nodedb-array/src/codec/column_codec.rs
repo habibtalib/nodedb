@@ -57,7 +57,11 @@ pub fn decode_row_kinds(data: &[u8]) -> ArrayResult<Vec<u8>> {
             detail: "row_kinds: truncated count".into(),
         });
     }
-    let count = u32::from_le_bytes(data[0..4].try_into().unwrap()) as usize;
+    let count = u32::from_le_bytes(
+        data[0..4]
+            .try_into()
+            .expect("invariant: bounds-checked above (data.len() >= 4)"),
+    ) as usize;
     if data.len() < 4 + count {
         return Err(ArrayError::SegmentCorruption {
             detail: "row_kinds: truncated body".into(),
@@ -171,7 +175,11 @@ pub fn decode_attr_col(data: &[u8]) -> ArrayResult<Vec<CellValue>> {
                     detail: "attr col msgpack: truncated count".into(),
                 });
             }
-            let count = u32::from_le_bytes(body[0..4].try_into().unwrap()) as usize;
+            let count = u32::from_le_bytes(
+                body[0..4]
+                    .try_into()
+                    .expect("invariant: bounds-checked above (body.len() >= 4)"),
+            ) as usize;
             check_decoded_size(count, MAX_COLUMN_ENTRIES, "attr_col_msgpack count")?;
             let mut pos = 4;
             let mut values = Vec::with_capacity(count);
@@ -181,7 +189,11 @@ pub fn decode_attr_col(data: &[u8]) -> ArrayResult<Vec<CellValue>> {
                         detail: "attr col msgpack: truncated entry len".into(),
                     });
                 }
-                let len = u32::from_le_bytes(body[pos..pos + 4].try_into().unwrap()) as usize;
+                let len = u32::from_le_bytes(
+                    body[pos..pos + 4]
+                        .try_into()
+                        .expect("invariant: bounds-checked above (pos + 4 <= body.len())"),
+                ) as usize;
                 pos += 4;
                 if pos + len > body.len() {
                     return Err(ArrayError::SegmentCorruption {

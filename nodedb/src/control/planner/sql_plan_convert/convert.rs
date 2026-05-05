@@ -16,6 +16,10 @@ use crate::types::TenantId;
 use crate::wal::WalManager;
 
 use super::super::physical::PhysicalTask;
+use convert_array_arms::convert_array_plans;
+
+#[path = "convert_array_arms.rs"]
+mod convert_array_arms;
 
 /// Conversion context holding optional references needed during plan conversion.
 pub struct ConvertContext {
@@ -64,6 +68,11 @@ pub(super) fn convert_one(
     tenant_id: TenantId,
     ctx: &ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
+    // Delegate array plans first to keep this match manageable.
+    if let Some(result) = convert_array_plans(plan, tenant_id, ctx) {
+        return result;
+    }
+
     match plan {
         SqlPlan::ConstantResult { columns, values } => {
             super::set_ops::convert_constant_result(columns, values, tenant_id)
@@ -389,106 +398,6 @@ pub(super) fn convert_one(
             super::set_ops::convert_cte(definitions, outer, tenant_id, ctx)
         }
 
-        SqlPlan::CreateArray {
-            name,
-            dims,
-            attrs,
-            tile_extents,
-            cell_order,
-            tile_order,
-            prefix_bits,
-            audit_retain_ms,
-            minimum_audit_retain_ms,
-        } => super::array_convert::convert_create_array(super::array_convert::CreateArrayArgs {
-            name,
-            dims,
-            attrs,
-            tile_extents,
-            cell_order: *cell_order,
-            tile_order: *tile_order,
-            prefix_bits: *prefix_bits,
-            audit_retain_ms: *audit_retain_ms,
-            minimum_audit_retain_ms: *minimum_audit_retain_ms,
-            tenant_id,
-            ctx,
-        }),
-
-        SqlPlan::DropArray { name, if_exists } => {
-            super::array_convert::convert_drop_array(name, *if_exists, tenant_id, ctx)
-        }
-
-        SqlPlan::AlterArray {
-            name,
-            audit_retain_ms,
-            minimum_audit_retain_ms,
-        } => super::array_alter_convert::convert_alter_array(
-            name,
-            *audit_retain_ms,
-            *minimum_audit_retain_ms,
-            tenant_id,
-            ctx,
-        ),
-
-        SqlPlan::InsertArray { name, rows } => {
-            super::array_convert::convert_insert_array(name, rows, tenant_id, ctx)
-        }
-
-        SqlPlan::DeleteArray { name, coords } => {
-            super::array_convert::convert_delete_array(name, coords, tenant_id, ctx)
-        }
-
-        SqlPlan::NdArraySlice {
-            name,
-            slice,
-            attr_projection,
-            limit,
-            temporal,
-        } => super::array_fn_convert::convert_slice(
-            name,
-            slice,
-            attr_projection,
-            *limit,
-            *temporal,
-            tenant_id,
-            ctx,
-        ),
-
-        SqlPlan::NdArrayProject {
-            name,
-            attr_projection,
-        } => super::array_fn_convert::convert_project(name, attr_projection, tenant_id, ctx),
-
-        SqlPlan::NdArrayAgg {
-            name,
-            attr,
-            reducer,
-            group_by_dim,
-            temporal,
-        } => super::array_fn_convert::convert_agg(
-            name,
-            attr,
-            *reducer,
-            group_by_dim.as_deref(),
-            *temporal,
-            tenant_id,
-            ctx,
-        ),
-
-        SqlPlan::NdArrayElementwise {
-            left,
-            right,
-            op,
-            attr,
-        } => super::array_fn_convert::convert_elementwise(left, right, *op, attr, tenant_id, ctx),
-
-        SqlPlan::NdArrayFlush { name } => {
-            super::array_fn_convert::convert_flush(name, tenant_id, ctx)
-        }
-
-        SqlPlan::NdArrayCompact { name } => {
-            super::array_fn_convert::convert_compact(name, tenant_id, ctx)
-        }
-
         SqlPlan::VectorPrimaryInsert {
             collection,
             field,
@@ -510,5 +419,12 @@ pub(super) fn convert_one(
                 detail: format!("unsupported SqlPlan variant: {plan:?}"),
             })
         }
+
+        // Array arms are handled above by `convert_array_plans`.
+        // This catch-all handles any future array-related variants that
+        // haven't been added to `convert_array_arms.rs` yet.
+        _ => Err(crate::Error::PlanError {
+            detail: format!("unhandled SqlPlan variant: {plan:?}"),
+        }),
     }
 }

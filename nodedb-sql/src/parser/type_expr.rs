@@ -6,6 +6,8 @@
 
 use nodedb_types::Value;
 
+use crate::error::SqlError;
+
 /// A parsed type expression that can validate Values.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
@@ -64,10 +66,12 @@ pub enum SimpleType {
 ///     TypeExpr::Union(vec![TypeExpr::Simple(SimpleType::String), TypeExpr::Null]),
 /// );
 /// ```
-pub fn parse_type_expr(s: &str) -> Result<TypeExpr, String> {
+pub fn parse_type_expr(s: &str) -> Result<TypeExpr, SqlError> {
     let s = s.trim();
     if s.is_empty() {
-        return Err("empty type expression".to_string());
+        return Err(SqlError::Parse {
+            detail: "empty type expression".to_string(),
+        });
     }
     let mut pos = 0usize;
     let chars: Vec<char> = s.chars().collect();
@@ -78,7 +82,7 @@ pub fn parse_type_expr(s: &str) -> Result<TypeExpr, String> {
 ///
 /// When `stop_at_gt` is true the parser stops before a `>` character (used
 /// when parsing inside `ARRAY<...>` / `SET<...>`).
-fn parse_union(chars: &[char], pos: &mut usize, stop_at_gt: bool) -> Result<TypeExpr, String> {
+fn parse_union(chars: &[char], pos: &mut usize, stop_at_gt: bool) -> Result<TypeExpr, SqlError> {
     let mut variants: Vec<TypeExpr> = Vec::new();
     variants.push(parse_single(chars, pos, stop_at_gt)?);
 
@@ -106,14 +110,16 @@ fn parse_union(chars: &[char], pos: &mut usize, stop_at_gt: bool) -> Result<Type
 }
 
 /// Parse a single type token (keyword, ARRAY<...>, SET<...>, VECTOR(N)).
-fn parse_single(chars: &[char], pos: &mut usize, stop_at_gt: bool) -> Result<TypeExpr, String> {
+fn parse_single(chars: &[char], pos: &mut usize, stop_at_gt: bool) -> Result<TypeExpr, SqlError> {
     skip_ws(chars, pos);
     let keyword = read_keyword(chars, pos);
     if keyword.is_empty() {
-        return Err(format!(
-            "expected type keyword at position {pos}, found: {:?}",
-            chars.get(*pos)
-        ));
+        return Err(SqlError::Parse {
+            detail: format!(
+                "expected type keyword at position {pos}, found: {:?}",
+                chars.get(*pos)
+            ),
+        });
     }
 
     match keyword.as_str() {
@@ -141,25 +147,31 @@ fn parse_single(chars: &[char], pos: &mut usize, stop_at_gt: bool) -> Result<Typ
             // Expect '(' digits ')'.
             skip_ws(chars, pos);
             if *pos >= chars.len() || chars[*pos] != '(' {
-                return Err(format!("expected '(' after VECTOR at position {pos}"));
+                return Err(SqlError::Parse {
+                    detail: format!("expected '(' after VECTOR at position {pos}"),
+                });
             }
             *pos += 1; // consume '('
             skip_ws(chars, pos);
             let digits = read_digits(chars, pos);
             if digits.is_empty() {
-                return Err("expected dimension digits inside VECTOR(...)".to_string());
+                return Err(SqlError::Parse {
+                    detail: "expected dimension digits inside VECTOR(...)".to_string(),
+                });
             }
-            let dim: u32 = digits
-                .parse()
-                .map_err(|_| format!("invalid VECTOR dimension: '{digits}'"))?;
+            let dim: u32 = digits.parse().map_err(|_| SqlError::Parse {
+                detail: format!("invalid VECTOR dimension: '{digits}'"),
+            })?;
             if dim == 0 {
-                return Err("VECTOR dimension must be > 0".to_string());
+                return Err(SqlError::Parse {
+                    detail: "VECTOR dimension must be > 0".to_string(),
+                });
             }
             skip_ws(chars, pos);
             if *pos >= chars.len() || chars[*pos] != ')' {
-                return Err(format!(
-                    "expected ')' to close VECTOR({dim} at position {pos}"
-                ));
+                return Err(SqlError::Parse {
+                    detail: format!("expected ')' to close VECTOR({dim} at position {pos}"),
+                });
             }
             *pos += 1; // consume ')'
             Ok(TypeExpr::Simple(SimpleType::Vector(dim)))
@@ -174,9 +186,9 @@ fn parse_single(chars: &[char], pos: &mut usize, stop_at_gt: bool) -> Result<Typ
                 let inner = parse_union(chars, pos, true)?;
                 skip_ws(chars, pos);
                 if *pos >= chars.len() || chars[*pos] != '>' {
-                    return Err(format!(
-                        "expected '>' to close ARRAY<...> at position {pos}"
-                    ));
+                    return Err(SqlError::Parse {
+                        detail: format!("expected '>' to close ARRAY<...> at position {pos}"),
+                    });
                 }
                 *pos += 1; // consume '>'
                 Ok(TypeExpr::TypedArray(Box::new(inner)))
@@ -194,7 +206,9 @@ fn parse_single(chars: &[char], pos: &mut usize, stop_at_gt: bool) -> Result<Typ
                 let inner = parse_union(chars, pos, true)?;
                 skip_ws(chars, pos);
                 if *pos >= chars.len() || chars[*pos] != '>' {
-                    return Err(format!("expected '>' to close SET<...> at position {pos}"));
+                    return Err(SqlError::Parse {
+                        detail: format!("expected '>' to close SET<...> at position {pos}"),
+                    });
                 }
                 *pos += 1; // consume '>'
                 Ok(TypeExpr::TypedSet(Box::new(inner)))
@@ -205,7 +219,9 @@ fn parse_single(chars: &[char], pos: &mut usize, stop_at_gt: bool) -> Result<Typ
                 let inner = parse_union(chars, pos, true)?;
                 skip_ws(chars, pos);
                 if *pos >= chars.len() || chars[*pos] != '>' {
-                    return Err(format!("expected '>' to close SET<...> at position {pos}"));
+                    return Err(SqlError::Parse {
+                        detail: format!("expected '>' to close SET<...> at position {pos}"),
+                    });
                 }
                 *pos += 1;
                 Ok(TypeExpr::TypedSet(Box::new(inner)))
@@ -214,7 +230,9 @@ fn parse_single(chars: &[char], pos: &mut usize, stop_at_gt: bool) -> Result<Typ
             }
         }
 
-        other => Err(format!("unknown type keyword: '{other}'")),
+        other => Err(SqlError::Parse {
+            detail: format!("unknown type keyword: '{other}'"),
+        }),
     }
 }
 

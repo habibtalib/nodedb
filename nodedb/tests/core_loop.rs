@@ -12,7 +12,7 @@ mod test_columnar_aggregate;
 mod test_conditional_update;
 #[path = "executor_tests/test_cross_engine_validation.rs"]
 mod test_cross_engine_validation;
-#[path = "executor_tests/test_cross_type_join.rs"]
+#[path = "executor_tests/test_cross_type_join/mod.rs"]
 mod test_cross_type_join;
 #[path = "executor_tests/test_document.rs"]
 mod test_document;

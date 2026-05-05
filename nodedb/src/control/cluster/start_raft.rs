@@ -1,6 +1,5 @@
 //! Start the Raft event loop, RPC server, and both appliers.
 
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -10,63 +9,22 @@ use nodedb_cluster::calvin::{
     CalvinCompletionRegistry, SEQUENCER_GROUP_ID, SequencerConfig, SequencerService,
     SequencerStateMachine, new_inbox,
 };
-use nodedb_cluster::distributed_array::{ArrayLocalExecutor, handle_array_shard_rpc};
-use nodedb_cluster::vshard_handler::{DispatchTarget, dispatch_by_type};
-use nodedb_cluster::wire::VShardEnvelope;
+use nodedb_cluster::distributed_array::ArrayLocalExecutor;
 use nodedb_types::config::tuning::ClusterTransportTuning;
 
 use crate::control::cluster::array_executor::DataPlaneArrayExecutor;
 use crate::control::cluster::calvin::executor::ollp::OllpConfig;
 use crate::control::cluster::calvin::executor::ollp::orchestrator::OllpOrchestrator;
-use crate::control::cluster::calvin::scheduler::metrics::SchedulerMetrics;
-use crate::control::cluster::calvin::scheduler::read_last_applied_epoch;
-use crate::control::cluster::calvin::{ReadResultEvent, Scheduler, SchedulerConfig};
+use crate::control::cluster::calvin::{ReadResultEvent, SchedulerConfig};
 use crate::control::cluster::handle::ClusterHandle;
 use crate::control::cluster::metadata_applier::MetadataCommitApplier;
+use crate::control::cluster::snapshot_hook::RaftSnapshotQuarantineHook;
 use crate::control::cluster::spsc_applier::SpscCommitApplier;
+use crate::control::cluster::start_raft_helpers::{build_vshard_handler, spawn_vshard_schedulers};
 use crate::control::distributed_applier::{
     ProposeTracker, create_distributed_applier, run_apply_loop,
 };
 use crate::control::state::SharedState;
-
-/// `nodedb`-side implementation of [`nodedb_cluster::SnapshotQuarantineHook`].
-///
-/// Bridges the cluster crate's trait to the in-process `QuarantineRegistry`.
-/// All snapshot chunks are keyed under collection `"_raft_snapshot"` with
-/// segment id `"group=<g>:index=<i>"`.
-struct RaftSnapshotQuarantineHook {
-    registry: Arc<crate::storage::quarantine::QuarantineRegistry>,
-}
-
-impl nodedb_cluster::SnapshotQuarantineHook for RaftSnapshotQuarantineHook {
-    fn is_quarantined(&self, group_id: u64, last_included_index: u64) -> bool {
-        let key = crate::storage::quarantine::SegmentKey {
-            engine: crate::storage::quarantine::QuarantineEngine::Raft,
-            collection: "_raft_snapshot".to_string(),
-            segment_id: format!("group={group_id}:index={last_included_index}"),
-        };
-        self.registry.is_quarantined(&key)
-    }
-
-    fn record_success(&self, group_id: u64, last_included_index: u64) {
-        let key = crate::storage::quarantine::SegmentKey {
-            engine: crate::storage::quarantine::QuarantineEngine::Raft,
-            collection: "_raft_snapshot".to_string(),
-            segment_id: format!("group={group_id}:index={last_included_index}"),
-        };
-        self.registry.record_success(&key);
-    }
-
-    fn record_failure(&self, group_id: u64, last_included_index: u64, error: &str) -> bool {
-        let key = crate::storage::quarantine::SegmentKey {
-            engine: crate::storage::quarantine::QuarantineEngine::Raft,
-            collection: "_raft_snapshot".to_string(),
-            segment_id: format!("group={group_id}:index={last_included_index}"),
-        };
-        // record_failure returns Err(SegmentQuarantined) on the second strike.
-        self.registry.record_failure(key, error, None).is_err()
-    }
-}
 
 /// Start the Raft event loop and RPC server.
 ///
@@ -163,66 +121,25 @@ pub fn start_raft(
     let array_executor: Arc<dyn ArrayLocalExecutor> =
         Arc::new(DataPlaneArrayExecutor::new(shared.clone()));
 
-    // Build the VShardEnvelope handler closure. This is the single entry point
-    // for all incoming VShardEnvelope RPCs from peer nodes. Handles:
-    //   - Array shard opcodes (ArrayShard target)
-    // Other engine targets return a typed error so callers know no handler is
-    // registered rather than silently timing out.
-    let vshard_handler: nodedb_cluster::VShardEnvelopeHandler = {
-        let executor = array_executor.clone();
-        Arc::new(move |bytes: Vec<u8>| {
-            let executor = executor.clone();
-            let fut: Pin<
-                Box<
-                    dyn std::future::Future<Output = nodedb_cluster::error::Result<Vec<u8>>> + Send,
-                >,
-            > = Box::pin(async move {
-                let envelope = VShardEnvelope::from_bytes(&bytes).ok_or_else(|| {
-                    nodedb_cluster::error::ClusterError::Codec {
-                        detail: "vshard_handler: failed to deserialize VShardEnvelope".into(),
-                    }
-                })?;
-
-                let target = dispatch_by_type(&envelope);
-                match target {
-                    DispatchTarget::ArrayShard => {
-                        let opcode = envelope.msg_type as u32;
-                        let resp_payload = handle_array_shard_rpc(
-                            opcode,
-                            envelope.vshard_id,
-                            &envelope.payload,
-                            &executor,
-                        )
-                        .await?;
-
-                        // Response opcode = request opcode + 1 for all array shard RPCs.
-                        // Resolve the msg_type variant via a minimal scratch envelope parse
-                        // (avoids any unsafe transmute — the `from_bytes` mapping in wire.rs
-                        // is the canonical source of truth for the opcode→variant table).
-                        let resp_opcode = opcode + 1;
-                        let resp_msg_type = resolve_vshard_msg_type(resp_opcode)?;
-                        let resp_envelope = VShardEnvelope::new(
-                            resp_msg_type,
-                            envelope.target_node,
-                            envelope.source_node,
-                            envelope.vshard_id,
-                            resp_payload,
-                        );
-                        Ok(resp_envelope.to_bytes())
-                    }
-
-                    other => Err(nodedb_cluster::error::ClusterError::Transport {
-                        detail: format!(
-                            "vshard_handler: no handler registered for dispatch target {other:?}"
-                        ),
-                    }),
-                }
-            });
-            fut
-        })
-    };
+    let vshard_handler = build_vshard_handler(array_executor);
 
     let tick_interval = Duration::from_millis(transport_tuning.raft_tick_interval_ms);
+
+    // Read snapshot-transfer config from the pending subsystem config before
+    // the raft_loop is constructed (pending is consumed after the loop).
+    let (snapshot_chunk_bytes, orphan_partial_max_age_secs) = {
+        let guard = handle
+            .pending_subsystems
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let cfg = guard.as_ref().ok_or_else(|| crate::Error::Config {
+            detail: "start_raft called twice: pending_subsystems already consumed".into(),
+        })?;
+        (
+            cfg.config.install_snapshot_chunk_bytes,
+            cfg.config.orphan_partial_max_age_secs,
+        )
+    };
 
     let quarantine_hook = Arc::new(RaftSnapshotQuarantineHook {
         registry: Arc::clone(&shared.quarantine_registry),
@@ -240,7 +157,10 @@ pub fn start_raft(
         .with_vshard_handler(vshard_handler)
         .with_tick_interval(tick_interval)
         .with_group_watchers(handle.group_watchers.clone())
-        .with_snapshot_quarantine_hook(quarantine_hook),
+        .with_snapshot_quarantine_hook(quarantine_hook)
+        .with_data_dir(_data_dir.to_path_buf())
+        .with_snapshot_chunk_bytes(snapshot_chunk_bytes)
+        .with_orphan_partial_max_age_secs(orphan_partial_max_age_secs),
     );
 
     // Spawn cluster subsystems now that the loop owns `MultiRaft`.
@@ -275,51 +195,14 @@ pub fn start_raft(
     let sequencer_metrics = Arc::clone(&sequencer_service.metrics);
 
     let scheduler_config = SchedulerConfig::default();
-    let mut local_vshards: Vec<u32> = {
-        let routing = handle.routing.read().unwrap_or_else(|p| p.into_inner());
-        let mut vshards = Vec::new();
-        for (group_id, info) in routing.group_members() {
-            if info.members.contains(&handle.node_id) {
-                vshards.extend(routing.vshards_for_group(*group_id));
-            }
-        }
-        vshards
-    };
-    local_vshards.sort_unstable();
-    local_vshards.dedup();
-
-    for vshard_id in local_vshards {
-        let last_applied_epoch = read_last_applied_epoch(&shared.wal, vshard_id)?;
-        let (sequenced_tx, sequenced_rx) =
-            tokio::sync::mpsc::channel(scheduler_config.channel_capacity);
-        sequencer_state_machine
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .set_vshard_sender(vshard_id, sequenced_tx);
-
-        let (read_result_tx, read_result_rx) =
-            tokio::sync::mpsc::channel(scheduler_config.channel_capacity);
-        calvin_read_result_senders
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(vshard_id, read_result_tx);
-
-        let scheduler = Scheduler::new(
-            vshard_id,
-            sequenced_rx,
-            Arc::clone(&shared),
-            raft_loop_handle.clone(),
-            last_applied_epoch,
-            last_applied_epoch,
-            scheduler_config.clone(),
-            SchedulerMetrics::new(),
-            read_result_rx,
-        );
-        let shutdown = shared.shutdown.subscribe();
-        tokio::spawn(async move {
-            scheduler.run(shutdown).await;
-        });
-    }
+    spawn_vshard_schedulers(
+        handle,
+        &shared,
+        raft_loop_handle.clone(),
+        &sequencer_state_machine,
+        &calvin_read_result_senders,
+        &scheduler_config,
+    )?;
 
     let running = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(nodedb_cluster::start_cluster_subsystems(
@@ -466,8 +349,7 @@ pub fn start_raft(
 
     // Allow the surrogate assigner's flush path to propose
     // `SurrogateAlloc` entries to the Raft group so followers advance
-    // their in-memory HWM on every checkpoint. Mirrors the pattern
-    // used by `MetadataCommitApplier::install_shared`.
+    // their in-memory HWM on every checkpoint.
     shared
         .surrogate_assigner
         .install_shared(Arc::downgrade(&shared));
@@ -509,10 +391,7 @@ pub fn start_raft(
     });
 
     // Wire version of every node is now carried on the live
-    // `NodeInfo` in `cluster_topology`, stamped by the joiner on
-    // join_request and the self-register path on bootstrap — no
-    // shadow map to populate here. Log the derived view for
-    // observability.
+    // `NodeInfo` in `cluster_topology`. Log the derived view for observability.
     {
         let view = shared.cluster_version_view();
         let compat = crate::control::rolling_upgrade::should_compat_mode(&view);
@@ -528,10 +407,7 @@ pub fn start_raft(
     }
 
     // Start the health monitor (periodic pings, failure detection,
-    // topology re-broadcast). Without this, topology updates are
-    // only propagated via the fire-and-forget broadcast during the
-    // join flow — if that single broadcast is lost (peer QUIC server
-    // not yet accepting), the peer never converges.
+    // topology re-broadcast).
     let health_config = nodedb_cluster::HealthConfig {
         ping_interval: Duration::from_secs(transport_tuning.health_ping_interval_secs),
         failure_threshold: transport_tuning.health_failure_threshold,
@@ -557,28 +433,4 @@ pub fn start_raft(
     info!(node_id = handle.node_id, "raft loop and RPC server started");
 
     Ok(ready_rx)
-}
-
-/// Resolve a raw opcode `u16` to a `VShardMessageType` variant.
-///
-/// Uses `VShardEnvelope::from_bytes` as the canonical opcode→variant mapping
-/// so this helper stays in sync with the wire format without duplicating the
-/// match table. Returns `ClusterError::Codec` for unknown opcodes.
-fn resolve_vshard_msg_type(
-    opcode: u32,
-) -> nodedb_cluster::error::Result<nodedb_cluster::wire::VShardMessageType> {
-    // A minimal 26-byte envelope with the target opcode and all other fields
-    // set to zero. `from_bytes` parses only the header — the empty payload is
-    // valid (payload_len = 0).
-    let mut scratch = [0u8; 26];
-    scratch[0..2].copy_from_slice(&1u16.to_le_bytes()); // version
-    scratch[2..4].copy_from_slice(&(opcode as u16).to_le_bytes()); // msg_type (opcodes 80-89 fit u16)
-    // bytes[4..22] = source_node(0) + target_node(0) + vshard_id(0)
-    // bytes[22..26] = payload_len(0)
-
-    VShardEnvelope::from_bytes(&scratch)
-        .map(|e| e.msg_type)
-        .ok_or_else(|| nodedb_cluster::error::ClusterError::Codec {
-            detail: format!("resolve_vshard_msg_type: unknown opcode {opcode}"),
-        })
 }

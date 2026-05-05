@@ -152,9 +152,10 @@ async fn send_write(
     source_node: u64,
     target_node: u64,
     request: &CrossShardWriteRequest,
-) -> Result<CrossShardWriteResponse, String> {
-    let payload =
-        zerompk::to_msgpack_vec(request).map_err(|e| format!("serialize request: {e}"))?;
+) -> crate::Result<CrossShardWriteResponse> {
+    let payload = zerompk::to_msgpack_vec(request).map_err(|e| crate::Error::Dispatch {
+        detail: format!("serialize request: {e}"),
+    })?;
 
     let envelope = VShardEnvelope::new(
         VShardMessageType::CrossShardEvent,
@@ -165,20 +166,30 @@ async fn send_write(
     );
 
     let rpc = RaftRpc::VShardEnvelope(envelope.to_bytes());
-    let response_rpc = transport
-        .send_rpc(target_node, rpc)
-        .await
-        .map_err(|e| format!("transport: {e}"))?;
+    let response_rpc =
+        transport
+            .send_rpc(target_node, rpc)
+            .await
+            .map_err(|e| crate::Error::Dispatch {
+                detail: format!("transport: {e}"),
+            })?;
 
     let RaftRpc::VShardEnvelope(response_bytes) = response_rpc else {
-        return Err("unexpected RPC response type".into());
+        return Err(crate::Error::Dispatch {
+            detail: "unexpected RPC response type".to_string(),
+        });
     };
 
-    let response_env = VShardEnvelope::from_bytes(&response_bytes)
-        .ok_or_else(|| "malformed VShardEnvelope response".to_string())?;
+    let response_env =
+        VShardEnvelope::from_bytes(&response_bytes).ok_or_else(|| crate::Error::Dispatch {
+            detail: "malformed VShardEnvelope response".to_string(),
+        })?;
 
-    zerompk::from_msgpack::<CrossShardWriteResponse>(&response_env.payload)
-        .map_err(|e| format!("deserialize response: {e}"))
+    zerompk::from_msgpack::<CrossShardWriteResponse>(&response_env.payload).map_err(|e| {
+        crate::Error::Dispatch {
+            detail: format!("deserialize response: {e}"),
+        }
+    })
 }
 
 /// Spawn the background dispatcher task.
@@ -255,7 +266,7 @@ pub fn spawn_dispatcher_task(
                                         request: write.request,
                                         target_node,
                                         attempts: 0,
-                                        last_error: e,
+                                        last_error: e.to_string(),
                                         next_retry_at: Instant::now(),
                                         enqueued_at: write.enqueued_at,
                                     });
@@ -319,7 +330,7 @@ async fn drain_retry_queue(
                 retry_queue.enqueue(entry);
             }
             Err(e) => {
-                entry.last_error = e;
+                entry.last_error = e.to_string();
                 retry_queue.enqueue(entry);
             }
         }

@@ -319,7 +319,7 @@ impl NodeDb for NodeDbRemote {
                 }
             } else if let Some(Value::String(json_str)) = row.get(1)
                 && let Ok(parsed) =
-                    serde_json::from_str::<HashMap<String, serde_json::Value>>(json_str)
+                    sonic_rs::from_str::<HashMap<String, serde_json::Value>>(json_str)
             {
                 for (k, v) in &parsed {
                     doc.set(k.clone(), json_to_value(v));
@@ -414,7 +414,7 @@ impl NodeDb for NodeDbRemote {
 /// Parse a JSON string from the DSL's "result" column into `Vec<SearchResult>`.
 fn parse_vector_search_json(json_text: &str) -> NodeDbResult<Vec<SearchResult>> {
     // The DSL returns MessagePack-encoded results as text. Try JSON parse.
-    let parsed: serde_json::Value = serde_json::from_str(json_text)
+    let parsed: serde_json::Value = sonic_rs::from_str(json_text)
         .map_err(|e| NodeDbError::serialization("json", e.to_string()))?;
 
     let mut results = Vec::new();
@@ -440,7 +440,7 @@ fn parse_vector_search_json(json_text: &str) -> NodeDbResult<Vec<SearchResult>> 
 
 /// Parse a JSON string from graph_traverse into `SubGraph`.
 fn parse_graph_traverse_json(json_text: &str) -> NodeDbResult<SubGraph> {
-    let parsed: serde_json::Value = serde_json::from_str(json_text)
+    let parsed: serde_json::Value = sonic_rs::from_str(json_text)
         .map_err(|e| NodeDbError::serialization("json", e.to_string()))?;
 
     let mut nodes = Vec::new();

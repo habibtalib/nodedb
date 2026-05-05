@@ -79,7 +79,7 @@ impl CoreLoop {
             }
             .map_err(|e| crate::Error::Serialization {
                 format: "binary_tuple".into(),
-                detail: e,
+                detail: e.to_string(),
             })?
         } else {
             value.to_vec()

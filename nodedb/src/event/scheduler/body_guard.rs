@@ -19,7 +19,7 @@ use sqlparser::parser::Parser;
 /// Inspect a scheduled job's SQL body and reject unbounded wildcard
 /// SELECTs. Returns `Ok(())` if the body is safe or isn't SQL we can
 /// parse (we defer to the runtime ceiling in that case).
-pub fn validate_scheduled_body(body_sql: &str) -> Result<(), String> {
+pub fn validate_scheduled_body(body_sql: &str) -> crate::Result<()> {
     // Strip a leading `BEGIN ... END` procedural wrapper if present so
     // we can reach the bare statements inside.
     let stripped = strip_procedural_wrapper(body_sql);
@@ -34,12 +34,12 @@ pub fn validate_scheduled_body(body_sql: &str) -> Result<(), String> {
         if let Statement::Query(q) = stmt
             && is_unbounded_wildcard_select(q)
         {
-            return Err(
-                "scheduled job body contains `SELECT *` with no WHERE, LIMIT, or FETCH clause — \
-                 refusing to execute an unbounded scan on every fire. Add an explicit LIMIT \
-                 or WHERE predicate."
-                    .into(),
-            );
+            return Err(crate::Error::BadRequest {
+                detail: "scheduled job body contains `SELECT *` with no WHERE, LIMIT, or FETCH clause — \
+                         refusing to execute an unbounded scan on every fire. Add an explicit LIMIT \
+                         or WHERE predicate."
+                    .to_string(),
+            });
         }
     }
     Ok(())

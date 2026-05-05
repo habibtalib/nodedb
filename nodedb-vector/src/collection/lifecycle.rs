@@ -8,6 +8,9 @@
 //! and reverse `surrogate_to_local: HashMap<Surrogate, u32>` (for
 //! point-delete by surrogate). User-PK strings live in the catalog and
 //! are translated at the Control Plane response boundary.
+//!
+//! Insert/delete ops live in `lifecycle_insert_ops`.
+//! Compact/snapshot ops live in `lifecycle_compact`.
 
 use std::collections::HashMap;
 
@@ -141,130 +144,6 @@ impl VectorCollection {
         Self::with_seal_threshold(dim, params, DEFAULT_SEAL_THRESHOLD)
     }
 
-    /// Insert a vector. Returns the global vector ID.
-    pub fn insert(&mut self, vector: Vec<f32>) -> u32 {
-        let id = self.next_id;
-        self.growing.insert(vector);
-        self.next_id += 1;
-        id
-    }
-
-    /// Insert a vector with an associated surrogate. The surrogate is
-    /// allocated by the Control Plane before the call; the engine only
-    /// stores the binding.
-    pub fn insert_with_surrogate(&mut self, vector: Vec<f32>, surrogate: Surrogate) -> u32 {
-        let id = self.insert(vector);
-        if surrogate != Surrogate::ZERO {
-            self.surrogate_map.insert(id, surrogate);
-            self.surrogate_to_local.insert(surrogate, id);
-        }
-        id
-    }
-
-    /// Insert multiple vectors for a single document (ColBERT-style).
-    /// All N vectors are bound to the same `document_surrogate`.
-    pub fn insert_multi_vector(
-        &mut self,
-        vectors: &[&[f32]],
-        document_surrogate: Surrogate,
-    ) -> Vec<u32> {
-        // no-governor: hot-path per multi-vector insert; caller-level budget governs the vectors themselves
-        let mut ids = Vec::with_capacity(vectors.len());
-        for &v in vectors {
-            let id = self.insert(v.to_vec());
-            if document_surrogate != Surrogate::ZERO {
-                self.surrogate_map.insert(id, document_surrogate);
-            }
-            ids.push(id);
-        }
-        if document_surrogate != Surrogate::ZERO {
-            self.multi_doc_map.insert(document_surrogate, ids.clone());
-        }
-        ids
-    }
-
-    /// Delete all vectors belonging to a multi-vector document.
-    pub fn delete_multi_vector(&mut self, document_surrogate: Surrogate) -> usize {
-        let Some(ids) = self.multi_doc_map.remove(&document_surrogate) else {
-            return 0;
-        };
-        let mut deleted = 0;
-        for id in &ids {
-            if self.delete(*id) {
-                deleted += 1;
-            }
-            self.surrogate_map.remove(id);
-        }
-        self.surrogate_to_local.remove(&document_surrogate);
-        deleted
-    }
-
-    /// Look up the surrogate for a global vector ID.
-    pub fn get_surrogate(&self, vector_id: u32) -> Option<Surrogate> {
-        self.surrogate_map.get(&vector_id).copied()
-    }
-
-    /// Resolve a surrogate back to its global vector ID, if bound.
-    pub fn local_for_surrogate(&self, surrogate: Surrogate) -> Option<u32> {
-        self.surrogate_to_local.get(&surrogate).copied()
-    }
-
-    /// Soft-delete a vector by global ID.
-    pub fn delete(&mut self, id: u32) -> bool {
-        let ok = self.delete_inner(id);
-        if ok && let Some(s) = self.surrogate_map.remove(&id) {
-            self.surrogate_to_local.remove(&s);
-        }
-        ok
-    }
-
-    fn delete_inner(&mut self, id: u32) -> bool {
-        if id >= self.growing_base_id {
-            let local = id - self.growing_base_id;
-            if (local as usize) < self.growing.len() {
-                return self.growing.delete(local);
-            }
-        }
-        for seg in &mut self.sealed {
-            if id >= seg.base_id {
-                let local = id - seg.base_id;
-                if (local as usize) < seg.index.len() {
-                    return seg.index.delete(local);
-                }
-            }
-        }
-        for seg in &mut self.building {
-            if id >= seg.base_id {
-                let local = id - seg.base_id;
-                if (local as usize) < seg.flat.len() {
-                    return seg.flat.delete(local);
-                }
-            }
-        }
-        false
-    }
-
-    /// Soft-delete a vector by surrogate.
-    pub fn delete_by_surrogate(&mut self, surrogate: Surrogate) -> bool {
-        let Some(global_id) = self.surrogate_to_local.get(&surrogate).copied() else {
-            return false;
-        };
-        self.delete(global_id)
-    }
-
-    /// Un-delete a previously soft-deleted vector (for transaction rollback).
-    pub fn undelete(&mut self, id: u32) -> bool {
-        for seg in &mut self.sealed {
-            if id >= seg.base_id {
-                let local = id - seg.base_id;
-                if (local as usize) < seg.index.len() {
-                    return seg.index.undelete(local);
-                }
-            }
-        }
-        false
-    }
-
     /// Check if the growing segment should be sealed.
     pub fn needs_seal(&self) -> bool {
         self.growing.len() >= self.seal_threshold
@@ -280,7 +159,6 @@ impl VectorCollection {
         self.next_segment_id += 1;
 
         let count = self.growing.len();
-        // no-governor: cold segment-seal path; vectors are already in memory, no new budget needed
         let mut vectors = Vec::with_capacity(count);
         for i in 0..count as u32 {
             if let Some(v) = self.growing.get_vector(i) {
@@ -323,8 +201,6 @@ impl VectorCollection {
             .position(|b| b.segment_id == segment_id)
         {
             let building = self.building.remove(pos);
-            // For codec-dispatched collections (RaBitQ/BBQ), skip per-segment
-            // Sq8/PQ quantization — the codec index handles traversal.
             let use_codec_dispatch = matches!(
                 self.quantization,
                 VectorQuantization::RaBitQ | VectorQuantization::Bbq
@@ -352,12 +228,13 @@ impl VectorCollection {
                 mmap_vectors,
             });
 
-            // Rebuild the collection-level codec index to include the new segment.
             if use_codec_dispatch {
                 let tag = match self.quantization {
                     VectorQuantization::RaBitQ => "rabitq",
                     VectorQuantization::Bbq => "bbq",
-                    _ => unreachable!(),
+                    _ => unreachable!(
+                        "invariant: use_codec_dispatch is only true for RaBitQ and Bbq quantization variants"
+                    ),
                 };
                 self.build_codec_dispatch(tag);
             }
@@ -377,107 +254,6 @@ impl VectorCollection {
     /// Whether the growing segment has no vectors.
     pub fn growing_is_empty(&self) -> bool {
         self.growing.is_empty()
-    }
-
-    /// Compact sealed segments by removing tombstoned nodes.
-    ///
-    /// Rewrites `surrogate_map` and `multi_doc_map` for every sealed
-    /// segment so that global ids continue to resolve to the correct
-    /// surrogate after local-id renumbering.
-    pub fn compact(&mut self) -> usize {
-        let mut total_removed = 0;
-        for seg in &mut self.sealed {
-            let base_id = seg.base_id;
-            let (removed, id_map) = seg.index.compact_with_map();
-            total_removed += removed;
-            if removed == 0 {
-                continue;
-            }
-
-            let segment_end = base_id as u64 + id_map.len() as u64;
-            let global_keys: Vec<u32> = self
-                .surrogate_map
-                .keys()
-                .copied()
-                .filter(|&k| (k as u64) >= base_id as u64 && (k as u64) < segment_end)
-                .collect();
-            // Two-phase: remove old entries first, then insert new ones
-            // so we don't clobber a freshly-remapped entry with a later
-            // tombstone removal.
-            // no-governor: cold compaction remap; structural per-segment, outer compaction governs budget
-            let mut new_entries: Vec<(u32, Surrogate)> = Vec::with_capacity(global_keys.len());
-            for old_global in &global_keys {
-                let surrogate = self.surrogate_map.remove(old_global);
-                let old_local = (old_global - base_id) as usize;
-                let new_local = id_map[old_local];
-                if new_local != u32::MAX
-                    && let Some(s) = surrogate
-                {
-                    new_entries.push((base_id + new_local, s));
-                } else if let Some(s) = surrogate {
-                    // Tombstoned — drop reverse mapping too.
-                    self.surrogate_to_local.remove(&s);
-                }
-            }
-            for (k, s) in new_entries {
-                self.surrogate_map.insert(k, s);
-                self.surrogate_to_local.insert(s, k);
-            }
-
-            // Rewrite multi_doc_map entries for this segment.
-            for ids in self.multi_doc_map.values_mut() {
-                ids.retain_mut(|vid| {
-                    let v = *vid;
-                    if (v as u64) >= base_id as u64 && (v as u64) < segment_end {
-                        let old_local = (v - base_id) as usize;
-                        let new_local = id_map[old_local];
-                        if new_local == u32::MAX {
-                            false
-                        } else {
-                            *vid = base_id + new_local;
-                            true
-                        }
-                    } else {
-                        true
-                    }
-                });
-            }
-        }
-        total_removed
-    }
-
-    /// Export all live vectors for snapshot.
-    pub fn export_snapshot(&self) -> Vec<(u32, Vec<f32>, Option<Surrogate>)> {
-        let mut result = Vec::new();
-
-        for i in 0..self.growing.len() as u32 {
-            let vid = self.growing_base_id + i;
-            if let Some(data) = self.growing.get_vector(i) {
-                let surrogate = self.surrogate_map.get(&vid).copied();
-                result.push((vid, data.to_vec(), surrogate));
-            }
-        }
-
-        for seg in &self.sealed {
-            let vectors = seg.index.export_vectors();
-            for (i, vec_data) in vectors.into_iter().enumerate() {
-                let vid = seg.base_id + i as u32;
-                let surrogate = self.surrogate_map.get(&vid).copied();
-                result.push((vid, vec_data, surrogate));
-            }
-        }
-
-        for seg in &self.building {
-            for i in 0..seg.flat.len() as u32 {
-                let vid = seg.base_id + i;
-                if let Some(data) = seg.flat.get_vector(i) {
-                    let surrogate = self.surrogate_map.get(&vid).copied();
-                    result.push((vid, data.to_vec(), surrogate));
-                }
-            }
-        }
-
-        result
     }
 
     pub fn len(&self) -> usize {
@@ -520,10 +296,6 @@ impl VectorCollection {
     }
 
     /// Set the collection-level quantization.
-    ///
-    /// Called when a vector-primary collection is first created so the
-    /// quantization is stored in checkpoints and drives codec-dispatch
-    /// rebuilds after each `complete_build`.
     pub fn set_quantization(&mut self, q: VectorQuantization) {
         self.quantization = q;
     }
@@ -534,9 +306,6 @@ impl VectorCollection {
     }
 
     /// Configure payload bitmap indexes from a list of field names.
-    ///
-    /// Uses `PayloadIndexKind::Equality` for all fields (range support can be
-    /// added later without breaking the checkpoint format). Idempotent.
     pub fn configure_payload_indexes(&mut self, fields: &[String]) {
         use super::payload_index::PayloadIndexKind;
         for field in fields {

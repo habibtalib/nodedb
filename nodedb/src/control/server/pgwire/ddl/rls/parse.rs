@@ -31,7 +31,7 @@ pub fn compile_rls_predicate(
 ) -> PgWireResult<CompiledPredicate> {
     let compiled = parse_predicate(predicate_str)
         .map_err(|e| sqlstate_error("42601", &format!("predicate parse error: {e}")))?;
-    validate_auth_refs(&compiled).map_err(|e| sqlstate_error("42601", &e))?;
+    validate_auth_refs(&compiled).map_err(|e| sqlstate_error("42601", &e.to_string()))?;
 
     let on_deny = if let Some(deny_text) = on_deny_raw {
         let deny_parts: Vec<&str> = deny_text.split_whitespace().collect();
@@ -45,7 +45,7 @@ pub fn compile_rls_predicate(
         } else {
             &deny_parts[..]
         };
-        deny::parse_on_deny(slice).map_err(|e| sqlstate_error("42601", &e))?
+        deny::parse_on_deny(slice).map_err(|e| sqlstate_error("42601", &e.to_string()))?
     } else {
         DenyMode::default()
     };

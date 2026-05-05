@@ -111,9 +111,9 @@ pub fn parse_envelope<'a>(data: &'a [u8], key: &MacKey) -> Result<(EnvelopeField
         });
     }
 
-    let from_node_id = u64::from_le_bytes(data[OFF_FROM_NODE..OFF_SEQ].try_into().unwrap());
-    let seq = u64::from_le_bytes(data[OFF_SEQ..OFF_INNER_LEN].try_into().unwrap());
-    let inner_len = u32::from_le_bytes(data[OFF_INNER_LEN..ENV_HEADER_LEN].try_into().unwrap());
+    let from_node_id = u64::from_le_bytes(data[OFF_FROM_NODE..OFF_SEQ].try_into().expect("invariant: ENVELOPE_OVERHEAD/total-length checks above guarantee field bytes within bounds"));
+    let seq = u64::from_le_bytes(data[OFF_SEQ..OFF_INNER_LEN].try_into().expect("invariant: ENVELOPE_OVERHEAD/total-length checks above guarantee field bytes within bounds"));
+    let inner_len = u32::from_le_bytes(data[OFF_INNER_LEN..ENV_HEADER_LEN].try_into().expect("invariant: ENVELOPE_OVERHEAD/total-length checks above guarantee field bytes within bounds"));
 
     if inner_len > MAX_RPC_PAYLOAD_SIZE {
         return Err(ClusterError::Codec {
@@ -134,7 +134,7 @@ pub fn parse_envelope<'a>(data: &'a [u8], key: &MacKey) -> Result<(EnvelopeField
         });
     }
 
-    let tag: &[u8; MAC_LEN] = data[inner_end..].try_into().unwrap();
+    let tag: &[u8; MAC_LEN] = data[inner_end..].try_into().expect("invariant: ENVELOPE_OVERHEAD/total-length checks above guarantee field bytes within bounds");
     verify_hmac(key, &data[..inner_end], tag)?;
 
     let inner_frame = &data[ENV_HEADER_LEN..inner_end];

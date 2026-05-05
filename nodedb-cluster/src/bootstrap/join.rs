@@ -258,9 +258,11 @@ fn apply_join_response(
         });
         let mut info = NodeInfo::new(
             node.node_id,
-            node.addr
-                .parse()
-                .unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap()),
+            node.addr.parse().unwrap_or_else(|_| {
+                "0.0.0.0:0"
+                    .parse()
+                    .expect("invariant: \"0.0.0.0:0\" is a valid SocketAddr literal")
+            }),
             state,
         )
         .with_wire_version(node.wire_version)
@@ -485,6 +487,8 @@ mod tests {
             swim_udp_addr: None,
             election_timeout_min: Duration::from_millis(150),
             election_timeout_max: Duration::from_millis(300),
+            install_snapshot_chunk_bytes: 4 * 1024 * 1024,
+            orphan_partial_max_age_secs: 300,
         };
         let state1 = bootstrap(&config1, &catalog1, None).unwrap();
 
@@ -539,6 +543,8 @@ mod tests {
             swim_udp_addr: None,
             election_timeout_min: Duration::from_millis(150),
             election_timeout_max: Duration::from_millis(300),
+            install_snapshot_chunk_bytes: 4 * 1024 * 1024,
+            orphan_partial_max_age_secs: 300,
         };
 
         let lifecycle = ClusterLifecycleTracker::new();

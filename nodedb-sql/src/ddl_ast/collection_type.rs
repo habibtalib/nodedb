@@ -140,7 +140,9 @@ pub(crate) fn build_strict_schema(
             None
         };
         if let Some(kw) = gen_kw {
-            let gen_pos = upper_type.find(kw).unwrap();
+            let gen_pos = upper_type.find(kw).expect(
+                "invariant: kw was found via upper_type.contains(kw) in the enclosing if-let",
+            );
             let after_gen = type_str[gen_pos + kw.len()..].trim();
             if after_gen.starts_with('(') {
                 let mut depth = 0usize;
@@ -248,7 +250,10 @@ fn build_kv_collection_type(
     }
 
     // Validate: PK type must be hashable.
-    let pk = col_defs.iter().find(|c| c.primary_key).unwrap();
+    let pk = col_defs
+        .iter()
+        .find(|c| c.primary_key)
+        .expect("invariant: pk_count validated to be exactly 1 in the checks above");
     if !nodedb_types::is_valid_kv_key_type(&pk.column_type) {
         return Err(SqlError::Parse {
             detail: format!(

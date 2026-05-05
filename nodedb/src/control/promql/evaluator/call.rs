@@ -1,15 +1,20 @@
 //! Function call evaluation.
 
 use super::super::ast::Expr;
+use super::super::error::PromqlError;
 use super::super::functions;
 use super::super::types::*;
 use super::{EvalContext, eval};
 
-pub fn eval_call(ctx: &EvalContext, func: &str, args: &[Expr]) -> Result<Value, String> {
+pub fn eval_call(ctx: &EvalContext, func: &str, args: &[Expr]) -> Result<Value, PromqlError> {
     // Range-vector functions.
     if functions::is_range_func(func) {
         if args.is_empty() {
-            return Err(format!("{func}() requires at least one argument"));
+            return Err(PromqlError::WrongArgCount {
+                func: func.to_string(),
+                expected: 1,
+                got: 0,
+            });
         }
         let matrix = eval(ctx, &args[0])?;
         let scalar_arg = if args.len() > 1
@@ -28,7 +33,10 @@ pub fn eval_call(ctx: &EvalContext, func: &str, args: &[Expr]) -> Result<Value, 
         };
 
         let Value::Matrix(range_series) = matrix else {
-            return Err(format!("{func}() requires a range vector argument"));
+            return Err(PromqlError::TypeError {
+                context: func.to_string(),
+                detail: "requires a range vector argument".to_string(),
+            });
         };
 
         let mut result = Vec::new();
@@ -61,14 +69,28 @@ pub fn eval_call(ctx: &EvalContext, func: &str, args: &[Expr]) -> Result<Value, 
         "log10" => unary_scalar_fn(ctx, args, f64::log10),
         "exp" => unary_scalar_fn(ctx, args, f64::exp),
         "scalar" => {
-            let val = eval(ctx, args.first().ok_or("scalar() requires 1 arg")?)?;
+            let val = eval(
+                ctx,
+                args.first().ok_or(PromqlError::WrongArgCount {
+                    func: "scalar".to_string(),
+                    expected: 1,
+                    got: 0,
+                })?,
+            )?;
             match val {
                 Value::Vector(v) if v.len() == 1 => Ok(Value::Scalar(v[0].value, ctx.timestamp_ms)),
                 _ => Ok(Value::Scalar(f64::NAN, ctx.timestamp_ms)),
             }
         }
         "vector" => {
-            let val = eval(ctx, args.first().ok_or("vector() requires 1 arg")?)?;
+            let val = eval(
+                ctx,
+                args.first().ok_or(PromqlError::WrongArgCount {
+                    func: "vector".to_string(),
+                    expected: 1,
+                    got: 0,
+                })?,
+            )?;
             match val {
                 Value::Scalar(v, _) => Ok(Value::Vector(vec![InstantSample {
                     labels: Labels::new(),
@@ -112,7 +134,11 @@ pub fn eval_call(ctx: &EvalContext, func: &str, args: &[Expr]) -> Result<Value, 
         // atan2 is a binary function.
         "atan2" => {
             if args.len() < 2 {
-                return Err("atan2() requires 2 args".into());
+                return Err(PromqlError::WrongArgCount {
+                    func: "atan2".to_string(),
+                    expected: 2,
+                    got: args.len(),
+                });
             }
             let a = eval(ctx, &args[0])?;
             let b = eval(ctx, &args[1])?;
@@ -120,52 +146,88 @@ pub fn eval_call(ctx: &EvalContext, func: &str, args: &[Expr]) -> Result<Value, 
                 (Value::Scalar(y, _), Value::Scalar(x, _)) => {
                     Ok(Value::Scalar(y.atan2(x), ctx.timestamp_ms))
                 }
-                _ => Err("atan2 requires scalar arguments".into()),
+                _ => Err(PromqlError::TypeError {
+                    context: "atan2".to_string(),
+                    detail: "requires scalar arguments".to_string(),
+                }),
             }
         }
 
-        _ => Err(format!("unknown function '{func}'")),
+        _ => Err(PromqlError::UnknownFunction {
+            name: func.to_string(),
+        }),
     }
 }
 
-fn eval_clamp(ctx: &EvalContext, args: &[Expr]) -> Result<Value, String> {
+fn eval_clamp(ctx: &EvalContext, args: &[Expr]) -> Result<Value, PromqlError> {
     if args.len() < 3 {
-        return Err("clamp() requires 3 args: vector, min, max".into());
+        return Err(PromqlError::WrongArgCount {
+            func: "clamp".to_string(),
+            expected: 3,
+            got: args.len(),
+        });
     }
     let val = eval(ctx, &args[0])?;
     let Value::Scalar(min_val, _) = eval(ctx, &args[1])? else {
-        return Err("clamp() min must be scalar".into());
+        return Err(PromqlError::TypeError {
+            context: "clamp".to_string(),
+            detail: "min must be scalar".to_string(),
+        });
     };
     let Value::Scalar(max_val, _) = eval(ctx, &args[2])? else {
-        return Err("clamp() max must be scalar".into());
+        return Err(PromqlError::TypeError {
+            context: "clamp".to_string(),
+            detail: "max must be scalar".to_string(),
+        });
     };
     apply_to_vector(val, ctx.timestamp_ms, |v| v.clamp(min_val, max_val))
 }
 
-fn eval_clamp_min(ctx: &EvalContext, args: &[Expr]) -> Result<Value, String> {
+fn eval_clamp_min(ctx: &EvalContext, args: &[Expr]) -> Result<Value, PromqlError> {
     if args.len() < 2 {
-        return Err("clamp_min() requires 2 args".into());
+        return Err(PromqlError::WrongArgCount {
+            func: "clamp_min".to_string(),
+            expected: 2,
+            got: args.len(),
+        });
     }
     let val = eval(ctx, &args[0])?;
     let Value::Scalar(min_val, _) = eval(ctx, &args[1])? else {
-        return Err("clamp_min() min must be scalar".into());
+        return Err(PromqlError::TypeError {
+            context: "clamp_min".to_string(),
+            detail: "min must be scalar".to_string(),
+        });
     };
     apply_to_vector(val, ctx.timestamp_ms, |v| v.max(min_val))
 }
 
-fn eval_clamp_max(ctx: &EvalContext, args: &[Expr]) -> Result<Value, String> {
+fn eval_clamp_max(ctx: &EvalContext, args: &[Expr]) -> Result<Value, PromqlError> {
     if args.len() < 2 {
-        return Err("clamp_max() requires 2 args".into());
+        return Err(PromqlError::WrongArgCount {
+            func: "clamp_max".to_string(),
+            expected: 2,
+            got: args.len(),
+        });
     }
     let val = eval(ctx, &args[0])?;
     let Value::Scalar(max_val, _) = eval(ctx, &args[1])? else {
-        return Err("clamp_max() max must be scalar".into());
+        return Err(PromqlError::TypeError {
+            context: "clamp_max".to_string(),
+            detail: "max must be scalar".to_string(),
+        });
     };
     apply_to_vector(val, ctx.timestamp_ms, |v| v.min(max_val))
 }
 
-fn eval_absent(ctx: &EvalContext, args: &[Expr]) -> Result<Value, String> {
-    let val = eval(ctx, args.first().ok_or("absent() requires 1 arg")?)?;
+fn eval_absent(ctx: &EvalContext, args: &[Expr]) -> Result<Value, PromqlError> {
+    let val = eval(
+        ctx,
+        args.first().ok_or(PromqlError::WrongArgCount {
+            func: "absent".to_string(),
+            expected: 1,
+            got: 0,
+        })?,
+    )?;
     match val {
         Value::Vector(v) if v.is_empty() => Ok(Value::Vector(vec![InstantSample {
             labels: Labels::new(),
@@ -177,20 +239,30 @@ fn eval_absent(ctx: &EvalContext, args: &[Expr]) -> Result<Value, String> {
     }
 }
 
-fn eval_label_replace(ctx: &EvalContext, args: &[Expr]) -> Result<Value, String> {
+fn eval_label_replace(ctx: &EvalContext, args: &[Expr]) -> Result<Value, PromqlError> {
     if args.len() < 5 {
-        return Err("label_replace() requires 5 args: v, dst, replacement, src, regex".into());
+        return Err(PromqlError::WrongArgCount {
+            func: "label_replace".to_string(),
+            expected: 5,
+            got: args.len(),
+        });
     }
     let val = eval(ctx, &args[0])?;
     let Value::Vector(samples) = val else {
-        return Err("label_replace() requires instant vector".into());
+        return Err(PromqlError::TypeError {
+            context: "label_replace".to_string(),
+            detail: "requires instant vector".to_string(),
+        });
     };
     let dst = eval_string_arg(ctx, &args[1])?;
     let replacement = eval_string_arg(ctx, &args[2])?;
     let src = eval_string_arg(ctx, &args[3])?;
     let regex_str = eval_string_arg(ctx, &args[4])?;
-    let re = regex::Regex::new(&format!("^(?:{regex_str})$"))
-        .map_err(|e| format!("label_replace: invalid regex: {e}"))?;
+    let re = regex::Regex::new(&format!("^(?:{regex_str})$")).map_err(|e| {
+        PromqlError::InvalidString {
+            detail: format!("label_replace: invalid regex: {e}"),
+        }
+    })?;
 
     let result: Vec<InstantSample> = samples
         .into_iter()
@@ -216,15 +288,20 @@ fn eval_label_replace(ctx: &EvalContext, args: &[Expr]) -> Result<Value, String>
     Ok(Value::Vector(result))
 }
 
-fn eval_label_join(ctx: &EvalContext, args: &[Expr]) -> Result<Value, String> {
+fn eval_label_join(ctx: &EvalContext, args: &[Expr]) -> Result<Value, PromqlError> {
     if args.len() < 3 {
-        return Err(
-            "label_join() requires at least 3 args: v, dst, separator, ...src_labels".into(),
-        );
+        return Err(PromqlError::WrongArgCount {
+            func: "label_join".to_string(),
+            expected: 3,
+            got: args.len(),
+        });
     }
     let val = eval(ctx, &args[0])?;
     let Value::Vector(samples) = val else {
-        return Err("label_join() requires instant vector".into());
+        return Err(PromqlError::TypeError {
+            context: "label_join".to_string(),
+            detail: "requires instant vector".to_string(),
+        });
     };
     let dst = eval_string_arg(ctx, &args[1])?;
     let separator = eval_string_arg(ctx, &args[2])?;
@@ -252,16 +329,26 @@ fn eval_label_join(ctx: &EvalContext, args: &[Expr]) -> Result<Value, String> {
     Ok(Value::Vector(result))
 }
 
-fn eval_histogram_quantile(ctx: &EvalContext, args: &[Expr]) -> Result<Value, String> {
+fn eval_histogram_quantile(ctx: &EvalContext, args: &[Expr]) -> Result<Value, PromqlError> {
     if args.len() < 2 {
-        return Err("histogram_quantile() requires 2 args: φ, buckets".into());
+        return Err(PromqlError::WrongArgCount {
+            func: "histogram_quantile".to_string(),
+            expected: 2,
+            got: args.len(),
+        });
     }
     let Value::Scalar(phi, _) = eval(ctx, &args[0])? else {
-        return Err("histogram_quantile: first arg must be scalar".into());
+        return Err(PromqlError::TypeError {
+            context: "histogram_quantile".to_string(),
+            detail: "first arg must be scalar".to_string(),
+        });
     };
     let val = eval(ctx, &args[1])?;
     let Value::Vector(samples) = val else {
-        return Err("histogram_quantile: second arg must be instant vector".into());
+        return Err(PromqlError::TypeError {
+            context: "histogram_quantile".to_string(),
+            detail: "second arg must be instant vector".to_string(),
+        });
     };
 
     // Group by labels excluding "le".
@@ -326,20 +413,23 @@ fn histogram_quantile_from_buckets(phi: f64, buckets: &[(f64, f64)]) -> f64 {
     buckets.last().map_or(f64::NAN, |b| b.0)
 }
 
-fn eval_string_arg(ctx: &EvalContext, arg: &Expr) -> Result<String, String> {
+fn eval_string_arg(ctx: &EvalContext, arg: &Expr) -> Result<String, PromqlError> {
     match arg {
         Expr::StringLiteral(s) => Ok(s.clone()),
         other => {
             let val = eval(ctx, other)?;
             match val {
                 Value::Scalar(v, _) => Ok(format!("{v}")),
-                _ => Err("expected string argument".into()),
+                _ => Err(PromqlError::TypeError {
+                    context: "string argument".to_string(),
+                    detail: "expected string or scalar".to_string(),
+                }),
             }
         }
     }
 }
 
-fn apply_to_vector(val: Value, ts: i64, f: impl Fn(f64) -> f64) -> Result<Value, String> {
+fn apply_to_vector(val: Value, ts: i64, f: impl Fn(f64) -> f64) -> Result<Value, PromqlError> {
     match val {
         Value::Scalar(v, _) => Ok(Value::Scalar(f(v), ts)),
         Value::Vector(samples) => Ok(Value::Vector(
@@ -351,12 +441,27 @@ fn apply_to_vector(val: Value, ts: i64, f: impl Fn(f64) -> f64) -> Result<Value,
                 })
                 .collect(),
         )),
-        _ => Err("expected scalar or instant vector".into()),
+        _ => Err(PromqlError::TypeError {
+            context: "apply_to_vector".to_string(),
+            detail: "expected scalar or instant vector".to_string(),
+        }),
     }
 }
 
-fn unary_scalar_fn(ctx: &EvalContext, args: &[Expr], f: fn(f64) -> f64) -> Result<Value, String> {
-    let val = eval(ctx, args.first().ok_or("function requires 1 arg")?)?;
+fn unary_scalar_fn(
+    ctx: &EvalContext,
+    args: &[Expr],
+    f: fn(f64) -> f64,
+) -> Result<Value, super::super::PromqlError> {
+    let val = eval(
+        ctx,
+        args.first()
+            .ok_or(super::super::PromqlError::WrongArgCount {
+                func: "unary_scalar_fn".to_string(),
+                expected: 1,
+                got: 0,
+            })?,
+    )?;
     match val {
         Value::Scalar(v, ts) => Ok(Value::Scalar(f(v), ts)),
         Value::Vector(samples) => {
@@ -370,6 +475,9 @@ fn unary_scalar_fn(ctx: &EvalContext, args: &[Expr], f: fn(f64) -> f64) -> Resul
                 .collect();
             Ok(Value::Vector(mapped))
         }
-        _ => Err("function argument must be scalar or instant vector".into()),
+        _ => Err(super::super::PromqlError::TypeError {
+            context: "unary_scalar_fn".to_string(),
+            detail: "argument must be scalar or instant vector".to_string(),
+        }),
     }
 }

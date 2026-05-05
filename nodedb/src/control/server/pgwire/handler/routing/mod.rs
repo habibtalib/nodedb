@@ -6,10 +6,12 @@
 //! replaced by `gateway.execute(ctx, plan)` which ships the pre-planned
 //! physical plan via `ExecuteRequest` instead of a raw SQL string.
 
+mod calvin_dispatch;
 mod catalog;
 mod check_enforcement;
 mod execute;
 mod gateway_dispatch;
 mod kv_wrapping;
 mod ollp_helpers;
+mod planning;
 mod set_ops;

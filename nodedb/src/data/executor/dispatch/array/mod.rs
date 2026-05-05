@@ -2,6 +2,7 @@
 //! Data-Plane `ArrayEngine` via the shared `ArrayCatalogHandle`.
 
 pub mod aggregate;
+mod aggregate_helpers;
 pub mod convert;
 pub mod elementwise;
 pub mod encode;

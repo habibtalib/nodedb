@@ -1,5 +1,7 @@
 //! PromQL tokenizer.
 
+use super::error::PromqlError;
+
 /// Token produced by the lexer.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
@@ -42,7 +44,7 @@ pub enum Token {
 }
 
 /// Tokenize a PromQL expression.
-pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
+pub fn tokenize(input: &str) -> Result<Vec<Token>, PromqlError> {
     let mut tokens = Vec::new();
     let bytes = input.as_bytes();
     let mut i = 0;
@@ -145,10 +147,10 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
             b',' => Token::Comma,
             b':' => Token::Colon,
             _ => {
-                return Err(format!(
-                    "unexpected character '{}' at position {i}",
-                    bytes[i] as char
-                ));
+                return Err(PromqlError::UnexpectedToken {
+                    expected: "valid PromQL token".to_string(),
+                    found: format!("'{}' at position {i}", bytes[i] as char),
+                });
             }
         };
         tokens.push(tok);
@@ -159,7 +161,7 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
     Ok(tokens)
 }
 
-fn lex_string(bytes: &[u8], start: usize) -> Result<(Token, usize), String> {
+fn lex_string(bytes: &[u8], start: usize) -> Result<(Token, usize), PromqlError> {
     let quote = bytes[start];
     let mut i = start + 1;
     let mut s = String::new();
@@ -186,10 +188,12 @@ fn lex_string(bytes: &[u8], start: usize) -> Result<(Token, usize), String> {
         }
         i += 1;
     }
-    Err(format!("unterminated string starting at position {start}"))
+    Err(PromqlError::InvalidString {
+        detail: format!("unterminated string starting at position {start}"),
+    })
 }
 
-fn lex_number_or_duration(bytes: &[u8], start: usize) -> Result<(Token, usize), String> {
+fn lex_number_or_duration(bytes: &[u8], start: usize) -> Result<(Token, usize), PromqlError> {
     let mut i = start;
     let mut has_dot = false;
     let mut has_exp = false;
@@ -226,9 +230,10 @@ fn lex_number_or_duration(bytes: &[u8], start: usize) -> Result<(Token, usize), 
     }
 
     let raw = std::str::from_utf8(&bytes[start..i]).unwrap_or("0");
-    let num: f64 = raw
-        .parse()
-        .map_err(|_| format!("invalid number '{raw}' at {start}"))?;
+    let num: f64 = raw.parse().map_err(|_| PromqlError::UnexpectedToken {
+        expected: "valid number".to_string(),
+        found: format!("'{raw}' at position {start}"),
+    })?;
     Ok((Token::Number(num), i))
 }
 

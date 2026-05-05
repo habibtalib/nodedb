@@ -278,20 +278,29 @@ pub fn read_footer_from_bytes(data: &[u8]) -> Result<PackedFooter, PackedError> 
     let mut tail = TailCursor::new(data);
 
     // Read tail fields in reverse order (right → left).
-    let magic = tail.read_back(4).unwrap();
+    let magic = tail
+        .read_back(4)
+        .expect("invariant: PACKED_TAIL_SIZE guard at line 271 ensures tail bytes available");
     if magic != PACKED_MAGIC {
         return Err(PackedError::Corrupt(format!(
             "invalid magic: expected NDPK, got {magic:?}"
         )));
     }
 
-    let version = tail.read_back_u16_le().unwrap();
+    let version = tail
+        .read_back_u16_le()
+        .expect("invariant: PACKED_TAIL_SIZE guard at line 271 ensures tail bytes available");
     if version != PACKED_VERSION {
         return Err(PackedError::UnsupportedVersion { version });
     }
 
-    let crc_stored = tail.read_back_u32_le().unwrap();
-    let footer_len = tail.read_back_u32_le().unwrap() as usize;
+    let crc_stored = tail
+        .read_back_u32_le()
+        .expect("invariant: PACKED_TAIL_SIZE guard at line 271 ensures tail bytes available");
+    let footer_len = tail
+        .read_back_u32_le()
+        .expect("invariant: PACKED_TAIL_SIZE guard at line 271 ensures tail bytes available")
+        as usize;
 
     // tail.consumed() == PACKED_TAIL_SIZE at this point.
     let tail_offset = data.len() - tail.consumed();

@@ -1,6 +1,7 @@
 //! Join execution handlers — hash, sort-merge, broadcast, and nested-loop.
 
 pub mod hash;
+mod hash_handlers;
 pub mod nested_loop;
 pub mod params;
 pub mod sort_merge;
@@ -172,7 +173,7 @@ pub(super) fn binary_row_matches_filters(
 
         // Scan map entries and collect value bytes for needed fields.
         let mut found: Vec<(&str, usize, usize)> = Vec::new();
-        let mut pos = msgpack_scan::map_header(row, 0).unwrap().1;
+        let mut pos = msgpack_scan::map_header(row, 0).expect("invariant: map_header succeeded on this row in the enclosing let-else guard at line 152").1;
         for _ in 0..count {
             let key = msgpack_scan::read_str(row, pos);
             let key_end = match msgpack_scan::skip_value(row, pos) {

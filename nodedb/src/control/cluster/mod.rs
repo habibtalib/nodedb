@@ -24,8 +24,10 @@ pub mod init;
 pub mod metadata_applier;
 pub mod pem_io;
 pub mod recovery_check;
+pub mod snapshot_hook;
 pub mod spsc_applier;
 pub mod start_raft;
+pub mod start_raft_helpers;
 pub mod tls;
 pub mod warm_peers;
 

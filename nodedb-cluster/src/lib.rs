@@ -25,6 +25,7 @@ pub mod forward;
 pub mod ghost;
 pub mod ghost_sweeper;
 pub mod health;
+pub mod install_snapshot;
 pub mod lifecycle;
 pub mod lifecycle_state;
 pub mod loop_metrics;

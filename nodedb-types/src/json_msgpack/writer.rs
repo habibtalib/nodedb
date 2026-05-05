@@ -64,7 +64,7 @@ fn write_native_value(buf: &mut Vec<u8>, value: &crate::Value) {
         crate::Value::Duration(d) => write_native_str(buf, &d.to_string()),
         crate::Value::Decimal(d) => write_native_str(buf, &d.to_string()),
         crate::Value::Geometry(g) => {
-            if let Ok(s) = serde_json::to_string(g) {
+            if let Ok(s) = sonic_rs::to_string(g) {
                 write_native_str(buf, &s);
             } else {
                 buf.push(0xC0);

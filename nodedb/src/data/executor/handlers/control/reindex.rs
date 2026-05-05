@@ -36,7 +36,7 @@ use crate::types::TenantId;
 pub struct PendingReindex {
     pub tenant_id: TenantId,
     pub collection_key: String,
-    rx: mpsc::Receiver<Result<RebuildOutput, String>>,
+    rx: mpsc::Receiver<crate::Result<RebuildOutput>>,
 }
 
 // ── CoreLoop integration ──────────────────────────────────────────────────────
@@ -93,7 +93,12 @@ impl CoreLoop {
             Ok(())
         };
         if let Err(e) = start_result {
-            return self.response_error(task, ErrorCode::Internal { detail: e });
+            return self.response_error(
+                task,
+                ErrorCode::Internal {
+                    detail: e.to_string(),
+                },
+            );
         }
 
         self.response_ok(task)
@@ -129,7 +134,7 @@ impl CoreLoop {
                 }),
                 Ok(Err(e)) => outcomes.push(Outcome::Failed {
                     collection_key: pending.collection_key,
-                    error: e,
+                    error: e.to_string(),
                 }),
                 Err(mpsc::TryRecvError::Disconnected) => outcomes.push(Outcome::Failed {
                     collection_key: pending.collection_key,
@@ -220,7 +225,7 @@ impl CoreLoop {
         _task: &ExecutionTask,
         tenant_id: TenantId,
         collection_key: &str,
-    ) -> Result<(), String> {
+    ) -> crate::Result<()> {
         // Vector collections are stored under two key forms depending on how
         // they were inserted:
         //   - Bare:             (tenant, "coll")             — BatchInsert / native
@@ -271,7 +276,7 @@ impl CoreLoop {
                 }
             }
 
-            let (tx, rx) = mpsc::sync_channel::<Result<RebuildOutput, String>>(1);
+            let (tx, rx) = mpsc::sync_channel::<crate::Result<RebuildOutput>>(1);
             std::thread::spawn(move || {
                 let _ = tx.send(rebuild_hnsw_thread(vectors, dim, params));
             });
@@ -290,22 +295,29 @@ impl CoreLoop {
         _task: &ExecutionTask,
         tenant_id: TenantId,
         collection_key: &str,
-    ) -> Result<(), String> {
+    ) -> crate::Result<()> {
         use nodedb_fts::backend::FtsBackend;
 
         let tid = tenant_id.as_u64();
         let backend = self.inverted.backend();
 
-        let terms = backend
-            .collection_terms(tid, collection_key)
-            .map_err(|e| format!("FTS terms: {e}"))?;
+        let terms =
+            backend
+                .collection_terms(tid, collection_key)
+                .map_err(|e| crate::Error::Storage {
+                    engine: "fts".to_string(),
+                    detail: format!("FTS terms: {e}"),
+                })?;
 
         let mut postings: Vec<(String, Vec<nodedb_fts::posting::Posting>)> =
             Vec::with_capacity(terms.len());
         for term in &terms {
             let ps = backend
                 .read_postings(tid, collection_key, term)
-                .map_err(|e| format!("FTS postings '{term}': {e}"))?;
+                .map_err(|e| crate::Error::Storage {
+                    engine: "fts".to_string(),
+                    detail: format!("FTS postings '{term}': {e}"),
+                })?;
             postings.push((term.clone(), ps));
         }
 
@@ -326,9 +338,13 @@ impl CoreLoop {
             .map(|(&k, &dl)| (nodedb_types::Surrogate::new(k), dl))
             .collect();
 
-        let (doc_count, total_tokens) = backend
-            .collection_stats(tid, collection_key)
-            .map_err(|e| format!("FTS stats: {e}"))?;
+        let (doc_count, total_tokens) =
+            backend
+                .collection_stats(tid, collection_key)
+                .map_err(|e| crate::Error::Storage {
+                    engine: "fts".to_string(),
+                    detail: format!("FTS stats: {e}"),
+                })?;
 
         let analyzer_meta = backend
             .read_meta(tid, collection_key, "analyzer")
@@ -341,7 +357,7 @@ impl CoreLoop {
             total_tokens,
             analyzer_meta,
         };
-        let (tx, rx) = mpsc::sync_channel::<Result<RebuildOutput, String>>(1);
+        let (tx, rx) = mpsc::sync_channel::<crate::Result<RebuildOutput>>(1);
         std::thread::spawn(move || {
             let _ = tx.send(rebuild_fts_thread(input));
         });
@@ -359,17 +375,21 @@ impl CoreLoop {
         _task: &ExecutionTask,
         tenant_id: TenantId,
         collection_key: &str,
-    ) -> Result<(), String> {
+    ) -> crate::Result<()> {
         let partition = match self.csr.partition(tenant_id) {
             Some(p) => p,
             None => return Ok(()), // nothing to rebuild
         };
 
-        let snapshot_bytes = partition
-            .checkpoint_to_bytes()
-            .map_err(|e| format!("CSR serialize: {e}"))?;
+        let snapshot_bytes =
+            partition
+                .checkpoint_to_bytes()
+                .map_err(|e| crate::Error::Storage {
+                    engine: "graph".to_string(),
+                    detail: format!("CSR serialize: {e}"),
+                })?;
 
-        let (tx, rx) = mpsc::sync_channel::<Result<RebuildOutput, String>>(1);
+        let (tx, rx) = mpsc::sync_channel::<crate::Result<RebuildOutput>>(1);
         std::thread::spawn(move || {
             let _ = tx.send(rebuild_csr_thread(snapshot_bytes));
         });

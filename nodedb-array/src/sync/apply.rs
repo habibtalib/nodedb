@@ -208,11 +208,17 @@ impl MockEngine {
 
     /// Inject an error that will be returned by the next `apply_*` call.
     pub fn set_reject_next(&self, err: ArrayError) {
-        *self.reject_next_with.lock().unwrap() = Some(err);
+        *self
+            .reject_next_with
+            .lock()
+            .expect("invariant: MockEngine mutex is not poisoned") = Some(err);
     }
 
     fn take_inject(&self) -> Option<ArrayError> {
-        self.reject_next_with.lock().unwrap().take()
+        self.reject_next_with
+            .lock()
+            .expect("invariant: MockEngine mutex is not poisoned")
+            .take()
     }
 }
 

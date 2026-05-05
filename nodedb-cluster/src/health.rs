@@ -378,9 +378,11 @@ pub fn handle_topology_update(
             });
             let mut info = crate::topology::NodeInfo::new(
                 node.node_id,
-                node.addr
-                    .parse()
-                    .unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap()),
+                node.addr.parse().unwrap_or_else(|_| {
+                    "0.0.0.0:0"
+                        .parse()
+                        .expect("invariant: \"0.0.0.0:0\" is a valid SocketAddr literal")
+                }),
                 state,
             )
             .with_wire_version(node.wire_version)

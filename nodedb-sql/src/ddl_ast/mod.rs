@@ -9,14 +9,16 @@
 //! using whitespace-split token matching — the same technique the
 //! old string-prefix router used, but producing a typed output.
 
+pub mod alter_ops;
 pub mod collection_type;
 pub mod graph_parse;
+pub mod graph_types;
 pub mod parse;
 pub mod statement;
 
+pub use alter_ops::{AlterCollectionOp, AlterRoleOp, AlterUserOp};
 pub use collection_type::build_collection_type;
 pub use graph_parse::{FusionParams, parse_search_using_fusion};
+pub use graph_types::{GraphDirection, GraphProperties};
 pub use parse::parse;
-pub use statement::{
-    AlterCollectionOp, AlterRoleOp, AlterUserOp, GraphDirection, GraphProperties, NodedbStatement,
-};
+pub use statement::NodedbStatement;

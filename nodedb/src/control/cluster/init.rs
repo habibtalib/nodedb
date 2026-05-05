@@ -88,6 +88,8 @@ pub async fn init_cluster_with_transport(
         election_timeout_max: std::time::Duration::from_millis(
             transport_tuning.effective_election_timeout_max_ms(),
         ),
+        install_snapshot_chunk_bytes: 4 * 1024 * 1024,
+        orphan_partial_max_age_secs: 300,
     };
 
     let lifecycle = nodedb_cluster::ClusterLifecycleTracker::new();

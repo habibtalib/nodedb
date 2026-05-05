@@ -4,6 +4,8 @@
 //! Supports: identifiers, numbers, string literals (with `''` escape), single
 //! and two-char operators, parentheses, commas.
 
+use super::error::ExprParseError;
+
 /// A single token produced by the tokenizer.
 #[derive(Debug, Clone)]
 pub struct Token {
@@ -28,7 +30,7 @@ pub enum TokenKind {
 /// multi-byte UTF-8 codepoints are handled correctly. Slicing always uses
 /// byte offsets returned by `char_indices`, which are guaranteed to be on
 /// char boundaries.
-pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
+pub fn tokenize(input: &str) -> Result<Vec<Token>, ExprParseError> {
     let chars: Vec<(usize, char)> = input.char_indices().collect();
     let mut tokens = Vec::new();
     let mut i = 0;
@@ -161,10 +163,10 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
         // Non-ASCII characters in an unquoted context: skip gracefully.
         // This can happen with stray Unicode in expressions; previously this
         // caused a panic. We emit an error with the character for diagnostics.
-        return Err(format!(
-            "unexpected character: '{ch}' (U+{:04X})",
-            ch as u32
-        ));
+        return Err(ExprParseError::UnexpectedToken {
+            found: format!("'{ch}' (U+{:04X})", ch as u32),
+            pos: i,
+        });
     }
 
     Ok(tokens)

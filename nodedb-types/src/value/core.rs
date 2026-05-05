@@ -4,7 +4,6 @@
 //! booleans, binary blobs (embeddings), arrays, and nested objects.
 
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -331,159 +330,6 @@ impl Value {
     }
 }
 
-// ─── Convenience conversions ───────────────────────────────────────────
-
-impl From<&str> for Value {
-    fn from(s: &str) -> Self {
-        Value::String(s.to_owned())
-    }
-}
-
-impl From<String> for Value {
-    fn from(s: String) -> Self {
-        Value::String(s)
-    }
-}
-
-impl From<i64> for Value {
-    fn from(i: i64) -> Self {
-        Value::Integer(i)
-    }
-}
-
-impl From<f64> for Value {
-    fn from(f: f64) -> Self {
-        Value::Float(f)
-    }
-}
-
-impl From<bool> for Value {
-    fn from(b: bool) -> Self {
-        Value::Bool(b)
-    }
-}
-
-impl From<Vec<u8>> for Value {
-    fn from(b: Vec<u8>) -> Self {
-        Value::Bytes(b)
-    }
-}
-
-impl From<NdbDateTime> for Value {
-    fn from(dt: NdbDateTime) -> Self {
-        Value::DateTime(dt)
-    }
-}
-
-impl From<NdbDuration> for Value {
-    fn from(d: NdbDuration) -> Self {
-        Value::Duration(d)
-    }
-}
-
-impl From<rust_decimal::Decimal> for Value {
-    fn from(d: rust_decimal::Decimal) -> Self {
-        Value::Decimal(d)
-    }
-}
-
-impl From<Geometry> for Value {
-    fn from(g: Geometry) -> Self {
-        Value::Geometry(g)
-    }
-}
-
-impl From<Vec<f32>> for Value {
-    fn from(v: Vec<f32>) -> Self {
-        Value::Vector(v.into())
-    }
-}
-
-impl From<Arc<[f32]>> for Value {
-    fn from(v: Arc<[f32]>) -> Self {
-        Value::Vector(v)
-    }
-}
-
-impl From<&[f32]> for Value {
-    fn from(v: &[f32]) -> Self {
-        Value::Vector(v.into())
-    }
-}
-
-impl fmt::Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Value::Vector(v) => {
-                write!(f, "vector(")?;
-                let show = v.len().min(8);
-                for (i, elem) in v[..show].iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{elem}")?;
-                }
-                if v.len() > 8 {
-                    write!(f, ", … ({} total)", v.len())?;
-                }
-                write!(f, ")")
-            }
-            Value::Null => write!(f, "null"),
-            Value::Bool(b) => write!(f, "{b}"),
-            Value::Integer(i) => write!(f, "{i}"),
-            Value::Float(fl) => write!(f, "{fl}"),
-            Value::String(s) | Value::Uuid(s) | Value::Ulid(s) | Value::Regex(s) => {
-                write!(f, "{s}")
-            }
-            Value::Bytes(b) => write!(f, "<bytes:{}>", b.len()),
-            Value::Array(arr) | Value::Set(arr) => {
-                write!(f, "[")?;
-                for (i, v) in arr.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{v}")?;
-                }
-                write!(f, "]")
-            }
-            Value::Object(map) => {
-                write!(f, "{{")?;
-                for (i, (k, v)) in map.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{k}: {v}")?;
-                }
-                write!(f, "}}")
-            }
-            Value::DateTime(dt) | Value::NaiveDateTime(dt) => write!(f, "{dt}"),
-            Value::Duration(d) => write!(f, "{d}"),
-            Value::Decimal(d) => write!(f, "{d}"),
-            Value::Geometry(g) => write!(f, "{g:?}"),
-            Value::Range {
-                start,
-                end,
-                inclusive,
-            } => {
-                if let Some(s) = start {
-                    write!(f, "{s}")?;
-                }
-                if *inclusive {
-                    write!(f, "..=")?;
-                } else {
-                    write!(f, "..")?;
-                }
-                if let Some(e) = end {
-                    write!(f, "{e}")?;
-                }
-                Ok(())
-            }
-            Value::Record { table, id } => write!(f, "{table}:{id}"),
-            Value::NdArrayCell(cell) => write!(f, "<ndarray_cell coords={}>", cell.coords.len()),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -612,11 +458,7 @@ mod tests {
 
     #[test]
     fn vector_bad_byte_len_rejected() {
-        // Manually craft a msgpack payload with 3 bytes (not divisible by 4).
-        // We encode a Bytes value with 3 bytes then patch the tag to 20.
-        // Easiest: encode tag=20 + a binary of length 3.
         use std::io::Write;
-        // fixarray of length 2, tag = 20, bin8 of length 3
         let mut buf = vec![0x92u8, 20, 0xc4, 3];
         buf.write_all(&[0xAAu8, 0xBB, 0xCC]).unwrap();
         let result: zerompk::Result<Value> = zerompk::from_msgpack(&buf);
@@ -638,7 +480,6 @@ mod tests {
 
     #[test]
     fn vector_json_reverse_stays_array_of_float() {
-        // A JSON number array decodes to Value::Array<Float>, not Value::Vector.
         let json = serde_json::json!([1.0, 2.0, 3.0]);
         let v = Value::from(json);
         assert!(
@@ -653,7 +494,6 @@ mod tests {
         let v: Value = floats.into();
         let s = v.to_string();
         assert!(s.contains("10 total"), "display must show total count: {s}");
-        // Should not show the 9th element (8.0) untruncated after the ellipsis.
         assert!(s.contains("…"), "display must contain ellipsis: {s}");
     }
 
@@ -670,7 +510,6 @@ mod tests {
         let slice_val: Value = slice.into();
         assert!(matches!(slice_val, Value::Vector(_)));
 
-        // constructor helper
         let helper = Value::vector(vec![7.0f32]);
         assert_eq!(helper.as_vector(), Some([7.0f32].as_slice()));
     }

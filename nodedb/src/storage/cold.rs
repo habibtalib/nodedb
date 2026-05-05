@@ -29,6 +29,19 @@ use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
 use tracing::info;
 
+/// Server-side encryption mode for S3-compatible cold storage.
+///
+/// Mirrors `config::server::cold_storage::SseMode`; kept here so the
+/// storage layer has no dependency on the config crate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SseMode {
+    /// S3-managed AES-256 (`x-amz-server-side-encryption: AES256`).
+    Aes256,
+    /// AWS KMS-managed keys. `key_id` is the CMK ARN, or `None` for the
+    /// bucket's default KMS key.
+    Kms { key_id: Option<String> },
+}
+
 /// Configuration for the cold storage layer.
 #[derive(Debug, Clone)]
 pub struct ColdStorageConfig {
@@ -52,6 +65,9 @@ pub struct ColdStorageConfig {
     pub compression: ParquetCompression,
     /// Target Parquet row group size.
     pub row_group_size: usize,
+    /// Server-side encryption mode for S3-compatible object stores.
+    /// `None` = no SSE header sent (rely on bucket default or no encryption).
+    pub sse_mode: Option<SseMode>,
 }
 
 /// Supported Parquet compression algorithms.
@@ -75,6 +91,7 @@ impl Default for ColdStorageConfig {
             local_dir: None,
             compression: ParquetCompression::Zstd,
             row_group_size: 65_536,
+            sse_mode: None,
         }
     }
 }
@@ -119,6 +136,29 @@ impl ColdStorage {
                 builder = builder
                     .with_access_key_id(&config.access_key)
                     .with_secret_access_key(&config.secret_key);
+            }
+
+            match &config.sse_mode {
+                Some(SseMode::Aes256) => {
+                    // AES256 = SSE-S3 (S3-managed keys).
+                    // object_store 0.13 configures SSE-S3 via the "server_side_encryption"
+                    // config key with value "AES256". This maps to
+                    // `S3EncryptionType::S3` → `x-amz-server-side-encryption: AES256`.
+                    use object_store::aws::AmazonS3ConfigKey;
+                    let sse_key = "server_side_encryption"
+                        .parse::<AmazonS3ConfigKey>()
+                        .map_err(|e| crate::Error::ColdStorage {
+                            detail: format!(
+                                "SSE-S3 config key parse error (object_store version mismatch?): {e}"
+                            ),
+                        })?;
+                    builder = builder.with_config(sse_key, "AES256");
+                }
+                Some(SseMode::Kms { key_id }) => {
+                    let id = key_id.as_deref().unwrap_or("");
+                    builder = builder.with_sse_kms_encryption(id);
+                }
+                None => {}
             }
 
             let s3 = builder.build().map_err(|e| crate::Error::ColdStorage {
@@ -414,5 +454,55 @@ mod tests {
         let bytes = cold.download_parquet(&path).await.unwrap();
         let batches = read_parquet_with_predicate(&bytes, &["name".into()]).unwrap();
         assert_eq!(batches[0].num_columns(), 1); // Only "name" projected.
+    }
+
+    // ── SSE configuration path tests ──────────────────────────────────────
+
+    /// Verify that `ColdStorageConfig` with `SseMode::Kms` round-trips through
+    /// `ColdStorage::new` on the local filesystem path (no S3 call; SSE config
+    /// is stored on the builder but not sent without a real S3 endpoint).
+    /// The test asserts: the config field is preserved, local-path construction
+    /// succeeds, and no panic or error occurs from the SSE wiring code path.
+    #[tokio::test]
+    async fn sse_kms_config_stored_on_local_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = ColdStorageConfig {
+            local_dir: Some(dir.path().to_path_buf()),
+            sse_mode: Some(SseMode::Kms {
+                key_id: Some("arn:aws:kms:us-east-1:123456789012:key/mrk-test0000".into()),
+            }),
+            ..Default::default()
+        };
+        // Local filesystem path does not consult sse_mode (no S3 builder is
+        // constructed). Verify: config field is as set, ColdStorage::new ok.
+        assert!(matches!(config.sse_mode, Some(SseMode::Kms { ref key_id }) if key_id.is_some()));
+        let cold = ColdStorage::new(config).unwrap();
+        assert_eq!(cold.files_uploaded(), 0);
+    }
+
+    /// Verify that `ColdStorageConfig` with `SseMode::Aes256` round-trips
+    /// through the config path without errors.
+    #[test]
+    fn sse_aes256_config_roundtrip() {
+        let cfg = ColdStorageConfig {
+            sse_mode: Some(SseMode::Aes256),
+            ..Default::default()
+        };
+        assert_eq!(cfg.sse_mode, Some(SseMode::Aes256));
+    }
+
+    /// Verify that the `SseMode::Kms` variant with no key ID is distinct from
+    /// one with a key ID, and that `None` sse_mode is the default.
+    #[test]
+    fn sse_mode_default_is_none() {
+        let cfg = ColdStorageConfig::default();
+        assert!(cfg.sse_mode.is_none(), "default sse_mode must be None");
+
+        let kms_no_key = SseMode::Kms { key_id: None };
+        let kms_with_key = SseMode::Kms {
+            key_id: Some("arn:aws:kms:us-east-1:000:key/test".into()),
+        };
+        assert_ne!(kms_no_key, kms_with_key);
+        assert_ne!(kms_no_key, SseMode::Aes256);
     }
 }

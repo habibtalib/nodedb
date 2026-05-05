@@ -60,7 +60,7 @@ impl CoreLoop {
                 }),
                 _ => ndb_field_to_value(ndb_obj.get(&col.name), &col.column_type),
             })
-            .collect::<Result<Vec<Value>, String>>()
+            .collect::<Result<Vec<Value>, crate::Error>>()
         {
             Ok(v) => v,
             Err(e) => {

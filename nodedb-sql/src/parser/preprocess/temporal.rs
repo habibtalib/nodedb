@@ -335,7 +335,10 @@ fn parse_as_of_expr(sql: &str, offset: usize) -> Result<(i64, usize), TemporalPa
     // If the next non-whitespace character opens a quoted string, consume
     // through the closing quote.
     if trimmed.starts_with('\'') || trimmed.starts_with('"') {
-        let quote = trimmed.chars().next().unwrap();
+        let quote = trimmed
+            .chars()
+            .next()
+            .expect("invariant: trimmed.starts_with('\\'' | '\"') guarantees at least one char");
         let inner_start = 1;
         let close = trimmed[inner_start..].find(quote).ok_or_else(|| {
             TemporalParseError(format!(

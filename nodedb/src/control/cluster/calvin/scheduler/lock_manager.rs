@@ -224,7 +224,7 @@ impl LockManager {
                             .iter()
                             .all(|k| self.table.get(k).is_none_or(|e| e.holder == next));
                         if all_held {
-                            let keys = self.pending_keys.remove(&next).unwrap();
+                            let keys = self.pending_keys.remove(&next).expect("invariant: pending_keys.get(&next) succeeded in the enclosing if-let");
                             self.held_locks.insert(next, keys);
                             newly_promoted.insert(next);
                         }

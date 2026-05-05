@@ -78,13 +78,13 @@ pub async fn fetch_creds(
             token_hex: token_hex.to_string(),
             node_id,
         };
-        let body = encode_request(&req).map_err(FetchError::Codec)?;
+        let body = encode_request(&req).map_err(|e| FetchError::Codec(e.to_string()))?;
         write_frame(&mut send, &body).await?;
         send.finish().map_err(|e| FetchError::Io(e.to_string()))?;
 
         let resp_bytes = read_frame(&mut recv).await?;
         let resp: BootstrapCredsResponse =
-            decode_response(&resp_bytes).map_err(FetchError::Codec)?;
+            decode_response(&resp_bytes).map_err(|e| FetchError::Codec(e.to_string()))?;
         Ok::<_, FetchError>(resp)
     };
 

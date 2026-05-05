@@ -91,12 +91,12 @@ pub enum RetentionUnit {
 ///
 /// Supports: `"7 years"`, `"90 days"`, `"6 months"`, `"1 year"`,
 /// `"365d"`, `"52w"`, `"8760h"`.
-pub fn parse_retention_period(s: &str) -> Result<RetentionDuration, String> {
+pub fn parse_retention_period(s: &str) -> crate::Result<RetentionDuration> {
     let s = s.trim().to_lowercase();
     let (num_str, unit_str) = split_number_unit(&s);
-    let count: u32 = num_str
-        .parse()
-        .map_err(|_| format!("invalid retention period number: '{num_str}'"))?;
+    let count: u32 = num_str.parse().map_err(|_| crate::Error::BadRequest {
+        detail: format!("invalid retention period number: '{num_str}'"),
+    })?;
 
     let unit = match unit_str {
         "s" | "sec" | "secs" | "second" | "seconds" => RetentionUnit::Seconds,
@@ -107,9 +107,15 @@ pub fn parse_retention_period(s: &str) -> Result<RetentionDuration, String> {
         "mo" | "month" | "months" => RetentionUnit::Months,
         "y" | "yr" | "yrs" | "year" | "years" => RetentionUnit::Years,
         "" => {
-            return Err("retention period requires a unit (e.g. '7 years', '90 days')".to_string());
+            return Err(crate::Error::BadRequest {
+                detail: "retention period requires a unit (e.g. '7 years', '90 days')".to_string(),
+            });
         }
-        other => return Err(format!("unknown retention period unit: '{other}'")),
+        other => {
+            return Err(crate::Error::BadRequest {
+                detail: format!("unknown retention period unit: '{other}'"),
+            });
+        }
     };
 
     Ok(RetentionDuration { count, unit })

@@ -4,15 +4,19 @@
 //! Operator precedence is handled via Pratt parsing for binary expressions.
 
 use super::ast::*;
+use super::error::PromqlError;
 use super::label::{LabelMatchOp, LabelMatcher};
 use super::lexer::Token;
 
 /// Parse a PromQL expression from a token stream.
-pub fn parse(tokens: &[Token]) -> Result<Expr, String> {
+pub fn parse(tokens: &[Token]) -> Result<Expr, PromqlError> {
     let mut p = Parser::new(tokens);
     let expr = p.parse_expr(0)?;
     if !p.at_eof() {
-        return Err(format!("unexpected token {:?} after expression", p.peek()));
+        return Err(PromqlError::UnexpectedToken {
+            expected: "end of expression".to_string(),
+            found: format!("{:?}", p.peek()),
+        });
     }
     Ok(expr)
 }
@@ -41,17 +45,20 @@ impl<'a> Parser<'a> {
         matches!(self.peek(), Token::Eof)
     }
 
-    fn expect(&mut self, expected: &Token) -> Result<(), String> {
+    fn expect(&mut self, expected: &Token) -> Result<(), PromqlError> {
         let tok = self.advance().clone();
         if &tok == expected {
             Ok(())
         } else {
-            Err(format!("expected {expected:?}, got {tok:?}"))
+            Err(PromqlError::UnexpectedToken {
+                expected: format!("{expected:?}"),
+                found: format!("{tok:?}"),
+            })
         }
     }
 
     /// Parse an expression with Pratt precedence.
-    fn parse_expr(&mut self, min_prec: u8) -> Result<Expr, String> {
+    fn parse_expr(&mut self, min_prec: u8) -> Result<Expr, PromqlError> {
         let mut lhs = self.parse_unary()?;
 
         while let Some(op) = self.peek_binop() {
@@ -86,7 +93,7 @@ impl<'a> Parser<'a> {
         Ok(lhs)
     }
 
-    fn parse_unary(&mut self) -> Result<Expr, String> {
+    fn parse_unary(&mut self) -> Result<Expr, PromqlError> {
         if matches!(self.peek(), Token::Sub) {
             self.advance();
             let expr = self.parse_unary()?;
@@ -95,7 +102,7 @@ impl<'a> Parser<'a> {
         self.parse_postfix()
     }
 
-    fn parse_postfix(&mut self) -> Result<Expr, String> {
+    fn parse_postfix(&mut self) -> Result<Expr, PromqlError> {
         let mut expr = self.parse_primary()?;
 
         if matches!(self.peek(), Token::LBracket) {
@@ -142,7 +149,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    fn parse_primary(&mut self) -> Result<Expr, String> {
+    fn parse_primary(&mut self) -> Result<Expr, PromqlError> {
         match self.peek().clone() {
             Token::Number(n) => {
                 self.advance();
@@ -173,11 +180,14 @@ impl<'a> Parser<'a> {
                 self.advance();
                 self.parse_ident_continuation(name)
             }
-            other => Err(format!("unexpected token {other:?}")),
+            other => Err(PromqlError::UnexpectedToken {
+                expected: "expression".to_string(),
+                found: format!("{other:?}"),
+            }),
         }
     }
 
-    fn parse_ident_continuation(&mut self, name: String) -> Result<Expr, String> {
+    fn parse_ident_continuation(&mut self, name: String) -> Result<Expr, PromqlError> {
         if matches!(self.peek(), Token::LParen) {
             return self.parse_function_call(name);
         }
@@ -193,7 +203,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_function_call(&mut self, name: String) -> Result<Expr, String> {
+    fn parse_function_call(&mut self, name: String) -> Result<Expr, PromqlError> {
         self.expect(&Token::LParen)?;
         let mut args = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
@@ -207,7 +217,7 @@ impl<'a> Parser<'a> {
         Ok(Expr::Call { func: name, args })
     }
 
-    fn parse_aggregation(&mut self, op: AggOp) -> Result<Expr, String> {
+    fn parse_aggregation(&mut self, op: AggOp) -> Result<Expr, PromqlError> {
         self.advance();
         let grouping_before = self.try_parse_grouping()?;
 
@@ -240,7 +250,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_label_matchers(&mut self) -> Result<Vec<LabelMatcher>, String> {
+    fn parse_label_matchers(&mut self) -> Result<Vec<LabelMatcher>, PromqlError> {
         self.expect(&Token::LBrace)?;
         let mut matchers = Vec::new();
         if !matches!(self.peek(), Token::RBrace) {
@@ -257,34 +267,45 @@ impl<'a> Parser<'a> {
         Ok(matchers)
     }
 
-    fn parse_one_matcher(&mut self) -> Result<LabelMatcher, String> {
+    fn parse_one_matcher(&mut self) -> Result<LabelMatcher, PromqlError> {
         let Token::Ident(name) = self.advance().clone() else {
-            return Err("expected label name".into());
+            return Err(PromqlError::LabelMatcher {
+                detail: "expected label name".to_string(),
+            });
         };
         let op = match self.advance() {
             Token::Assign => LabelMatchOp::Equal,
             Token::Neq => LabelMatchOp::NotEqual,
             Token::MatchRegex => LabelMatchOp::RegexMatch,
             Token::NotMatchRegex => LabelMatchOp::RegexNotMatch,
-            t => return Err(format!("expected match operator, got {t:?}")),
+            t => {
+                return Err(PromqlError::LabelMatcher {
+                    detail: format!("expected match operator, got {t:?}"),
+                });
+            }
         };
         let Token::String(value) = self.advance().clone() else {
-            return Err("expected string value in label matcher".into());
+            return Err(PromqlError::LabelMatcher {
+                detail: "expected string value in label matcher".to_string(),
+            });
         };
         Ok(LabelMatcher::new(name, op, value))
     }
 
-    fn parse_duration(&mut self) -> Result<Duration, String> {
+    fn parse_duration(&mut self) -> Result<Duration, PromqlError> {
         match self.advance().clone() {
             Token::Duration(s) => {
-                Duration::parse(&s).ok_or_else(|| format!("invalid duration '{s}'"))
+                Duration::parse(&s).ok_or(PromqlError::InvalidDuration { literal: s })
             }
             Token::Number(n) if n > 0.0 => Ok(Duration((n * 1000.0) as i64)),
-            t => Err(format!("expected duration, got {t:?}")),
+            t => Err(PromqlError::UnexpectedToken {
+                expected: "duration".to_string(),
+                found: format!("{t:?}"),
+            }),
         }
     }
 
-    fn try_parse_grouping(&mut self) -> Result<Grouping, String> {
+    fn try_parse_grouping(&mut self) -> Result<Grouping, PromqlError> {
         if self.try_keyword("by") {
             return Ok(Grouping::By(self.parse_label_list()?));
         }
@@ -294,7 +315,7 @@ impl<'a> Parser<'a> {
         Ok(Grouping::None)
     }
 
-    fn parse_label_list(&mut self) -> Result<Vec<String>, String> {
+    fn parse_label_list(&mut self) -> Result<Vec<String>, PromqlError> {
         self.expect(&Token::LParen)?;
         let mut labels = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
@@ -343,7 +364,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn try_parse_vector_matching(&mut self) -> Result<Option<VectorMatching>, String> {
+    fn try_parse_vector_matching(&mut self) -> Result<Option<VectorMatching>, PromqlError> {
         let has_on = self.try_keyword("on");
         let has_ignoring = !has_on && self.try_keyword("ignoring");
         if !has_on && !has_ignoring {
@@ -372,7 +393,7 @@ impl<'a> Parser<'a> {
         Ok(Some(matching))
     }
 
-    fn try_parse_set_matching(&mut self) -> Result<Option<VectorMatching>, String> {
+    fn try_parse_set_matching(&mut self) -> Result<Option<VectorMatching>, PromqlError> {
         let has_on = self.try_keyword("on");
         let has_ignoring = !has_on && self.try_keyword("ignoring");
         if !has_on && !has_ignoring {

@@ -179,7 +179,7 @@ pub fn spawn_kafka_task(
 fn create_producer(
     config: &KafkaDeliveryConfig,
     stream_name: &str,
-) -> Result<rdkafka::producer::FutureProducer, String> {
+) -> crate::Result<rdkafka::producer::FutureProducer> {
     use rdkafka::ClientConfig;
 
     let mut client_config = ClientConfig::new();
@@ -191,9 +191,9 @@ fn create_producer(
         client_config.set("transactional.id", format!("nodedb-kafka-{stream_name}"));
     }
 
-    client_config
-        .create()
-        .map_err(|e| format!("create Kafka producer: {e}"))
+    client_config.create().map_err(|e| crate::Error::Config {
+        detail: format!("create Kafka producer: {e}"),
+    })
 }
 
 /// Serialize a CdcEvent for Kafka publishing.
@@ -201,16 +201,22 @@ fn create_producer(
 fn serialize_event(
     event: &crate::event::cdc::event::CdcEvent,
     format: super::config::KafkaFormat,
-) -> Result<Vec<u8>, String> {
+) -> crate::Result<Vec<u8>> {
     match format {
         super::config::KafkaFormat::Json => {
-            sonic_rs::to_vec(event).map_err(|e| format!("JSON serialize: {e}"))
+            sonic_rs::to_vec(event).map_err(|e| crate::Error::Serialization {
+                format: "json".to_string(),
+                detail: format!("JSON serialize: {e}"),
+            })
         }
         super::config::KafkaFormat::Avro => {
             // Avro serialization uses the same JSON representation for now.
             // Full Avro schema registry integration is a future enhancement —
             // the config field and wire path are ready for it.
-            sonic_rs::to_vec(event).map_err(|e| format!("Avro (JSON fallback) serialize: {e}"))
+            sonic_rs::to_vec(event).map_err(|e| crate::Error::Serialization {
+                format: "avro".to_string(),
+                detail: format!("Avro (JSON fallback) serialize: {e}"),
+            })
         }
     }
 }

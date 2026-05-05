@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::column_type::ColumnDef;
+use super::column_def::ColumnDef;
 use crate::columnar::ColumnType;
 
 /// Shared schema operations (eliminates duplication between Strict and Columnar).

@@ -46,7 +46,9 @@ pub fn evaluate_window_functions(
                     apply_aggregate_window(rows, partition_indices, spec)
                 }
                 other => {
-                    panic!("window function '{other}' reached evaluator without planner validation")
+                    unreachable!(
+                        "invariant: SQL planner validates window function names before dispatch; '{other}' is unrecognized and should have been rejected at planning time"
+                    )
                 }
             }
         }
@@ -254,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "without planner validation")]
+    #[should_panic(expected = "should have been rejected at planning time")]
     fn unknown_function_panics_at_evaluator() {
         let mut rows = numbered(2);
         let spec = WindowFuncSpec {

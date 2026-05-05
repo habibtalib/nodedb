@@ -158,7 +158,8 @@ pub fn classify_dispatch(tasks: &[PhysicalTask]) -> DispatchClass {
                 .unwrap_or(VShardId::new(0)),
         },
         1 => DispatchClass::SingleShard {
-            vshard: last_vshard.unwrap(),
+            vshard: last_vshard
+                .expect("invariant: vshards.len() == 1 means last_vshard was set during the loop"),
         },
         _ => DispatchClass::MultiShard { vshards },
     }

@@ -43,6 +43,7 @@ pub mod vector_lifecycle;
 pub mod vector_multi;
 pub mod vector_search;
 mod vector_search_ann;
+mod vector_search_exec;
 pub mod vector_sparse;
 pub mod vector_upsert;
 pub mod write_batch;

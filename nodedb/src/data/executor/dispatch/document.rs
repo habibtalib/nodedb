@@ -188,11 +188,13 @@ impl CoreLoop {
             } => self.execute_bulk_update(
                 task,
                 tid,
-                collection,
-                filters,
-                updates,
-                returning.as_ref(),
-                ollp_predicted_surrogates.as_deref(),
+                super::super::handlers::bulk_dml::BulkUpdateParams {
+                    collection,
+                    filter_bytes: filters,
+                    updates,
+                    returning: returning.as_ref(),
+                    ollp_predicted_surrogates: ollp_predicted_surrogates.as_deref(),
+                },
             ),
 
             DocumentOp::BulkDelete {

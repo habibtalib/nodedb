@@ -111,10 +111,7 @@ pub(super) fn extract_table_name_from_table_with_joins(
 }
 
 /// Extract point-operation keys from WHERE clause (WHERE pk = literal OR pk IN (...)).
-pub(super) fn extract_point_keys(
-    selection: Option<&ast::Expr>,
-    info: &CollectionInfo,
-) -> Vec<SqlValue> {
+pub fn extract_point_keys(selection: Option<&ast::Expr>, info: &CollectionInfo) -> Vec<SqlValue> {
     let pk = match &info.primary_key {
         Some(pk) => pk.clone(),
         None => return Vec::new(),
@@ -180,4 +177,130 @@ fn is_column(expr: &ast::Expr, name: &str) -> bool {
         }
         _ => false,
     }
+}
+
+/// Build a `SqlPlan::VectorPrimaryInsert` from parsed rows.
+///
+/// Extracts the vector-field column into `vector: Vec<f32>` and collects
+/// all remaining columns into `payload_fields`. Rows missing the vector
+/// column are rejected.
+pub(super) fn build_vector_primary_insert_plan(
+    collection: &str,
+    vpc: &nodedb_types::VectorPrimaryConfig,
+    _columns: &[String],
+    rows: Vec<Vec<(String, SqlValue)>>,
+) -> Result<Vec<SqlPlan>> {
+    let mut result_rows = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mut vector: Option<Vec<f32>> = None;
+        let mut payload_fields = std::collections::HashMap::new();
+
+        for (col, val) in row {
+            if col == vpc.vector_field {
+                match val {
+                    SqlValue::Array(items) => {
+                        let floats: Result<Vec<f32>> = items
+                            .iter()
+                            .map(|v| match v {
+                                SqlValue::Float(f) => Ok(*f as f32),
+                                SqlValue::Int(i) => Ok(*i as f32),
+                                SqlValue::Decimal(d) => {
+                                    use rust_decimal::prelude::ToPrimitive;
+                                    d.to_f32().ok_or_else(|| SqlError::Parse {
+                                        detail: format!(
+                                            "vector element decimal '{d}' is out of f32 range"
+                                        ),
+                                    })
+                                }
+                                other => Err(SqlError::Parse {
+                                    detail: format!(
+                                        "vector field must contain numbers, got {other:?}"
+                                    ),
+                                }),
+                            })
+                            .collect();
+                        vector = Some(floats?);
+                    }
+                    other => {
+                        return Err(SqlError::Parse {
+                            detail: format!(
+                                "vector field '{}' must be an array literal, got {other:?}",
+                                vpc.vector_field
+                            ),
+                        });
+                    }
+                }
+            } else {
+                payload_fields.insert(col, val);
+            }
+        }
+
+        let vector = vector.ok_or_else(|| SqlError::Parse {
+            detail: format!(
+                "vector-primary INSERT missing required vector field '{}'",
+                vpc.vector_field
+            ),
+        })?;
+
+        result_rows.push(VectorPrimaryRow {
+            surrogate: nodedb_types::Surrogate::ZERO,
+            vector,
+            payload_fields,
+        });
+    }
+
+    Ok(vec![SqlPlan::VectorPrimaryInsert {
+        collection: collection.to_string(),
+        field: vpc.vector_field.clone(),
+        quantization: vpc.quantization,
+        payload_indexes: vpc.payload_indexes.clone(),
+        rows: result_rows,
+    }])
+}
+
+/// Build a `SqlPlan::KvInsert` from a VALUES clause. Shared by plain INSERT,
+/// UPSERT, and `INSERT ... ON CONFLICT (key) DO UPDATE` — the three paths
+/// differ only in `intent` and `on_conflict_updates`, never in how entries
+/// are extracted from the row exprs.
+pub(super) fn build_kv_insert_plan(
+    table_name: String,
+    columns: &[String],
+    rows_ast: &[Vec<ast::Expr>],
+    intent: KvInsertIntent,
+    on_conflict_updates: Vec<(String, SqlExpr)>,
+) -> Result<Vec<SqlPlan>> {
+    let key_idx = columns.iter().position(|c| c == "key");
+    let ttl_idx = columns.iter().position(|c| c == "ttl");
+    let mut entries = Vec::with_capacity(rows_ast.len());
+    let mut ttl_secs: u64 = 0;
+    for row_exprs in rows_ast {
+        let key_val = match key_idx {
+            Some(idx) => expr_to_sql_value(&row_exprs[idx])?,
+            None => SqlValue::String(String::new()),
+        };
+        if let Some(idx) = ttl_idx {
+            match expr_to_sql_value(&row_exprs[idx]) {
+                Ok(SqlValue::Int(n)) => ttl_secs = n.max(0) as u64,
+                Ok(SqlValue::Float(f)) => ttl_secs = f.max(0.0) as u64,
+                _ => {}
+            }
+        }
+        let value_cols: Vec<(String, SqlValue)> = columns
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| Some(*i) != key_idx && Some(*i) != ttl_idx)
+            .map(|(i, col)| {
+                let val = expr_to_sql_value(&row_exprs[i])?;
+                Ok((col.clone(), val))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        entries.push((key_val, value_cols));
+    }
+    Ok(vec![SqlPlan::KvInsert {
+        collection: table_name,
+        entries,
+        ttl_secs,
+        intent,
+        on_conflict_updates,
+    }])
 }
