@@ -216,6 +216,7 @@ async fn scan_all_entries(
         count: 100_000,
         filters: Vec::new(),
         match_pattern: None,
+        sort_keys: Vec::new(),
     });
 
     let resp = crate::control::server::dispatch_utils::dispatch_to_data_plane(

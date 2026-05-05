@@ -100,6 +100,11 @@ pub enum KvOp {
         filters: Vec<u8>,
         /// Optional glob pattern for key matching (e.g., "user:*").
         match_pattern: Option<String>,
+        /// Sort keys: `(field, descending)` pairs applied to the scan result
+        /// before encoding. Empty = unsorted (engine native order).
+        #[serde(default)]
+        #[msgpack(default)]
+        sort_keys: Vec<(String, bool)>,
     },
 
     /// Set or update TTL on an existing key.

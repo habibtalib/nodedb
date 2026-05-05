@@ -17,6 +17,7 @@ pub(crate) fn build_scan(fields: &TextFields, collection: &str) -> crate::Result
         count,
         filters,
         match_pattern,
+        sort_keys: Vec::new(),
     }))
 }
 

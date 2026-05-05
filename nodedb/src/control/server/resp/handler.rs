@@ -289,6 +289,7 @@ async fn handle_scan(cmd: &RespCommand, session: &RespSession, state: &SharedSta
         count,
         filters: filter_bytes,
         match_pattern,
+        sort_keys: Vec::new(),
     });
 
     match dispatch_kv(state, session, plan).await {
@@ -335,6 +336,7 @@ async fn handle_keys(cmd: &RespCommand, session: &RespSession, state: &SharedSta
         count: 100_000,
         filters: Vec::new(),
         match_pattern: Some(pattern.to_string()),
+        sort_keys: Vec::new(),
     });
 
     match dispatch_kv(state, session, plan).await {
@@ -380,6 +382,7 @@ async fn handle_dbsize(session: &RespSession, state: &SharedState) -> RespValue 
         count: 0,
         filters: Vec::new(),
         match_pattern: None,
+        sort_keys: Vec::new(),
     });
 
     match dispatch_kv(state, session, plan).await {

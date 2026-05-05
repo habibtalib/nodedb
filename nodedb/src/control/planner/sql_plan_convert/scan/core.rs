@@ -88,6 +88,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_scan(
             count: limit.unwrap_or(10000),
             filters: filter_bytes,
             match_pattern: None,
+            sort_keys: sort.clone(),
         }),
         EngineType::DocumentSchemaless | EngineType::DocumentStrict => {
             PhysicalPlan::Document(DocumentOp::Scan {

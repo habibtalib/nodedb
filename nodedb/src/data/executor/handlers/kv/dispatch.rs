@@ -70,6 +70,7 @@ impl CoreLoop {
                 count,
                 filters,
                 match_pattern,
+                sort_keys,
             } => self.execute_kv_scan(
                 task,
                 tid,
@@ -78,6 +79,7 @@ impl CoreLoop {
                 *count,
                 match_pattern.as_deref(),
                 filters,
+                sort_keys,
             ),
             KvOp::Expire {
                 collection,

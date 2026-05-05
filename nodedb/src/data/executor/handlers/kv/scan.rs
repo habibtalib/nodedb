@@ -18,6 +18,7 @@ impl CoreLoop {
         count: usize,
         match_pattern: Option<&str>,
         filters: &[u8],
+        sort_keys: &[(String, bool)],
     ) -> Response {
         debug!(core = self.core_id, %collection, count, "kv scan");
 
@@ -84,6 +85,10 @@ impl CoreLoop {
             }
 
             result_entries.push(entry_mp);
+        }
+
+        if !sort_keys.is_empty() {
+            super::super::sort_utils::sort_msgpack_rows(&mut result_entries, sort_keys);
         }
 
         // Build response as flat msgpack array — same format as document/columnar scan.

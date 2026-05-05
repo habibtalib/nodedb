@@ -28,6 +28,7 @@ pub mod recursive;
 pub mod returning_rows;
 pub mod rls_eval;
 pub mod snapshot;
+pub mod sort_utils;
 pub mod spatial;
 pub mod text_search;
 pub mod timeseries;
