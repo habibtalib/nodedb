@@ -2,8 +2,6 @@
 
 use std::time::Duration;
 
-use crate::common::cluster_harness::{TestCluster, wait_for};
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn single_node_cluster_boots() {
     // Smallest possible smoke test: one node in cluster mode.

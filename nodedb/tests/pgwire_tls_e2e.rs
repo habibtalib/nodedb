@@ -288,14 +288,12 @@ async fn pgwire_tls_ssl_request_and_select_1() {
     // TLS test's contract is that the protocol round-trip completes over TLS
     // — i.e., we receive ReadyForQuery, proving the full pgwire frame layer
     // works through the TLS channel.
-    let mut saw_ready_for_query = false;
-    loop {
+    let saw_ready_for_query = loop {
         let (msg_type, _payload) = read_pg_message(&mut tls_stream).await;
         if msg_type == b'Z' {
-            saw_ready_for_query = true;
-            break;
+            break true;
         }
-    }
+    };
     assert!(
         saw_ready_for_query,
         "query execution must conclude with ReadyForQuery ('Z')"
