@@ -4,10 +4,14 @@
 //! columnar memtable. Only replays records with LSN > `last_flushed_wal_lsn`
 //! per partition (not max_ts — safe with out-of-order data).
 
+use crate::bridge::envelope::{PhysicalPlan, Priority, Request};
+use crate::bridge::physical_plan::{ColumnarInsertIntent, ColumnarOp, TimeseriesOp};
 use crate::data::executor::core_loop::CoreLoop;
+use crate::data::executor::task::{ExecutionTask, TaskState};
 use crate::engine::timeseries::columnar_memtable::{
     ColumnarMemtable, ColumnarMemtableConfig, ColumnarSchema,
 };
+use crate::types::ReadConsistency;
 use nodedb_types::timeseries::MetricSample;
 
 /// Default timeseries memtable configuration for replay and auto-creation.
@@ -20,6 +24,29 @@ fn default_ts_config() -> ColumnarMemtableConfig {
 }
 
 impl CoreLoop {
+    fn replay_task(
+        tenant_id: crate::types::TenantId,
+        vshard_id: crate::types::VShardId,
+        plan: PhysicalPlan,
+    ) -> ExecutionTask {
+        ExecutionTask {
+            request: Request {
+                request_id: crate::types::RequestId::new(0),
+                tenant_id,
+                vshard_id,
+                plan,
+                deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
+                priority: Priority::Normal,
+                trace_id: crate::types::TraceId::ZERO,
+                consistency: ReadConsistency::Strong,
+                idempotency_key: None,
+                event_source: crate::event::EventSource::User,
+                user_roles: Vec::new(),
+            },
+            state: TaskState::Running,
+        }
+    }
+
     /// Ensure a timeseries memtable exists for the given collection, creating if needed.
     fn ensure_columnar_memtable(
         &mut self,
@@ -29,6 +56,119 @@ impl CoreLoop {
         self.columnar_memtables
             .entry(key)
             .or_insert_with(|| ColumnarMemtable::new(schema, default_ts_config()));
+    }
+
+    fn replay_timeseries_payload(
+        &mut self,
+        tid: crate::types::TenantId,
+        collection: &str,
+        payload: &[u8],
+        record_lsn: u64,
+    ) -> usize {
+        if let Ok(batch) =
+            zerompk::from_msgpack::<nodedb_types::timeseries::TimeseriesWalBatch>(payload)
+        {
+            let key = (tid, collection.to_string());
+            self.ensure_columnar_memtable(key.clone(), ColumnarSchema::metric_default());
+
+            let Some(mt) = self.columnar_memtables.get_mut(&key) else {
+                return 0;
+            };
+            for (series_id, timestamp_ms, value) in &batch.samples {
+                mt.ingest_metric(
+                    *series_id,
+                    MetricSample {
+                        timestamp_ms: *timestamp_ms,
+                        value: *value,
+                    },
+                );
+            }
+            let sample_count = batch.samples.len();
+            if sample_count > 0
+                && let Some(ref gov) = self.governor
+            {
+                let _ = gov.try_reserve(nodedb_mem::EngineId::Timeseries, sample_count * 24);
+            }
+            return sample_count;
+        }
+
+        let format = if std::str::from_utf8(payload).is_ok() {
+            "ilp"
+        } else {
+            "msgpack"
+        };
+        let task = Self::replay_task(
+            tid,
+            crate::types::VShardId::from_collection(collection),
+            PhysicalPlan::Timeseries(TimeseriesOp::Ingest {
+                collection: collection.to_string(),
+                payload: payload.to_vec(),
+                format: format.to_string(),
+                wal_lsn: Some(record_lsn),
+                surrogates: Vec::new(),
+            }),
+        );
+        let response = self.execute_timeseries_ingest(
+            &task,
+            tid,
+            collection,
+            payload,
+            format,
+            Some(record_lsn),
+        );
+        if response.status != crate::bridge::envelope::Status::Ok {
+            tracing::warn!(
+                "timeseries WAL replay failed for collection={collection} lsn={record_lsn}: {:?}",
+                response.error_code
+            );
+            return 0;
+        }
+        match nodedb_types::value_from_msgpack(payload) {
+            Ok(nodedb_types::Value::Array(rows)) => rows.len(),
+            Ok(nodedb_types::Value::Object(_)) => 1,
+            _ => 0,
+        }
+    }
+
+    fn replay_columnar_payload(
+        &mut self,
+        tid: crate::types::TenantId,
+        collection: &str,
+        payload: &[u8],
+    ) -> usize {
+        let task = Self::replay_task(
+            tid,
+            crate::types::VShardId::from_collection(collection),
+            PhysicalPlan::Columnar(ColumnarOp::Insert {
+                collection: collection.to_string(),
+                payload: payload.to_vec(),
+                format: "msgpack".into(),
+                intent: ColumnarInsertIntent::Insert,
+                on_conflict_updates: Vec::new(),
+                surrogates: Vec::new(),
+            }),
+        );
+        let response = self.execute_columnar_insert(
+            &task,
+            collection,
+            payload,
+            "msgpack",
+            ColumnarInsertIntent::Insert,
+            &[],
+            &[],
+        );
+        if response.status != crate::bridge::envelope::Status::Ok {
+            tracing::warn!(
+                "columnar WAL replay failed for collection={collection}: {:?}",
+                response.error_code
+            );
+            return 0;
+        }
+        match nodedb_types::value_from_msgpack(payload) {
+            Ok(nodedb_types::Value::Array(rows)) => rows.len(),
+            Ok(nodedb_types::Value::Object(_)) => 1,
+            _ => 0,
+        }
     }
 
     /// Replay WAL timeseries records to rebuild in-memory memtable state after crash.
@@ -68,10 +208,13 @@ impl CoreLoop {
                 continue;
             }
 
-            // Deserialize: (collection, raw_payload).
-            let Ok((raw_collection, payload)): Result<(String, Vec<u8>), _> =
-                zerompk::from_msgpack(&record.payload)
-            else {
+            let decoded = zerompk::from_msgpack::<(String, String, Vec<u8>)>(&record.payload)
+                .map(|(kind, collection, payload)| (Some(kind), collection, payload))
+                .or_else(|_| {
+                    zerompk::from_msgpack::<(String, Vec<u8>)>(&record.payload)
+                        .map(|(collection, payload)| (None, collection, payload))
+                });
+            let Ok((kind, raw_collection, payload)) = decoded else {
                 tracing::warn!(
                     core = self.core_id,
                     lsn = record.header.lsn,
@@ -115,80 +258,25 @@ impl CoreLoop {
                 self.ts_max_ingested_lsn.insert(key.clone(), record_lsn);
             }
 
-            // Re-ingest the ILP payload into the memtable.
-            if let Ok(input) = std::str::from_utf8(&payload) {
-                let lines: Vec<_> = crate::engine::timeseries::ilp::parse_batch(input)
-                    .into_iter()
-                    .filter_map(|r| r.ok())
-                    .collect();
-
-                if lines.is_empty() {
-                    continue;
+            let accepted = match kind.as_deref() {
+                Some("columnar") => self.replay_columnar_payload(tid_id, collection, &payload),
+                Some("timeseries") | None => {
+                    self.replay_timeseries_payload(tid_id, collection, &payload, record_lsn)
                 }
-
-                // Flush memtable if it's at the soft limit BEFORE ingesting.
-                // Without this, the memtable overflows during large WAL replays
-                // and excess rows are silently rejected.
-                if let Some(mt) = self.columnar_memtables.get(&key)
-                    && mt.memory_bytes() >= 64 * 1024 * 1024
-                {
-                    self.flush_ts_collection(tid_id, collection, 0);
+                Some(other) => {
+                    tracing::warn!(
+                        core = self.core_id,
+                        lsn = record_lsn,
+                        kind = other,
+                        "skipping unknown TimeseriesBatch WAL kind"
+                    );
+                    0
                 }
-
-                // Ensure memtable exists.
-                let schema = crate::engine::timeseries::ilp_ingest::infer_schema(&lines);
-                self.ensure_columnar_memtable(key.clone(), schema);
-
-                let Some(mt) = self.columnar_memtables.get_mut(&key) else {
-                    continue;
-                };
-                let mut series_keys = std::collections::HashMap::new();
-                let now_ms = 0; // Default timestamp not needed for replay (records have timestamps).
-                let (accepted, _) = crate::engine::timeseries::ilp_ingest::ingest_batch(
-                    mt,
-                    &lines,
-                    &mut series_keys,
-                    now_ms,
-                );
-
-                // Reserve memory in the governor to match what was replayed,
-                // so that subsequent flush_ts_collection releases stay balanced.
-                if accepted > 0
-                    && let Some(ref gov) = self.governor
-                {
-                    let _ = gov.try_reserve(nodedb_mem::EngineId::Timeseries, accepted * 24);
-                }
-
-                replayed += accepted;
-            } else {
-                // Binary payload — try msgpack-encoded samples.
-                if let Ok(batch) =
-                    zerompk::from_msgpack::<nodedb_types::timeseries::TimeseriesWalBatch>(&payload)
-                {
-                    self.ensure_columnar_memtable(key.clone(), ColumnarSchema::metric_default());
-
-                    let Some(mt) = self.columnar_memtables.get_mut(&key) else {
-                        continue;
-                    };
-                    for (series_id, timestamp_ms, value) in &batch.samples {
-                        mt.ingest_metric(
-                            *series_id,
-                            MetricSample {
-                                timestamp_ms: *timestamp_ms,
-                                value: *value,
-                            },
-                        );
-                    }
-                    let sample_count = batch.samples.len();
-                    if sample_count > 0
-                        && let Some(ref gov) = self.governor
-                    {
-                        let _ =
-                            gov.try_reserve(nodedb_mem::EngineId::Timeseries, sample_count * 24);
-                    }
-                    replayed += sample_count;
-                }
+            };
+            if accepted == 0 {
+                continue;
             }
+            replayed += accepted;
         }
 
         if replayed > 0 {

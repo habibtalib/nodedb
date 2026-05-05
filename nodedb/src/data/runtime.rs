@@ -256,6 +256,7 @@ pub fn spawn_core(
                 core.replay_vector_wal(&wal_records, num_cores, &tombstones);
                 core.replay_kv_wal(&wal_records, num_cores, &tombstones);
                 core.replay_timeseries_wal(&wal_records, num_cores, &tombstones);
+                core.replay_array_wal(&wal_records, num_cores, &tombstones);
             }
 
             info!(core_id, "data plane core started (eventfd-driven)");

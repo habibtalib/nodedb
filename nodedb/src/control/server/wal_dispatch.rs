@@ -53,6 +53,22 @@ pub fn wal_append_if_write_with_creds(
                 })?;
             wal.append_put(tenant_id, vshard_id, &entry)?;
         }
+        PhysicalPlan::Document(DocumentOp::PointInsert {
+            collection,
+            document_id,
+            value,
+            if_absent: _,
+            surrogate: _,
+        }) => {
+            let entry =
+                zerompk::to_msgpack_vec(&(collection, document_id, value)).map_err(|e| {
+                    crate::Error::Serialization {
+                        format: "msgpack".into(),
+                        detail: format!("wal point insert: {e}"),
+                    }
+                })?;
+            wal.append_put(tenant_id, vshard_id, &entry)?;
+        }
         PhysicalPlan::Document(DocumentOp::PointDelete {
             collection,
             document_id,
@@ -180,14 +196,21 @@ pub fn wal_append_if_write_with_creds(
             wal.append_vector_params(tenant_id, vshard_id, &entry)?;
         }
         PhysicalPlan::Columnar(crate::bridge::physical_plan::ColumnarOp::Insert {
-            collection: _,
+            collection,
             payload,
             format: _,
             intent: _,
             on_conflict_updates: _,
             surrogates: _,
         }) => {
-            wal.append_timeseries_batch(tenant_id, vshard_id, payload)?;
+            let wal_payload =
+                zerompk::to_msgpack_vec(&("columnar", collection, payload)).map_err(|e| {
+                    crate::Error::Serialization {
+                        format: "msgpack".into(),
+                        detail: format!("wal columnar batch: {e}"),
+                    }
+                })?;
+            wal.append_timeseries_batch(tenant_id, vshard_id, &wal_payload)?;
         }
         PhysicalPlan::Timeseries(TimeseriesOp::Ingest {
             collection,
@@ -206,12 +229,11 @@ pub fn wal_append_if_write_with_creds(
                 return Ok(());
             }
 
-            let wal_payload = zerompk::to_msgpack_vec(&(collection, payload)).map_err(|e| {
-                crate::Error::Serialization {
+            let wal_payload = zerompk::to_msgpack_vec(&("timeseries", collection, payload))
+                .map_err(|e| crate::Error::Serialization {
                     format: "msgpack".into(),
                     detail: format!("wal timeseries batch: {e}"),
-                }
-            })?;
+                })?;
             wal.append_timeseries_batch(tenant_id, vshard_id, &wal_payload)?;
         }
         // KV write operations.
@@ -226,6 +248,35 @@ pub fn wal_append_if_write_with_creds(
                 .map_err(|e| crate::Error::Serialization {
                     format: "msgpack".into(),
                     detail: format!("wal kv put: {e}"),
+                })?;
+            wal.append_put(tenant_id, vshard_id, &entry)?;
+        }
+        PhysicalPlan::Kv(KvOp::Insert {
+            collection,
+            key,
+            value,
+            ttl_ms,
+            surrogate: _,
+        })
+        | PhysicalPlan::Kv(KvOp::InsertIfAbsent {
+            collection,
+            key,
+            value,
+            ttl_ms,
+            surrogate: _,
+        })
+        | PhysicalPlan::Kv(KvOp::InsertOnConflictUpdate {
+            collection,
+            key,
+            value,
+            ttl_ms,
+            updates: _,
+            surrogate: _,
+        }) => {
+            let entry = zerompk::to_msgpack_vec(&("kv_put", collection, key, value, ttl_ms))
+                .map_err(|e| crate::Error::Serialization {
+                    format: "msgpack".into(),
+                    detail: format!("wal kv insert-like put: {e}"),
                 })?;
             wal.append_put(tenant_id, vshard_id, &entry)?;
         }
@@ -485,12 +536,13 @@ pub fn wal_append_timeseries(
     }
 
     let payload_vec = payload.to_vec();
-    let wal_payload = zerompk::to_msgpack_vec(&(collection, payload_vec)).map_err(|e| {
-        crate::Error::Serialization {
-            format: "msgpack".into(),
-            detail: format!("wal timeseries batch: {e}"),
-        }
-    })?;
+    let wal_payload =
+        zerompk::to_msgpack_vec(&("timeseries", collection, payload_vec)).map_err(|e| {
+            crate::Error::Serialization {
+                format: "msgpack".into(),
+                detail: format!("wal timeseries batch: {e}"),
+            }
+        })?;
     let lsn = wal.append_timeseries_batch(tenant_id, vshard_id, &wal_payload)?;
     Ok(Some(lsn))
 }
