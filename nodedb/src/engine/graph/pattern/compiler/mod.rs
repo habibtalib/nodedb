@@ -20,7 +20,9 @@ mod helpers;
 
 use super::ast::*;
 use clauses::{parse_order_by, parse_return, parse_where};
-use helpers::{find_next_match_keyword, find_top_level_keyword, split_top_level_commas};
+use helpers::{
+    find_in_clause, find_next_match_keyword, find_top_level_keyword, split_top_level_commas,
+};
 
 /// Parse a MATCH query string into a `MatchQuery` AST.
 ///
@@ -31,6 +33,7 @@ pub fn parse(sql: &str) -> crate::Result<MatchQuery> {
     let mut distinct = false;
     let mut limit = None;
     let mut order_by = Vec::new();
+    let mut collection = None;
 
     let trimmed = sql.trim();
     let upper = trimmed.to_uppercase();
@@ -39,8 +42,27 @@ pub fn parse(sql: &str) -> crate::Result<MatchQuery> {
     let return_pos = find_top_level_keyword(&upper, "RETURN");
     let limit_pos = find_top_level_keyword(&upper, "LIMIT");
     let order_pos = find_top_level_keyword(&upper, "ORDER BY");
+    // `IN 'collection'` clause: appears after the last closing `)` and before RETURN/WHERE.
+    // Use a boundary-aware scan that accepts `)` before `IN`.
+    let in_pos = find_in_clause(&upper);
 
-    let pattern_end = [where_pos, return_pos, limit_pos, order_pos]
+    // Extract collection name from `IN 'collection'` if present.
+    if let Some(ip) = in_pos {
+        let after_in = trimmed[ip + 2..].trim();
+        // Strip surrounding quotes.
+        let coll = if (after_in.starts_with('\'') && after_in.contains('\''))
+            || (after_in.starts_with('"') && after_in.contains('"'))
+        {
+            let q = after_in.chars().next().unwrap();
+            let rest = &after_in[1..];
+            rest.find(q).map(|end| rest[..end].to_string())
+        } else {
+            after_in.split_whitespace().next().map(|s| s.to_string())
+        };
+        collection = coll;
+    }
+
+    let pattern_end = [where_pos, return_pos, limit_pos, order_pos, in_pos]
         .iter()
         .filter_map(|&p| p)
         .min()
@@ -90,6 +112,7 @@ pub fn parse(sql: &str) -> crate::Result<MatchQuery> {
         distinct,
         limit,
         order_by,
+        collection,
     })
 }
 

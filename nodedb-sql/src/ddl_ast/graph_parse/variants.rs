@@ -116,7 +116,7 @@ pub(super) fn parse_algo(toks: &[Tok<'_>]) -> Option<NodedbStatement> {
         resolution: super::helpers::float_after(toks, "RESOLUTION"),
         max_iterations: usize_after(toks, "ITERATIONS"),
         sample_size: usize_after(toks, "SAMPLE"),
-        source_node: quoted_after(toks, "FROM"),
+        source_node: quoted_after(toks, "FROM").or_else(|| quoted_after(toks, "SOURCE")),
         direction: word_after(toks, "DIRECTION"),
         mode: word_after(toks, "MODE"),
     })

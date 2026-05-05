@@ -21,6 +21,15 @@ pub(super) fn parse_node_binding(text: &str) -> crate::Result<(NodeBinding, usiz
     })?;
     let inner = trimmed[1..close].trim();
 
+    // Strip any `{...}` property filter block from inner before parsing name/label.
+    let inner_stripped: std::borrow::Cow<str> = if let Some(brace_start) = inner.find('{') {
+        let before_brace = inner[..brace_start].trim();
+        std::borrow::Cow::Owned(before_brace.to_string())
+    } else {
+        std::borrow::Cow::Borrowed(inner)
+    };
+    let inner = inner_stripped.as_ref();
+
     let (name, label) = if inner.is_empty() {
         (None, None)
     } else if let Some(colon_pos) = inner.find(':') {

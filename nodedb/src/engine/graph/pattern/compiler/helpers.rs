@@ -31,6 +31,33 @@ pub(super) fn find_top_level_keyword(upper: &str, keyword: &str) -> Option<usize
     None
 }
 
+/// Find `IN 'collection'` clause position in uppercase MATCH text.
+///
+/// Accepts `)` or whitespace before `IN` (unlike `find_top_level_keyword`
+/// which only accepts whitespace). Only matches at top-level (depth == 0).
+pub(super) fn find_in_clause(upper: &str) -> Option<usize> {
+    let mut depth = 0i32;
+    let bytes = upper.as_bytes();
+    let len = upper.len();
+
+    for i in 0..len.saturating_sub(1) {
+        match bytes[i] {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            _ => {}
+        }
+
+        if depth == 0
+            && upper[i..].starts_with("IN")
+            && (i == 0 || bytes[i - 1].is_ascii_whitespace() || bytes[i - 1] == b')')
+            && (i + 2 >= len || bytes[i + 2].is_ascii_whitespace())
+        {
+            return Some(i);
+        }
+    }
+    None
+}
+
 /// Find the next MATCH or OPTIONAL MATCH keyword in text.
 pub(super) fn find_next_match_keyword(upper: &str) -> Option<usize> {
     let trimmed_offset = upper.len() - upper.trim_start().len();

@@ -28,6 +28,8 @@ pub struct MatchQuery {
     pub limit: Option<usize>,
     /// ORDER BY clauses.
     pub order_by: Vec<OrderByColumn>,
+    /// Optional collection name from `IN 'collection'` clause.
+    pub collection: Option<String>,
 }
 
 /// A single MATCH or OPTIONAL MATCH clause containing one or more patterns.
@@ -304,6 +306,7 @@ mod tests {
             distinct: false,
             limit: None,
             order_by: vec![],
+            collection: None,
         };
 
         assert_eq!(query.bound_node_names(), vec!["a", "b"]);
@@ -355,6 +358,7 @@ mod tests {
             distinct: false,
             limit: Some(10),
             order_by: vec![],
+            collection: None,
         };
 
         let json = sonic_rs::to_string(&query).unwrap();
