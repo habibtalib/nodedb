@@ -31,7 +31,10 @@ pub fn value_to_sql_literal(value: &nodedb_types::Value) -> String {
             let hex: String = b.iter().map(|byte| format!("{byte:02x}")).collect();
             format!("'\\x{hex}'")
         }
-        nodedb_types::Value::Object(_) => "NULL".to_string(),
+        nodedb_types::Value::Object(map) => {
+            let json = super::function_args::value_map_to_json(map);
+            format!("'{}'", json.replace('\'', "''"))
+        }
         nodedb_types::Value::Uuid(u) => format!("'{u}'"),
         nodedb_types::Value::Ulid(u) => format!("'{u}'"),
         nodedb_types::Value::DateTime(dt) | nodedb_types::Value::NaiveDateTime(dt) => {

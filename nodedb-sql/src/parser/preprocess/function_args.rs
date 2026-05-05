@@ -76,7 +76,9 @@ pub(super) fn rewrite_object_literal_args(sql: &str) -> Option<String> {
 }
 
 /// Convert a parsed field map to a JSON string without external serializer.
-fn value_map_to_json(fields: &std::collections::HashMap<String, nodedb_types::Value>) -> String {
+pub(super) fn value_map_to_json(
+    fields: &std::collections::HashMap<String, nodedb_types::Value>,
+) -> String {
     let mut parts = Vec::with_capacity(fields.len());
     let mut entries: Vec<_> = fields.iter().collect();
     entries.sort_by_key(|(k, _)| k.as_str());
