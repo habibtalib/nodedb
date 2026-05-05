@@ -90,7 +90,19 @@ impl CoreLoop {
                     MsgpackValue::Float(f) => fields.push(format!("{key}={f}")),
                     MsgpackValue::Int(n) => fields.push(format!("{key}={n}i")),
                     MsgpackValue::Str(s) => {
-                        fields.push(format!("{key}=\"{}\"", s.replace('\"', "\\\"")));
+                        // SQL parser routes numeric literals with `.`/`e`/`E` through
+                        // `SqlValue::Decimal`, which the standard msgpack writer encodes
+                        // as a string. Recover the numeric type here so timeseries
+                        // schema inference picks `Float64` / `Int64` instead of `Symbol`.
+                        if let Ok(i) = s.parse::<i64>() {
+                            fields.push(format!("{key}={i}i"));
+                        } else if let Ok(f) = s.parse::<f64>()
+                            && f.is_finite()
+                        {
+                            fields.push(format!("{key}={f}"));
+                        } else {
+                            fields.push(format!("{key}=\"{}\"", s.replace('\"', "\\\"")));
+                        }
                     }
                     MsgpackValue::Bool(b) => fields.push(format!("{key}={b}")),
                     _ => {}
