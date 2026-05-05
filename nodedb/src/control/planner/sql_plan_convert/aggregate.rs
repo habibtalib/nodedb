@@ -14,15 +14,28 @@ use super::expr::sql_expr_to_bridge_expr;
 use super::filter::serialize_filters;
 use super::value::extract_time_range;
 
-pub(super) fn convert_aggregate(
-    input: &SqlPlan,
-    group_by: &[SqlExpr],
-    aggregates: &[AggregateExpr],
-    having: &[Filter],
-    limit: usize,
-    tenant_id: TenantId,
-    ctx: &ConvertContext,
-) -> crate::Result<Vec<PhysicalTask>> {
+pub(super) struct ConvertAggregateParams<'a> {
+    pub input: &'a SqlPlan,
+    pub group_by: &'a [SqlExpr],
+    pub aggregates: &'a [AggregateExpr],
+    pub having: &'a [Filter],
+    pub limit: usize,
+    pub grouping_sets: Option<&'a [Vec<usize>]>,
+    pub tenant_id: TenantId,
+    pub ctx: &'a ConvertContext,
+}
+
+pub(super) fn convert_aggregate(p: ConvertAggregateParams<'_>) -> crate::Result<Vec<PhysicalTask>> {
+    let ConvertAggregateParams {
+        input,
+        group_by,
+        aggregates,
+        having,
+        limit,
+        grouping_sets,
+        tenant_id,
+        ctx,
+    } = p;
     // Check if aggregating over a join.
     if let SqlPlan::Join {
         left,
@@ -121,6 +134,13 @@ pub(super) fn convert_aggregate(
         }]);
     }
 
+    // Convert grouping_sets from usize indices to u32 for wire transport.
+    let bridge_grouping_sets: Vec<Vec<u32>> = grouping_sets
+        .unwrap_or(&[])
+        .iter()
+        .map(|set| set.iter().map(|&i| i as u32).collect())
+        .collect();
+
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
@@ -133,6 +153,7 @@ pub(super) fn convert_aggregate(
             limit,
             sub_group_by: Vec::new(),
             sub_aggregates: Vec::new(),
+            grouping_sets: bridge_grouping_sets,
         }),
         post_set_op: PostSetOp::None,
     }])
@@ -183,6 +204,26 @@ pub(super) fn extract_scan_alias(plan: &SqlPlan) -> Option<String> {
 
 /// Convert an `AggregateExpr` to the Data Plane aggregate spec.
 pub(super) fn agg_expr_to_spec(a: &AggregateExpr) -> AggregateSpec {
+    // GROUPING(col) pseudo-aggregate: encode the canonical key index in the
+    // `field` so the Data Plane executor can read the grouping-set bitmask.
+    if a.function == "grouping" {
+        let idx = a.grouping_col_index.unwrap_or(0);
+        let field = idx.to_string();
+        let canonical = format!("grouping({field})");
+        let user_alias = if a.alias.eq_ignore_ascii_case(&canonical) {
+            None
+        } else {
+            Some(a.alias.clone())
+        };
+        return AggregateSpec {
+            function: "grouping".into(),
+            alias: canonical,
+            user_alias,
+            field,
+            expr: None,
+        };
+    }
+
     let (field, expr) = a
         .args
         .first()
@@ -339,7 +380,7 @@ pub(super) fn serialize_window_functions(
                     _ => None,
                 })
                 .collect(),
-            frame: crate::bridge::window_func::WindowFrame::default(),
+            frame: s.frame.clone(),
         })
         .collect();
     zerompk::to_msgpack_vec(&bridge_specs).map_err(|e| crate::Error::Internal {
@@ -373,6 +414,7 @@ mod tests {
             }],
             alias: "tools_count".into(),
             distinct: false,
+            grouping_col_index: None,
         };
 
         let spec = agg_expr_to_spec(&agg);
@@ -413,6 +455,7 @@ mod tests {
             partition_by: Vec::new(),
             order_by: Vec::new(),
             alias: "rn".into(),
+            frame: Default::default(),
         }];
 
         assert_eq!(

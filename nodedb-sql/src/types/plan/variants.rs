@@ -11,6 +11,7 @@ use crate::types::query::{
     AggregateExpr, EngineType, JoinType, Projection, SortKey, SpatialPredicate, WindowSpec,
 };
 
+use super::merge_types::MergePlanClause;
 use super::row_types::{KvInsertIntent, VectorPrimaryRow};
 use super::vector_opts::{ArrayPrefilter, VectorAnnOptions};
 
@@ -146,6 +147,31 @@ pub enum SqlPlan {
         target_keys: Vec<SqlValue>,
         returning: bool,
     },
+    /// `UPDATE target SET col = src.col2 FROM src WHERE target.id = src.id`
+    ///
+    /// Two-phase execution: scan `source` with `source_filters`, then for
+    /// each matched source row that satisfies the join predicates against a
+    /// target row, apply `assignments` (which may reference source columns
+    /// via qualified names `src.col`).
+    ///
+    /// `join_predicates` are equality pairs `(target_col, source_col)` extracted
+    /// from the WHERE clause linking the two tables. `target_filters` are
+    /// remaining WHERE predicates that reference only `target`.
+    UpdateFrom {
+        collection: String,
+        engine: EngineType,
+        /// The FROM source: a `Scan`, `Join`, or other read plan.
+        source: Box<SqlPlan>,
+        /// Column name used as the target's join key (e.g. `"id"`).
+        target_join_col: String,
+        /// Column name used as the source's join key (e.g. `"id"`).
+        source_join_col: String,
+        /// SET assignments — RHS may be `SqlExpr::Column { table: Some("src"), .. }`.
+        assignments: Vec<(String, SqlExpr)>,
+        /// Filters that apply only to the target collection.
+        target_filters: Vec<Filter>,
+        returning: bool,
+    },
     Delete {
         collection: String,
         engine: EngineType,
@@ -178,6 +204,11 @@ pub enum SqlPlan {
         aggregates: Vec<AggregateExpr>,
         having: Vec<Filter>,
         limit: usize,
+        /// When the GROUP BY contains ROLLUP/CUBE/GROUPING SETS, this field holds
+        /// the expansion. Each inner `Vec<usize>` is one grouping set — the indices
+        /// into `group_by` (the canonical key list) that are *present* (non-NULL)
+        /// for rows in that set.  `None` = plain single-set GROUP BY.
+        grouping_sets: Option<Vec<Vec<usize>>>,
     },
 
     // ── Timeseries ──
@@ -410,6 +441,28 @@ pub enum SqlPlan {
     ArrayFlush { name: String },
     /// `SELECT ARRAY_COMPACT(name)` — returns one row `{result: BOOL}`.
     ArrayCompact { name: String },
+
+    // ── MERGE ──────────────────────────────────────────────────────────
+    /// `MERGE INTO target USING source ON ... WHEN ... THEN ...`
+    ///
+    /// Supported only for `document_schemaless` and `document_strict` engines.
+    /// The Data Plane handler evaluates WHEN arms in declaration order and
+    /// applies the first matching action to each joined or unmatched row.
+    Merge {
+        target: String,
+        engine: EngineType,
+        /// Source plan (Scan, DocumentIndexLookup, or Join of a sub-select).
+        source: Box<SqlPlan>,
+        /// Column in the target used for the equi-join (from ON clause).
+        target_join_col: String,
+        /// Column in the source used for the equi-join (from ON clause).
+        source_join_col: String,
+        /// Alias used to qualify source columns in expressions (e.g. `src.col`).
+        source_alias: String,
+        /// WHEN arms in declaration order.
+        clauses: Vec<MergePlanClause>,
+        returning: bool,
+    },
 
     // ── Vector-primary ──────────────────────────────────────────────────
     /// INSERT into a vector-primary collection.

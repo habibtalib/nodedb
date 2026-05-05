@@ -54,6 +54,7 @@ fn aggregate_count_reads_plain_columnar_engine_rows() {
             limit: 10,
             sub_group_by: Vec::new(),
             sub_aggregates: Vec::new(),
+            grouping_sets: Vec::new(),
         }),
     );
 
@@ -118,6 +119,7 @@ fn columnar_having_uses_canonical_key_but_output_keeps_user_alias() {
             limit: 10,
             sub_group_by: Vec::new(),
             sub_aggregates: Vec::new(),
+            grouping_sets: Vec::new(),
         }),
     );
 
@@ -240,6 +242,7 @@ fn aggregate_group_by_does_not_require_full_materialization() {
             limit: 100,
             sub_group_by: Vec::new(),
             sub_aggregates: Vec::new(),
+            grouping_sets: Vec::new(),
         }),
     );
 

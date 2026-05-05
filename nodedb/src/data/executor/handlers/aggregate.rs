@@ -122,8 +122,25 @@ impl CoreLoop {
         limit: usize,
         sub_group_by: &[String],
         sub_aggregates: &[AggregateSpec],
+        grouping_sets: &[Vec<u32>],
     ) -> Response {
         debug!(core = self.core_id, %collection, group_fields = group_by.len(), aggs = aggregates.len(), "aggregate");
+
+        // ROLLUP / CUBE / GROUPING SETS path: union results from each set.
+        if !grouping_sets.is_empty() {
+            return super::grouping_sets_exec::execute_grouping_sets(
+                self,
+                task,
+                tid,
+                collection,
+                group_by,
+                aggregates,
+                filters,
+                having,
+                limit,
+                grouping_sets,
+            );
+        }
 
         // Fast path: incremental aggregate cache.
         if filters.is_empty() && having.is_empty() {

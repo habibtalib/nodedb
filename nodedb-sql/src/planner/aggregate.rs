@@ -6,6 +6,7 @@ use crate::engine_rules::{self, AggregateParams};
 use crate::error::Result;
 use crate::functions::registry::{FunctionRegistry, SearchTrigger};
 use crate::parser::normalize::normalize_ident;
+use crate::planner::grouping_sets::expand_group_by;
 use crate::resolver::columns::ResolvedTable;
 use crate::resolver::expr::convert_expr;
 use crate::temporal::TemporalScope;
@@ -20,32 +21,98 @@ pub fn plan_aggregate(
     functions: &FunctionRegistry,
     temporal: &TemporalScope,
 ) -> Result<SqlPlan> {
-    let group_by_exprs = convert_group_by(&select.group_by)?;
-    let aggregates = extract_aggregates_from_projection(&select.projection, functions)?;
+    // Detect ROLLUP / CUBE / GROUPING SETS before falling through to plain convert.
+    let grouping_expansion = expand_group_by(&select.group_by)?;
+
+    let (group_by_exprs, grouping_sets) = if let Some(exp) = grouping_expansion {
+        (exp.canonical_keys, Some(exp.grouping_sets))
+    } else {
+        (convert_group_by(&select.group_by)?, None)
+    };
+
+    let mut aggregates = extract_aggregates_from_projection(&select.projection, functions)?;
     let having = match &select.having {
         Some(expr) => super::select::convert_where_to_filters(expr)?,
         None => Vec::new(),
     };
+
+    // When grouping sets are present, detect GROUPING(col) in the projection and
+    // synthesize AggregateExpr entries so the executor can compute them per-set.
+    if grouping_sets.is_some() {
+        let grouping_aggs = extract_grouping_calls(&select.projection, &group_by_exprs)?;
+        aggregates.extend(grouping_aggs);
+    }
 
     // Extract timeseries-specific params (bucket interval, group columns) if applicable.
     let (bucket_interval_ms, group_columns) =
         extract_timeseries_params(&select.group_by, &select.projection, functions)?;
 
     let rules = engine_rules::resolve_engine_rules(table.info.engine);
-    rules.plan_aggregate(AggregateParams {
+    let base_plan = rules.plan_aggregate(AggregateParams {
         collection: table.name.clone(),
         alias: table.alias.clone(),
         filters: filters.to_vec(),
-        group_by: group_by_exprs,
-        aggregates,
-        having,
+        group_by: group_by_exprs.clone(),
+        aggregates: aggregates.clone(),
+        having: having.clone(),
         limit: 10000,
         bucket_interval_ms,
         group_columns,
         has_auto_tier: table.info.has_auto_tier,
         bitemporal: table.info.bitemporal,
         temporal: *temporal,
-    })
+    })?;
+
+    // Wrap the plan to attach grouping sets if present.
+    if let Some(sets) = grouping_sets {
+        return Ok(attach_grouping_sets(
+            base_plan,
+            group_by_exprs,
+            aggregates,
+            having,
+            sets,
+        ));
+    }
+
+    Ok(base_plan)
+}
+
+/// Attach `grouping_sets` to an existing `SqlPlan::Aggregate` node, or wrap it
+/// in a new one when the engine rules returned a non-Aggregate plan.
+fn attach_grouping_sets(
+    base_plan: SqlPlan,
+    group_by: Vec<SqlExpr>,
+    aggregates: Vec<AggregateExpr>,
+    having: Vec<Filter>,
+    grouping_sets: Vec<Vec<usize>>,
+) -> SqlPlan {
+    match base_plan {
+        SqlPlan::Aggregate {
+            input,
+            limit,
+            grouping_sets: _,
+            ..
+        } => SqlPlan::Aggregate {
+            input,
+            group_by,
+            aggregates,
+            having,
+            limit,
+            grouping_sets: Some(grouping_sets),
+        },
+        other => {
+            // Engine returned something other than Aggregate (e.g. TimeseriesIngest).
+            // Wrap it so grouping sets are not silently dropped.
+            SqlPlan::Aggregate {
+                input: Box::new(other),
+                group_by,
+                aggregates,
+                having,
+                limit: 10000,
+                grouping_sets: Some(grouping_sets),
+            }
+        }
+    }
 }
 
 /// Extract timeseries-specific parameters from GROUP BY (bucket interval, group columns).
@@ -189,6 +256,94 @@ pub fn convert_group_by(group_by: &GroupByExpr) -> Result<Vec<SqlExpr>> {
         GroupByExpr::All(_) => Ok(Vec::new()),
         GroupByExpr::Expressions(exprs, _) => exprs.iter().map(convert_expr).collect(),
     }
+}
+
+/// Scan the SELECT projection for `GROUPING(col)` calls and return synthetic
+/// `AggregateExpr` entries so the executor can compute the per-set bitmask value.
+///
+/// For `GROUPING(col)`, the canonical index of `col` in `canonical_keys` is
+/// encoded into the `field` of the resulting `AggregateExpr` (as a decimal string).
+/// The executor reads this index and checks the grouping-set bitmask at run time.
+fn extract_grouping_calls(
+    items: &[ast::SelectItem],
+    canonical_keys: &[SqlExpr],
+) -> Result<Vec<AggregateExpr>> {
+    let mut out = Vec::new();
+    for item in items {
+        let (expr, alias): (&ast::Expr, String) = match item {
+            ast::SelectItem::UnnamedExpr(expr) => (expr, format!("{expr}")),
+            ast::SelectItem::ExprWithAlias { expr, alias } => (expr, normalize_ident(alias)),
+            _ => continue,
+        };
+        collect_grouping_from_expr(expr, &alias, canonical_keys, &mut out)?;
+    }
+    Ok(out)
+}
+
+/// Recursively collect `GROUPING(col)` calls from an expression.
+fn collect_grouping_from_expr(
+    expr: &ast::Expr,
+    alias: &str,
+    canonical_keys: &[SqlExpr],
+    out: &mut Vec<AggregateExpr>,
+) -> Result<()> {
+    match expr {
+        ast::Expr::Function(f) => {
+            let name = normalize_function_name(f);
+            if name.eq_ignore_ascii_case("grouping") {
+                // Extract the column argument(s).
+                let args = function_args_exprs(f);
+                for col_expr in &args {
+                    let canonical_idx = crate::planner::grouping_sets::resolve_grouping_col(
+                        col_expr,
+                        canonical_keys,
+                    )?;
+                    // Encode index in the field name; alias is user-visible output name.
+                    out.push(AggregateExpr {
+                        function: "grouping".into(),
+                        args: vec![convert_expr(col_expr)?],
+                        alias: alias.to_string(),
+                        distinct: false,
+                        grouping_col_index: Some(canonical_idx),
+                    });
+                }
+            }
+        }
+        // Recurse into binary ops and other wrappers.
+        ast::Expr::BinaryOp { left, right, .. } => {
+            collect_grouping_from_expr(left, alias, canonical_keys, out)?;
+            collect_grouping_from_expr(right, alias, canonical_keys, out)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Extract the positional expression arguments from a function call.
+fn function_args_exprs(f: &ast::Function) -> Vec<&ast::Expr> {
+    match &f.args {
+        ast::FunctionArguments::List(list) => list
+            .args
+            .iter()
+            .filter_map(|a| match a {
+                ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(e)) => Some(e),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Return the simple lowercase name of a function (unqualified part only).
+fn normalize_function_name(f: &ast::Function) -> String {
+    f.name
+        .0
+        .last()
+        .map(|p| match p {
+            ast::ObjectNamePart::Identifier(ident) => normalize_ident(ident),
+            _ => String::new(),
+        })
+        .unwrap_or_default()
 }
 
 /// Extract aggregate expressions from SELECT projection.

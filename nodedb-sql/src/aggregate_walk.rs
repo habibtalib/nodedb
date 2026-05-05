@@ -78,6 +78,10 @@ impl Visitor for AggregateDetector<'_> {
     fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<()> {
         if let Expr::Function(f) = expr
             && self.functions.is_aggregate(&function_name(f))
+            // A function with an OVER clause is a window function, not an
+            // aggregate. Window functions are handled by the window planner
+            // and must not trigger the GROUP BY / aggregate plan path.
+            && f.over.is_none()
         {
             self.found = true;
             return ControlFlow::Break(());
@@ -112,6 +116,9 @@ impl Visitor for AggregateExtractor<'_> {
         }
         if let Expr::Function(f) = expr
             && self.functions.is_aggregate(&function_name(f))
+            // Skip window function calls — those with OVER are handled by the
+            // window planner, not the aggregate planner.
+            && f.over.is_none()
         {
             if self.inside_aggregate > 0 {
                 self.error = Some(SqlError::Unsupported {
@@ -129,6 +136,7 @@ impl Visitor for AggregateExtractor<'_> {
                 args,
                 alias: self.alias.into(),
                 distinct,
+                grouping_col_index: None,
             });
             self.inside_aggregate += 1;
         }
@@ -138,6 +146,7 @@ impl Visitor for AggregateExtractor<'_> {
     fn post_visit_expr(&mut self, expr: &Expr) -> ControlFlow<()> {
         if let Expr::Function(f) = expr
             && self.functions.is_aggregate(&function_name(f))
+            && f.over.is_none()
             && self.inside_aggregate > 0
         {
             self.inside_aggregate -= 1;
