@@ -128,22 +128,48 @@ impl CoreLoop {
                 expansion_depth,
                 final_top_k,
                 rrf_k,
+                rrf_k_triple,
                 vector_field,
                 options,
-            } => self.execute_graph_rag_fusion(
-                task,
-                tid,
-                collection,
-                query_vector,
-                *vector_top_k,
-                edge_label,
-                *direction,
-                *expansion_depth,
-                *final_top_k,
-                *rrf_k,
-                vector_field.as_str(),
-                options.max_visited,
-            ),
+                bm25_query,
+                bm25_field,
+            } => {
+                if let (Some(bm25_q), Some(bm25_f), Some(triple_k)) =
+                    (bm25_query.as_deref(), bm25_field.as_deref(), rrf_k_triple)
+                {
+                    self.execute_graph_rag_fusion_triple(
+                        task,
+                        tid,
+                        collection,
+                        query_vector,
+                        *vector_top_k,
+                        edge_label,
+                        *direction,
+                        *expansion_depth,
+                        *final_top_k,
+                        *triple_k,
+                        vector_field.as_str(),
+                        options.max_visited,
+                        bm25_q,
+                        bm25_f,
+                    )
+                } else {
+                    self.execute_graph_rag_fusion(
+                        task,
+                        tid,
+                        collection,
+                        query_vector,
+                        *vector_top_k,
+                        edge_label,
+                        *direction,
+                        *expansion_depth,
+                        *final_top_k,
+                        *rrf_k,
+                        vector_field.as_str(),
+                        options.max_visited,
+                    )
+                }
+            }
 
             GraphOp::Algo { algorithm, params } => {
                 self.execute_graph_algo(task, tid, algorithm, params)

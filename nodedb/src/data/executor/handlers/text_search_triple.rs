@@ -12,6 +12,7 @@ use tracing::debug;
 
 use crate::bridge::envelope::{ErrorCode, Response};
 use crate::data::executor::core_loop::CoreLoop;
+use crate::data::executor::handlers::graph_rag::graph_nodes_to_ranked_results;
 use crate::data::executor::task::ExecutionTask;
 use crate::engine::graph::edge_store::Direction;
 
@@ -135,29 +136,7 @@ impl CoreLoop {
             })
             .collect();
 
-        // Graph nodes sorted by hop distance.
-        let mut graph_sorted: Vec<(&str, usize)> = graph_expanded
-            .iter()
-            .map(|node| {
-                let dist = hop_distances
-                    .get(node.as_str())
-                    .copied()
-                    .unwrap_or(usize::MAX);
-                (node.as_str(), dist)
-            })
-            .collect();
-        graph_sorted.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
-
-        let graph_ranked: Vec<RankedResult> = graph_sorted
-            .iter()
-            .enumerate()
-            .map(|(graph_rank, (node_id, hop_dist))| RankedResult {
-                document_id: node_id.to_string(),
-                rank: graph_rank,
-                score: *hop_dist as f32,
-                source: "graph",
-            })
-            .collect();
+        let graph_ranked = graph_nodes_to_ranked_results(&graph_expanded, &hop_distances);
 
         let (k_vector, k_text, k_graph) = rrf_k;
         let fused = reciprocal_rank_fusion_weighted(

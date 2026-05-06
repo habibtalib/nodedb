@@ -141,6 +141,9 @@ pub enum GraphOp {
     },
 
     /// GraphRAG fusion: vector search → graph expansion → RRF ranking.
+    ///
+    /// Two-source form: vector + graph (backwards-compatible; `bm25_query` is `None`).
+    /// Three-source form: vector + BM25 text + graph; activated when `bm25_query` is set.
     RagFusion {
         collection: String,
         query_vector: Vec<f32>,
@@ -149,14 +152,22 @@ pub enum GraphOp {
         direction: Direction,
         expansion_depth: usize,
         final_top_k: usize,
-        /// RRF k constants: (vector_k, graph_k).
+        /// Two-source RRF k constants: (vector_k, graph_k).
+        /// Used when `bm25_query` is absent (backwards-compatible two-source form).
         rrf_k: (f64, f64),
+        /// Three-source RRF k constants: (vector_k, text_k, graph_k).
+        /// Set when the FUSION DSL carries a `BM25 '...' ON '...'` clause.
+        rrf_k_triple: Option<(f64, f64, f64)>,
         /// Vector index field name. Empty string selects the raw (field-less)
         /// index created via `VectorOp::Insert`; a non-empty value selects
         /// the field-backed index created when documents are inserted with an
         /// embedded vector column (e.g. `INSERT INTO col (id, embedding) VALUES …`).
         vector_field: String,
         options: GraphTraversalOptions,
+        /// BM25 query string for the text leg of three-source fusion. `None` = two-source.
+        bm25_query: Option<String>,
+        /// Document field on which BM25 scoring is applied. Required when `bm25_query` is set.
+        bm25_field: Option<String>,
     },
 
     /// Graph algorithm execution (PageRank, WCC, SSSP, etc.).

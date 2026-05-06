@@ -13,13 +13,34 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use nodedb_vector::SearchResult;
 use tracing::{debug, warn};
 
 use crate::bridge::envelope::{ErrorCode, Response};
-use crate::engine::graph::edge_store::Direction;
-
 use crate::data::executor::core_loop::CoreLoop;
+use crate::data::executor::response_codec::{
+    GraphRagMetadata, GraphRagResponse, GraphRagResult, encode,
+};
 use crate::data::executor::task::ExecutionTask;
+use crate::engine::graph::edge_store::Direction;
+use crate::query::fusion::{FusedResult, RankedResult, reciprocal_rank_fusion_weighted};
+
+/// Result of a successful vector search + node-ID translation.
+///
+/// `Vec<SearchResult>` is the raw HNSW output (for reporting candidate counts).
+/// `HashMap` maps graph node names to `(rank, distance)` pairs.
+type VectorNodeScores = (Vec<SearchResult>, HashMap<String, (usize, f32)>);
+
+/// Parameters for `build_rag_response`.
+pub(in crate::data::executor) struct RagResponseParams<'a> {
+    pub fused: &'a [FusedResult],
+    pub vector_scores: &'a HashMap<String, (usize, f32)>,
+    pub hop_distances: &'a HashMap<String, usize>,
+    pub vector_candidate_count: usize,
+    pub graph_expanded_count: usize,
+    pub bfs_truncated: bool,
+    pub op_name: &'a str,
+}
 
 impl CoreLoop {
     #[allow(clippy::too_many_arguments)]
@@ -47,41 +68,17 @@ impl CoreLoop {
             "graph rag fusion"
         );
 
-        let index_key = CoreLoop::vector_index_key(tenant_id, collection, vector_field);
-        let Some(index) = self.vector_collections.get(&index_key) else {
-            return self.response_error(task, ErrorCode::NotFound);
+        let (vector_results, vector_scores) = match self.vector_search_to_node_scores(
+            task,
+            tenant_id,
+            collection,
+            query_vector,
+            vector_top_k,
+            vector_field,
+        ) {
+            Ok(r) => r,
+            Err(resp) => return resp,
         };
-        if index.is_empty() {
-            return self.response_with_payload(task, b"[]".to_vec());
-        }
-
-        let ef = vector_top_k.saturating_mul(4).max(64);
-        let vector_results = index.search(query_vector, vector_top_k, ef);
-
-        if vector_results.is_empty() {
-            return self.response_with_payload(task, b"[]".to_vec());
-        }
-
-        // Translate vector local-hnsw IDs to graph node names via
-        // Surrogate. Path: local_hnsw_id -> Surrogate (vector collection)
-        // -> graph node name (CSR partition reverse map). This works for
-        // any graph node ID — surrogate-hex or user-defined — because
-        // both engines bind the same Surrogate to the same logical row.
-        // Vectors without a surrogate binding, or surrogates not bound
-        // to any graph node, emit a non-matching sentinel that BFS will
-        // skip as a missing seed.
-        let csr = self.csr_partition(tenant_id);
-        let mut vector_scores: HashMap<String, (usize, f32)> = HashMap::new();
-        for (rank, result) in vector_results.iter().enumerate() {
-            let node_id = index
-                .get_surrogate(result.id)
-                .and_then(|s| {
-                    csr.and_then(|c| c.node_id_for_surrogate(s))
-                        .map(str::to_string)
-                })
-                .unwrap_or_else(|| format!("__local_{}", result.id));
-            vector_scores.insert(node_id, (rank, result.distance));
-        }
 
         let start_ids: Vec<&str> = vector_scores.keys().map(String::as_str).collect();
         let (expanded_nodes, hop_distances, bfs_truncated) = self.bfs_with_distances(
@@ -95,22 +92,6 @@ impl CoreLoop {
 
         let (vector_k, graph_k) = rrf_k;
 
-        // Build graph-ranked list sorted by hop distance.
-        let mut graph_sorted: Vec<(&str, usize)> = expanded_nodes
-            .iter()
-            .map(|node| {
-                let dist = hop_distances
-                    .get(node.as_str())
-                    .copied()
-                    .unwrap_or(usize::MAX);
-                (node.as_str(), dist)
-            })
-            .collect();
-        graph_sorted.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
-
-        // Use shared RRF fusion with per-source k-constants.
-        use crate::query::fusion::{RankedResult, reciprocal_rank_fusion_weighted};
-
         let vector_list: Vec<RankedResult> = vector_scores
             .iter()
             .map(|(node_id, (rank, dist))| RankedResult {
@@ -121,16 +102,7 @@ impl CoreLoop {
             })
             .collect();
 
-        let graph_list: Vec<RankedResult> = graph_sorted
-            .iter()
-            .enumerate()
-            .map(|(graph_rank, (node_id, hop_dist))| RankedResult {
-                document_id: node_id.to_string(),
-                rank: graph_rank,
-                score: *hop_dist as f32,
-                source: "graph",
-            })
-            .collect();
+        let graph_list = graph_nodes_to_ranked_results(&expanded_nodes, &hop_distances);
 
         let fused = reciprocal_rank_fusion_weighted(
             &[vector_list, graph_list],
@@ -138,17 +110,90 @@ impl CoreLoop {
             final_top_k,
         );
 
-        use super::super::response_codec::*;
+        self.build_rag_response(
+            task,
+            RagResponseParams {
+                fused: &fused,
+                vector_scores: &vector_scores,
+                hop_distances: &hop_distances,
+                vector_candidate_count: vector_results.len(),
+                graph_expanded_count: expanded_nodes.len(),
+                bfs_truncated,
+                op_name: "graph rag fusion",
+            },
+        )
+    }
 
-        let results: Vec<GraphRagResult> = fused
+    /// Look up the HNSW index for `collection`, run the search, and translate
+    /// local HNSW IDs to graph node names via surrogate mapping.
+    ///
+    /// Returns `Ok((vector_results, vector_scores))` on success, or
+    /// `Err(response)` when the index is missing or the search returned no
+    /// candidates. The caller should forward the pre-built response directly.
+    pub(in crate::data::executor) fn vector_search_to_node_scores(
+        &self,
+        task: &ExecutionTask,
+        tenant_id: u64,
+        collection: &str,
+        query_vector: &[f32],
+        vector_top_k: usize,
+        vector_field: &str,
+    ) -> Result<VectorNodeScores, Response> {
+        let index_key = CoreLoop::vector_index_key(tenant_id, collection, vector_field);
+        let Some(index) = self.vector_collections.get(&index_key) else {
+            return Err(self.response_error(task, ErrorCode::NotFound));
+        };
+        if index.is_empty() {
+            return Err(self.response_with_payload(task, b"[]".to_vec()));
+        }
+
+        let ef = vector_top_k.saturating_mul(4).max(64);
+        let vector_results = index.search(query_vector, vector_top_k, ef);
+
+        if vector_results.is_empty() {
+            return Err(self.response_with_payload(task, b"[]".to_vec()));
+        }
+
+        // Translate local HNSW IDs to graph node names via the surrogate index.
+        // Path: local_hnsw_id -> Surrogate (vector collection) -> graph node name
+        // (CSR partition reverse map). Vectors without a surrogate binding, or
+        // surrogates not bound to any graph node, emit a non-matching sentinel
+        // that BFS will skip as a missing seed.
+        let csr = self.csr_partition(tenant_id);
+        let mut vector_scores: HashMap<String, (usize, f32)> = HashMap::new();
+        for (rank, result) in vector_results.iter().enumerate() {
+            let node_id = index
+                .get_surrogate(result.id)
+                .and_then(|s| {
+                    csr.and_then(|c| c.node_id_for_surrogate(s))
+                        .map(str::to_string)
+                })
+                .unwrap_or_else(|| format!("__local_{}", result.id));
+            vector_scores.insert(node_id, (rank, result.distance));
+        }
+
+        Ok((vector_results, vector_scores))
+    }
+
+    /// Encode a `GraphRagResponse` from RRF-fused results.
+    ///
+    /// Shared by both 2-source (`execute_graph_rag_fusion`) and 3-source
+    /// (`execute_graph_rag_fusion_triple`) fusion pipelines.
+    pub(in crate::data::executor) fn build_rag_response(
+        &self,
+        task: &ExecutionTask,
+        p: RagResponseParams<'_>,
+    ) -> Response {
+        let results: Vec<GraphRagResult> = p
+            .fused
             .iter()
             .map(|f| {
-                let (vector_rank, vector_distance) = vector_scores
+                let (vector_rank, vector_distance) = p
+                    .vector_scores
                     .get(f.document_id.as_str())
                     .map(|(rank, dist)| (Some(*rank), Some(*dist)))
                     .unwrap_or((None, None));
-                let hop_distance = hop_distances.get(f.document_id.as_str()).copied();
-
+                let hop_distance = p.hop_distances.get(f.document_id.as_str()).copied();
                 GraphRagResult {
                     node_id: f.document_id.clone(),
                     rrf_score: f.rrf_score,
@@ -162,9 +207,9 @@ impl CoreLoop {
         let response_body = GraphRagResponse {
             results,
             metadata: GraphRagMetadata {
-                vector_candidates: vector_results.len(),
-                graph_expanded: expanded_nodes.len(),
-                truncated: bfs_truncated,
+                vector_candidates: p.vector_candidate_count,
+                graph_expanded: p.graph_expanded_count,
+                truncated: p.bfs_truncated,
                 watermark_lsn: self.watermark.as_u64(),
             },
         };
@@ -172,7 +217,7 @@ impl CoreLoop {
         match encode(&response_body) {
             Ok(payload) => self.response_with_payload(task, payload),
             Err(e) => {
-                warn!(core = self.core_id, error = %e, "graph rag fusion serialization failed");
+                warn!(core = self.core_id, error = %e, "{} serialization failed", p.op_name);
                 self.response_error(
                     task,
                     ErrorCode::Internal {
@@ -184,7 +229,7 @@ impl CoreLoop {
     }
 
     /// BFS traversal that also tracks hop distances from start nodes.
-    fn bfs_with_distances(
+    pub(in crate::data::executor) fn bfs_with_distances(
         &self,
         tid: u64,
         start_nodes: &[&str],
@@ -256,4 +301,36 @@ impl CoreLoop {
         let nodes: Vec<String> = visited.into_iter().collect();
         (nodes, distances, truncated)
     }
+}
+
+/// Sort expanded graph nodes by hop distance and convert to `RankedResult` list.
+///
+/// Used by 2-source GraphRAG, 3-source GraphRAG triple, and 3-source hybrid
+/// text search to avoid duplicating the sort-and-rank pattern.
+pub(super) fn graph_nodes_to_ranked_results(
+    expanded_nodes: &[String],
+    hop_distances: &HashMap<String, usize>,
+) -> Vec<RankedResult> {
+    let mut sorted: Vec<(&str, usize)> = expanded_nodes
+        .iter()
+        .map(|node| {
+            let dist = hop_distances
+                .get(node.as_str())
+                .copied()
+                .unwrap_or(usize::MAX);
+            (node.as_str(), dist)
+        })
+        .collect();
+    sorted.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
+
+    sorted
+        .into_iter()
+        .enumerate()
+        .map(|(rank, (node_id, hop_dist))| RankedResult {
+            document_id: node_id.to_string(),
+            rank,
+            score: hop_dist as f32,
+            source: "graph",
+        })
+        .collect()
 }

@@ -71,6 +71,8 @@ pub async fn rag_fusion(
         ));
     }
 
+    // Resolve RRF k constants. A three-value triple takes precedence.
+    let rrf_k_triple = params.rrf_k_triple;
     let rrf_k = params.rrf_k.unwrap_or((60.0, 60.0));
 
     let engine_direction = match params.direction {
@@ -96,8 +98,11 @@ pub async fn rag_fusion(
         expansion_depth,
         final_top_k,
         rrf_k,
+        rrf_k_triple,
         vector_field: params.vector_field.unwrap_or_default(),
         options,
+        bm25_query: params.bm25_query,
+        bm25_field: params.bm25_field,
     });
 
     let payload = sync_dispatch::dispatch_async(
