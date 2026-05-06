@@ -274,6 +274,20 @@ impl SimpleQueryHandler for NodeDbPgHandler {
             }
         }
 
+        // Drain pending LISTEN/NOTIFY notifications and deliver as pgwire
+        // NotificationResponse messages (between queries, per PG semantics).
+        if self.sessions.has_listen_subscriptions(&addr) {
+            let notifications = self.sessions.drain_listen_notifications(&addr);
+            for n in notifications {
+                let notification = pgwire::messages::response::NotificationResponse::new(
+                    n.pid, n.channel, n.payload,
+                );
+                let _ = client
+                    .send(PgWireBackendMessage::NotificationResponse(notification))
+                    .await;
+            }
+        }
+
         result
     }
 }

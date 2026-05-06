@@ -155,6 +155,7 @@ impl SharedState {
             topic_registry: crate::control::pubsub::TopicRegistry::new(10_000),
             shape_registry: Arc::new(crate::control::server::sync::shape::ShapeRegistry::new()),
             change_stream: crate::control::change_stream::ChangeStream::new(4096),
+            notify_bus: crate::control::notify_bus::NotifyBus::default(),
             trigger_registry: crate::control::trigger::TriggerRegistry::new(),
             array_catalog: crate::control::array_catalog::ArrayCatalog::handle(),
             array_sync_op_log: {
@@ -238,6 +239,7 @@ impl SharedState {
             alert_hysteresis: Arc::new(crate::event::alert::hysteresis::HysteresisManager::new()),
             schedule_registry: Arc::new(crate::event::scheduler::ScheduleRegistry::new()),
             synonym_registry: Arc::new(crate::control::synonym::SynonymRegistry::new()),
+            custom_type_registry: Arc::new(crate::control::custom_type::CustomTypeRegistry::new()),
             job_history: {
                 let dir = std::env::temp_dir().join(format!(
                     "nodedb-test-history-{}-{test_id}",

@@ -69,6 +69,12 @@ pub struct PgSession {
     /// Each subscription receives filtered change events from the broadcast channel.
     /// Drained between queries to deliver pgwire NotificationResponse messages.
     pub live_subscriptions: Vec<(String, crate::control::change_stream::Subscription)>,
+    /// Active LISTEN subscriptions for this session: (channel, session_id, receiver).
+    /// Drained between queries to deliver pgwire NotificationResponse messages.
+    pub listen_handles: Vec<crate::control::notify_bus::ListenHandle>,
+    /// NOTIFY messages buffered inside an open transaction (COMMIT fires them).
+    /// Each entry is (channel, payload).
+    pub pending_notifies: Vec<(String, String)>,
     /// Pending pgwire NOTICE messages queued during query execution.
     /// Drained between query and response delivery so the client receives a
     /// `NoticeResponse` for warnings raised by the response shaper (e.g. an
@@ -119,6 +125,8 @@ impl PgSession {
             pending_offset_commits: Vec::new(),
             cursors: HashMap::new(),
             live_subscriptions: Vec::new(),
+            listen_handles: Vec::new(),
+            pending_notifies: Vec::new(),
             pending_notices: Vec::new(),
             prepared_stmts: super::prepared_cache::PreparedStatementCache::new(256),
             temp_tables: super::temp_tables::TempTableRegistry::new(),

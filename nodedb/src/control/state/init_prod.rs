@@ -48,6 +48,7 @@ impl SharedState {
         let group_registry = crate::event::cdc::GroupRegistry::new();
         let schedule_registry = Arc::new(crate::event::scheduler::ScheduleRegistry::new());
         let synonym_registry = Arc::new(crate::control::synonym::SynonymRegistry::new());
+        let custom_type_registry = Arc::new(crate::control::custom_type::CustomTypeRegistry::new());
         let retention_policy_registry =
             Arc::new(crate::engine::timeseries::retention_policy::RetentionPolicyRegistry::new());
         let alert_registry = Arc::new(crate::event::alert::AlertRegistry::new());
@@ -68,6 +69,9 @@ impl SharedState {
             schedule_registry.load_from_catalog(catalog);
             if let Err(e) = synonym_registry.reload_from_catalog(catalog) {
                 tracing::warn!(error = %e, "boot: failed to load synonym groups from catalog");
+            }
+            if let Err(e) = custom_type_registry.reload_from_catalog(catalog) {
+                tracing::warn!(error = %e, "boot: failed to load custom types from catalog");
             }
             if let Ok(rp_defs) = catalog.load_all_retention_policies() {
                 retention_policy_registry.load(rp_defs);
@@ -264,6 +268,7 @@ impl SharedState {
             alert_hysteresis,
             schedule_registry,
             synonym_registry,
+            custom_type_registry,
             job_history: Arc::new(crate::event::scheduler::JobHistoryStore::open(
                 catalog_path.parent().unwrap_or(std::path::Path::new(".")),
             )?),
@@ -343,6 +348,7 @@ impl SharedState {
             topic_registry: crate::control::pubsub::TopicRegistry::new(10_000),
             shape_registry: Arc::new(crate::control::server::sync::shape::ShapeRegistry::new()),
             change_stream: crate::control::change_stream::ChangeStream::new(4096),
+            notify_bus: crate::control::notify_bus::NotifyBus::default(),
             connections_rejected: AtomicU64::new(0),
             connections_accepted: AtomicU64::new(0),
             raft_propose_leader_change_retries: AtomicU64::new(0),

@@ -8,6 +8,7 @@ pub mod change_stream;
 pub mod checkpoint_manager;
 pub mod cluster;
 pub mod cold_tier;
+pub mod custom_type;
 pub mod distributed_applier;
 pub mod event_trigger;
 pub mod exec_receiver;
@@ -16,6 +17,7 @@ pub mod lease;
 pub mod lock_utils;
 pub mod metadata_proposer;
 pub mod metrics;
+pub mod notify_bus;
 #[cfg(feature = "otel")]
 pub mod otel;
 pub mod planner;

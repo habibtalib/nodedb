@@ -4,6 +4,7 @@ mod cursor_cmds;
 mod dispatch;
 mod facet;
 pub mod listen_notify;
+mod listen_notify_exec;
 mod plan;
 pub mod prepared;
 mod projection;

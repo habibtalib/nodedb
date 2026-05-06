@@ -3,6 +3,7 @@ pub mod cross_shard_mode;
 mod cursor;
 pub mod cursor_spill;
 pub mod ddl_buffer;
+mod listen;
 mod live;
 mod notice;
 mod params;

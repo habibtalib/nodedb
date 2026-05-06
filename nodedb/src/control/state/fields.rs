@@ -147,6 +147,8 @@ pub struct SharedState {
     pub shape_registry: Arc<crate::control::server::sync::shape::ShapeRegistry>,
     /// Change stream bus: broadcasts committed mutations to subscribers.
     pub change_stream: crate::control::change_stream::ChangeStream,
+    /// PostgreSQL LISTEN/NOTIFY bus: per-tenant channel delivery.
+    pub notify_bus: crate::control::notify_bus::NotifyBus,
     /// Shared HTTP client for outbound emitters (alert webhooks, SIEM, OTEL).
     pub http_client: Arc<reqwest::Client>,
     /// In-memory trigger registry for fast lookup during DML.
@@ -200,6 +202,8 @@ pub struct SharedState {
     pub schedule_registry: Arc<crate::event::scheduler::ScheduleRegistry>,
     /// In-memory synonym group registry for FTS query expansion.
     pub synonym_registry: Arc<crate::control::synonym::SynonymRegistry>,
+    /// In-memory custom type registry (enum + composite types).
+    pub custom_type_registry: Arc<crate::control::custom_type::CustomTypeRegistry>,
     /// Job execution history (redb-persisted).
     pub job_history: Arc<crate::event::scheduler::JobHistoryStore>,
     /// Event Plane durable topic registry.

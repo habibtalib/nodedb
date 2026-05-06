@@ -344,6 +344,9 @@ impl NodeDbPgHandler {
         }
         // Close non-WITH-HOLD cursors on transaction end.
         self.sessions.close_non_hold_cursors(addr);
+        // Flush NOTIFY messages buffered during this transaction.
+        self.sessions
+            .flush_pending_notifies(addr, identity.tenant_id, &self.state.notify_bus);
         Ok(vec![Response::Execution(Tag::new("COMMIT"))])
     }
 
@@ -377,6 +380,8 @@ impl NodeDbPgHandler {
             }
         }
         self.sessions.close_non_hold_cursors(addr);
+        // Discard NOTIFY messages buffered during this transaction.
+        self.sessions.discard_pending_notifies(addr);
         Ok(vec![Response::Execution(Tag::new("ROLLBACK"))])
     }
 }
