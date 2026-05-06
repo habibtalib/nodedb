@@ -103,6 +103,7 @@ impl PhysicalPlan {
                 | PhysicalPlan::Vector(VectorOp::Search { .. })
                 | PhysicalPlan::Text(TextOp::Search { .. })
                 | PhysicalPlan::Text(TextOp::HybridSearch { .. })
+                | PhysicalPlan::Text(TextOp::HybridSearchTriple { .. })
                 | PhysicalPlan::Text(TextOp::BM25ScoreScan { .. })
         )
     }

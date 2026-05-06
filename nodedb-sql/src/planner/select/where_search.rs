@@ -129,6 +129,9 @@ fn dispatch_trigger(
         | SearchTrigger::ArrayElementwise
         | SearchTrigger::ArrayFlush
         | SearchTrigger::ArrayCompact
+        // graph_score() is a planner-intercepted marker inside rrf_score(...);
+        // it has no standalone WHERE-clause shape — fall through to scalar eval.
+        | SearchTrigger::GraphSearch
         | SearchTrigger::None => Ok(None),
     }
 }

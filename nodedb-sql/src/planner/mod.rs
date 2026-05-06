@@ -10,6 +10,7 @@ pub mod dml;
 pub mod dml_helpers;
 pub mod grouping_sets;
 pub mod join;
+pub mod lateral;
 pub mod merge;
 pub mod select;
 

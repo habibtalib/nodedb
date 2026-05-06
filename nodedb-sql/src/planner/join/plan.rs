@@ -7,6 +7,9 @@ use super::array_arm;
 use super::constraint::extract_join_spec;
 use crate::error::{Result, SqlError};
 use crate::functions::registry::FunctionRegistry;
+use crate::planner::lateral::plan::{
+    is_lateral_derived, lateral_alias_from_factor, plan_lateral_join, subquery_from_factor,
+};
 use crate::resolver::columns::TableScope;
 use crate::types::*;
 
@@ -27,9 +30,37 @@ pub fn plan_join_from_select(
             scan_for_relation(&from.relation, scope)?
         };
 
+    let outer_alias = scan_alias_from_relation(&from.relation);
+
     let mut current_plan = left_plan;
 
     for join_item in &from.joins {
+        // Detect LATERAL derived subquery on the right side.
+        if is_lateral_derived(&join_item.relation) {
+            let lateral_alias =
+                lateral_alias_from_factor(&join_item.relation).ok_or_else(|| {
+                    SqlError::Unsupported {
+                        detail: "LATERAL subquery requires an alias (e.g. LATERAL (...) AS x)"
+                            .into(),
+                    }
+                })?;
+            let subquery = subquery_from_factor(&join_item.relation)
+                .expect("is_lateral_derived guarantees Derived variant");
+            let left_join = is_left_join_operator(&join_item.join_operator);
+            let projection = super::super::select::convert_projection(&select.projection)?;
+            return Ok(Some(plan_lateral_join(
+                current_plan,
+                outer_alias,
+                subquery,
+                &lateral_alias,
+                left_join,
+                projection,
+                catalog,
+                functions,
+                temporal,
+            )?));
+        }
+
         // Right side: array TVF or named table.
         let right_plan = if let Some(plan) =
             array_arm::try_plan_relation(&join_item.relation, catalog, temporal)?
@@ -114,6 +145,25 @@ pub fn plan_join_from_select(
         *filt = filters;
     }
     Ok(Some(current_plan))
+}
+
+/// Extract an alias (or table name) from a named-table `TableFactor`.
+fn scan_alias_from_relation(factor: &ast::TableFactor) -> Option<String> {
+    match factor {
+        ast::TableFactor::Table { name, alias, .. } => alias
+            .as_ref()
+            .map(|a| crate::parser::normalize::normalize_ident(&a.name))
+            .or_else(|| crate::parser::normalize::normalize_object_name_checked(name).ok()),
+        _ => None,
+    }
+}
+
+/// True when the join operator represents a LEFT join variant.
+fn is_left_join_operator(op: &ast::JoinOperator) -> bool {
+    matches!(
+        op,
+        ast::JoinOperator::Left(_) | ast::JoinOperator::LeftOuter(_)
+    )
 }
 
 /// Build a `SqlPlan::Scan` for a named-table TableFactor.

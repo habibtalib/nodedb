@@ -94,10 +94,19 @@ pub(super) fn vector_functions() -> Vec<FunctionMeta> {
             "rrf_score",
             Scalar,
             2,
-            4,
+            6,
             SearchTrigger::HybridSearch,
             Some(ColumnType::Float64),
             arg_types::RRF_SCORE_ARGS,
+        ),
+        m(
+            "graph_score",
+            Scalar,
+            2,
+            usize::MAX,
+            SearchTrigger::GraphSearch,
+            Some(ColumnType::Float64),
+            arg_types::GRAPH_SCORE_ARGS,
         ),
     ]
 }

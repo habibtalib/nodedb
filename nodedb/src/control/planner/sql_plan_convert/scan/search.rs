@@ -7,7 +7,7 @@ use crate::types::{TenantId, VShardId};
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::filter::serialize_filters;
-use super::super::scan_params::{HybridSearchParams, VectorSearchParams};
+use super::super::scan_params::{HybridSearchParams, HybridSearchTripleParams, VectorSearchParams};
 use super::super::value::sql_value_to_nodedb_value as sql_value_to_value;
 
 pub(in crate::control::planner::sql_plan_convert) fn convert_vector_search(
@@ -254,6 +254,46 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_hybrid_search(
             ef_search: *ef_search,
             fuzzy: *fuzzy,
             vector_weight: *vector_weight,
+            filter_bitmap: None,
+            rls_filters: Vec::new(),
+            score_alias: score_alias.map(|s| s.to_string()),
+        }),
+        post_set_op: PostSetOp::None,
+    }])
+}
+
+pub(in crate::control::planner::sql_plan_convert) fn convert_hybrid_search_triple(
+    p: HybridSearchTripleParams<'_>,
+) -> crate::Result<Vec<PhysicalTask>> {
+    let HybridSearchTripleParams {
+        collection,
+        query_vector,
+        query_text,
+        graph_seed_id,
+        graph_depth,
+        graph_edge_label,
+        top_k,
+        ef_search,
+        fuzzy,
+        rrf_k,
+        score_alias,
+        tenant_id,
+    } = p;
+    let vshard = VShardId::from_collection(collection);
+    Ok(vec![PhysicalTask {
+        tenant_id,
+        vshard_id: vshard,
+        plan: PhysicalPlan::Text(TextOp::HybridSearchTriple {
+            collection: collection.into(),
+            query_vector: query_vector.to_vec(),
+            query_text: query_text.to_string(),
+            graph_seed_id: graph_seed_id.to_string(),
+            graph_depth: *graph_depth,
+            graph_edge_label: graph_edge_label.clone(),
+            top_k: *top_k,
+            ef_search: *ef_search,
+            fuzzy: *fuzzy,
+            rrf_k: *rrf_k,
             filter_bitmap: None,
             rls_filters: Vec::new(),
             score_alias: score_alias.map(|s| s.to_string()),

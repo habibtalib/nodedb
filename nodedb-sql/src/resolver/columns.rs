@@ -173,6 +173,33 @@ impl TableScope {
             self.add(resolved)?;
             return Ok(());
         }
+        // LATERAL derived subquery: register the alias as a schemaless
+        // collection so qualified column references (`alias.col`) resolve
+        // without a catalog lookup. The actual inner plan is built separately.
+        if let sqlparser::ast::TableFactor::Derived {
+            lateral: true,
+            alias: Some(alias),
+            ..
+        } = factor
+        {
+            let alias_str = normalize_ident(&alias.name);
+            self.add(ResolvedTable {
+                name: alias_str.clone(),
+                alias: Some(alias_str.clone()),
+                info: CollectionInfo {
+                    name: alias_str,
+                    engine: EngineType::DocumentSchemaless,
+                    columns: Vec::new(),
+                    primary_key: None,
+                    has_auto_tier: false,
+                    indexes: Vec::new(),
+                    bitemporal: false,
+                    primary: nodedb_types::PrimaryEngine::Document,
+                    vector_primary: None,
+                },
+            })?;
+            return Ok(());
+        }
         if let Some((name, alias)) = table_name_from_factor(factor)? {
             let info = catalog
                 .get_collection(&name)?

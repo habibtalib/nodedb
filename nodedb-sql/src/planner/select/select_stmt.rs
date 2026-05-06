@@ -6,6 +6,9 @@ use super::helpers::{convert_projection, convert_where_to_filters, eval_constant
 use super::where_search::try_extract_where_search;
 use crate::error::{Result, SqlError};
 use crate::functions::registry::FunctionRegistry;
+use crate::planner::lateral::plan::{
+    is_lateral_derived, lateral_alias_from_factor, plan_lateral_join, subquery_from_factor,
+};
 use crate::resolver::columns::TableScope;
 use crate::temporal::TemporalScope;
 use crate::types::*;
@@ -59,9 +62,66 @@ pub(super) fn plan_select(
         return Ok(SqlPlan::ConstantResult { columns, values });
     }
 
-    // 3. Check for JOINs.
+    // 3. Check for JOINs (including LATERAL).
     if let Some(plan) = try_plan_join(select, &scope, catalog, functions, temporal)? {
         return Ok(plan);
+    }
+
+    // 3b. Comma-LATERAL syntax: `FROM t, LATERAL (SELECT ...) x`.
+    // sqlparser represents this as two TableWithJoins elements in `select.from`,
+    // where the second has an empty joins list and its relation is Derived{lateral:true}.
+    if select.from.len() == 2 && is_lateral_derived(&select.from[1].relation) {
+        let outer_twj = &select.from[0];
+        let lateral_twj = &select.from[1];
+
+        // Build outer scan plan.
+        let outer_alias = extract_table_alias_from_twj(outer_twj);
+        let outer_collection =
+            crate::parser::normalize::table_name_from_factor(&outer_twj.relation)?
+                .map(|(n, _)| n)
+                .ok_or_else(|| SqlError::Unsupported {
+                    detail: "LATERAL: outer side must be a plain table".into(),
+                })?;
+        let outer_info =
+            catalog
+                .get_collection(&outer_collection)?
+                .ok_or_else(|| SqlError::UnknownTable {
+                    name: outer_collection.clone(),
+                })?;
+        let outer_scan = SqlPlan::Scan {
+            collection: outer_collection,
+            alias: outer_alias.clone(),
+            engine: outer_info.engine,
+            filters: Vec::new(),
+            projection: Vec::new(),
+            sort_keys: Vec::new(),
+            limit: None,
+            offset: 0,
+            distinct: false,
+            window_functions: Vec::new(),
+            temporal,
+        };
+
+        let lateral_alias = lateral_alias_from_factor(&lateral_twj.relation).ok_or_else(|| {
+            SqlError::Unsupported {
+                detail: "LATERAL subquery requires an alias (e.g. LATERAL (...) AS x)".into(),
+            }
+        })?;
+        let subquery = subquery_from_factor(&lateral_twj.relation)
+            .expect("is_lateral_derived guarantees Derived variant");
+        let projection = convert_projection(&select.projection)?;
+        return plan_lateral_join(
+            outer_scan,
+            outer_alias,
+            subquery,
+            &lateral_alias,
+            false, // comma-LATERAL is INNER (no LEFT semantics)
+            projection,
+            catalog,
+            functions,
+            temporal,
+        )
+        .map(Ok)?;
     }
 
     // 4. Single-table query.
@@ -249,6 +309,17 @@ fn has_column_comparison(expr: &SqlExpr) -> bool {
             has_column_comparison(left) || has_column_comparison(right)
         }
         _ => false,
+    }
+}
+
+/// Extract the alias from the first table in a `TableWithJoins`.
+fn extract_table_alias_from_twj(twj: &sqlparser::ast::TableWithJoins) -> Option<String> {
+    match &twj.relation {
+        sqlparser::ast::TableFactor::Table { alias, name, .. } => alias
+            .as_ref()
+            .map(|a| crate::parser::normalize::normalize_ident(&a.name))
+            .or_else(|| crate::parser::normalize::normalize_object_name_checked(name).ok()),
+        _ => None,
     }
 }
 

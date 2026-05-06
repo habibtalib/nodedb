@@ -80,4 +80,32 @@ pub enum TextOp {
         /// `rrf_score(...)` call.
         score_alias: Option<String>,
     },
+
+    /// Three-source hybrid search: vector + BM25 text + graph BFS, fused via weighted RRF.
+    ///
+    /// Extends `HybridSearch` with an optional graph BFS leg. The graph leg
+    /// performs a BFS from `graph_seed_id` up to `graph_depth` hops, filtering
+    /// edges by `graph_edge_label` when set. All three ranked lists are passed
+    /// to `reciprocal_rank_fusion_weighted` with per-source k-constants.
+    HybridSearchTriple {
+        collection: String,
+        query_vector: Vec<f32>,
+        query_text: String,
+        /// Node id used as the BFS seed for the graph leg.
+        graph_seed_id: String,
+        /// Maximum BFS depth from the seed node.
+        graph_depth: usize,
+        /// Edge label filter for graph BFS. `None` = all edges.
+        graph_edge_label: Option<String>,
+        top_k: usize,
+        ef_search: usize,
+        fuzzy: bool,
+        /// Per-source RRF k constants: (vector_k, text_k, graph_k).
+        rrf_k: (f64, f64, f64),
+        filter_bitmap: Option<SurrogateBitmap>,
+        /// RLS post-fusion filters.
+        rls_filters: Vec<u8>,
+        /// SELECT-list alias for the fused RRF score column.
+        score_alias: Option<String>,
+    },
 }

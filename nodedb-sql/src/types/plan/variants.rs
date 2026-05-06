@@ -306,6 +306,29 @@ pub enum SqlPlan {
         /// SELECT projection's `AS <alias>` for the `rrf_score(...)` call.
         score_alias: Option<String>,
     },
+
+    /// Three-source hybrid search: vector + BM25 text + graph BFS, fused via weighted RRF.
+    ///
+    /// Produced when the planner detects `rrf_score(vector_distance(...),
+    /// bm25_score(...), graph_score(...))` with three source arguments.
+    HybridSearchTriple {
+        collection: String,
+        query_vector: Vec<f32>,
+        query_text: String,
+        /// Node id used as the BFS seed for the graph leg.
+        graph_seed_id: String,
+        /// Maximum BFS depth from the seed node.
+        graph_depth: usize,
+        /// Edge label filter for graph BFS. `None` = all edges.
+        graph_edge_label: Option<String>,
+        top_k: usize,
+        ef_search: usize,
+        fuzzy: bool,
+        /// Per-source RRF k constants: (vector_k, text_k, graph_k).
+        rrf_k: (f64, f64, f64),
+        /// SELECT-list alias for the fused RRF score column.
+        score_alias: Option<String>,
+    },
     SpatialScan {
         collection: String,
         field: String,
@@ -462,6 +485,68 @@ pub enum SqlPlan {
         /// WHEN arms in declaration order.
         clauses: Vec<MergePlanClause>,
         returning: bool,
+    },
+
+    // ── Lateral joins ───────────────────────────────────────────────────
+    /// LATERAL subquery that is equi-correlated and has ORDER BY + LIMIT k.
+    ///
+    /// Emitted when the inner subquery has an equi-key correlation to the outer
+    /// table plus an `ORDER BY ... LIMIT k` clause. The Data Plane scans the
+    /// inner collection once per outer row applying the equi-filter, sorts by
+    /// `inner_order_by`, and retains at most `inner_limit` rows.
+    ///
+    /// `correlation_keys` is `(outer_col, inner_col)` — the equi-join pairs
+    /// that correlate inner to outer.
+    LateralTopK {
+        /// Plan producing outer rows.
+        outer: Box<SqlPlan>,
+        /// Alias used to qualify outer table columns (e.g. `"u"`).
+        outer_alias: Option<String>,
+        /// Inner collection to scan.
+        inner_collection: String,
+        /// Pre-filter applied to inner rows (non-correlated filters).
+        inner_filters: Vec<Filter>,
+        /// Sort keys for the inner per-outer-row result.
+        inner_order_by: Vec<SortKey>,
+        /// Maximum number of inner rows per outer row.
+        inner_limit: usize,
+        /// Equi-join pairs `(outer_col, inner_col)`.
+        correlation_keys: Vec<(String, String)>,
+        /// Alias under which inner rows are presented.
+        lateral_alias: String,
+        /// Post-lateral projection.
+        projection: Vec<Projection>,
+        /// LEFT join semantics: preserve outer rows even when inner is empty.
+        left_join: bool,
+    },
+
+    /// General LATERAL subquery — per-outer-row correlated nested loop.
+    ///
+    /// Emitted for LATERAL subqueries that cannot be rewritten as equi-join
+    /// hash joins or `LateralTopK`. The Control Plane drives execution: it
+    /// materialises outer rows, then for each row substitutes the correlation
+    /// values as additional filters on the inner plan and re-dispatches it.
+    ///
+    /// Bounded by `outer_row_cap`; queries that exceed the cap receive a typed
+    /// `SqlError::Unsupported` before any data is returned.
+    LateralLoop {
+        /// Plan producing outer rows.
+        outer: Box<SqlPlan>,
+        /// Alias used to qualify outer table columns.
+        outer_alias: Option<String>,
+        /// Inner subquery plan (correlation predicates are injected at runtime).
+        inner: Box<SqlPlan>,
+        /// Correlated predicates extracted from the inner WHERE that reference
+        /// outer columns.  Each entry is `(inner_field, outer_field)`.
+        correlation_predicates: Vec<(String, String)>,
+        /// Alias under which inner rows are presented.
+        lateral_alias: String,
+        /// Post-lateral projection.
+        projection: Vec<Projection>,
+        /// Maximum outer rows allowed. Queries exceeding this return an error.
+        outer_row_cap: usize,
+        /// LEFT join semantics: preserve outer rows even when inner is empty.
+        left_join: bool,
     },
 
     // ── Vector-primary ──────────────────────────────────────────────────

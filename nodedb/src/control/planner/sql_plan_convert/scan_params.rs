@@ -104,6 +104,22 @@ pub(super) struct HybridSearchParams<'a> {
     pub tenant_id: TenantId,
 }
 
+/// Parameters for `convert_hybrid_search_triple`.
+pub(super) struct HybridSearchTripleParams<'a> {
+    pub collection: &'a str,
+    pub query_vector: &'a [f32],
+    pub query_text: &'a str,
+    pub graph_seed_id: &'a str,
+    pub graph_depth: &'a usize,
+    pub graph_edge_label: &'a Option<String>,
+    pub top_k: &'a usize,
+    pub ef_search: &'a usize,
+    pub fuzzy: &'a bool,
+    pub rrf_k: &'a (f64, f64, f64),
+    pub score_alias: Option<&'a str>,
+    pub tenant_id: TenantId,
+}
+
 /// Parameters for `convert_spatial_scan`.
 pub(super) struct SpatialScanParams<'a> {
     pub collection: &'a str,

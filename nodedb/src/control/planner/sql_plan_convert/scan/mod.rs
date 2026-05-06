@@ -16,7 +16,7 @@ pub(in crate::control::planner::sql_plan_convert) use core::{
 pub(in crate::control::planner::sql_plan_convert) use join::convert_join;
 pub(in crate::control::planner::sql_plan_convert) use recursive::convert_recursive_scan;
 pub(in crate::control::planner::sql_plan_convert) use search::{
-    convert_hybrid_search, convert_text_search, convert_vector_search,
+    convert_hybrid_search, convert_hybrid_search_triple, convert_text_search, convert_vector_search,
 };
 pub(in crate::control::planner::sql_plan_convert) use spatial::convert_spatial_scan;
 pub(in crate::control::planner::sql_plan_convert) use timeseries::{

@@ -113,6 +113,11 @@ fn inject_rls_for_plan(
             rls_filters,
             ..
         })
+        | PhysicalPlan::Text(TextOp::HybridSearchTriple {
+            collection,
+            rls_filters,
+            ..
+        })
         | PhysicalPlan::Columnar(ColumnarOp::Scan {
             collection,
             rls_filters,
