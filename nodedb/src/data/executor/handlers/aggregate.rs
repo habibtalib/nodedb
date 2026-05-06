@@ -12,6 +12,7 @@ use sonic_rs;
 use tracing::debug;
 
 use super::accum::GroupState;
+use super::spill::groupby::GroupBySpiller;
 use crate::bridge::envelope::{ErrorCode, Response};
 use crate::bridge::physical_plan::AggregateSpec;
 use crate::bridge::scan_filter::ScanFilter;
@@ -219,14 +220,24 @@ impl CoreLoop {
             };
 
             let legacy_aggs = legacy_aggregate_pairs(aggregates);
+            let columnar_spill_dir = self
+                .data_dir
+                .join("groupby-spill")
+                .join(format!("core-{}-columnar", self.core_id));
+            let columnar_spill_cap = self.query_tuning.groupby_max_groups_in_mem;
             if let Some(mut agg_result) = legacy_aggs.and_then(|pairs| {
                 super::columnar_agg::try_columnar_aggregate(
-                    mt,
-                    group_by,
-                    &pairs,
-                    &filter_predicates,
-                    limit,
-                    scan_limit,
+                    &super::columnar_agg::ColumnarAggParams {
+                        mt,
+                        group_by,
+                        aggregates: &pairs,
+                        filters: &filter_predicates,
+                        limit,
+                        scan_limit,
+                        spill_dir: &columnar_spill_dir,
+                        spill_cap: columnar_spill_cap,
+                        governor: self.governor.clone(),
+                    },
                 )
             }) {
                 if !having.is_empty() {
@@ -296,17 +307,43 @@ impl CoreLoop {
         let use_field_index = filter_predicates.len() + group_by.len() >= 2;
         let need_sub = !sub_group_by.is_empty() && !sub_aggregates.is_empty();
 
-        // outer_group_key → GroupState
-        let mut groups: HashMap<String, GroupState> = HashMap::new();
-        // outer_group_key → sub_group_key → GroupState
-        let mut sub_groups: HashMap<String, HashMap<String, GroupState>> = HashMap::new();
+        // Spill-to-disk GROUP BY accumulator.
+        //
+        // Sub-groups are flattened into the same spiller using composite keys:
+        //   outer_key + '\x1F' + sub_key
+        // U+001F (ASCII Unit Separator) cannot appear in JSON-encoded string
+        // values, so the composite key is unambiguous.  At finalize time, keys
+        // containing '\x1F' are split to reconstruct outer/sub structure.
+        let spill_dir = self
+            .data_dir
+            .join("groupby-spill")
+            .join(format!("core-{}", self.core_id));
+        let cap = self.query_tuning.groupby_max_groups_in_mem;
 
+        let mut spiller = match GroupBySpiller::new(spill_dir, cap, self.governor.clone()) {
+            Ok(s) => s,
+            Err(e) => {
+                return self.response_error(
+                    task,
+                    ErrorCode::Internal {
+                        detail: e.to_string(),
+                    },
+                );
+            }
+        };
+
+        // Accumulate all matching documents. Spill errors are collected and
+        // surfaced after the scan completes.
+        let mut spill_err: Option<crate::Error> = None;
         let chunk_size = 10_000;
 
         let scan_result = self
             .scan_collection(tid, collection, scan_limit)
             .map(|docs| {
                 for chunk in docs.chunks(chunk_size) {
+                    if spill_err.is_some() {
+                        break;
+                    }
                     for (_, value) in chunk {
                         let outer_key = if use_field_index {
                             let idx = msgpack_scan::FieldIndex::build(value, 0)
@@ -325,26 +362,65 @@ impl CoreLoop {
                             msgpack_scan::build_group_key(value, group_by)
                         };
 
-                        groups
-                            .entry(outer_key.clone())
-                            .or_insert_with(|| GroupState::new(aggregates))
-                            .feed(aggregates, value);
+                        if let Err(e) = spiller.feed(outer_key.clone(), aggregates, value) {
+                            spill_err = Some(e);
+                            break;
+                        }
 
                         if need_sub {
                             let sub_key = msgpack_scan::build_group_key(value, sub_group_by);
-                            sub_groups
-                                .entry(outer_key)
-                                .or_default()
-                                .entry(sub_key)
-                                .or_insert_with(|| GroupState::new(sub_aggregates))
-                                .feed(sub_aggregates, value);
+                            // Composite key: outer + U+001F + sub.
+                            let composite = format!("{outer_key}\x1F{sub_key}");
+                            if let Err(e) = spiller.feed(composite, sub_aggregates, value) {
+                                spill_err = Some(e);
+                                break;
+                            }
                         }
                     }
                 }
             });
 
+        // Surface scan-level or spill-level errors before proceeding.
+        if let Some(e) = spill_err {
+            return self.response_error(
+                task,
+                ErrorCode::Internal {
+                    detail: e.to_string(),
+                },
+            );
+        }
+
         match scan_result {
             Ok(()) => {
+                // Merge all spill runs into the consolidated map.
+                let consolidated = match spiller.finalize() {
+                    Ok(m) => m,
+                    Err(e) => {
+                        return self.response_error(
+                            task,
+                            ErrorCode::Internal {
+                                detail: e.to_string(),
+                            },
+                        );
+                    }
+                };
+
+                // Separate outer groups from sub-group composite entries.
+                let mut groups: HashMap<String, GroupState> = HashMap::new();
+                // outer_key → sub_key → GroupState
+                let mut sub_groups: HashMap<String, HashMap<String, GroupState>> = HashMap::new();
+
+                for (key, state) in consolidated {
+                    if let Some(sep_pos) = key.find('\x1F') {
+                        // Sub-group composite key.
+                        let outer = key[..sep_pos].to_string();
+                        let sub = key[sep_pos + 1..].to_string();
+                        sub_groups.entry(outer).or_default().insert(sub, state);
+                    } else {
+                        groups.insert(key, state);
+                    }
+                }
+
                 let mut results: Vec<serde_json::Value> = Vec::new();
 
                 for (group_key, state) in groups {

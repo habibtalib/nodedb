@@ -9,7 +9,11 @@ use crate::engine::timeseries::columnar_memtable::{ColumnData, ColumnType, Colum
 /// Skips all-zero words and uses hardware `TZCNT` to locate set bits, which is
 /// faster than scanning a `Vec<bool>` when the filter selectivity is low.
 #[inline]
-pub(super) fn for_each_set_bit(mask: &[u64], row_count: usize, mut f: impl FnMut(usize)) {
+pub(in crate::data::executor::handlers) fn for_each_set_bit(
+    mask: &[u64],
+    row_count: usize,
+    mut f: impl FnMut(usize),
+) {
     for (word_idx, &word) in mask.iter().enumerate() {
         if word == 0 {
             continue;
@@ -28,8 +32,8 @@ pub(super) fn for_each_set_bit(mask: &[u64], row_count: usize, mut f: impl FnMut
 }
 
 /// Accumulator for running aggregate computation per group.
-#[derive(Debug, Clone)]
-pub(super) struct AggAccum {
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(in crate::data::executor::handlers) struct AggAccum {
     pub count: u64,
     pub sum: f64,
     pub min: f64,
@@ -37,7 +41,7 @@ pub(super) struct AggAccum {
 }
 
 impl AggAccum {
-    pub(super) fn new() -> Self {
+    pub(in crate::data::executor::handlers) fn new() -> Self {
         Self {
             count: 0,
             sum: 0.0,
@@ -46,7 +50,7 @@ impl AggAccum {
         }
     }
 
-    pub(super) fn feed(&mut self, val: f64) {
+    pub(in crate::data::executor::handlers) fn feed(&mut self, val: f64) {
         self.count += 1;
         self.sum += val;
         if val < self.min {
@@ -57,15 +61,15 @@ impl AggAccum {
         }
     }
 
-    pub(super) fn feed_count_only(&mut self) {
+    pub(in crate::data::executor::handlers) fn feed_count_only(&mut self) {
         self.count += 1;
     }
 }
 
 /// A group key composed of symbol IDs (for Symbol columns) or raw i64/f64
 /// values (for numeric group-by columns). Avoids string allocation entirely.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(super) enum GroupKeyPart {
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub(in crate::data::executor::handlers) enum GroupKeyPart {
     SymbolId(u32),
     Int64(i64),
     /// f64 stored as bits for Eq/Hash (NaN-safe: all NaNs compare equal).
@@ -74,10 +78,10 @@ pub(super) enum GroupKeyPart {
 }
 
 /// Packed group key for multi-column GROUP BY.
-pub(super) type GroupKey = Vec<GroupKeyPart>;
+pub(in crate::data::executor::handlers) type GroupKey = Vec<GroupKeyPart>;
 
 /// Extract a group key part from a column at a given row index.
-pub(super) fn extract_group_key_part(
+pub(in crate::data::executor::handlers) fn extract_group_key_part(
     col_type: &ColumnType,
     col_data: &ColumnData,
     row_idx: usize,
@@ -115,7 +119,7 @@ pub(super) fn extract_group_key_part(
 }
 
 /// Resolve a group key part to a serde_json::Value for output.
-pub(super) fn resolve_key_part(
+pub(in crate::data::executor::handlers) fn resolve_key_part(
     mt: &ColumnarMemtable,
     col_idx: usize,
     part: &GroupKeyPart,
@@ -138,22 +142,24 @@ pub(super) fn resolve_key_part(
 }
 
 /// Parameters for dense-symbol GROUP BY aggregation.
-pub(super) struct DenseSymbolParams<'a> {
-    pub mt: &'a ColumnarMemtable,
-    pub group_col_idx: usize,
-    pub agg_col_data: &'a [Option<(usize, &'a ColumnData)>],
-    pub aggregates: &'a [(String, String)],
-    pub bitmask: Option<&'a [u64]>,
-    pub bool_mask: Option<&'a [bool]>,
-    pub row_count: usize,
-    pub cardinality: usize,
+pub(in crate::data::executor::handlers) struct DenseSymbolParams<'a> {
+    pub(in crate::data::executor::handlers) mt: &'a ColumnarMemtable,
+    pub(in crate::data::executor::handlers) group_col_idx: usize,
+    pub(in crate::data::executor::handlers) agg_col_data: &'a [Option<(usize, &'a ColumnData)>],
+    pub(in crate::data::executor::handlers) aggregates: &'a [(String, String)],
+    pub(in crate::data::executor::handlers) bitmask: Option<&'a [u64]>,
+    pub(in crate::data::executor::handlers) bool_mask: Option<&'a [bool]>,
+    pub(in crate::data::executor::handlers) row_count: usize,
+    pub(in crate::data::executor::handlers) cardinality: usize,
 }
 
 /// Dense-array GROUP BY for a single Symbol column with cardinality ≤ 65536.
 ///
 /// Indexes accumulators directly by symbol ID, avoiding HashMap entirely.
 /// Returns `(sym_id, accumulators)` for every non-empty group.
-pub(super) fn aggregate_dense_symbol(p: &DenseSymbolParams<'_>) -> Vec<(u32, Vec<AggAccum>)> {
+pub(in crate::data::executor::handlers) fn aggregate_dense_symbol(
+    p: &DenseSymbolParams<'_>,
+) -> Vec<(u32, Vec<AggAccum>)> {
     let num_aggs = p.aggregates.len();
     let ids = match p.mt.column(p.group_col_idx) {
         ColumnData::Symbol(v) => v,

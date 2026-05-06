@@ -70,6 +70,13 @@ pub struct QueryTuning {
     /// See `nodedb::storage::compaction::CompactionConfig`.
     #[serde(default = "default_compaction_target_bytes")]
     pub compaction_target_bytes: usize,
+    /// Maximum number of distinct group keys held in memory during GROUP BY
+    /// before the spiller triggers a spill run to disk.  When exceeded, the
+    /// current in-memory accumulator map is serialized to a temp file and the
+    /// map is cleared.  All spill runs are k-way merged at finalize time.
+    /// Default: 1_000_000.
+    #[serde(default = "default_groupby_max_groups_in_mem")]
+    pub groupby_max_groups_in_mem: usize,
 }
 
 impl Default for QueryTuning {
@@ -86,6 +93,7 @@ impl Default for QueryTuning {
             doc_cache_entries: default_doc_cache_entries(),
             columnar_flush_threshold: default_columnar_flush_threshold(),
             compaction_target_bytes: default_compaction_target_bytes(),
+            groupby_max_groups_in_mem: default_groupby_max_groups_in_mem(),
         }
     }
 }
@@ -122,4 +130,7 @@ fn default_columnar_flush_threshold() -> usize {
 }
 fn default_compaction_target_bytes() -> usize {
     256 * 1024 * 1024
+}
+fn default_groupby_max_groups_in_mem() -> usize {
+    1_000_000
 }

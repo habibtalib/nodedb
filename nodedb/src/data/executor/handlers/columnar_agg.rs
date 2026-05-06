@@ -18,18 +18,29 @@ use std::collections::HashMap;
 use crate::engine::timeseries::columnar_memtable::{ColumnData, ColumnType, ColumnarMemtable};
 use nodedb_query::agg_key::canonical_agg_key;
 
-use super::columnar_filter;
-
-#[path = "columnar_agg_support.rs"]
-mod columnar_agg_support;
-use columnar_agg_support::{
+use super::columnar_agg_support::{
     AggAccum, DenseSymbolParams, GroupKey, GroupKeyPart, aggregate_dense_symbol,
     extract_group_key_part, for_each_set_bit, resolve_key_part,
 };
+use super::columnar_filter;
+use super::spill::columnar::ColumnarGroupBySpiller;
 
 /// Result of native columnar aggregation.
 pub(super) struct ColumnarAggResult {
     pub rows: Vec<serde_json::Value>,
+}
+
+/// Parameters for [`try_columnar_aggregate`].
+pub(super) struct ColumnarAggParams<'a> {
+    pub mt: &'a ColumnarMemtable,
+    pub group_by: &'a [String],
+    pub aggregates: &'a [(String, String)],
+    pub filters: &'a [crate::bridge::scan_filter::ScanFilter],
+    pub limit: usize,
+    pub scan_limit: usize,
+    pub spill_dir: &'a std::path::Path,
+    pub spill_cap: usize,
+    pub governor: Option<std::sync::Arc<nodedb_mem::MemoryGovernor>>,
 }
 
 /// Try to execute an aggregate query natively on a columnar memtable.
@@ -37,14 +48,15 @@ pub(super) struct ColumnarAggResult {
 /// Returns `None` if the query can't be handled natively (complex filters,
 /// string comparison filters, etc.), in which case the caller should fall
 /// back to the generic document-style path.
-pub(super) fn try_columnar_aggregate(
-    mt: &ColumnarMemtable,
-    group_by: &[String],
-    aggregates: &[(String, String)],
-    filters: &[crate::bridge::scan_filter::ScanFilter],
-    limit: usize,
-    scan_limit: usize,
-) -> Option<ColumnarAggResult> {
+///
+/// `p.spill_dir` and `p.spill_cap` control GROUP BY spill-to-disk: if the
+/// number of distinct groups exceeds `spill_cap`, partial accumulators are
+/// spilled to `spill_dir` and k-way merged at finalize time.
+pub(super) fn try_columnar_aggregate(p: &ColumnarAggParams<'_>) -> Option<ColumnarAggResult> {
+    let (mt, group_by, aggregates, filters) = (p.mt, p.group_by, p.aggregates, p.filters);
+    let (limit, scan_limit, spill_dir, spill_cap) =
+        (p.limit, p.scan_limit, p.spill_dir, p.spill_cap);
+    let governor = p.governor.clone();
     let schema = mt.schema();
     let row_count = (mt.row_count() as usize).min(scan_limit);
 
@@ -166,16 +178,86 @@ pub(super) fn try_columnar_aggregate(
             .map(|(sym_id, accums)| (vec![GroupKeyPart::SymbolId(sym_id)], accums))
             .collect()
     } else {
-        // HashMap path: multi-column GROUP BY, numeric keys, or high-cardinality symbols.
+        // HashMap path with spill-to-disk: multi-column GROUP BY, numeric keys,
+        // or high-cardinality symbols.
         let num_aggs = aggregates.len();
         let group_col_data: Vec<_> = group_col_info
             .iter()
             .map(|&(idx, ty)| (idx, ty, mt.column(idx)))
             .collect();
 
-        let mut groups: HashMap<GroupKey, Vec<AggAccum>> = HashMap::with_capacity(1024);
+        let mut spiller =
+            match ColumnarGroupBySpiller::new(spill_dir.to_path_buf(), spill_cap, governor.clone())
+            {
+                Ok(s) => s,
+                Err(_) => {
+                    // If we can't create the spill dir, fall back to no-spill path.
+                    let mut groups: HashMap<GroupKey, Vec<AggAccum>> = HashMap::with_capacity(1024);
+                    let mut process_row = |row_idx: usize| {
+                        let key: GroupKey = if group_by.is_empty() {
+                            Vec::new()
+                        } else {
+                            group_col_data
+                                .iter()
+                                .map(|(_, col_type, col_data)| {
+                                    extract_group_key_part(col_type, col_data, row_idx)
+                                })
+                                .collect()
+                        };
+                        let accums = groups
+                            .entry(key)
+                            .or_insert_with(|| (0..num_aggs).map(|_| AggAccum::new()).collect());
+                        for (agg_idx, (op, _)) in aggregates.iter().enumerate() {
+                            match &agg_col_data[agg_idx] {
+                                None => accums[agg_idx].feed_count_only(),
+                                Some((_, col_data)) => {
+                                    let val = match col_data {
+                                        ColumnData::Float64(vals) => vals[row_idx],
+                                        ColumnData::Int64(vals) => vals[row_idx] as f64,
+                                        ColumnData::Timestamp(vals) => vals[row_idx] as f64,
+                                        _ => return,
+                                    };
+                                    if op == "count" {
+                                        accums[agg_idx].feed_count_only();
+                                    } else {
+                                        accums[agg_idx].feed(val);
+                                    }
+                                }
+                            }
+                        }
+                    };
+                    match &filter_result {
+                        FilterResult::Bitmask(bm) => {
+                            for_each_set_bit(bm, row_count, &mut process_row);
+                        }
+                        FilterResult::BoolMask(mask) => {
+                            for (row_idx, &passes) in mask.iter().enumerate().take(row_count) {
+                                if passes {
+                                    process_row(row_idx);
+                                }
+                            }
+                        }
+                        FilterResult::None => {
+                            for row_idx in 0..row_count {
+                                process_row(row_idx);
+                            }
+                        }
+                    }
+                    return Some(build_results_from_groups(
+                        &groups,
+                        group_by,
+                        &group_col_info,
+                        aggregates,
+                        mt,
+                        limit,
+                    ));
+                }
+            };
 
-        let mut process_row = |row_idx: usize| {
+        // Spill-aware accumulation loop.
+        let mut spill_err: Option<crate::Error> = None;
+
+        let mut process_row = |row_idx: usize| -> bool {
             let key: GroupKey = if group_by.is_empty() {
                 Vec::new()
             } else {
@@ -187,9 +269,13 @@ pub(super) fn try_columnar_aggregate(
                     .collect()
             };
 
-            let accums = groups
-                .entry(key)
-                .or_insert_with(|| (0..num_aggs).map(|_| AggAccum::new()).collect());
+            let accums = match spiller.get_or_insert_with(key, num_aggs) {
+                Ok(a) => a,
+                Err(e) => {
+                    spill_err = Some(e);
+                    return false; // signal early exit
+                }
+            };
 
             for (agg_idx, (op, _)) in aggregates.iter().enumerate() {
                 match &agg_col_data[agg_idx] {
@@ -199,7 +285,7 @@ pub(super) fn try_columnar_aggregate(
                             ColumnData::Float64(vals) => vals[row_idx],
                             ColumnData::Int64(vals) => vals[row_idx] as f64,
                             ColumnData::Timestamp(vals) => vals[row_idx] as f64,
-                            _ => return,
+                            _ => return true,
                         };
                         if op == "count" {
                             accums[agg_idx].feed_count_only();
@@ -209,37 +295,76 @@ pub(super) fn try_columnar_aggregate(
                     }
                 }
             }
+            true // continue
         };
 
         match &filter_result {
             FilterResult::Bitmask(bm) => {
-                for_each_set_bit(bm, row_count, &mut process_row);
+                for_each_set_bit(bm, row_count, &mut |row_idx| {
+                    if !process_row(row_idx) {
+                        // Can't break out of for_each_set_bit; spill_err is set.
+                    }
+                });
             }
             FilterResult::BoolMask(mask) => {
                 for (row_idx, &passes) in mask.iter().enumerate().take(row_count) {
-                    if passes {
-                        process_row(row_idx);
+                    if passes && !process_row(row_idx) {
+                        break;
                     }
                 }
             }
             FilterResult::None => {
                 for row_idx in 0..row_count {
-                    process_row(row_idx);
+                    if !process_row(row_idx) {
+                        break;
+                    }
                 }
             }
         }
 
-        groups
+        if spill_err.is_some() {
+            // Spill error: fall through to the generic path by returning None.
+            return None;
+        }
+
+        match spiller.finalize() {
+            Ok(groups) => groups,
+            Err(_) => return None,
+        }
     };
 
     // --- Phase 4: Build result rows (resolve symbols only here) ---
 
+    Some(build_results_from_groups(
+        &groups,
+        group_by,
+        &group_col_info,
+        aggregates,
+        mt,
+        limit,
+    ))
+}
+
+/// Build `serde_json` result rows from a finalized group accumulator map.
+///
+/// Separated from `try_columnar_aggregate` so that both the spill path and
+/// the fallback no-spill path can reuse it.
+fn build_results_from_groups(
+    groups: &HashMap<GroupKey, Vec<AggAccum>>,
+    group_by: &[String],
+    group_col_info: &[(
+        usize,
+        crate::engine::timeseries::columnar_memtable::ColumnType,
+    )],
+    aggregates: &[(String, String)],
+    mt: &crate::engine::timeseries::columnar_memtable::ColumnarMemtable,
+    limit: usize,
+) -> ColumnarAggResult {
     let mut results: Vec<serde_json::Value> = Vec::with_capacity(groups.len().min(limit));
 
-    for (group_key, accums) in &groups {
+    for (group_key, accums) in groups {
         let mut row = serde_json::Map::new();
 
-        // Resolve group key parts to display values.
         for (i, field) in group_by.iter().enumerate() {
             let (col_idx, _) = group_col_info[i];
             let val = if i < group_key.len() {
@@ -250,7 +375,6 @@ pub(super) fn try_columnar_aggregate(
             row.insert(field.clone(), val);
         }
 
-        // Emit aggregate values.
         for (agg_idx, (op, field)) in aggregates.iter().enumerate() {
             let agg_key = canonical_agg_key(op, field);
             let accum = &accums[agg_idx];
@@ -295,7 +419,7 @@ pub(super) fn try_columnar_aggregate(
         }
     }
 
-    Some(ColumnarAggResult { rows: results })
+    ColumnarAggResult { rows: results }
 }
 
 #[cfg(test)]
@@ -346,17 +470,30 @@ mod tests {
         mt
     }
 
+    fn test_spill_dir(suffix: &str) -> std::path::PathBuf {
+        let mut p = std::env::temp_dir();
+        p.push(format!(
+            "nodedb_columnar_agg_test_{suffix}_{}",
+            std::process::id()
+        ));
+        p
+    }
+
     #[test]
     fn group_by_symbol_column() {
         let mt = make_test_memtable();
-        let result = try_columnar_aggregate(
-            &mt,
-            &["qtype".into()],
-            &[("count".into(), "*".into()), ("avg".into(), "value".into())],
-            &[],
-            100,
-            100_000,
-        )
+        let sd = test_spill_dir("sym");
+        let result = try_columnar_aggregate(&ColumnarAggParams {
+            mt: &mt,
+            group_by: &["qtype".into()],
+            aggregates: &[("count".into(), "*".into()), ("avg".into(), "value".into())],
+            filters: &[],
+            limit: 100,
+            scan_limit: 100_000,
+            spill_dir: &sd,
+            spill_cap: 1_000_000,
+            governor: None,
+        })
         .unwrap();
 
         assert_eq!(result.rows.len(), 2); // A and AAAA
@@ -369,14 +506,18 @@ mod tests {
     #[test]
     fn group_by_high_cardinality() {
         let mt = make_test_memtable();
-        let result = try_columnar_aggregate(
-            &mt,
-            &["qname".into()],
-            &[("count".into(), "*".into()), ("sum".into(), "value".into())],
-            &[],
-            100,
-            100_000,
-        )
+        let sd = test_spill_dir("hc");
+        let result = try_columnar_aggregate(&ColumnarAggParams {
+            mt: &mt,
+            group_by: &["qname".into()],
+            aggregates: &[("count".into(), "*".into()), ("sum".into(), "value".into())],
+            filters: &[],
+            limit: 100,
+            scan_limit: 100_000,
+            spill_dir: &sd,
+            spill_cap: 1_000_000,
+            governor: None,
+        })
         .unwrap();
 
         assert_eq!(result.rows.len(), 5); // 5 unique qnames
@@ -392,14 +533,18 @@ mod tests {
             clauses: vec![],
             expr: None,
         };
-        let result = try_columnar_aggregate(
-            &mt,
-            &["qname".into()],
-            &[("count".into(), "*".into()), ("avg".into(), "value".into())],
-            &[filter],
-            100,
-            100_000,
-        )
+        let sd = test_spill_dir("filt");
+        let result = try_columnar_aggregate(&ColumnarAggParams {
+            mt: &mt,
+            group_by: &["qname".into()],
+            aggregates: &[("count".into(), "*".into()), ("avg".into(), "value".into())],
+            filters: &[filter],
+            limit: 100,
+            scan_limit: 100_000,
+            spill_dir: &sd,
+            spill_cap: 1_000_000,
+            governor: None,
+        })
         .unwrap();
 
         // Only rows with value > 5000 (i >= 51, value >= 5100)
@@ -413,14 +558,18 @@ mod tests {
     #[test]
     fn no_group_by_aggregate_all() {
         let mt = make_test_memtable();
-        let result = try_columnar_aggregate(
-            &mt,
-            &[],
-            &[("count".into(), "*".into()), ("sum".into(), "value".into())],
-            &[],
-            100,
-            100_000,
-        )
+        let sd = test_spill_dir("nogrp");
+        let result = try_columnar_aggregate(&ColumnarAggParams {
+            mt: &mt,
+            group_by: &[],
+            aggregates: &[("count".into(), "*".into()), ("sum".into(), "value".into())],
+            filters: &[],
+            limit: 100,
+            scan_limit: 100_000,
+            spill_dir: &sd,
+            spill_cap: 1_000_000,
+            governor: None,
+        })
         .unwrap();
 
         assert_eq!(result.rows.len(), 1);
