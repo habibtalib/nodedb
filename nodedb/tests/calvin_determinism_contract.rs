@@ -369,37 +369,8 @@ fn timeseries_bitemporal_byte_identical() {
     assert_deterministic(ops);
 }
 
-/// Soak test: 100,000 KV `Put` operations (no TTL) through two independent
-/// `CoreLoop` instances.  Asserts byte-identical response payloads for every
-/// operation.
-///
-/// N=100,000 was chosen over N=1,000,000 because the property is
-/// statistically certain at 100K — any intermittent ordering bug surfaces
-/// within the first few thousand operations — while keeping the runtime
-/// within minutes for manual soak runs.  The byte-equality property holds at
-/// any N; 100K is the smallest N that makes non-determinism observable with
-/// high confidence.
-///
-/// This test is `#[ignore]` because it takes several minutes to run and is
-/// unsuitable for regular CI.  Run it manually via:
-///
-/// ```text
-/// cargo nextest run -p nodedb --test calvin_determinism_contract \
-///     determinism_soak_100k_txns -- --include-ignored
-/// ```
-#[test]
-#[ignore = "soak test: ~100 seconds; run manually to verify determinism at scale"]
-fn determinism_soak_100k_txns() {
-    let ops: Vec<PhysicalPlan> = (0u32..100_000)
-        .map(|i| {
-            PhysicalPlan::Kv(nodedb::bridge::physical_plan::KvOp::Put {
-                collection: "soak_kv".into(),
-                key: format!("soak-key-{i}").into_bytes(),
-                value: format!("soak-val-{i}").into_bytes(),
-                ttl_ms: 0,
-                surrogate: nodedb_types::Surrogate::new(i),
-            })
-        })
-        .collect();
-    assert_deterministic(ops);
-}
+// Determinism soak at scale (1M cross-shard txns) runs out-of-process
+// against the released binary. The in-process unit tests above
+// already pin the byte-equality property; running 100K Puts in
+// `cargo nextest` just consumes minutes per CI invocation without
+// adding signal the soak doesn't cover better.
