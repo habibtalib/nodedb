@@ -1,17 +1,16 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Append-only operation log abstraction for array CRDT sync.
 //!
 //! [`OpLog`] is a storage-agnostic trait. Concrete implementations live in
-//! `nodedb-lite` (redb-backed) and `nodedb` (WAL-backed); an in-memory
-//! implementation is provided here for tests.
+//! `nodedb-lite` (redb-backed) and `nodedb` (WAL-backed); [`InMemoryOpLog`]
+//! is a `BTreeMap`-backed implementation suitable for tests in any crate
+//! that depends on `nodedb-array`.
 
-#[cfg(any(test, feature = "test-utils"))]
 use std::collections::BTreeMap;
-#[cfg(any(test, feature = "test-utils"))]
 use std::sync::Mutex;
 
-#[cfg(any(test, feature = "test-utils"))]
-use crate::error::ArrayError;
-use crate::error::ArrayResult;
+use crate::error::{ArrayError, ArrayResult};
 use crate::sync::hlc::Hlc;
 use crate::sync::op::ArrayOp;
 
@@ -20,8 +19,9 @@ pub type OpIter<'a> = Box<dyn Iterator<Item = ArrayResult<ArrayOp>> + 'a>;
 
 /// Storage-agnostic interface for an append-only array operation log.
 ///
-/// Implementations are expected to be `Send + Sync` and durable. The
-/// in-memory [`InMemoryOpLog`] is provided for tests only.
+/// Implementations are expected to be `Send + Sync` and durable. An
+/// in-memory implementation suitable for tests is provided by
+/// [`InMemoryOpLog`] below.
 #[allow(clippy::len_without_is_empty)]
 pub trait OpLog: Send + Sync {
     /// Append an operation to the log.
@@ -45,21 +45,18 @@ pub trait OpLog: Send + Sync {
     fn drop_below(&self, hlc: Hlc) -> ArrayResult<u64>;
 }
 
-// ─── In-memory implementation (test / test-utils only) ───────────────────────
+// ─── In-memory implementation ───────────────────────────────────────────────
 
-/// In-memory [`OpLog`] for unit tests and feature-gated test utilities.
+type OpMap = BTreeMap<(String, [u8; 18]), ArrayOp>;
+
+/// `BTreeMap`-backed [`OpLog`] implementation.
 ///
 /// Key: `(array_name, hlc_bytes)` so iteration is in HLC order per array.
 /// Operations with the same key (same array + same HLC) are idempotent.
-#[cfg(any(test, feature = "test-utils"))]
-type OpMap = BTreeMap<(String, [u8; 18]), ArrayOp>;
-
-#[cfg(any(test, feature = "test-utils"))]
 pub struct InMemoryOpLog {
     ops: Mutex<OpMap>,
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 impl InMemoryOpLog {
     /// Create a new empty log.
     pub fn new() -> Self {
@@ -73,14 +70,12 @@ impl InMemoryOpLog {
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 impl Default for InMemoryOpLog {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 impl OpLog for InMemoryOpLog {
     fn append(&self, op: &ArrayOp) -> ArrayResult<()> {
         let key = (op.header.array.clone(), op.header.hlc.to_bytes());
@@ -89,7 +84,6 @@ impl OpLog for InMemoryOpLog {
     }
 
     fn scan_from<'a>(&'a self, from: Hlc) -> ArrayResult<OpIter<'a>> {
-        // Collect into a vec so we don't hold the lock across the iterator.
         let guard = self.lock()?;
         let results: Vec<ArrayOp> = guard
             .iter()

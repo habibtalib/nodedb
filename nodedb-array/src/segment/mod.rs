@@ -1,4 +1,5 @@
-#[cfg(feature = "encryption")]
+// SPDX-License-Identifier: BUSL-1.1
+
 pub(crate) mod encrypt;
 pub mod format;
 pub mod mbr_index;

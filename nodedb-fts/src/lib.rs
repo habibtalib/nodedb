@@ -1,3 +1,17 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Full-text search engine shared by Origin, Lite, and WASM: BMW-optimized
+//! BM25 with 128-doc block pruning, 16 Snowball stemmers, 27-language stop
+//! words, CJK bigram tokenization (always available) plus optional
+//! dictionary segmentation (lindera/jieba/icu) wired in unconditionally,
+//! posting compression (delta + variable-width bitpack + SIMD unpack),
+//! LSM segment store, fuzzy match, synonyms, highlighting, n-gram /
+//! edge-ngram, and hybrid vector+text fusion.
+//!
+//! FTS is a cross-engine *overlay* — it indexes text fields from any
+//! collection without owning the row storage. Analyzer choice is made per
+//! collection at DDL time via `WITH (analyzer='...')`.
+
 pub mod analyzer;
 pub mod backend;
 pub mod block;

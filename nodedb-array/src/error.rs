@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Typed errors for the array engine.
 //!
 //! [`ArrayError`] is the crate-internal error enum. Every variant maps
@@ -88,23 +90,19 @@ pub enum ArrayError {
     LoroError { detail: String },
 
     /// An encrypted (`SEGA`) segment was found but no KEK was provided.
-    #[cfg(feature = "encryption")]
     #[error("encrypted segment requires a KEK but none was configured")]
     MissingKek,
 
     /// A plaintext (`NDAS`) segment was found but a KEK was configured,
     /// refusing to load unencrypted data when encryption is enforced.
-    #[cfg(feature = "encryption")]
     #[error("plaintext segment rejected — encryption is enforced by the configured KEK")]
     KekRequired,
 
     /// AES-256-GCM encryption of a segment failed.
-    #[cfg(feature = "encryption")]
     #[error("segment encryption failed: {detail}")]
     EncryptionFailed { detail: String },
 
     /// AES-256-GCM decryption or authentication of a segment failed.
-    #[cfg(feature = "encryption")]
     #[error("segment decryption failed: {detail}")]
     DecryptionFailed { detail: String },
 
@@ -135,9 +133,8 @@ impl ArrayError {
             | ArrayError::HlcLockPoisoned
             | ArrayError::InvalidOp { .. }
             | ArrayError::LoroError { .. }
-            | ArrayError::LoroSnapshotVersionMismatch { .. } => "",
-            #[cfg(feature = "encryption")]
-            ArrayError::MissingKek
+            | ArrayError::LoroSnapshotVersionMismatch { .. }
+            | ArrayError::MissingKek
             | ArrayError::KekRequired
             | ArrayError::EncryptionFailed { .. }
             | ArrayError::DecryptionFailed { .. } => "",

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 pub mod auth_key;
 pub mod auth_session;
 pub mod cdc;
@@ -7,7 +9,6 @@ pub mod crdt;
 pub mod document;
 pub mod health;
 pub mod metrics;
-#[cfg(feature = "promql")]
 pub mod promql;
 pub mod query;
 pub mod status;

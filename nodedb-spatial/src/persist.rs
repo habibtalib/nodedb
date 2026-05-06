@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! R-tree checkpoint/restore for durable persistence.
 //!
 //! ## On-disk framing
@@ -20,8 +22,6 @@
 //! - `{collection}\x00{field}\x00rtree` → serialized R-tree entries
 //! - `{collection}\x00{field}\x00meta`  → SpatialIndexMeta
 
-#[cfg(feature = "governor")]
-use nodedb_mem;
 use nodedb_types::BoundingBox;
 use serde::{Deserialize, Serialize};
 use zerompk::{FromMessagePack, ToMessagePack};
@@ -47,7 +47,6 @@ pub const RTREE_FORMAT_VERSION: u8 = 1;
 
 // ── SEGV framing helpers ───────────────────────────────────────────────────
 
-#[cfg(feature = "encryption")]
 fn encrypt_payload(
     key: &nodedb_wal::crypto::WalEncryptionKey,
     plaintext: &[u8],
@@ -56,7 +55,6 @@ fn encrypt_payload(
         .map_err(|e| RTreeCheckpointError::EncryptionFailed(e.to_string()))
 }
 
-#[cfg(feature = "encryption")]
 fn decrypt_payload(
     key: &nodedb_wal::crypto::WalEncryptionKey,
     blob: &[u8],
@@ -66,7 +64,6 @@ fn decrypt_payload(
 }
 
 /// Encrypt a geohash msgpack payload (called from `geohash_index.rs`).
-#[cfg(feature = "encryption")]
 pub(crate) fn encrypt_geohash_payload(
     key: &nodedb_wal::crypto::WalEncryptionKey,
     plaintext: &[u8],
@@ -75,7 +72,6 @@ pub(crate) fn encrypt_geohash_payload(
 }
 
 /// Decrypt a geohash msgpack payload (called from `geohash_index.rs`).
-#[cfg(feature = "encryption")]
 pub(crate) fn decrypt_geohash_payload(
     key: &nodedb_wal::crypto::WalEncryptionKey,
     blob: &[u8],
@@ -145,8 +141,7 @@ impl RTree {
     /// inner magic) are returned (existing plaintext format).
     pub fn checkpoint_to_bytes(
         &self,
-        #[cfg(feature = "encryption")] kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
-        #[cfg(not(feature = "encryption"))] _kek: Option<&[u8; 32]>,
+        kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
     ) -> Result<Vec<u8>, RTreeCheckpointError> {
         let snapshot = RTreeSnapshotRkyv {
             entries: self.entries().into_iter().cloned().collect(),
@@ -156,7 +151,6 @@ impl RTree {
 
         // Build inner plaintext: magic + version + rkyv payload.
         let inner_len = RTREE_RKYV_MAGIC.len() + 1 + rkyv_bytes.len();
-        #[cfg(feature = "governor")]
         let _guard = self
             .governor()
             .and_then(|gov| gov.reserve(nodedb_mem::EngineId::Spatial, inner_len).ok());
@@ -165,7 +159,6 @@ impl RTree {
         inner.push(RTREE_FORMAT_VERSION);
         inner.extend_from_slice(&rkyv_bytes);
 
-        #[cfg(feature = "encryption")]
         if let Some(key) = kek {
             return encrypt_payload(key, &inner);
         }
@@ -182,35 +175,23 @@ impl RTree {
     ///   `SEGV`, it is decrypted. If plaintext, returns `Err(KekRequired)`.
     pub fn from_checkpoint(
         bytes: &[u8],
-        #[cfg(feature = "encryption")] kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
-        #[cfg(not(feature = "encryption"))] _kek: Option<&[u8; 32]>,
+        kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
     ) -> Result<Self, RTreeCheckpointError> {
         let is_encrypted = bytes.len() >= 4 && bytes[0..4] == SEGV_MAGIC;
 
         let inner: Vec<u8>;
         let inner_ref: &[u8];
 
-        #[cfg(feature = "encryption")]
-        {
-            if is_encrypted {
-                if let Some(key) = kek {
-                    inner = decrypt_payload(key, bytes)?;
-                    inner_ref = &inner;
-                } else {
-                    return Err(RTreeCheckpointError::MissingKek);
-                }
-            } else if kek.is_some() {
-                return Err(RTreeCheckpointError::KekRequired);
+        if is_encrypted {
+            if let Some(key) = kek {
+                inner = decrypt_payload(key, bytes)?;
+                inner_ref = &inner;
             } else {
-                inner_ref = bytes;
-            }
-        }
-
-        #[cfg(not(feature = "encryption"))]
-        {
-            if is_encrypted {
                 return Err(RTreeCheckpointError::MissingKek);
             }
+        } else if kek.is_some() {
+            return Err(RTreeCheckpointError::KekRequired);
+        } else {
             inner_ref = bytes;
         }
 
@@ -304,33 +285,17 @@ pub enum RTreeCheckpointError {
     )]
     MissingKek,
     /// Checkpoint is plaintext but a KEK is configured (policy violation).
-    #[cfg(feature = "encryption")]
     #[error(
         "spatial checkpoint is plaintext but an encryption key is configured; \
          refusing to load an unencrypted checkpoint when encryption is required"
     )]
     KekRequired,
     /// AES-256-GCM encryption failed.
-    #[cfg(feature = "encryption")]
     #[error("spatial checkpoint encryption failed: {0}")]
     EncryptionFailed(String),
     /// AES-256-GCM decryption failed.
-    #[cfg(feature = "encryption")]
     #[error("spatial checkpoint decryption failed: {0}")]
     DecryptionFailed(String),
-    /// Memory governor rejected the allocation.
-    #[cfg(feature = "governor")]
-    #[error("spatial checkpoint memory budget exhausted: {0}")]
-    BudgetExhausted(String),
-}
-
-// ── Error conversions ──────────────────────────────────────────────────────
-
-#[cfg(feature = "governor")]
-impl From<nodedb_mem::MemError> for RTreeCheckpointError {
-    fn from(e: nodedb_mem::MemError) -> Self {
-        RTreeCheckpointError::BudgetExhausted(e.to_string())
-    }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -469,12 +434,10 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "encryption")]
     fn make_test_kek() -> nodedb_wal::crypto::WalEncryptionKey {
         nodedb_wal::crypto::WalEncryptionKey::from_bytes(&[0x42u8; 32]).unwrap()
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn spatial_rtree_checkpoint_encrypted_at_rest() {
         let kek = make_test_kek();
@@ -495,7 +458,6 @@ mod tests {
         assert_eq!(all.len(), 50);
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn spatial_rtree_refuses_plaintext_when_kek_required() {
         let kek = make_test_kek();
@@ -512,7 +474,6 @@ mod tests {
         ));
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn spatial_rtree_refuses_encrypted_without_kek() {
         let kek = make_test_kek();
@@ -528,7 +489,6 @@ mod tests {
         ));
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn spatial_rtree_tampered_ciphertext_rejected() {
         let kek = make_test_kek();

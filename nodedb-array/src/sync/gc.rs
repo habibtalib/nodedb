@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Log compaction: collapse ops below the min-ack frontier into snapshots.
 //!
 //! [`collapse_below`] is the pure GC entry point. It consults an
@@ -6,7 +8,6 @@
 //! the log. No I/O beyond the abstract traits.
 
 use std::collections::HashSet;
-#[cfg(any(test, feature = "test-utils"))]
 use std::sync::Mutex;
 
 use crate::error::ArrayResult;
@@ -91,15 +92,14 @@ pub fn collapse_below(
     })
 }
 
-// ─── MockSnapshotSink (test / test-utils only) ───────────────────────────────
+// ─── MockSnapshotSink ────────────────────────────────────────────────────────
 
-/// In-memory [`SnapshotSink`] for unit tests.
-#[cfg(any(test, feature = "test-utils"))]
+/// In-memory [`SnapshotSink`] suitable for tests in any crate that depends
+/// on `nodedb-array`.
 pub struct MockSnapshotSink {
     snapshots: Mutex<Vec<TileSnapshot>>,
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 impl MockSnapshotSink {
     /// Create an empty sink.
     pub fn new() -> Self {
@@ -124,14 +124,12 @@ impl MockSnapshotSink {
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 impl Default for MockSnapshotSink {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 impl SnapshotSink for MockSnapshotSink {
     fn write_snapshot(&self, snapshot: &TileSnapshot) -> crate::error::ArrayResult<()> {
         self.snapshots

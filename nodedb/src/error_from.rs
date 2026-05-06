@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! `From` impls wiring domain errors into `Error` and converting to the
 //! public `NodeDbError` boundary type.
 
@@ -198,7 +200,6 @@ impl From<Error> for NodeDbError {
             Error::Bridge { detail } => NodeDbError::bridge(detail),
             Error::VersionCompat { detail } => NodeDbError::cluster(detail),
             Error::Internal { detail } => NodeDbError::internal(detail),
-            #[cfg(feature = "promql")]
             Error::Promql(e) => NodeDbError::bad_request(e.to_string()),
             Error::DependentObjectsExist {
                 tenant_id: _,

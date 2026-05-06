@@ -1,3 +1,16 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! NodeDB client SDK: the [`NodeDb`](traits::NodeDb) trait, the
+//! `NodeDbRemote` client (native MessagePack via TLS, opt-in via the
+//! `native` feature; pgwire compatibility via the `remote` feature), and
+//! capability negotiation.
+//!
+//! For embedded use, depend on `nodedb-lite` directly. For server use,
+//! enable the `native` feature and connect to a NodeDB Origin node via
+//! its native protocol — pgwire compatibility (`remote`) is provided so
+//! existing PostgreSQL drivers can connect for read-mostly workloads, but
+//! it is not the long-term ORM target.
+
 pub mod capabilities;
 pub mod traits;
 

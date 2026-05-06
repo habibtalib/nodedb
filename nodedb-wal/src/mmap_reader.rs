@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Memory-mapped WAL segment reader for Event Plane catchup.
 //!
 //! Unlike the standard `WalReader` (which uses sequential `read_exact`),
@@ -23,8 +25,10 @@ use memmap2::Mmap;
 use crate::error::{Result, WalError};
 use crate::record::{HEADER_SIZE, RecordHeader, RecordType, WAL_MAGIC, WalRecord};
 
-/// Module-scoped counters for observing mmap/fadvise behaviour.
-pub mod test_hooks {
+/// Module-scoped atomic counters for observing mmap and fadvise behaviour in
+/// production. These counters are incremented by the live code paths (open,
+/// madvise, fadvise) and may be read from tests or from a metrics scrape.
+pub mod observability {
     use super::{AtomicU64, Ordering};
     pub(super) static SEGMENTS_OPENED: AtomicU64 = AtomicU64::new(0);
     pub(super) static FADV_DONTNEED_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -59,7 +63,7 @@ fn fadv_dontneed(fd: &std::fs::File, len: usize, path: &Path) {
         )
     };
     if rc == 0 {
-        test_hooks::FADV_DONTNEED_COUNT.fetch_add(1, Ordering::Relaxed);
+        observability::FADV_DONTNEED_COUNT.fetch_add(1, Ordering::Relaxed);
     } else {
         tracing::warn!(
             path = %path.display(),
@@ -85,7 +89,7 @@ pub struct MmapWalReader {
 impl MmapWalReader {
     /// Open a WAL segment file for mmap'd reading.
     pub fn open(path: &Path) -> Result<Self> {
-        test_hooks::SEGMENTS_OPENED.fetch_add(1, Ordering::Relaxed);
+        observability::SEGMENTS_OPENED.fetch_add(1, Ordering::Relaxed);
         let file = std::fs::File::open(path)?;
         // SAFETY: The file is a sealed WAL segment (not being written to).
         // The Data Plane writes to the ACTIVE segment via O_DIRECT; sealed
@@ -106,7 +110,7 @@ impl MmapWalReader {
             };
             if rc == 0 {
                 madvise_state = Some(libc::MADV_SEQUENTIAL);
-                test_hooks::MADV_SEQUENTIAL_COUNT.fetch_add(1, Ordering::Relaxed);
+                observability::MADV_SEQUENTIAL_COUNT.fetch_add(1, Ordering::Relaxed);
             } else {
                 tracing::warn!(
                     path = %path.display(),

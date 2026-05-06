@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Multi-segment compaction: merge multiple sources into a single new segment.
 
 use std::sync::Arc;
@@ -31,8 +33,7 @@ pub fn compact_segments(
     schema: &ColumnarSchema,
     profile_tag: u8,
     governor: Option<&Arc<MemoryGovernor>>,
-    #[cfg(feature = "encryption")] kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
-    #[cfg(not(feature = "encryption"))] _kek: Option<&[u8; 32]>,
+    kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
 ) -> Result<CompactionResult, ColumnarError> {
     let mut memtable = ColumnarMemtable::new(schema);
     let mut total_removed = 0usize;
@@ -98,10 +99,7 @@ pub fn compact_segments(
         Some(g) => SegmentWriter::with_governor(profile_tag, Arc::clone(g)),
         None => SegmentWriter::new(profile_tag),
     };
-    #[cfg(feature = "encryption")]
     let new_segment = writer.write_segment(&schema, &columns, row_count, kek)?;
-    #[cfg(not(feature = "encryption"))]
-    let new_segment = writer.write_segment(&schema, &columns, row_count, None)?;
 
     Ok(CompactionResult {
         segment: Some(new_segment),

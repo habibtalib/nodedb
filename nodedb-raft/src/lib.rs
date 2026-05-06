@@ -1,3 +1,14 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Raft consensus primitives: leader election, log replication, snapshots,
+//! membership change (joint consensus), and snapshot framing.
+//!
+//! This crate provides the algorithm only — transport, persistence, and
+//! state-machine application are the consumer's responsibility. It is
+//! consumed by `nodedb-cluster` (Multi-Raft per vShard for replicated
+//! collections) and by `nodedb` (single-group Raft for the metadata
+//! catalog and the cross-engine surrogate counter).
+
 pub mod error;
 pub mod log;
 pub mod message;

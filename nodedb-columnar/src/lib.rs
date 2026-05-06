@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Columnar segment format and memtable for NodeDB analytical storage.
 //!
 //! Provides the shared segment format used by all columnar profiles
@@ -12,7 +14,6 @@
 //! [SegmentFooter: schema_hash, column metadata, block stats, CRC32C]
 //! ```
 
-#[cfg(feature = "encryption")]
 pub(crate) mod encrypt;
 
 pub mod compaction;
@@ -47,7 +48,6 @@ pub use predicate::{
     BLOOM_BITS_DEFAULT, BLOOM_BYTES, BLOOM_K_DEFAULT, PredicateOp, PredicateValue, ScanPredicate,
     bloom_insert, bloom_may_contain, build_bloom, build_bloom_with_params,
 };
-#[cfg(feature = "encryption")]
 pub use reader::OwnedSegmentReader;
 pub use reader::SegmentReader;
 pub use writer::SegmentWriter;

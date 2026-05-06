@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Roaring bitmap pre-filter must use the same ID space across segments.
 //!
 //! Spec: the query planner builds a Roaring bitmap from GLOBAL vector IDs.
@@ -7,8 +9,6 @@
 //! per-segment (subtract `seg.base_id`) or by applying the offset before
 //! `f.contains(id)`. Without that, every segment beyond the first silently
 //! drops all filtered candidates because global ≠ local.
-
-#![cfg(feature = "collection")]
 
 use nodedb_vector::DistanceMetric;
 use nodedb_vector::collection::VectorCollection;

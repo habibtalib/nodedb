@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! `VectorCodec` implementation for `PqCodec`.
 //!
 //! Wraps the existing Product Quantization codec as a dual-phase codec.
@@ -6,22 +8,18 @@
 //! The `Query` type carries both the precomputed per-subspace distance table
 //! (`Vec<Vec<f32>>`) and the original FP32 query (for symmetric dequantization).
 
-#[cfg(feature = "ivf")]
 use nodedb_codec::vector_quant::{
     codec::{AdcLut, VectorCodec},
     layout::{QuantHeader, QuantMode, UnifiedQuantizedVector},
 };
 
-#[cfg(feature = "ivf")]
 use crate::quantize::pq::PqCodec;
 
 // ── Newtype ───────────────────────────────────────────────────────────────────
 
 /// Thin newtype wrapping `UnifiedQuantizedVector` for PQ-encoded vectors.
-#[cfg(feature = "ivf")]
 pub struct PqQuantized(pub UnifiedQuantizedVector);
 
-#[cfg(feature = "ivf")]
 impl AsRef<UnifiedQuantizedVector> for PqQuantized {
     #[inline]
     fn as_ref(&self) -> &UnifiedQuantizedVector {
@@ -36,7 +34,6 @@ impl AsRef<UnifiedQuantizedVector> for PqQuantized {
 /// `distance_table[sub][centroid]` holds the precomputed L2 squared distance
 /// from the query's sub-vector in `sub` to each of the K centroids.
 /// `raw` is the original FP32 query, retained for symmetric dequantization.
-#[cfg(feature = "ivf")]
 pub struct PqQuery {
     /// Per-subspace distance table: `distance_table[sub][centroid] -> f32`.
     pub distance_table: Vec<Vec<f32>>,
@@ -46,7 +43,6 @@ pub struct PqQuery {
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
-#[cfg(feature = "ivf")]
 #[inline]
 fn packed_bits_of(q: &PqQuantized) -> &[u8] {
     q.0.packed_bits()
@@ -54,7 +50,6 @@ fn packed_bits_of(q: &PqQuantized) -> &[u8] {
 
 // ── VectorCodec impl ──────────────────────────────────────────────────────────
 
-#[cfg(feature = "ivf")]
 impl VectorCodec for PqCodec {
     type Quantized = PqQuantized;
     /// Prepared query: precomputed distance table + original FP32 query.
@@ -153,7 +148,7 @@ impl VectorCodec for PqCodec {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-#[cfg(all(test, feature = "ivf"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

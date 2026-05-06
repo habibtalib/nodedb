@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! `index_type='hnsw_pq'` must produce PQ-compressed segments.
 //!
 //! Spec: when a collection is configured for HNSW+PQ (advertised via the
@@ -8,8 +10,6 @@
 //! `complete_build` unconditionally calls `build_sq8_for_index`, so
 //! operators who asked for 8-16× memory reduction silently receive 4×
 //! SQ8 and have no signal from `stats()` that the request was dropped.
-
-#![cfg(feature = "collection")]
 
 use nodedb_vector::DistanceMetric;
 use nodedb_vector::collection::VectorCollection;

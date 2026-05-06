@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Integration coverage: HTTP-layer authentication invariant.
 //!
 //! The invariant: every HTTP handler that performs tenant-scoped work,
@@ -268,7 +270,6 @@ async fn cluster_status_rejects_missing_bearer_token() {
 
 // ─── /v1/obsv/api/v1/* (PromQL) ──────────────────────────────────────────────
 
-#[cfg(feature = "promql")]
 mod promql {
     use super::*;
 

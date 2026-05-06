@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! HTTP API server using axum + axum-server (for TLS).
 //!
 //! Probe routes (unversioned, always reachable):
@@ -77,7 +79,6 @@ fn build_router(state: AppState) -> Router {
         );
 
     // ── JSON routes (Content-Type stamped to v1 vendor type) ─────────────────
-    #[allow(unused_mut)]
     let mut json_routes = Router::new()
         .route("/v1/query", post(routes::query::query))
         .route("/v1/query/stream", post(routes::query::query_ndjson))
@@ -121,35 +122,32 @@ fn build_router(state: AppState) -> Router {
             get(routes::stream_poll::poll_stream),
         );
 
-    #[cfg(feature = "promql")]
-    {
-        json_routes = json_routes
-            .route(
-                "/v1/obsv/api/v1/query",
-                get(routes::promql::instant_query).post(routes::promql::instant_query),
-            )
-            .route(
-                "/v1/obsv/api/v1/query_range",
-                get(routes::promql::range_query).post(routes::promql::range_query),
-            )
-            .route("/v1/obsv/api/v1/series", get(routes::promql::series_query))
-            .route("/v1/obsv/api/v1/labels", get(routes::promql::label_names))
-            .route(
-                "/v1/obsv/api/v1/label/{name}/values",
-                get(routes::promql::label_values),
-            )
-            .route(
-                "/v1/obsv/api/v1/status/buildinfo",
-                get(routes::promql::buildinfo),
-            )
-            .route("/v1/obsv/api/v1/metadata", get(routes::promql::metadata))
-            .route("/v1/obsv/api/v1/write", post(routes::promql::remote_write))
-            .route("/v1/obsv/api/v1/read", post(routes::promql::remote_read))
-            .route(
-                "/v1/obsv/api/v1/annotations",
-                post(routes::promql::annotations),
-            );
-    }
+    json_routes = json_routes
+        .route(
+            "/v1/obsv/api/v1/query",
+            get(routes::promql::instant_query).post(routes::promql::instant_query),
+        )
+        .route(
+            "/v1/obsv/api/v1/query_range",
+            get(routes::promql::range_query).post(routes::promql::range_query),
+        )
+        .route("/v1/obsv/api/v1/series", get(routes::promql::series_query))
+        .route("/v1/obsv/api/v1/labels", get(routes::promql::label_names))
+        .route(
+            "/v1/obsv/api/v1/label/{name}/values",
+            get(routes::promql::label_values),
+        )
+        .route(
+            "/v1/obsv/api/v1/status/buildinfo",
+            get(routes::promql::buildinfo),
+        )
+        .route("/v1/obsv/api/v1/metadata", get(routes::promql::metadata))
+        .route("/v1/obsv/api/v1/write", post(routes::promql::remote_write))
+        .route("/v1/obsv/api/v1/read", post(routes::promql::remote_read))
+        .route(
+            "/v1/obsv/api/v1/annotations",
+            post(routes::promql::annotations),
+        );
 
     // Stamp the v1 vendor Content-Type on every response from JSON routes.
     let json_routes = json_routes.layer(axum::middleware::map_response(stamp_content_type));

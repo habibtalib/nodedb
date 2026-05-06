@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Geohash index column for Point geometry fields.
 //!
 //! Automatically computes and stores a geohash string when a Point geometry
@@ -153,8 +155,7 @@ impl GeohashIndex {
     /// encrypted SEGV envelope. When `None`, raw msgpack bytes are returned.
     pub fn checkpoint_to_bytes(
         &self,
-        #[cfg(feature = "encryption")] kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
-        #[cfg(not(feature = "encryption"))] _kek: Option<&[u8; 32]>,
+        kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
     ) -> Result<Vec<u8>, crate::persist::RTreeCheckpointError> {
         let snap = GeohashSnapshot {
             collection: self.collection.clone(),
@@ -165,7 +166,6 @@ impl GeohashIndex {
         let msgpack = zerompk::to_msgpack_vec(&snap)
             .map_err(crate::persist::RTreeCheckpointError::Serialize)?;
 
-        #[cfg(feature = "encryption")]
         if let Some(key) = kek {
             return crate::persist::encrypt_geohash_payload(key, &msgpack);
         }
@@ -181,8 +181,7 @@ impl GeohashIndex {
     /// - `Some(key)` → encryption is **required**. Plaintext returns `Err(KekRequired)`.
     pub fn from_checkpoint(
         bytes: &[u8],
-        #[cfg(feature = "encryption")] kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
-        #[cfg(not(feature = "encryption"))] _kek: Option<&[u8; 32]>,
+        kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
     ) -> Result<Self, crate::persist::RTreeCheckpointError> {
         use crate::persist::RTreeCheckpointError;
 
@@ -191,27 +190,16 @@ impl GeohashIndex {
         let msgpack: Vec<u8>;
         let msgpack_ref: &[u8];
 
-        #[cfg(feature = "encryption")]
-        {
-            if is_encrypted {
-                if let Some(key) = kek {
-                    msgpack = crate::persist::decrypt_geohash_payload(key, bytes)?;
-                    msgpack_ref = &msgpack;
-                } else {
-                    return Err(RTreeCheckpointError::MissingKek);
-                }
-            } else if kek.is_some() {
-                return Err(RTreeCheckpointError::KekRequired);
+        if is_encrypted {
+            if let Some(key) = kek {
+                msgpack = crate::persist::decrypt_geohash_payload(key, bytes)?;
+                msgpack_ref = &msgpack;
             } else {
-                msgpack_ref = bytes;
-            }
-        }
-
-        #[cfg(not(feature = "encryption"))]
-        {
-            if is_encrypted {
                 return Err(RTreeCheckpointError::MissingKek);
             }
+        } else if kek.is_some() {
+            return Err(RTreeCheckpointError::KekRequired);
+        } else {
             msgpack_ref = bytes;
         }
 
@@ -345,12 +333,10 @@ mod tests {
         assert_eq!(hash.len(), 6);
     }
 
-    #[cfg(feature = "encryption")]
     fn make_test_kek() -> nodedb_wal::crypto::WalEncryptionKey {
         nodedb_wal::crypto::WalEncryptionKey::from_bytes(&[0x77u8; 32]).unwrap()
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn spatial_geohash_checkpoint_encrypted_at_rest() {
         let kek = make_test_kek();
@@ -371,7 +357,6 @@ mod tests {
         assert_eq!(restored.precision, 6);
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn spatial_geohash_refuses_plaintext_when_kek_required() {
         let kek = make_test_kek();

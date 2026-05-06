@@ -1,7 +1,8 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Core FtsIndex: indexing and document management over any backend.
 
 use std::collections::HashMap;
-#[cfg(feature = "governor")]
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -17,7 +18,6 @@ use crate::lsm::compaction;
 use crate::lsm::memtable::{Memtable, MemtableConfig};
 use crate::lsm::segment::writer as seg_writer;
 use crate::posting::Bm25Params;
-#[cfg(feature = "governor")]
 use nodedb_mem::MemoryGovernor;
 
 /// Full-text search index generic over storage backend.
@@ -42,7 +42,6 @@ pub struct FtsIndex<B: FtsBackend> {
     /// Monotonic segment ID counter.
     next_segment_id: AtomicU64,
     /// Optional memory governor for budget enforcement (Origin only).
-    #[cfg(feature = "governor")]
     pub(crate) governor: Option<Arc<MemoryGovernor>>,
 }
 
@@ -54,7 +53,6 @@ impl<B: FtsBackend> FtsIndex<B> {
             bm25_params: Bm25Params::default(),
             memtable: Memtable::new(MemtableConfig::default()),
             next_segment_id: AtomicU64::new(1),
-            #[cfg(feature = "governor")]
             governor: None,
         }
     }
@@ -66,7 +64,6 @@ impl<B: FtsBackend> FtsIndex<B> {
             bm25_params: params,
             memtable: Memtable::new(MemtableConfig::default()),
             next_segment_id: AtomicU64::new(1),
-            #[cfg(feature = "governor")]
             governor: None,
         }
     }
@@ -77,7 +74,6 @@ impl<B: FtsBackend> FtsIndex<B> {
     ///
     /// This is the correct pattern for Origin deployments. NodeDB-Lite and
     /// WASM builds should leave the governor unset (no `nodedb-mem` dependency).
-    #[cfg(feature = "governor")]
     pub fn set_governor(&mut self, governor: Arc<MemoryGovernor>) {
         self.governor = Some(governor);
     }
@@ -258,7 +254,6 @@ mod tests {
                 max_terms: 1,
             }),
             next_segment_id: AtomicU64::new(1),
-            #[cfg(feature = "governor")]
             governor: None,
         };
 
@@ -312,7 +307,6 @@ mod tests {
                 max_terms: 100,
             }),
             next_segment_id: AtomicU64::new(1),
-            #[cfg(feature = "governor")]
             governor: None,
         };
 

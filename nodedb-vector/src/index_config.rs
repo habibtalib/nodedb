@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Vector index configuration: unified config for HNSW, HNSW+PQ, and IVF-PQ.
 
 use crate::hnsw::HnswParams;
@@ -62,7 +64,6 @@ impl Default for IndexConfig {
 
 impl IndexConfig {
     /// Build IVF-PQ params from this config.
-    #[cfg(feature = "ivf")]
     pub fn to_ivf_params(&self) -> crate::ivf::IvfPqParams {
         crate::ivf::IvfPqParams {
             n_cells: self.ivf_cells,

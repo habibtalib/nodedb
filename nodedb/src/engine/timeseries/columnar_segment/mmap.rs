@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! mmap wrapper for columnar column files with access-pattern advice.
 //!
 //! Columnar scans are forward sequential reads of compressed column files.
@@ -16,7 +18,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Module-scoped counters for observing mmap advice + fadvise behaviour.
-pub mod test_hooks {
+pub mod observability {
     use super::{AtomicU64, Ordering};
     pub(super) static MADV_SEQUENTIAL_COUNT: AtomicU64 = AtomicU64::new(0);
     pub(super) static FADV_DONTNEED_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -109,7 +111,7 @@ impl Drop for ColumnMmap {
             )
         };
         if rc == 0 {
-            test_hooks::FADV_DONTNEED_COUNT.fetch_add(1, Ordering::Relaxed);
+            observability::FADV_DONTNEED_COUNT.fetch_add(1, Ordering::Relaxed);
         } else {
             tracing::warn!(
                 path = %self.path.display(),
@@ -133,7 +135,7 @@ pub(super) fn advise_sequential(mmap: &memmap2::Mmap, col_path: &std::path::Path
         )
     };
     if rc == 0 {
-        test_hooks::MADV_SEQUENTIAL_COUNT.fetch_add(1, Ordering::Relaxed);
+        observability::MADV_SEQUENTIAL_COUNT.fetch_add(1, Ordering::Relaxed);
     } else {
         tracing::warn!(
             path = %col_path.display(),

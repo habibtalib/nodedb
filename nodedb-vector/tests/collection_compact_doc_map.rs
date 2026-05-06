@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! `compact()` must keep `surrogate_map` / `multi_doc_map` consistent with
 //! the renumbered HNSW local IDs.
 //!
@@ -9,8 +11,6 @@
 //! `(seg.base_id + new_local)` globals. Without the rewrite,
 //! `get_surrogate(vid)` and `delete_multi_vector(doc_surrogate)` point
 //! at stale or wrong vectors.
-
-#![cfg(feature = "collection")]
 
 use nodedb_vector::DistanceMetric;
 use nodedb_vector::Surrogate;

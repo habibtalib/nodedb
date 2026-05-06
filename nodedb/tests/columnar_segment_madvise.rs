@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Spec: mmap'd columnar column files must advise MADV_SEQUENTIAL, and
 //! their pages must be released via POSIX_FADV_DONTNEED after a scan.
 //!
@@ -27,10 +29,10 @@ fn mmap_column_advises_sequential() {
 
     // Spec: mmap_column must emit MADV_SEQUENTIAL on the mapped region.
     // Observable via a module-level counter incremented by the advise call.
-    let before = columnar_segment::test_hooks::madv_sequential_count();
+    let before = columnar_segment::observability::madv_sequential_count();
     let _mmap = columnar_segment::ColumnarSegmentReader::mmap_column(&partition, "timestamp", None)
         .unwrap();
-    let after = columnar_segment::test_hooks::madv_sequential_count();
+    let after = columnar_segment::observability::madv_sequential_count();
 
     assert_eq!(
         after - before,
@@ -50,12 +52,12 @@ fn column_scan_advises_dontneed_after_release() {
     let partition = dir.path().join("ts-0_1000");
     make_col_file(&partition, "value", &vec![0u8; 64 * 1024]);
 
-    let before = columnar_segment::test_hooks::fadv_dontneed_count();
+    let before = columnar_segment::observability::fadv_dontneed_count();
     {
         let _mmap = columnar_segment::ColumnarSegmentReader::mmap_column(&partition, "value", None)
             .unwrap();
     } // drop here — wrapper should fadv_dontneed
-    let after = columnar_segment::test_hooks::fadv_dontneed_count();
+    let after = columnar_segment::observability::fadv_dontneed_count();
 
     assert!(
         after > before,

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Streaming `SegmentWriter` — appends tile payloads, finalises with footer.
 //!
 //! Layout: `[ HEADER | framed_tile_0 | framed_tile_1 | ... | footer_block | trailer ]`.
@@ -89,8 +91,7 @@ impl SegmentWriter {
     /// raw `NDAS` segment bytes are returned.
     pub fn finish(
         mut self,
-        #[cfg(feature = "encryption")] kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
-        #[cfg(not(feature = "encryption"))] _kek: Option<&[u8; 32]>,
+        kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
     ) -> ArrayResult<Vec<u8>> {
         if self.finished {
             return Err(ArrayError::SegmentCorruption {
@@ -101,7 +102,6 @@ impl SegmentWriter {
         footer.encode_to(&mut self.buf)?;
         self.finished = true;
 
-        #[cfg(feature = "encryption")]
         if let Some(key) = kek {
             return super::encrypt::encrypt_segment(key, &self.buf);
         }
@@ -127,10 +127,7 @@ mod tests {
 
     /// Finish a writer without encryption — convenience for existing tests.
     fn finish_plain(w: SegmentWriter) -> crate::error::ArrayResult<Vec<u8>> {
-        #[cfg(feature = "encryption")]
-        return w.finish(None);
-        #[cfg(not(feature = "encryption"))]
-        return w.finish(None);
+        w.finish(None)
     }
 
     fn schema() -> crate::schema::ArraySchema {
@@ -220,12 +217,10 @@ mod tests {
         assert_eq!(footer.tiles[1].tile_id, TileId::new(5, 200));
     }
 
-    #[cfg(feature = "encryption")]
     fn test_kek() -> nodedb_wal::crypto::WalEncryptionKey {
         nodedb_wal::crypto::WalEncryptionKey::from_bytes(&[0x42u8; 32]).unwrap()
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn array_segment_encrypted_at_rest() {
         let s = schema();
@@ -240,7 +235,6 @@ mod tests {
         assert_ne!(&bytes[..4], b"NDAS");
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn array_segment_refuses_plaintext_with_kek() {
         // Write an encrypted segment, then verify the reader rejects it
@@ -259,7 +253,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn array_segment_refuses_encrypted_without_kek() {
         // Write a plaintext segment, then verify the reader rejects it
@@ -279,7 +272,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn array_segment_handle_decrypts_into_owned_buffer() {
         // Encrypt a multi-tile segment and round-trip it through the full
@@ -298,7 +290,6 @@ mod tests {
         assert_eq!(reader.tile_count(), 2);
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn array_segment_encrypted_roundtrip_multiple_tiles() {
         let s = schema();

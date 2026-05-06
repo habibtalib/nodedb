@@ -1,3 +1,15 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Graph engine primitives shared by Origin, Lite, and WASM: CSR adjacency
+//! index, traversal algorithms (PageRank, WCC, LabelPropagation, LCC, SSSP,
+//! Betweenness, Closeness, Harmonic, Degree, Louvain, Triangles, Diameter,
+//! k-Core), MATCH pattern engine, and the sharded BSP execution path used
+//! by the distributed graph overlay.
+//!
+//! Graph is a cross-engine *overlay* — it does not own row storage. Edges
+//! and nodes are projected from any data-bearing collection (typically a
+//! `document_strict` collection) via `EDGE` and `NODE` declarations.
+
 pub mod csr;
 pub mod error;
 pub mod sharded;

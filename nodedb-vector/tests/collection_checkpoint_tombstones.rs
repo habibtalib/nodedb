@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Soft-deletes in growing / building segments must survive checkpoint restore.
 //!
 //! Spec: `delete(id)` on a vector in the growing segment (or a building
@@ -14,8 +16,6 @@
 //!
 //! Result: crash recovery silently resurrects soft-deleted rows — a
 //! correctness regression for any workflow using `valid_until` deletes.
-
-#![cfg(feature = "collection")]
 
 use nodedb_vector::DistanceMetric;
 use nodedb_vector::collection::VectorCollection;

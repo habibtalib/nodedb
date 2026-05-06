@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! `SegmentReader` — zero-copy view over segment bytes.
 //!
 //! Designed to wrap an `mmap`'d file in production. The reader only
@@ -294,7 +296,6 @@ impl<'a> SegmentReader<'a> {
 /// Exists because `SegmentReader<'a>` borrows its byte slice; for
 /// encrypted segments the plaintext lives in a `Vec<u8>` that must
 /// outlive the reader. `OwnedSegmentReader` ties the two together.
-#[cfg(feature = "encryption")]
 #[derive(Debug)]
 pub struct OwnedSegmentReader {
     /// Decrypted plaintext segment bytes.
@@ -303,7 +304,6 @@ pub struct OwnedSegmentReader {
     footer: SegmentFooter,
 }
 
-#[cfg(feature = "encryption")]
 impl OwnedSegmentReader {
     /// Open a segment with optional at-rest decryption.
     ///
@@ -364,7 +364,6 @@ impl<'a> SegmentReader<'a> {
     ///
     /// On success the segment is fully parsed but the owned bytes are
     /// discarded. Use [`OwnedSegmentReader`] when you need to keep the reader.
-    #[cfg(feature = "encryption")]
     pub fn open_with_kek(
         blob: &[u8],
         kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
@@ -669,19 +668,16 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "encryption")]
     fn test_kek() -> nodedb_wal::crypto::WalEncryptionKey {
         nodedb_wal::crypto::WalEncryptionKey::from_bytes(&[0xA1u8; 32]).unwrap()
     }
 
-    #[cfg(feature = "encryption")]
     fn write_plain(s: &crate::schema::ArraySchema, id: TileId) -> Vec<u8> {
         let mut w = SegmentWriter::new(0xCAFE);
         w.append_sparse(id, &make_sparse(s, 1)).unwrap();
         w.finish(None).unwrap()
     }
 
-    #[cfg(feature = "encryption")]
     fn write_encrypted(s: &crate::schema::ArraySchema, id: TileId) -> Vec<u8> {
         let kek = test_kek();
         let mut w = SegmentWriter::new(0xCAFE);
@@ -689,7 +685,6 @@ mod tests {
         w.finish(Some(&kek)).unwrap()
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn array_segment_refuses_plaintext_with_kek() {
         let s = schema();
@@ -702,7 +697,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn array_segment_refuses_encrypted_without_kek() {
         let s = schema();
@@ -714,7 +708,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn array_segment_tampered_ciphertext_rejected() {
         let s = schema();
@@ -725,7 +718,6 @@ mod tests {
         assert!(OwnedSegmentReader::open_with_kek(&encrypted, Some(&kek)).is_err());
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn array_segment_encrypted_at_rest() {
         let s = schema();
@@ -738,7 +730,6 @@ mod tests {
         assert_eq!(reader.tile_count(), 1);
     }
 
-    #[cfg(feature = "encryption")]
     #[test]
     fn array_segment_handle_decrypts_into_owned_buffer() {
         let s = schema();

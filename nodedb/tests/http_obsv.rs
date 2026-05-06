@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Smoke tests for observability (PromQL) endpoints.
 //!
 //! Endpoints covered (all under `/v1/obsv/api/v1/`, feature-gated on "promql"):
@@ -74,7 +76,6 @@ async fn obsv_remote_write_route_presence() {
         .await
         .expect("POST /v1/obsv/api/v1/write");
 
-    #[cfg(feature = "promql")]
     {
         assert_ne!(
             resp.status(),
@@ -82,17 +83,8 @@ async fn obsv_remote_write_route_presence() {
             "/v1/obsv/api/v1/write must be mounted when promql feature is enabled"
         );
     }
-    #[cfg(not(feature = "promql"))]
-    {
-        assert_eq!(
-            resp.status(),
-            reqwest::StatusCode::NOT_FOUND,
-            "/v1/obsv/api/v1/write must return 404 when promql feature is disabled"
-        );
-    }
 }
 
-#[cfg(feature = "promql")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn obsv_remote_write_requires_auth_under_password_mode() {
     let srv = start_http(AuthMode::Password).await;
@@ -123,7 +115,6 @@ async fn obsv_query_range_route_presence() {
         .await
         .expect("POST /v1/obsv/api/v1/query_range");
 
-    #[cfg(feature = "promql")]
     {
         assert_ne!(
             resp.status(),
@@ -131,17 +122,8 @@ async fn obsv_query_range_route_presence() {
             "/v1/obsv/api/v1/query_range must be mounted when promql feature is enabled"
         );
     }
-    #[cfg(not(feature = "promql"))]
-    {
-        assert_eq!(
-            resp.status(),
-            reqwest::StatusCode::NOT_FOUND,
-            "/v1/obsv/api/v1/query_range must return 404 when promql feature is disabled"
-        );
-    }
 }
 
-#[cfg(feature = "promql")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn obsv_query_range_requires_auth_under_password_mode() {
     let srv = start_http(AuthMode::Password).await;

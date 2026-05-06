@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 use crate::types::{RequestId, TenantId, VShardId};
 
 /// Internal error classes for NodeDB Origin.
@@ -226,7 +228,6 @@ pub enum Error {
     #[error("internal error: {detail}")]
     Internal { detail: String },
 
-    #[cfg(feature = "promql")]
     #[error("promql error: {0}")]
     Promql(#[from] crate::control::promql::PromqlError),
 

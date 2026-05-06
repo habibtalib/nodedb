@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Parallel index build: workers scan disjoint document ranges, build
 //! local memtables, flush to temporary segments. Leader performs N-way
 //! merge into a single compacted segment.
@@ -68,11 +70,7 @@ pub fn merge_worker_segments(worker_segments: Vec<Vec<u8>>) -> Vec<u8> {
             .expect("build_from_blocks on empty input must not fail");
     }
 
-    let merged_term_blocks = merge::merge_segments(
-        &readers,
-        #[cfg(feature = "governor")]
-        None,
-    );
+    let merged_term_blocks = merge::merge_segments(&readers, None);
     writer::build_from_blocks(&merged_term_blocks)
         .expect("merge produced a term exceeding u16::MAX bytes — data invariant violated")
 }

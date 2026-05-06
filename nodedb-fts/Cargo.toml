@@ -11,21 +11,10 @@ homepage.workspace = true
 
 [features]
 default = []
-governor = ["dep:nodedb-mem"]
-lang-ja = ["dep:lindera"]
-# lang-zh currently falls back to CJK bigrams. The previous dictionary-based
-# implementation pulled jieba-rs → include-flate → libflate → yanked core2,
-# which breaks `cargo publish`. Re-enable once the upstream chain is fixed.
-lang-zh = []
-lang-ko = ["dep:lindera"]
-lang-th = ["dep:icu_segmenter"]
-lang-detect = ["dep:whatlang"]
-lang-cjk = ["lang-ja", "lang-zh", "lang-ko"]
-lang-all = ["lang-cjk", "lang-th", "lang-detect"]
 
 [dependencies]
 nodedb-types = { workspace = true }
-nodedb-mem = { workspace = true, optional = true }
+nodedb-mem = { workspace = true }
 serde = { workspace = true }
 sonic-rs = { workspace = true }
 zerompk = { workspace = true }
@@ -36,9 +25,12 @@ thiserror = { workspace = true }
 crc32c = "0.6"
 arc-swap = { workspace = true }
 
-# Optional: dictionary-based CJK segmentation
-lindera = { version = "2.3", optional = true }
-icu_segmenter = { version = "1", optional = true }
-whatlang = { version = "0.18", optional = true }
+# Dictionary-based CJK segmentation (always compiled in; selected at runtime)
+# lang-zh falls back to CJK bigrams — the previous dictionary chain pulled
+# jieba-rs → include-flate → libflate → yanked core2, breaking cargo publish.
+# The bigram code path is the permanent state for v0.1.0.
+lindera = { version = "2.3" }
+icu_segmenter = { version = "1" }
+whatlang = { version = "0.18" }
 
 [dev-dependencies]

@@ -1,3 +1,15 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Spatial engine primitives shared by Origin, Lite, and WASM: R*-tree with
+//! bulk load and nearest-neighbor / range queries, geohash and H3 hex
+//! indexes, OGC predicates (ST_Contains, ST_Intersects, ST_Within,
+//! ST_DWithin, ST_Distance, etc.), WKB / WKT / GeoJSON interchange, and
+//! hybrid spatial-vector composition.
+//!
+//! Spatial collections are picked per-collection via `WITH (engine='spatial')`
+//! and use the columnar storage core; this crate provides the index
+//! structures and predicate evaluators only.
+
 pub mod geo_meta;
 pub mod geohash;
 pub mod geohash_index;

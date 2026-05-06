@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! OTLP trace-span dispatcher for Control-Plane call sites.
 //!
 //! Wraps one-shot span emission in an always-on owning handle that:
@@ -8,9 +10,8 @@
 //!   stay unconditional.
 //! - Spawns the HTTP POST detached so span emission never sits on the
 //!   request hot path.
-//! - Lives outside the feature-gated `otel` module so gateway/executor
-//!   can depend on it unconditionally; the actual protobuf encode path
-//!   is only compiled when the `otel` feature is enabled.
+//! - Lives in the `control` module alongside the `otel` submodule;
+//!   the protobuf encode path is always compiled in.
 //!
 //! # Trace correlation
 //!
@@ -22,9 +23,7 @@
 //! trace without any additional W3C traceparent wiring.
 
 use std::sync::Arc;
-#[cfg(feature = "otel")]
-use std::time::UNIX_EPOCH;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Owning wrapper around the OTLP trace-export endpoint + HTTP client.
 ///
@@ -39,9 +38,7 @@ pub struct TraceExporter {
     /// silently mask a `reqwest::ClientBuilder::build` failure (e.g.
     /// broken system TLS store) and then substitute a client that
     /// ignores the configured timeout.
-    #[cfg_attr(not(feature = "otel"), allow(dead_code))]
     client: Option<reqwest::Client>,
-    #[cfg_attr(not(feature = "otel"), allow(dead_code))]
     timeout: Duration,
 }
 
@@ -104,10 +101,7 @@ impl TraceExporter {
     /// gateway span and every executor span join up into one OTLP
     /// trace.
     ///
-    /// When the `otel` cargo feature is disabled, the protobuf encode
-    /// path is compiled out and every call is a cheap no-op regardless
-    /// of the endpoint setting.
-    #[allow(unused_variables, clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn emit(
         self: &Arc<Self>,
         span_name: &'static str,
@@ -119,46 +113,36 @@ impl TraceExporter {
         status_ok: bool,
     ) {
         if !self.is_enabled() {
-            // No-op when the endpoint is empty. In non-`otel` builds
-            // the `otel` block below is compiled out, so this early
-            // return is the only body; clippy's `needless_return`
-            // lint is silenced locally to keep both configurations
-            // valid without an awkward refactor.
-            #[allow(clippy::needless_return)]
             return;
         }
-        #[cfg(feature = "otel")]
-        {
-            let endpoint = self.endpoint.clone();
-            // `is_enabled` above guarantees `client` is Some.
-            let Some(client) = self.client.clone() else {
-                return;
-            };
-            let timeout = self.timeout;
-            let start_ns = system_time_to_unix_nanos(start);
-            let end_ns = system_time_to_unix_nanos(end);
-            tokio::spawn(async move {
-                crate::control::otel::exporter::export_span(
-                    &client,
-                    timeout,
-                    &crate::control::otel::exporter::SpanExport {
-                        endpoint: &endpoint,
-                        trace_id,
-                        span_name,
-                        start_ns,
-                        end_ns,
-                        tenant_id,
-                        vshard_id,
-                        status_ok,
-                    },
-                )
-                .await;
-            });
-        }
+        let endpoint = self.endpoint.clone();
+        // `is_enabled` above guarantees `client` is Some.
+        let Some(client) = self.client.clone() else {
+            return;
+        };
+        let timeout = self.timeout;
+        let start_ns = system_time_to_unix_nanos(start);
+        let end_ns = system_time_to_unix_nanos(end);
+        tokio::spawn(async move {
+            crate::control::otel::exporter::export_span(
+                &client,
+                timeout,
+                &crate::control::otel::exporter::SpanExport {
+                    endpoint: &endpoint,
+                    trace_id,
+                    span_name,
+                    start_ns,
+                    end_ns,
+                    tenant_id,
+                    vshard_id,
+                    status_ok,
+                },
+            )
+            .await;
+        });
     }
 }
 
-#[cfg(feature = "otel")]
 fn system_time_to_unix_nanos(t: SystemTime) -> u64 {
     t.duration_since(UNIX_EPOCH)
         .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))

@@ -1,8 +1,8 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Sort-Tile-Recursive (STR) bulk loading for R-tree.
 
-#[cfg(feature = "governor")]
 use nodedb_mem::{EngineId, MemoryGovernor};
-#[cfg(feature = "governor")]
 use std::sync::Arc;
 
 use super::node::{ChildRef, INTERNAL_CAPACITY, LEAF_CAPACITY, Node, NodeKind, RTreeEntry};
@@ -14,18 +14,13 @@ impl RTree {
     /// More efficient than repeated single inserts for large datasets.
     /// Produces better packing (less overlap between nodes).
     pub fn bulk_load(entries: Vec<RTreeEntry>) -> Self {
-        Self::bulk_load_inner(
-            entries,
-            #[cfg(feature = "governor")]
-            None,
-        )
+        Self::bulk_load_inner(entries, None)
     }
 
     /// Bulk load with an optional governor for budget accounting.
     ///
     /// The governor is stored on the returned tree and used for subsequent
     /// batch operations (full-scan, checkpoint serialization).
-    #[cfg(feature = "governor")]
     pub fn bulk_load_with_governor(
         entries: Vec<RTreeEntry>,
         governor: Arc<MemoryGovernor>,
@@ -33,28 +28,19 @@ impl RTree {
         Self::bulk_load_inner(entries, Some(governor))
     }
 
-    fn bulk_load_inner(
-        entries: Vec<RTreeEntry>,
-        #[cfg(feature = "governor")] governor: Option<Arc<MemoryGovernor>>,
-    ) -> Self {
+    fn bulk_load_inner(entries: Vec<RTreeEntry>, governor: Option<Arc<MemoryGovernor>>) -> Self {
         if entries.is_empty() {
-            #[cfg(feature = "governor")]
-            {
-                let mut tree = Self::new();
-                if let Some(gov) = governor {
-                    tree.governor = Some(gov);
-                }
-                return tree;
+            let mut tree = Self::new();
+            if let Some(gov) = governor {
+                tree.governor = Some(gov);
             }
-            #[cfg(not(feature = "governor"))]
-            return Self::new();
+            return tree;
         }
         let len = entries.len();
 
         // Reserve budget for nodes vec (approximately len / LEAF_CAPACITY nodes,
         // each holding LEAF_CAPACITY RTreeEntry slots). Best-effort: budget
         // pressure is a backpressure signal, not a hard gate on bulk load.
-        #[cfg(feature = "governor")]
         let _guard = governor.as_ref().and_then(|gov| {
             let node_count = len.div_ceil(LEAF_CAPACITY) * 2; // leaves + internals
             let bytes = node_count
@@ -66,7 +52,6 @@ impl RTree {
             nodes: Vec::new(),
             root: 0,
             len,
-            #[cfg(feature = "governor")]
             governor,
         };
         tree.root = str_pack(&mut tree.nodes, entries);

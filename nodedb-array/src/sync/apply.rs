@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Pure op-application dispatcher for array CRDT sync.
 //!
 //! [`apply_op`] is the single entry point for merging an incoming [`ArrayOp`]
@@ -8,9 +10,9 @@
 //! ships only the abstract [`ApplyEngine`] trait, the outcome types, and the
 //! pure dispatcher function.
 
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 use std::collections::{HashMap, HashSet};
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 use std::sync::Mutex;
 
 use crate::error::{ArrayError, ArrayResult};
@@ -179,7 +181,7 @@ pub fn apply_op<E: ApplyEngine>(engine: &mut E, op: &ArrayOp) -> ArrayResult<App
 /// - successfully applied ops
 /// - an optional injected engine error consumed on the next apply call
 /// - a log of invalidated tile coords
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 pub struct MockEngine {
     schemas: HashMap<String, Hlc>,
     seen: HashSet<(String, [u8; 18])>,
@@ -188,7 +190,7 @@ pub struct MockEngine {
     reject_next_with: Mutex<Option<ArrayError>>,
 }
 
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 impl MockEngine {
     /// Create an empty engine with no registered arrays.
     pub fn new() -> Self {
@@ -222,14 +224,14 @@ impl MockEngine {
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 impl Default for MockEngine {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 impl ApplyEngine for MockEngine {
     fn schema_hlc(&self, array: &str) -> ArrayResult<Option<Hlc>> {
         Ok(self.schemas.get(array).copied())

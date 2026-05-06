@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Hybrid spatial-vector search: spatial R-tree as a pre-filter for
 //! HNSW vector search.
 //!
@@ -17,13 +19,11 @@
 //! This is a unique NodeDB differentiator — PostGIS + pgvector can't do
 //! this in a single index scan.
 
-#[cfg(feature = "governor")]
 use nodedb_mem::{EngineId, MemoryGovernor};
 #[cfg(test)]
 use nodedb_types::BoundingBox;
 use nodedb_types::geometry::Geometry;
 use nodedb_types::geometry_bbox;
-#[cfg(feature = "governor")]
 use std::sync::Arc;
 
 use crate::predicates;
@@ -60,7 +60,7 @@ pub fn spatial_prefilter(
     query_geometry: &Geometry,
     distance_meters: Option<f64>,
     exact_geometries: &dyn Fn(u64) -> Option<Geometry>,
-    #[cfg(feature = "governor")] governor: Option<&Arc<MemoryGovernor>>,
+    governor: Option<&Arc<MemoryGovernor>>,
 ) -> SpatialPreFilterResult {
     // Step 1: Compute search bbox.
     let search_bbox = if let Some(dist) = distance_meters {
@@ -74,7 +74,6 @@ pub fn spatial_prefilter(
     let rtree_candidates = rtree_results.len();
 
     // Step 3: Exact predicate refinement.
-    #[cfg(feature = "governor")]
     let _guard = governor.and_then(|gov| {
         let bytes = rtree_candidates * std::mem::size_of::<u64>();
         gov.reserve(EngineId::Spatial, bytes).ok()
@@ -164,14 +163,7 @@ mod tests {
         };
 
         // 200km radius should capture several nearby points.
-        let result = spatial_prefilter(
-            &tree,
-            &query,
-            Some(200_000.0),
-            &get_geom,
-            #[cfg(feature = "governor")]
-            None,
-        );
+        let result = spatial_prefilter(&tree, &query, Some(200_000.0), &get_geom, None);
         assert!(!result.candidate_ids.is_empty());
         // Point (5,5) should definitely be in results (distance = 0).
         assert!(result.candidate_ids.contains(&5));
@@ -197,14 +189,7 @@ mod tests {
             }
         };
 
-        let result = spatial_prefilter(
-            &tree,
-            &query,
-            None,
-            &get_geom,
-            #[cfg(feature = "governor")]
-            None,
-        );
+        let result = spatial_prefilter(&tree, &query, None, &get_geom, None);
         // Points 4, 5, 6 should be inside (3 is on edge → not contained by intersects returns true).
         assert!(result.candidate_ids.contains(&4));
         assert!(result.candidate_ids.contains(&5));

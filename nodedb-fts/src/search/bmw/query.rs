@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! BMW query entry point: merges memtable + segments via LSM layer,
 //! runs BMW scoring on `Surrogate` row identities.
 
@@ -42,7 +44,6 @@ pub fn bmw_search<B: FtsBackend>(
         collection,
         index.memtable(),
         p.query_tokens,
-        #[cfg(feature = "governor")]
         index.governor.as_ref(),
     )?;
 

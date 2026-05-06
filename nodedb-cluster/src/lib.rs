@@ -1,10 +1,27 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Distributed coordination for NodeDB: vShards, Multi-Raft, QUIC transport,
+//! routing, replication, rebalancing, and the Calvin sequencer for cross-shard
+//! atomicity.
+//!
+//! This crate is consumed by the `nodedb` server binary and by
+//! NodeDB-internal tooling. Items marked `#[doc(hidden)]` are operational
+//! plumbing whose API shape is not yet stable for v0.1.0 — they remain `pub`
+//! so internal tools (`nodedb-cli`, `nodedb-studio`) and server crates can
+//! reach them, but external consumers should not depend on those modules
+//! directly. They will be promoted, redesigned, or moved behind curated
+//! facades in a later release.
+
 pub mod applied_watcher;
 pub mod array_routing;
 pub mod auth;
 pub mod bootstrap;
+#[doc(hidden)]
 pub mod bootstrap_listener;
+#[doc(hidden)]
 pub mod calvin;
 pub mod catalog;
+#[doc(hidden)]
 pub mod circuit_breaker;
 pub mod closed_timestamp;
 pub mod cluster_epoch;
@@ -22,7 +39,9 @@ pub mod distributed_vector;
 pub mod error;
 pub mod follower_read;
 pub mod forward;
+#[doc(hidden)]
 pub mod ghost;
+#[doc(hidden)]
 pub mod ghost_sweeper;
 pub mod health;
 pub mod install_snapshot;
@@ -31,6 +50,7 @@ pub mod lifecycle_state;
 pub mod loop_metrics;
 pub mod metadata_group;
 pub mod migration;
+#[doc(hidden)]
 pub mod migration_executor;
 pub mod multi_raft;
 pub mod quic_transport;
@@ -59,8 +79,10 @@ pub use applied_watcher::{AppliedIndexWatcher, GroupAppliedWatchers, WaitOutcome
 pub use bootstrap::{
     ClusterConfig, ClusterState, JoinRetryPolicy, start_cluster, start_cluster_subsystems,
 };
+#[doc(hidden)]
 pub use calvin::{EngineKeySet, EpochBatch, ReadWriteSet, SequencedTxn, SortedVec, TxClass};
 pub use catalog::ClusterCatalog;
+#[doc(hidden)]
 pub use circuit_breaker::BreakerSnapshot;
 pub use closed_timestamp::ClosedTimestampTracker;
 pub use cluster_epoch::{

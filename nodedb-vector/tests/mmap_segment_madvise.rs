@@ -1,4 +1,5 @@
-#![cfg(feature = "collection")]
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Spec: mmap vector segments must advise the kernel of their access pattern.
 //!
 //! HNSW graph traversal jumps between non-adjacent vector IDs. Default
@@ -56,11 +57,11 @@ fn drop_releases_pages_when_configured() {
 
     // The drop-hook must observably emit MADV_DONTNEED. Expose via a
     // test-only counter on the segment module.
-    let before = nodedb_vector::mmap_segment::test_hooks::dontneed_count();
+    let before = nodedb_vector::mmap_segment::observability::dontneed_count();
     {
         let _seg = make_segment(&path, 8, 4);
     }
-    let after = nodedb_vector::mmap_segment::test_hooks::dontneed_count();
+    let after = nodedb_vector::mmap_segment::observability::dontneed_count();
     assert_eq!(
         after - before,
         1,
@@ -77,7 +78,7 @@ fn drop_skips_release_when_disabled() {
     let vecs: Vec<Vec<f32>> = (0..4).map(|i| vec![i as f32; 8]).collect();
     let refs: Vec<&[f32]> = vecs.iter().map(|v| v.as_slice()).collect();
 
-    let before = nodedb_vector::mmap_segment::test_hooks::dontneed_count();
+    let before = nodedb_vector::mmap_segment::observability::dontneed_count();
     {
         let _seg = MmapVectorSegment::create_with_policy(
             &path,
@@ -87,7 +88,7 @@ fn drop_skips_release_when_disabled() {
         )
         .unwrap();
     }
-    let after = nodedb_vector::mmap_segment::test_hooks::dontneed_count();
+    let after = nodedb_vector::mmap_segment::observability::dontneed_count();
     assert_eq!(
         after, before,
         "keep_resident() policy must suppress MADV_DONTNEED on drop"

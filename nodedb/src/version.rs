@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! NodeDB version and compatibility information.
 //!
 //! Follows semver: MAJOR.MINOR.PATCH.
@@ -26,39 +28,10 @@ pub const RUST_VERSION: &str = env!("NODEDB_RUST_VERSION");
 /// Readers MUST reject messages with wire_version != their own.
 pub use nodedb_types::wire_version::{MIN_WIRE_FORMAT_VERSION, WIRE_FORMAT_VERSION};
 
-/// Returns a comma-separated list of non-default features compiled into this build.
-///
-/// Returns an empty string when only default features are active.
+/// Returns a comma-separated list of always-on observability capabilities
+/// compiled into this build.
 pub fn features_str() -> &'static str {
-    // Each feature flag is checked at compile time. The slice is built once
-    // and leaked so we return a `&'static str` without any allocation at
-    // runtime beyond the first call.
-    use std::sync::OnceLock;
-    static CACHE: OnceLock<&'static str> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        let mut parts: Vec<&'static str> = Vec::new();
-        if cfg!(feature = "promql") {
-            parts.push("promql");
-        }
-        if cfg!(feature = "otel") {
-            parts.push("otel");
-        }
-        if cfg!(feature = "grafana") {
-            parts.push("grafana");
-        }
-        if cfg!(feature = "monitoring") {
-            parts.push("monitoring");
-        }
-        if cfg!(feature = "kafka") {
-            parts.push("kafka");
-        }
-        if parts.is_empty() {
-            return "";
-        }
-        // Join into a permanent string.
-        let joined = parts.join(",");
-        Box::leak(joined.into_boxed_str())
-    })
+    "promql,otel,grafana,kafka"
 }
 
 /// Returns the hostname of the current machine.
@@ -184,18 +157,11 @@ mod tests {
     }
 
     #[test]
-    fn features_str_returns_known_set() {
-        const KNOWN: &[&str] = &["promql", "otel", "grafana", "monitoring", "kafka"];
+    fn features_str_contains_observability_capabilities() {
         let s = features_str();
-        if s.is_empty() {
-            return;
-        }
-        for token in s.split(',') {
-            assert!(
-                KNOWN.contains(&token),
-                "features_str() returned unknown token: '{token}'"
-            );
-        }
+        assert!(s.contains("promql"), "features_str must include promql");
+        assert!(s.contains("otel"), "features_str must include otel");
+        assert!(s.contains("kafka"), "features_str must include kafka");
     }
 
     #[test]

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Regression coverage: outbound HTTP emitters (alert webhooks, SIEM
 //! webhooks, OTEL exporter) must reuse one `reqwest::Client` rather than
 //! constructing a fresh one per call.
@@ -62,7 +64,6 @@ fn siem_exporter_holds_shared_client() {
 
 /// OTEL trace exporter must reuse the shared client rather than calling
 /// `reqwest::Client::new()` inline on every span export.
-#[cfg(feature = "otel")]
 #[test]
 fn otel_exporter_reuses_shared_client() {
     use nodedb::control::otel::exporter::export_trace_with_client;

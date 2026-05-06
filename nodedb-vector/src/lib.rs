@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Vector search primitives shared by Origin, Lite, and WASM: HNSW + Vamana
+//! indexes, scalar / SIMD distance kernels, the quantization codec frontier
+//! (SQ8, PQ, IVF-PQ, OPQ, RaBitQ, BBQ, Ternary BitNet 1.58, Binary), the
+//! VectorCollection runtime with mmap NVMe segments and background builder,
+//! and the cost-model planner inputs (target_recall, oversample, ef_search,
+//! query_dim, meta_token_budget, quantization).
+//!
+//! This crate has no platform-required cargo features for v0.1.0 — SIMD
+//! kernels are gated by `#[cfg(target_arch)]` and dispatch happens at
+//! runtime. The optional `acorn-baseline` feature retains the old ACORN-1
+//! filtered-traversal heuristic for benchmarking against NaviX; not for
+//! production use.
+
 pub mod batch_distance;
 pub mod codec_index;
 pub mod delta;
@@ -31,30 +46,23 @@ pub mod flat;
 pub mod index_config;
 
 // IVF-PQ index (large datasets).
-#[cfg(feature = "ivf")]
 pub mod ivf;
 
 // NVMe mmap tier (requires libc).
-#[cfg(feature = "collection")]
 pub mod mmap_segment;
 
 // Background HNSW builder thread.
-#[cfg(feature = "collection")]
 pub mod builder;
 
 // Full VectorCollection with segment lifecycle.
-#[cfg(feature = "collection")]
 pub mod collection;
 
-// Re-exports for feature-gated types.
+// Re-exports for unconditionally compiled types.
 pub use adaptive_filter::{
     FilterStrategy, FilterThresholds, adaptive_search, estimate_selectivity, select_strategy,
 };
-#[cfg(feature = "collection")]
 pub use builder::{BuildSender, CompleteReceiver};
-#[cfg(feature = "collection")]
 pub use collection::{BuildComplete, BuildRequest, StorageTier, VectorCollection};
 pub use flat::FlatIndex;
 pub use index_config::{IndexConfig, IndexType};
-#[cfg(feature = "ivf")]
 pub use ivf::{IvfPqIndex, IvfPqParams};

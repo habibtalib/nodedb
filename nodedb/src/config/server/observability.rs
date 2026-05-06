@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Observability configuration: PromQL, OTLP receiver, OTLP export.
 
 use std::net::SocketAddr;
@@ -127,42 +129,12 @@ fn default_otlp_http_listen() -> SocketAddr {
     SocketAddr::from(([0, 0, 0, 0], 4318))
 }
 
-/// Validate that enabled features are available at compile time.
+/// Validate observability configuration.
 ///
-/// Call after loading config + env overrides. Returns an error message
-/// if the user enabled a feature that wasn't compiled in.
-pub fn validate_feature_availability(config: &ObservabilityConfig) -> crate::Result<()> {
-    if config.promql.enabled {
-        #[cfg(not(feature = "promql"))]
-        return Err(crate::Error::Config {
-            detail: "observability.promql.enabled = true, but this binary was built without \
-                     the `promql` feature. Rebuild with `--features promql` or \
-                     `--features monitoring`, or set enabled = false."
-                .to_string(),
-        });
-    }
-
-    if config.otlp.receiver.enabled {
-        #[cfg(not(feature = "otel"))]
-        return Err(crate::Error::Config {
-            detail:
-                "observability.otlp.receiver.enabled = true, but this binary was built without \
-                     the `otel` feature. Rebuild with `--features otel` or \
-                     `--features monitoring`, or set enabled = false."
-                    .to_string(),
-        });
-    }
-
-    if config.otlp.export.enabled {
-        #[cfg(not(feature = "otel"))]
-        return Err(crate::Error::Config {
-            detail: "observability.otlp.export.enabled = true, but this binary was built without \
-                     the `otel` feature. Rebuild with `--features otel` or \
-                     `--features monitoring`, or set enabled = false."
-                .to_string(),
-        });
-    }
-
+/// All observability features (PromQL, OTLP) are always compiled into the
+/// binary and toggled at runtime via `nodedb.toml`. This function is a
+/// no-op validation pass retained for call-site compatibility.
+pub fn validate_feature_availability(_config: &ObservabilityConfig) -> crate::Result<()> {
     Ok(())
 }
 
@@ -277,16 +249,8 @@ mod tests {
 
     #[test]
     fn validate_default_config() {
-        // Default config has promql.enabled = true.
-        // With the promql feature compiled in, this should pass.
-        // Without it, this should fail — but that case is only testable
-        // when building without the feature.
         let cfg = ObservabilityConfig::default();
-        let result = validate_feature_availability(&cfg);
-        #[cfg(feature = "promql")]
-        assert!(result.is_ok());
-        #[cfg(not(feature = "promql"))]
-        assert!(result.is_err());
+        assert!(validate_feature_availability(&cfg).is_ok());
     }
 
     #[test]

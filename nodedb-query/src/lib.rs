@@ -1,3 +1,13 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Shared query-execution utilities used by every engine: BM25 scoring,
+//! text analysis (tokenization / normalization / stop words), expression
+//! evaluation helpers, MessagePack scan readers, and rank-fusion (RRF).
+//!
+//! This crate is consumed by `nodedb` (server), `nodedb-lite` (embedded),
+//! and `nodedb-fts` (full-text overlay). Functions are pure / `Send + Sync`
+//! and free of I/O — actual data fetch happens in the calling crate.
+
 pub mod agg_key;
 pub mod cast;
 pub mod chunk_text;

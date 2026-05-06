@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 mod checkpoint;
 mod cluster;
 mod cold_storage;
@@ -186,7 +188,7 @@ pub struct ServerConfig {
     pub tuning: TuningConfig,
 
     /// Observability integrations: PromQL, OTLP receiver/export.
-    /// Requires corresponding cargo features (`promql`, `otel`) at compile time.
+    /// All capabilities are always compiled in; toggled at runtime via this config.
     #[serde(default)]
     pub observability: ObservabilityConfig,
 

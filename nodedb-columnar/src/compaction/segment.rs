@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Single-segment compaction: drop deleted rows from one segment, write a new one.
 
 use std::sync::Arc;
@@ -45,8 +47,7 @@ pub fn compact_segment(
     schema: &ColumnarSchema,
     profile_tag: u8,
     governor: Option<&Arc<MemoryGovernor>>,
-    #[cfg(feature = "encryption")] kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
-    #[cfg(not(feature = "encryption"))] _kek: Option<&[u8; 32]>,
+    kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
 ) -> Result<CompactionResult, ColumnarError> {
     let reader = SegmentReader::open(segment_data)?;
     let total_rows = reader.row_count() as usize;
@@ -111,10 +112,7 @@ pub fn compact_segment(
         Some(g) => SegmentWriter::with_governor(profile_tag, Arc::clone(g)),
         None => SegmentWriter::new(profile_tag),
     };
-    #[cfg(feature = "encryption")]
     let new_segment = writer.write_segment(&schema, &columns, row_count, kek)?;
-    #[cfg(not(feature = "encryption"))]
-    let new_segment = writer.write_segment(&schema, &columns, row_count, None)?;
 
     Ok(CompactionResult {
         segment: Some(new_segment),

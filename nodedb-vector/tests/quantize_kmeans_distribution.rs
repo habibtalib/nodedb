@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! PQ and IVF-PQ codebook training must distribute centroids across the
 //! data even when many input vectors are near-duplicates.
 //!
@@ -16,8 +18,6 @@
 //! Effect: on workloads with repeated prefixes/suffixes (templated chat,
 //! shared headers/footers), most of the 256 centroids alias to one or two
 //! points and PQ recall collapses.
-
-#![cfg(feature = "ivf")]
 
 use nodedb_vector::quantize::pq::PqCodec;
 
@@ -102,7 +102,6 @@ fn pq_distance_table_separates_duplicates_from_outliers() {
     );
 }
 
-#[cfg(feature = "ivf")]
 #[test]
 fn ivf_pq_training_does_not_collapse_on_duplicate_heavy_data() {
     use nodedb_vector::DistanceMetric;

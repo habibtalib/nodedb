@@ -1,3 +1,14 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Shared NodeDB type definitions: strong IDs (TenantId, VShardId, RequestId,
+//! Lsn, Surrogate), error types (NodeDbError + ErrorCode + ErrorDetails), wire
+//! types for cross-plane and cross-node messages, value types, configuration
+//! schemas, and the approximate-aggregate sketches.
+//!
+//! Every NodeDB workspace crate depends on this. Items here form the stable
+//! cross-crate vocabulary; types specific to one engine live in that engine's
+//! crate.
+
 pub mod config;
 
 pub mod approx;

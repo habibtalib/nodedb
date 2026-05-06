@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Checkpoint serialization and deserialization for `VectorCollection`.
 //!
 //! ## On-disk framing
@@ -444,7 +446,6 @@ mod tests {
     /// being recomputed. Verifies that the O(N*dim) rebuild-on-restart bug
     /// is eliminated: `sq8` on the restored sealed segment is `Some` and
     /// its `inv_scales` match the original exactly.
-    #[cfg(feature = "collection")]
     #[test]
     fn checkpoint_roundtrip_preserves_sq8() {
         use crate::collection::lifecycle::VectorCollection;

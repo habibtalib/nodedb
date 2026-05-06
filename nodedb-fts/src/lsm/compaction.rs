@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Level-based compaction for the FTS LSM engine.
 //!
 //! Uses tiered compaction with configurable levels and segments-per-level.
@@ -9,10 +11,8 @@ use crate::backend::FtsBackend;
 use super::merge;
 use super::segment::{reader::SegmentReader, writer};
 
-#[cfg(feature = "governor")]
 use std::sync::Arc;
 
-#[cfg(feature = "governor")]
 use nodedb_mem::{EngineId, MemoryGovernor};
 
 /// Compaction configuration.
@@ -65,14 +65,12 @@ pub fn needs_compaction(segments: &[SegmentMeta], config: &CompactionConfig) -> 
 /// Result of a compaction: new segment bytes and ids of merged (to-remove) segments.
 pub type CompactionResult = (Vec<u8>, Vec<String>);
 
-/// Errors from `compact_level` — wraps the backend error and, when the
-/// `governor` feature is enabled, budget exhaustion.
+/// Errors from `compact_level` — wraps the backend error and budget exhaustion.
 #[derive(Debug)]
 pub enum CompactError<E> {
     /// Underlying backend storage error.
     Backend(E),
-    /// Memory budget exhausted (only produced when `governor` feature is active).
-    #[cfg(feature = "governor")]
+    /// Memory budget exhausted.
     Budget(nodedb_mem::MemError),
 }
 
@@ -80,7 +78,6 @@ impl<E: std::fmt::Display> std::fmt::Display for CompactError<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CompactError::Backend(e) => write!(f, "compaction backend error: {e}"),
-            #[cfg(feature = "governor")]
             CompactError::Budget(e) => write!(f, "compaction budget exhausted: {e}"),
         }
     }
@@ -107,39 +104,17 @@ pub fn compact_level<B: FtsBackend>(
     collection: &str,
     segments: &[SegmentMeta],
     level: u32,
-    #[cfg(feature = "governor")] governor: Option<&Arc<MemoryGovernor>>,
+    governor: Option<&Arc<MemoryGovernor>>,
 ) -> Result<Option<CompactionResult>, CompactError<B::Error>> {
     let to_merge: Vec<&SegmentMeta> = segments.iter().filter(|s| s.level == level).collect();
     if to_merge.len() < 2 {
         return Ok(None);
     }
 
-    #[cfg(feature = "governor")]
-    let _readers_guard = if let Some(gov) = governor {
-        let bytes = to_merge.len() * std::mem::size_of::<SegmentReader>();
-        Some(
-            gov.reserve(EngineId::Fts, bytes)
-                .map_err(CompactError::Budget)?,
-        )
-    } else {
-        None
-    };
-
-    // no-governor: governed by _readers_guard via gov.reserve above; cfg(feature="governor") block outside 5-line window
+    let _readers_guard = governor.map(|gov| gov.reserve(EngineId::Fts, to_merge.len() * std::mem::size_of::<SegmentReader>()).map_err(CompactError::Budget)).transpose()?;
     let mut readers = Vec::with_capacity(to_merge.len());
 
-    #[cfg(feature = "governor")]
-    let _ids_guard = if let Some(gov) = governor {
-        let bytes = to_merge.len() * std::mem::size_of::<String>();
-        Some(
-            gov.reserve(EngineId::Fts, bytes)
-                .map_err(CompactError::Budget)?,
-        )
-    } else {
-        None
-    };
-
-    // no-governor: governed by _ids_guard via gov.reserve above; cfg(feature="governor") block outside 5-line window
+    let _ids_guard = governor.map(|gov| gov.reserve(EngineId::Fts, to_merge.len() * std::mem::size_of::<String>()).map_err(CompactError::Budget)).transpose()?;
     let mut merged_ids = Vec::with_capacity(to_merge.len());
 
     for meta in &to_merge {
@@ -157,11 +132,7 @@ pub fn compact_level<B: FtsBackend>(
         return Ok(None);
     }
 
-    let merged_term_blocks = merge::merge_segments(
-        &readers,
-        #[cfg(feature = "governor")]
-        governor,
-    );
+    let merged_term_blocks = merge::merge_segments(&readers, governor);
     let new_segment = writer::build_from_blocks(&merged_term_blocks)
         .expect("compaction produced a term longer than u16::MAX — data invariant violated");
 

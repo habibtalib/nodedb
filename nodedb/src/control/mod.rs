@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 pub mod array_catalog;
 pub mod array_sync;
 pub mod arrow_convert;
@@ -18,10 +20,8 @@ pub mod lock_utils;
 pub mod metadata_proposer;
 pub mod metrics;
 pub mod notify_bus;
-#[cfg(feature = "otel")]
 pub mod otel;
 pub mod planner;
-#[cfg(feature = "promql")]
 pub mod promql;
 pub mod pubsub;
 pub mod request_tracker;

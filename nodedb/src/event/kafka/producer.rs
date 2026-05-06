@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Kafka producer: publishes CDC events to external Kafka topics.
 //!
 //! One background Tokio task per Kafka-delivery stream. Consumes from the
@@ -8,26 +10,17 @@
 //! producer (`enable.idempotence = true`) with a `transactional.id` per stream.
 //! Each batch is wrapped in `begin_transaction` / `commit_transaction`.
 
-#[cfg(feature = "kafka")]
 use sonic_rs;
 
-#[cfg(feature = "kafka")]
 use std::sync::Arc;
-#[cfg(feature = "kafka")]
 use std::time::Duration;
 
-#[cfg(feature = "kafka")]
 use rdkafka::producer::Producer;
-#[cfg(feature = "kafka")]
 use tokio::sync::watch;
-#[cfg(feature = "kafka")]
 use tracing::{debug, info, trace, warn};
 
-#[cfg(feature = "kafka")]
 use super::config::KafkaDeliveryConfig;
-#[cfg(feature = "kafka")]
 use crate::control::state::SharedState;
-#[cfg(feature = "kafka")]
 use crate::event::cdc::consume::{ConsumeParams, consume_local};
 
 /// Spawn a background Kafka producer task for a change stream.
@@ -36,7 +29,6 @@ use crate::event::cdc::consume::{ConsumeParams, consume_local};
 /// (`_kafka_{stream_name}`) and publishes to the configured Kafka topic.
 ///
 /// Returns the `JoinHandle` for lifecycle management (abort on DROP CHANGE STREAM).
-#[cfg(feature = "kafka")]
 pub fn spawn_kafka_task(
     stream_name: String,
     tenant_id: u64,
@@ -175,7 +167,6 @@ pub fn spawn_kafka_task(
 }
 
 /// Create an rdkafka FutureProducer with the given configuration.
-#[cfg(feature = "kafka")]
 fn create_producer(
     config: &KafkaDeliveryConfig,
     stream_name: &str,
@@ -197,7 +188,6 @@ fn create_producer(
 }
 
 /// Serialize a CdcEvent for Kafka publishing.
-#[cfg(feature = "kafka")]
 fn serialize_event(
     event: &crate::event::cdc::event::CdcEvent,
     format: super::config::KafkaFormat,
@@ -219,21 +209,4 @@ fn serialize_event(
             })
         }
     }
-}
-
-// When kafka feature is disabled, provide a stub that logs a warning.
-#[cfg(not(feature = "kafka"))]
-pub fn spawn_kafka_task(
-    stream_name: String,
-    _tenant_id: u64,
-    _config: super::config::KafkaDeliveryConfig,
-    _shared_state: std::sync::Arc<crate::control::state::SharedState>,
-    _shutdown: tokio::sync::watch::Receiver<bool>,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        tracing::warn!(
-            stream = %stream_name,
-            "Kafka bridge not available — compile with --features kafka"
-        );
-    })
 }

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Length-parity safety for SIMD distance kernels.
 //!
 //! Spec: the public `distance(a, b, metric)` dispatcher MUST NOT invoke a
@@ -7,8 +9,6 @@
 //!
 //! A deterministic panic at the dispatcher boundary is the contract. Either
 //! length validation or length-bounded iteration keeps the kernel safe.
-
-#![cfg(feature = "simd")]
 
 use nodedb_vector::DistanceMetric;
 use nodedb_vector::distance::distance;

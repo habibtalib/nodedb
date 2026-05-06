@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Segment reader: decode compressed columns from a segment into typed vectors,
 //! with column projection and block predicate pushdown.
 //!
@@ -34,7 +36,6 @@ pub struct SegmentReader<'a> {
 ///
 /// Used when a segment was encrypted at rest: the decrypted plaintext is owned
 /// by this struct, and `reader()` borrows from it for column decoding.
-#[cfg(feature = "encryption")]
 #[derive(Debug)]
 pub struct OwnedSegmentReader {
     /// Decrypted plaintext segment bytes.
@@ -42,7 +43,6 @@ pub struct OwnedSegmentReader {
     footer: SegmentFooter,
 }
 
-#[cfg(feature = "encryption")]
 impl OwnedSegmentReader {
     fn from_plaintext(plaintext: Vec<u8>) -> Result<Self, ColumnarError> {
         SegmentHeader::from_bytes(&plaintext)?;
@@ -103,7 +103,6 @@ impl<'a> SegmentReader<'a> {
     ///
     /// To read an encrypted segment, use [`OwnedSegmentReader::open_with_kek`].
     pub fn open(data: &'a [u8]) -> Result<Self, ColumnarError> {
-        #[cfg(feature = "encryption")]
         if data.len() >= 4 && data[0..4] == crate::encrypt::SEGC_MAGIC {
             return Err(ColumnarError::MissingKek);
         }

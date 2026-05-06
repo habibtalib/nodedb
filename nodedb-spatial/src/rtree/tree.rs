@@ -1,12 +1,12 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! R*-tree public API and core structure.
 
 use nodedb_types::BoundingBox;
-#[cfg(feature = "governor")]
 use std::sync::Arc;
 
 use super::node::{Node, NodeKind, RTreeEntry};
 use super::search::NnResult;
-#[cfg(feature = "governor")]
 use nodedb_mem::MemoryGovernor;
 
 /// R*-tree spatial index.
@@ -23,7 +23,6 @@ pub struct RTree {
     pub(crate) root: usize,
     pub(crate) len: usize,
     /// Optional memory governor for budget enforcement (Origin only).
-    #[cfg(feature = "governor")]
     pub(crate) governor: Option<Arc<MemoryGovernor>>,
 }
 
@@ -33,7 +32,6 @@ impl RTree {
             nodes: vec![Node::new_leaf()],
             root: 0,
             len: 0,
-            #[cfg(feature = "governor")]
             governor: None,
         }
     }
@@ -42,13 +40,11 @@ impl RTree {
     /// large batch allocations (bulk load, full-scan serialization, range
     /// search result collection). When not set, allocations proceed without
     /// budget enforcement — correct for NodeDB-Lite and WASM builds.
-    #[cfg(feature = "governor")]
     pub fn set_governor(&mut self, governor: Arc<MemoryGovernor>) {
         self.governor = Some(governor);
     }
 
     /// Shared reference to the governor, if any.
-    #[cfg(feature = "governor")]
     pub(crate) fn governor(&self) -> Option<&Arc<MemoryGovernor>> {
         self.governor.as_ref()
     }
@@ -87,7 +83,6 @@ impl RTree {
 
     /// Get all entries (for persistence serialization).
     pub fn entries(&self) -> Vec<&RTreeEntry> {
-        #[cfg(feature = "governor")]
         let _guard = self.governor().and_then(|gov| {
             let bytes = self.len * std::mem::size_of::<*const RTreeEntry>();
             gov.reserve(nodedb_mem::EngineId::Spatial, bytes).ok()

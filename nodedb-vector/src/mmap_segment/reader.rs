@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Memory-mapped reader for the NDVS v2 vector segment format.
 
 use std::os::fd::AsRawFd;
@@ -9,7 +11,7 @@ use nodedb_mem::{BudgetGuard, EngineId, MemoryGovernor};
 
 use super::format::{
     FOOTER_SIZE, FORMAT_VERSION, HEADER_SIZE, MAGIC, VectorSegmentCodec, VectorSegmentDropPolicy,
-    test_hooks, vec_pad,
+    observability, vec_pad,
 };
 use super::writer::write_segment;
 use crate::error::VectorError;
@@ -298,7 +300,7 @@ impl MmapVectorSegment {
                 unsafe { libc::madvise(base as *mut libc::c_void, file_size, libc::MADV_RANDOM) };
             if rc == 0 {
                 madvise_state = Some(libc::MADV_RANDOM);
-                test_hooks::RANDOM_COUNT.fetch_add(1, Ordering::Relaxed);
+                observability::RANDOM_COUNT.fetch_add(1, Ordering::Relaxed);
             } else {
                 tracing::warn!(
                     path = %path.display(),
@@ -463,7 +465,7 @@ impl Drop for MmapVectorSegment {
                             libc::MADV_DONTNEED,
                         );
                     }
-                    test_hooks::DONTNEED_COUNT.fetch_add(1, Ordering::Relaxed);
+                    observability::DONTNEED_COUNT.fetch_add(1, Ordering::Relaxed);
                 }
             }
             unsafe {

@@ -9,9 +9,6 @@ readme.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
-[features]
-encryption = ["dep:nodedb-wal"]
-
 [dependencies]
 nodedb-types = { workspace = true }
 nodedb-codec = { workspace = true }
@@ -25,4 +22,4 @@ crc32c = { workspace = true }
 uuid = { workspace = true }
 roaring = { workspace = true }
 rust_decimal = { workspace = true }
-nodedb-wal = { workspace = true, optional = true }
+nodedb-wal = { workspace = true }

@@ -1,3 +1,15 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! NodeDB server core: pgwire / HTTP / native transports, the SQL planner
+//! integration, the SPSC bridge to the Data Plane, all storage engines,
+//! and the Event Plane (triggers / CDC / scheduler).
+//!
+//! This crate is the heart of the Origin (cloud and single-node) deployment
+//! mode. The binary entry point is `src/main.rs`; the library entry point
+//! exposes the modules below for embedding scenarios that want to drive the
+//! server from another process. Most external users should depend on
+//! `nodedb-client` instead.
+
 pub mod bootstrap;
 pub mod bridge;
 pub mod config;

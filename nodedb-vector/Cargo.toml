@@ -11,14 +11,6 @@ description = "Shared vector engine (HNSW index + distance functions) for NodeDB
 
 [features]
 default = []
-# Enables SIMD distance dispatch (AVX-512, AVX2+FMA, NEON).
-# Required on native targets; not needed for WASM/iOS.
-simd = []
-# Enables IVF-PQ index and Product Quantization codec.
-ivf = []
-# Full VectorCollection with segment lifecycle, mmap NVMe tier, background builder.
-# Implies simd + ivf. Also enables checkpoint encryption via nodedb-wal.
-collection = ["simd", "ivf", "dep:memmap2", "dep:libc", "dep:crc32c", "dep:nodedb-wal", "dep:arc-swap"]
 # Retains ACORN-1 as a feature-flagged baseline for benchmarking against NaviX.
 # Off by default; not intended for production use.
 acorn-baseline = []
@@ -34,12 +26,11 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 roaring = { workspace = true }
 
-# Optional: only needed for the `collection` feature (NVMe mmap tier + checkpoint encryption).
-memmap2 = { workspace = true, optional = true }
-libc = { workspace = true, optional = true }
-crc32c = { workspace = true, optional = true }
-nodedb-wal = { workspace = true, optional = true }
-arc-swap = { workspace = true, optional = true }
+memmap2 = { workspace = true }
+libc = { workspace = true }
+crc32c = { workspace = true }
+nodedb-wal = { workspace = true }
+arc-swap = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }

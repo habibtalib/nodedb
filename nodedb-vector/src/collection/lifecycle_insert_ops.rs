@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Insert, delete, and surrogate-map operations for `VectorCollection`.
 
 use nodedb_types::Surrogate;
@@ -32,6 +34,7 @@ impl VectorCollection {
         vectors: &[&[f32]],
         document_surrogate: Surrogate,
     ) -> Vec<u32> {
+        // no-governor: VectorCollection is !Send and has no governor field; budget is enforced by the Data Plane core's arena before multi-vector insert is dispatched
         let mut ids = Vec::with_capacity(vectors.len());
         for &v in vectors {
             let id = self.insert(v.to_vec());

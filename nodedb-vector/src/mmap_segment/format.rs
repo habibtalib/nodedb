@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! On-disk format constants and shared types for the NDVS vector segment.
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -94,13 +96,13 @@ impl Default for VectorSegmentDropPolicy {
     }
 }
 
-// ── Test hooks ────────────────────────────────────────────────────────────────
+// ── Observability ─────────────────────────────────────────────────────────────
 
-/// Module-scoped counters for observing madvise behaviour in tests.
+/// Module-scoped atomic counters for madvise call observability.
 ///
-/// These lightweight atomics are always compiled — the same counters are
-/// useful to Event-Plane metrics, not just tests.
-pub mod test_hooks {
+/// These lightweight atomics are always compiled and are used by Event-Plane
+/// metrics to track page-cache hint activity on vector segments at runtime.
+pub mod observability {
     use super::{AtomicU64, Ordering};
     pub(crate) static DONTNEED_COUNT: AtomicU64 = AtomicU64::new(0);
     pub(crate) static RANDOM_COUNT: AtomicU64 = AtomicU64::new(0);

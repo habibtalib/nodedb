@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Fuzzy term lookup for the FtsIndex.
 
 use crate::backend::FtsBackend;
@@ -39,7 +41,6 @@ impl<B: FtsBackend> FtsIndex<B> {
                 collection,
                 self.memtable(),
                 &tokens,
-                #[cfg(feature = "governor")]
                 self.governor.as_ref(),
             )?;
             if !term_blocks.is_empty() && term_blocks[0].df > 0 {

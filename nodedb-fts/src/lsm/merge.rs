@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! N-way merge of posting lists across multiple segments.
 //!
 //! Decompresses blocks on demand, merges sorted doc_id streams per-term,
@@ -11,10 +13,8 @@ use crate::block::{CompactPosting, PostingBlock, into_blocks};
 
 use super::segment::reader::SegmentReader;
 
-#[cfg(feature = "governor")]
 use std::sync::Arc;
 
-#[cfg(feature = "governor")]
 use nodedb_mem::{EngineId, MemoryGovernor};
 
 /// Merge multiple segments into a single set of per-term PostingBlocks.
@@ -29,7 +29,7 @@ use nodedb_mem::{EngineId, MemoryGovernor};
 /// rejection should check pressure before dispatching the operation.
 pub fn merge_segments(
     segments: &[SegmentReader],
-    #[cfg(feature = "governor")] governor: Option<&Arc<MemoryGovernor>>,
+    governor: Option<&Arc<MemoryGovernor>>,
 ) -> Vec<(String, Vec<PostingBlock>)> {
     // Collect all unique terms across all segments.
     let mut all_terms = BTreeSet::new();
@@ -39,7 +39,6 @@ pub fn merge_segments(
         }
     }
 
-    #[cfg(feature = "governor")]
     let _result_guard = governor.and_then(|gov| {
         let bytes = all_terms.len()
             * (std::mem::size_of::<String>() + std::mem::size_of::<Vec<PostingBlock>>());
@@ -153,11 +152,7 @@ mod tests {
         let r1 = SegmentReader::open(seg1).expect("seg1 must be valid");
         let r2 = SegmentReader::open(seg2).expect("seg2 must be valid");
 
-        let merged = merge_segments(
-            &[r1, r2],
-            #[cfg(feature = "governor")]
-            None,
-        );
+        let merged = merge_segments(&[r1, r2], None);
         let terms: Vec<&str> = merged.iter().map(|(t, _)| t.as_str()).collect();
         assert!(terms.contains(&"hello"));
         assert!(terms.contains(&"world"));

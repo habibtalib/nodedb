@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Typed errors for `FtsIndex` operations.
 //!
 //! `FtsIndexError<E>` wraps both FTS-layer errors (e.g. surrogate out of range)
@@ -10,7 +12,6 @@ use nodedb_types::Surrogate;
 
 use crate::search::query_parser::InvalidQuery;
 
-#[cfg(feature = "governor")]
 use nodedb_mem::MemError;
 
 /// Maximum `Surrogate` value that can be safely indexed.
@@ -82,7 +83,6 @@ pub enum FtsIndexError<E: std::fmt::Display> {
     ///
     /// The operation requires more memory than the engine's remaining budget
     /// allows. Callers should backpressure, spill, or reject the request.
-    #[cfg(feature = "governor")]
     #[error("FTS memory budget exhausted: {0}")]
     BudgetExhausted(MemError),
 }
@@ -106,7 +106,6 @@ impl<E: std::fmt::Display> FtsIndexError<E> {
     }
 }
 
-#[cfg(feature = "governor")]
 impl<E: std::fmt::Display> From<MemError> for FtsIndexError<E> {
     fn from(e: MemError) -> Self {
         Self::BudgetExhausted(e)

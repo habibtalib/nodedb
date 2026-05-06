@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! BM25 search over the FtsIndex with AND-first OR-fallback, phrase boost,
 //! and NOT-term exclusion.
 //!
@@ -179,7 +181,6 @@ impl<B: FtsBackend> FtsIndex<B> {
         }
 
         // Fallback: exhaustive BM25 scoring reading directly from the backend.
-        #[cfg(feature = "governor")]
         let _term_postings_guard = self.governor.as_ref().and_then(|gov| {
             let bytes = num_query_terms
                 * (std::mem::size_of::<Vec<Posting>>() + std::mem::size_of::<bool>());
@@ -330,7 +331,6 @@ impl<B: FtsBackend> FtsIndex<B> {
             collection,
             self.memtable(),
             &neg_tokens,
-            #[cfg(feature = "governor")]
             self.governor.as_ref(),
         )
         .map_err(FtsIndexError::backend)?;
@@ -371,7 +371,6 @@ impl<B: FtsBackend> FtsIndex<B> {
             collection,
             self.memtable(),
             query_tokens,
-            #[cfg(feature = "governor")]
             self.governor.as_ref(),
         )?;
 
@@ -402,7 +401,6 @@ impl<B: FtsBackend> FtsIndex<B> {
             collection,
             self.memtable(),
             query_tokens,
-            #[cfg(feature = "governor")]
             self.governor.as_ref(),
         ) {
             Ok(tb) => tb,

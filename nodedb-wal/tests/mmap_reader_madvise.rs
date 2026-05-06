@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Spec: mmap WAL readers must advise MADV_SEQUENTIAL, and replay
 //! helpers must filter segments by SegmentMeta.first_lsn before opening.
 //!
@@ -67,9 +69,9 @@ fn replay_limit_from_last_segment_opens_only_last_segment() {
     assert!(segs.len() >= 2, "test needs multiple segments");
     let last_first_lsn = segs.last().unwrap().first_lsn;
 
-    let before = mmap_reader::test_hooks::segments_opened();
+    let before = mmap_reader::observability::segments_opened();
     let (_records, _more) = replay_segments_mmap_limit(wal_dir, last_first_lsn, 1024).unwrap();
-    let opened = mmap_reader::test_hooks::segments_opened() - before;
+    let opened = mmap_reader::observability::segments_opened() - before;
 
     assert_eq!(
         opened,
@@ -91,9 +93,9 @@ fn replay_skips_segments_entirely_below_from_lsn() {
     // Target the last segment only.
     let target = segs.last().unwrap().first_lsn;
 
-    let before = mmap_reader::test_hooks::segments_opened();
+    let before = mmap_reader::observability::segments_opened();
     let _records = replay_segments_mmap(wal_dir, target).unwrap();
-    let opened = mmap_reader::test_hooks::segments_opened() - before;
+    let opened = mmap_reader::observability::segments_opened() - before;
 
     assert_eq!(
         opened, 1,
@@ -127,9 +129,9 @@ fn fadvise_dontneed_called_after_segment_iteration() {
     let wal_dir = dir.path();
     write_n_records(wal_dir, 3);
 
-    let before = mmap_reader::test_hooks::fadv_dontneed_count();
+    let before = mmap_reader::observability::fadv_dontneed_count();
     let _ = replay_segments_mmap(wal_dir, 0).unwrap();
-    let after = mmap_reader::test_hooks::fadv_dontneed_count();
+    let after = mmap_reader::observability::fadv_dontneed_count();
     assert!(
         after > before,
         "replay must emit POSIX_FADV_DONTNEED after each exhausted segment \

@@ -1,10 +1,10 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 pub mod binary;
 pub mod binary_codec;
 
-#[cfg(feature = "ivf")]
 pub mod pq;
 
-#[cfg(feature = "ivf")]
 pub mod pq_codec;
 
 pub mod sq8;

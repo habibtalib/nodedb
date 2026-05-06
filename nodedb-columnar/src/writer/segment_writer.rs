@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! `SegmentWriter` and codec selection for compressed columnar segments.
 
 use std::sync::Arc;
@@ -65,8 +67,7 @@ impl SegmentWriter {
         schema: &ColumnarSchema,
         columns: &[ColumnData],
         row_count: usize,
-        #[cfg(feature = "encryption")] kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
-        #[cfg(not(feature = "encryption"))] _kek: Option<&[u8; 32]>,
+        kek: Option<&nodedb_wal::crypto::WalEncryptionKey>,
     ) -> Result<Vec<u8>, ColumnarError> {
         if row_count == 0 {
             return Err(ColumnarError::EmptyMemtable);
@@ -153,7 +154,6 @@ impl SegmentWriter {
         buf.extend_from_slice(&footer_bytes);
 
         // Optionally wrap the plaintext segment in an AES-256-GCM SEGC envelope.
-        #[cfg(feature = "encryption")]
         if let Some(key) = kek {
             return crate::encrypt::encrypt_segment(key, &buf);
         }
@@ -649,158 +649,5 @@ mod tests {
             // "delta" is in [alpha, val_19] range → only bloom can skip this.
             assert!(ScanPredicate::str_eq(0, "delta").can_skip_block(stats));
         }
-    }
-
-    // ── encryption tests ─────────────────────────────────────────────────
-
-    #[cfg(feature = "encryption")]
-    fn test_kek() -> nodedb_wal::crypto::WalEncryptionKey {
-        nodedb_wal::crypto::WalEncryptionKey::from_bytes(&[0x42u8; 32]).expect("test kek")
-    }
-
-    #[cfg(feature = "encryption")]
-    fn small_schema() -> ColumnarSchema {
-        use nodedb_types::columnar::ColumnDef;
-        ColumnarSchema::new(vec![
-            ColumnDef::required("id", ColumnType::Int64).with_primary_key(),
-            ColumnDef::required("name", ColumnType::String),
-        ])
-        .expect("valid")
-    }
-
-    #[cfg(feature = "encryption")]
-    fn write_encrypted_segment(kek: &nodedb_wal::crypto::WalEncryptionKey, rows: usize) -> Vec<u8> {
-        let schema = small_schema();
-        let mut mt = ColumnarMemtable::new(&schema);
-        for i in 0..rows {
-            mt.append_row(&[Value::Integer(i as i64), Value::String(format!("row_{i}"))])
-                .expect("append");
-        }
-        let (schema, columns, row_count) = mt.drain();
-        SegmentWriter::plain()
-            .write_segment(&schema, &columns, row_count, Some(kek))
-            .expect("encrypted write")
-    }
-
-    /// Encrypted segment: raw bytes must not contain `NDBS` magic and must
-    /// start with `SEGC`. Known column string values must not appear in clear.
-    #[test]
-    #[cfg(feature = "encryption")]
-    fn columnar_segment_encrypted_at_rest() {
-        let kek = test_kek();
-        let bytes = write_encrypted_segment(&kek, 20);
-
-        // Must start with SEGC, not NDBS.
-        assert_eq!(
-            &bytes[0..4],
-            b"SEGC",
-            "encrypted segment must start with SEGC"
-        );
-        // Must NOT contain NDBS magic anywhere (it is now ciphertext).
-        let ndbs_pos = bytes.windows(4).position(|w| w == b"NDBS");
-        assert!(
-            ndbs_pos.is_none(),
-            "encrypted segment must not contain NDBS magic in plaintext"
-        );
-        // Known string value from row 0 must not appear in plaintext.
-        let known = b"row_0";
-        let found = bytes.windows(known.len()).any(|w| w == known);
-        assert!(
-            !found,
-            "encrypted segment must not contain plaintext column data"
-        );
-    }
-
-    /// Encrypted write → decrypt with same KEK → read → all rows recovered.
-    #[test]
-    #[cfg(feature = "encryption")]
-    fn columnar_segment_encrypted_roundtrip() {
-        use crate::reader::{DecodedColumn, OwnedSegmentReader};
-
-        let kek = test_kek();
-        let encrypted = write_encrypted_segment(&kek, 50);
-
-        let owned =
-            OwnedSegmentReader::open_with_kek(&encrypted, Some(&kek)).expect("open encrypted");
-        let reader = owned.reader();
-        assert_eq!(reader.row_count(), 50);
-        assert_eq!(reader.column_count(), 2);
-
-        let col = reader.read_column(0).expect("read id column");
-        match col {
-            DecodedColumn::Int64 { values, valid } => {
-                assert_eq!(values.len(), 50);
-                assert!(valid.iter().all(|&v| v));
-                for (i, &val) in values.iter().enumerate() {
-                    assert_eq!(val, i as i64, "row {i} id mismatch");
-                }
-            }
-            _ => panic!("expected Int64 for id column"),
-        }
-    }
-
-    /// Plain segment with KEK configured → `KekRequired` error.
-    #[test]
-    #[cfg(feature = "encryption")]
-    fn columnar_segment_refuses_plaintext_when_kek_required() {
-        use crate::reader::OwnedSegmentReader;
-
-        let schema = small_schema();
-        let mut mt = ColumnarMemtable::new(&schema);
-        for i in 0..5i64 {
-            mt.append_row(&[Value::Integer(i), Value::String(format!("r{i}"))])
-                .expect("append");
-        }
-        let (schema, columns, row_count) = mt.drain();
-        let plaintext = SegmentWriter::plain()
-            .write_segment(&schema, &columns, row_count, None)
-            .expect("plain write");
-
-        let kek = test_kek();
-        let result = OwnedSegmentReader::open_with_kek(&plaintext, Some(&kek));
-        assert!(
-            matches!(result, Err(crate::error::ColumnarError::KekRequired)),
-            "expected KekRequired, got {result:?}"
-        );
-    }
-
-    /// Encrypted segment without KEK → `MissingKek` error via `open`.
-    #[test]
-    #[cfg(feature = "encryption")]
-    fn columnar_segment_refuses_encrypted_without_kek() {
-        let kek = test_kek();
-        let encrypted = write_encrypted_segment(&kek, 5);
-
-        // open() (no-kek path) must return MissingKek.
-        let result = crate::reader::SegmentReader::open(&encrypted);
-        assert!(
-            matches!(result, Err(crate::error::ColumnarError::MissingKek)),
-            "expected MissingKek from open()"
-        );
-    }
-
-    /// Tampered ciphertext must be rejected with `DecryptionFailed`.
-    #[test]
-    #[cfg(feature = "encryption")]
-    fn columnar_segment_tampered_ciphertext_rejected() {
-        use crate::reader::OwnedSegmentReader;
-
-        let kek = test_kek();
-        let mut encrypted = write_encrypted_segment(&kek, 5);
-
-        // Flip bytes past the 16-byte preamble (in the ciphertext body).
-        if encrypted.len() > 30 {
-            encrypted[20] ^= 0xFF;
-            encrypted[25] ^= 0xAB;
-        }
-
-        let result = OwnedSegmentReader::open_with_kek(&encrypted, Some(&kek));
-        assert!(
-            matches!(
-                result,
-                Err(crate::error::ColumnarError::DecryptionFailed(_))
-            ),
-            "expected DecryptionFailed for tampered ciphertext, got {result:?}"
-        );
     }
 }

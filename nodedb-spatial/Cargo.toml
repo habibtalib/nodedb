@@ -10,13 +10,12 @@ repository.workspace = true
 homepage.workspace = true
 
 [features]
-encryption = ["dep:nodedb-wal"]
-governor = ["dep:nodedb-mem"]
+default = []
 
 [dependencies]
 nodedb-types = { workspace = true }
-nodedb-wal = { workspace = true, optional = true }
-nodedb-mem = { workspace = true, optional = true }
+nodedb-wal = { workspace = true }
+nodedb-mem = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

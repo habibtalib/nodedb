@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BUSL-1.1
+
 //! Columnar segment writer and reader for time-partitioned storage.
 //!
 //! Flushes columnar memtable data to per-column files within a partition
@@ -26,7 +28,7 @@ mod util;
 mod writer;
 
 pub use error::SegmentError;
-pub use mmap::{ColumnMmap, test_hooks};
+pub use mmap::{ColumnMmap, observability};
 pub use reader::ColumnarSegmentReader;
 pub use writer::ColumnarSegmentWriter;
 
