@@ -67,6 +67,7 @@ pub(super) fn extract_collection(plan: &PhysicalPlan) -> Option<&str> {
         | PhysicalPlan::Text(TextOp::Search { collection, .. })
         | PhysicalPlan::Text(TextOp::PhraseSearch { collection, .. })
         | PhysicalPlan::Text(TextOp::HybridSearch { collection, .. })
+        | PhysicalPlan::Text(TextOp::HybridSearchTriple { collection, .. })
         | PhysicalPlan::Text(TextOp::BM25ScoreScan { collection, .. })
         | PhysicalPlan::Query(QueryOp::PartialAggregate { collection, .. })
         | PhysicalPlan::Query(QueryOp::FacetCounts { collection, .. })
@@ -141,11 +142,14 @@ pub(super) fn describe_plan(plan: &PhysicalPlan) -> PlanKind {
         | PhysicalPlan::Query(QueryOp::HashJoin { .. })
         | PhysicalPlan::Query(QueryOp::InlineHashJoin { .. })
         | PhysicalPlan::Query(QueryOp::RecursiveScan { .. })
+        | PhysicalPlan::Query(QueryOp::LateralTopK { .. })
+        | PhysicalPlan::Query(QueryOp::LateralLoop { .. })
         | PhysicalPlan::Graph(GraphOp::Algo { .. })
         | PhysicalPlan::Graph(GraphOp::Match { .. })
         | PhysicalPlan::Text(TextOp::Search { .. })
         | PhysicalPlan::Text(TextOp::PhraseSearch { .. })
         | PhysicalPlan::Text(TextOp::HybridSearch { .. })
+        | PhysicalPlan::Text(TextOp::HybridSearchTriple { .. })
         | PhysicalPlan::Text(TextOp::BM25ScoreScan { .. }) => PlanKind::MultiRow,
 
         PhysicalPlan::Kv(KvOp::Get { .. }) | PhysicalPlan::Kv(KvOp::FieldGet { .. }) => {

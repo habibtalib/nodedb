@@ -8,3 +8,4 @@ pub mod crdt;
 pub mod reindex;
 mod reindex_apply;
 pub mod snapshot;
+pub mod synonym_group;

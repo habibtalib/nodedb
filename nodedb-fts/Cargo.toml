@@ -27,6 +27,7 @@ lang-all = ["lang-cjk", "lang-th", "lang-detect"]
 nodedb-types = { workspace = true }
 nodedb-mem = { workspace = true, optional = true }
 serde = { workspace = true }
+sonic-rs = { workspace = true }
 zerompk = { workspace = true }
 rust-stemmers = { workspace = true }
 unicode-normalization = { workspace = true }

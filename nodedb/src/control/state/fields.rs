@@ -198,6 +198,8 @@ pub struct SharedState {
     pub alert_hysteresis: Arc<crate::event::alert::hysteresis::HysteresisManager>,
     /// In-memory schedule registry for cron scheduler.
     pub schedule_registry: Arc<crate::event::scheduler::ScheduleRegistry>,
+    /// In-memory synonym group registry for FTS query expansion.
+    pub synonym_registry: Arc<crate::control::synonym::SynonymRegistry>,
     /// Job execution history (redb-persisted).
     pub job_history: Arc<crate::event::scheduler::JobHistoryStore>,
     /// Event Plane durable topic registry.

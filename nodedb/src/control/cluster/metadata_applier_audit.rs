@@ -191,5 +191,7 @@ pub(super) fn describe_entry(e: &catalog_entry::CatalogEntry) -> (String, u64, S
         } => (format!("{grantee}@{target}:{permission}"), 0, String::new()),
         E::PutOwner(o) => (o.object_name.clone(), 0, String::new()),
         E::DeleteOwner { object_name, .. } => (object_name.clone(), 0, String::new()),
+        E::PutSynonymGroup(g) => (g.name.clone(), 0, String::new()),
+        E::DeleteSynonymGroup { name, .. } => (name.clone(), 0, String::new()),
     }
 }

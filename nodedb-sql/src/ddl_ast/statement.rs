@@ -404,6 +404,20 @@ pub enum NodedbStatement {
         collection: String,
     },
 
+    // ── Synonym groups ───────────────────────────────────────────
+    /// `CREATE SYNONYM GROUP <name> AS ('term1', 'term2', ...)`
+    CreateSynonymGroup {
+        name: String,
+        terms: Vec<String>,
+    },
+    /// `DROP SYNONYM GROUP [IF EXISTS] <name>`
+    DropSynonymGroup {
+        name: String,
+        if_exists: bool,
+    },
+    /// `SHOW SYNONYM GROUPS`
+    ShowSynonymGroups,
+
     // ── Graph DSL ────────────────────────────────────────────────
     GraphInsertEdge {
         collection: String,
@@ -462,4 +476,28 @@ pub enum NodedbStatement {
         collection: String,
         params: crate::ddl_ast::graph_parse::FusionParams,
     },
+
+    // ── Bulk import ──────────────────────────────────────────────
+    /// `COPY <collection> FROM '<path>' [WITH (FORMAT ..., DELIMITER ..., HEADER ...)]`
+    ///
+    /// Server-side file-path bulk import. Does not handle STDIN streaming
+    /// (that is a different protocol path) or COPY ... TO.
+    CopyFromFile {
+        collection: String,
+        path: String,
+        format: Option<CopyFormat>,
+        delimiter: Option<char>,
+        header: bool,
+    },
+}
+
+/// Format for `COPY ... FROM` bulk import.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CopyFormat {
+    /// One JSON object per line (`.ndjson` / `.jsonl`).
+    Ndjson,
+    /// A JSON array of objects (`.json`).
+    JsonArray,
+    /// CSV with an optional header row (`.csv`).
+    Csv,
 }

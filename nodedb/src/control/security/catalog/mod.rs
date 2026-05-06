@@ -29,6 +29,7 @@ pub mod sequences;
 pub mod streaming_mvs;
 pub mod surrogate_hwm;
 pub mod surrogate_pk;
+pub mod synonym_groups;
 pub mod system_catalog;
 pub mod topics;
 pub mod trigger_types;
@@ -55,6 +56,7 @@ pub use procedure_types::StoredProcedure;
 pub use rls::StoredRlsPolicy;
 pub use scopes::{StoredScope, StoredScopeGrant};
 pub use sequence_types::{SequenceState, StoredSequence};
+pub use synonym_groups::StoredSynonymGroup;
 pub use system_catalog::SystemCatalog;
 pub use trigger_types::StoredTrigger;
 pub use types::{

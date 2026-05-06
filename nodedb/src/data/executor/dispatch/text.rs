@@ -69,6 +69,38 @@ impl CoreLoop {
                 rls_filters,
                 score_alias.as_deref(),
             ),
+
+            TextOp::HybridSearchTriple {
+                collection,
+                query_vector,
+                query_text,
+                graph_seed_id,
+                graph_depth,
+                graph_edge_label,
+                top_k,
+                ef_search,
+                fuzzy,
+                rrf_k,
+                filter_bitmap,
+                rls_filters,
+                score_alias,
+            } => self.execute_hybrid_search_triple(
+                task,
+                tid,
+                collection,
+                query_vector,
+                query_text,
+                graph_seed_id,
+                *graph_depth,
+                graph_edge_label.as_deref(),
+                *top_k,
+                *ef_search,
+                *fuzzy,
+                *rrf_k,
+                filter_bitmap.as_ref(),
+                rls_filters,
+                score_alias.as_deref(),
+            ),
         }
     }
 }

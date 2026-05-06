@@ -143,7 +143,9 @@ pub fn stamp(entry: CatalogEntry, clock: &HlcClock, catalog: &SystemCatalog) -> 
         | CatalogEntry::PutPermission(_)
         | CatalogEntry::DeletePermission { .. }
         | CatalogEntry::PutOwner(_)
-        | CatalogEntry::DeleteOwner { .. }) => entry,
+        | CatalogEntry::DeleteOwner { .. }
+        | CatalogEntry::PutSynonymGroup(_)
+        | CatalogEntry::DeleteSynonymGroup { .. }) => entry,
     }
 }
 

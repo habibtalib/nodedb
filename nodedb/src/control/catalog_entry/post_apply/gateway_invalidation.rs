@@ -178,5 +178,14 @@ pub(crate) fn invalidate_gateway_cache_for_entry(entry: &CatalogEntry, shared: &
         CatalogEntry::DeleteOwner { .. } => {
             // no-op: same as PutOwner.
         }
+
+        // ── Synonym group: registry-only change, no plan shape effect ─────────
+        CatalogEntry::PutSynonymGroup(_) => {
+            // no-op: synonym expansion happens at query time via the registry;
+            // it does not alter the plan structure cached in the gateway.
+        }
+        CatalogEntry::DeleteSynonymGroup { .. } => {
+            // no-op: same as PutSynonymGroup.
+        }
     }
 }

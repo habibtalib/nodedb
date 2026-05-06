@@ -65,6 +65,28 @@ pub(super) fn float_pair_after(toks: &[Tok<'_>], keyword: &str) -> Option<(f64, 
     Some((k1, k2))
 }
 
+/// Extract three consecutive float tokens that follow `keyword`.
+///
+/// The tokenizer strips `(` and `)`, so `RRF_K (60.0, 35.0, 50.0)` becomes
+/// `[Word("RRF_K"), Word("60.0"), Word("35.0"), Word("50.0")]`. Returns `None`
+/// if fewer than three float tokens follow the keyword.
+pub(super) fn float_triple_after(toks: &[Tok<'_>], keyword: &str) -> Option<(f64, f64, f64)> {
+    let pos = find_keyword(toks, keyword)?;
+    let k1 = match toks.get(pos + 1)? {
+        Tok::Word(w) => w.parse::<f64>().ok()?,
+        _ => return None,
+    };
+    let k2 = match toks.get(pos + 2)? {
+        Tok::Word(w) => w.parse::<f64>().ok()?,
+        _ => return None,
+    };
+    let k3 = match toks.get(pos + 3)? {
+        Tok::Word(w) => w.parse::<f64>().ok()?,
+        _ => return None,
+    };
+    Some((k1, k2, k3))
+}
+
 pub(super) fn direction_after(toks: &[Tok<'_>]) -> GraphDirection {
     match word_after(toks, "DIRECTION")
         .as_deref()

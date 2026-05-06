@@ -3,6 +3,7 @@
 
 pub mod alter;
 pub mod check_constraint;
+pub mod copy_from;
 pub mod create;
 pub mod describe;
 pub mod drop;
@@ -23,6 +24,7 @@ pub use alter::{
     alter_collection_set_last_value_cache, alter_collection_set_legal_hold,
     alter_collection_set_retention, alter_table_add_column,
 };
+pub use copy_from::copy_from_file;
 pub use create::{
     CreateCollectionRequest, create_collection, create_table, dispatch_register_by_name,
     dispatch_register_from_stored, dispatch_register_if_needed,

@@ -47,6 +47,7 @@ impl SharedState {
         let stream_registry = Arc::new(crate::event::cdc::StreamRegistry::new());
         let group_registry = crate::event::cdc::GroupRegistry::new();
         let schedule_registry = Arc::new(crate::event::scheduler::ScheduleRegistry::new());
+        let synonym_registry = Arc::new(crate::control::synonym::SynonymRegistry::new());
         let retention_policy_registry =
             Arc::new(crate::engine::timeseries::retention_policy::RetentionPolicyRegistry::new());
         let alert_registry = Arc::new(crate::event::alert::AlertRegistry::new());
@@ -65,6 +66,9 @@ impl SharedState {
             stream_registry.load_from_catalog(catalog);
             group_registry.load_from_catalog(catalog);
             schedule_registry.load_from_catalog(catalog);
+            if let Err(e) = synonym_registry.reload_from_catalog(catalog) {
+                tracing::warn!(error = %e, "boot: failed to load synonym groups from catalog");
+            }
             if let Ok(rp_defs) = catalog.load_all_retention_policies() {
                 retention_policy_registry.load(rp_defs);
             }
@@ -259,6 +263,7 @@ impl SharedState {
             alert_registry,
             alert_hysteresis,
             schedule_registry,
+            synonym_registry,
             job_history: Arc::new(crate::event::scheduler::JobHistoryStore::open(
                 catalog_path.parent().unwrap_or(std::path::Path::new(".")),
             )?),

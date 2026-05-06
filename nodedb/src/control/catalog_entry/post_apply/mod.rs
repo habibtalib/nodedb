@@ -26,6 +26,7 @@ pub mod rls;
 pub mod role;
 pub mod schedule;
 pub mod sequence;
+pub mod synonym_group;
 pub mod tenant;
 pub mod trigger;
 pub mod user;

@@ -397,6 +397,9 @@ impl InvertedIndex {
     }
 
     /// Search the inverted index using BM25 scoring.
+    ///
+    /// Supports `NOT <term>` and `-<term>` negation in the query string.
+    /// Returns `Err` for invalid queries (NOT-only, unsupported parentheses).
     pub fn search(
         &self,
         tid: TenantId,
@@ -406,17 +409,21 @@ impl InvertedIndex {
         fuzzy_enabled: bool,
         prefilter: Option<&nodedb_types::SurrogateBitmap>,
     ) -> crate::Result<Vec<TextSearchResult>> {
-        self.inner.search(
-            tid.as_u64(),
-            collection,
-            query,
-            top_k,
-            fuzzy_enabled,
-            prefilter,
-        )
+        self.inner
+            .search(
+                tid.as_u64(),
+                collection,
+                query,
+                top_k,
+                fuzzy_enabled,
+                prefilter,
+            )
+            .map_err(fts_index_err)
     }
 
     /// Search with explicit boolean mode (AND or OR).
+    ///
+    /// Supports `NOT <term>` and `-<term>` negation in the query string.
     #[allow(clippy::too_many_arguments)]
     pub fn search_with_mode(
         &self,
@@ -428,15 +435,17 @@ impl InvertedIndex {
         mode: QueryMode,
         prefilter: Option<&nodedb_types::SurrogateBitmap>,
     ) -> crate::Result<Vec<TextSearchResult>> {
-        self.inner.search_with_mode(
-            tid.as_u64(),
-            collection,
-            query,
-            top_k,
-            fuzzy_enabled,
-            mode,
-            prefilter,
-        )
+        self.inner
+            .search_with_mode(
+                tid.as_u64(),
+                collection,
+                query,
+                top_k,
+                fuzzy_enabled,
+                mode,
+                prefilter,
+            )
+            .map_err(fts_index_err)
     }
 
     /// Generate highlighted text with matched query terms wrapped in tags.
@@ -447,6 +456,52 @@ impl InvertedIndex {
     /// Return byte offsets of matched query terms in the original text.
     pub fn offsets(&self, text: &str, query: &str) -> Vec<MatchOffset> {
         self.inner.offsets(text, query)
+    }
+
+    /// Persist a synonym group to the FTS backend.
+    pub fn put_synonym_group(
+        &self,
+        tid: TenantId,
+        rec: &nodedb_fts::SynonymGroupRecord,
+    ) -> crate::Result<()> {
+        self.inner
+            .put_synonym_group(tid.as_u64(), rec)
+            .map_err(|e| inverted_err("put_synonym_group", e))
+    }
+
+    /// Delete a synonym group from the FTS backend. Returns `true` if it existed.
+    pub fn delete_synonym_group(&self, tid: TenantId, name: &str) -> crate::Result<bool> {
+        self.inner
+            .delete_synonym_group(tid.as_u64(), name)
+            .map_err(|e| inverted_err("delete_synonym_group", e))
+    }
+
+    /// List all synonym groups for a tenant.
+    pub fn list_synonym_groups(
+        &self,
+        tid: TenantId,
+    ) -> crate::Result<Vec<nodedb_fts::SynonymGroupRecord>> {
+        self.inner
+            .list_synonym_groups(tid.as_u64())
+            .map_err(|e| inverted_err("list_synonym_groups", e))
+    }
+}
+
+/// Map an `FtsIndexError<crate::Error>` to `crate::Error`.
+///
+/// `InvalidQuery` variants produce `crate::Error::InvalidInput` so callers
+/// receive a meaningful error code instead of a generic storage error.
+fn fts_index_err(e: nodedb_fts::FtsIndexError<crate::Error>) -> crate::Error {
+    use nodedb_fts::FtsIndexError;
+    match e {
+        FtsIndexError::InvalidQuery(q) => crate::Error::BadRequest {
+            detail: q.to_string(),
+        },
+        FtsIndexError::Backend(inner) => inner,
+        other => crate::Error::Storage {
+            engine: "inverted".into(),
+            detail: other.to_string(),
+        },
     }
 }
 

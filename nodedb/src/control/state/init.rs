@@ -237,6 +237,7 @@ impl SharedState {
             alert_registry: Arc::new(crate::event::alert::AlertRegistry::new()),
             alert_hysteresis: Arc::new(crate::event::alert::hysteresis::HysteresisManager::new()),
             schedule_registry: Arc::new(crate::event::scheduler::ScheduleRegistry::new()),
+            synonym_registry: Arc::new(crate::control::synonym::SynonymRegistry::new()),
             job_history: {
                 let dir = std::env::temp_dir().join(format!(
                     "nodedb-test-history-{}-{test_id}",

@@ -7,7 +7,7 @@
 //! matches).
 
 use crate::control::security::catalog::{
-    StoredCollection, StoredMaterializedView, StoredRlsPolicy,
+    StoredCollection, StoredMaterializedView, StoredRlsPolicy, StoredSynonymGroup,
     auth_types::{
         StoredApiKey, StoredOwner, StoredPermission, StoredRole, StoredTenant, StoredUser,
     },
@@ -97,6 +97,12 @@ pub enum CatalogEntry {
     PutSchedule(Box<ScheduleDef>),
     /// Delete a scheduled-job definition.
     DeleteSchedule { tenant_id: u64, name: String },
+
+    // ── Synonym group ──────────────────────────────────────────────
+    /// Upsert a synonym group. Post-apply syncs the in-memory `synonym_registry`.
+    PutSynonymGroup(Box<StoredSynonymGroup>),
+    /// Delete a synonym group. Post-apply removes it from the registry.
+    DeleteSynonymGroup { tenant_id: u64, name: String },
 
     // ── Change stream ──────────────────────────────────────────────
     /// Upsert a CDC change-stream definition. Post-apply syncs the
@@ -242,6 +248,8 @@ impl CatalogEntry {
             Self::DeletePermission { .. } => "delete_permission",
             Self::PutOwner(_) => "put_owner",
             Self::DeleteOwner { .. } => "delete_owner",
+            Self::PutSynonymGroup(_) => "put_synonym_group",
+            Self::DeleteSynonymGroup { .. } => "delete_synonym_group",
         }
     }
 }

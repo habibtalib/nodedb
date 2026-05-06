@@ -152,6 +152,10 @@ pub(super) const COLUMN_STATS: TableDefinition<&str, &[u8]> =
 /// Table: metadata key -> value bytes (counters, config).
 pub(super) const METADATA: TableDefinition<&str, &[u8]> = TableDefinition::new("_system.metadata");
 
+/// Table: "{tenant_id}:{group_name}" -> MessagePack-serialized `SynonymGroupDef`.
+pub(super) const SYNONYM_GROUPS: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("_system.synonym_groups");
+
 /// Table: "wasm_module:{sha256_hex}" -> raw WASM binary bytes.
 pub(super) const WASM_MODULES: TableDefinition<&str, &[u8]> =
     TableDefinition::new("_system.wasm_modules");

@@ -97,7 +97,9 @@ pub fn spawn_post_apply_async_side_effects(
         | CatalogEntry::PutPermission(_)
         | CatalogEntry::DeletePermission { .. }
         | CatalogEntry::PutOwner(_)
-        | CatalogEntry::DeleteOwner { .. } => {
+        | CatalogEntry::DeleteOwner { .. }
+        | CatalogEntry::PutSynonymGroup(_)
+        | CatalogEntry::DeleteSynonymGroup { .. } => {
             let _ = shared;
             let _ = raft_index;
         }

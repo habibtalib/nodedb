@@ -8,8 +8,8 @@ use nodedb_sql::ddl_ast::NodedbStatement;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::ddl::change_stream::create_change_stream;
 use crate::control::server::pgwire::ddl::collection::{
-    CreateCollectionRequest, CreateIndexRequest, create_collection, create_index, create_table,
-    dispatch_register_by_name,
+    CreateCollectionRequest, CreateIndexRequest, copy_from_file, create_collection, create_index,
+    create_table, dispatch_register_by_name,
 };
 use crate::control::server::pgwire::ddl::conflict_policy::show_conflict_policy;
 use crate::control::server::pgwire::ddl::continuous_agg::{
@@ -18,6 +18,9 @@ use crate::control::server::pgwire::ddl::continuous_agg::{
 use crate::control::server::pgwire::ddl::materialized_view::create_materialized_view;
 use crate::control::server::pgwire::ddl::retention_policy::create_retention_policy;
 use crate::control::server::pgwire::ddl::schedule::{CreateScheduleRequest, create_schedule};
+use crate::control::server::pgwire::ddl::synonym_group::{
+    create_synonym_group, drop_synonym_group, show_synonym_groups,
+};
 use crate::control::server::pgwire::ddl::trigger::create_trigger;
 use crate::control::state::SharedState;
 
@@ -245,6 +248,16 @@ pub(super) async fn try_dispatch_async(
             Some(show_conflict_policy(state, identity, collection).await)
         }
 
+        NodedbStatement::CreateSynonymGroup { name, terms } => {
+            Some(create_synonym_group(state, identity, name, terms).await)
+        }
+
+        NodedbStatement::DropSynonymGroup { name, if_exists } => {
+            Some(drop_synonym_group(state, identity, name, *if_exists).await)
+        }
+
+        NodedbStatement::ShowSynonymGroups => Some(show_synonym_groups(state, identity)),
+
         NodedbStatement::Reindex {
             collection,
             index_name,
@@ -256,6 +269,25 @@ pub(super) async fn try_dispatch_async(
                 collection,
                 index_name.as_deref(),
                 *concurrent,
+            )
+            .await,
+        ),
+
+        NodedbStatement::CopyFromFile {
+            collection,
+            path,
+            format,
+            delimiter,
+            header,
+        } => Some(
+            copy_from_file(
+                state,
+                identity,
+                collection,
+                path,
+                format.as_ref(),
+                *delimiter,
+                *header,
             )
             .await,
         ),

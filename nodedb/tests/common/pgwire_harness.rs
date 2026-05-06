@@ -366,6 +366,12 @@ impl TestServer {
         }
         let shared = shared;
         nodedb::bootstrap::credentials::replay_surrogate_wal(&shared, &wal_records);
+        // Restore in-memory synonym registry from the persisted catalog.
+        if let Some(catalog) = shared.credentials.catalog()
+            && let Err(e) = shared.synonym_registry.reload_from_catalog(catalog)
+        {
+            eprintln!("pgwire_harness: failed to reload synonym groups: {e}");
+        }
         let persisted_collections = shared
             .credentials
             .catalog()

@@ -8,6 +8,8 @@ use thiserror::Error;
 
 use nodedb_types::Surrogate;
 
+use crate::search::query_parser::InvalidQuery;
+
 #[cfg(feature = "governor")]
 use nodedb_mem::MemError;
 
@@ -58,6 +60,10 @@ pub enum FtsIndexError<E: std::fmt::Display> {
     /// indicates a malformed analyzer or adversarial input.
     #[error("term length {len} exceeds maximum {max} bytes (FTS segment format limit)")]
     TermTooLong { len: usize, max: usize },
+
+    /// The FTS query string is invalid (e.g. NOT-only, unsupported parentheses).
+    #[error("invalid FTS query: {0}")]
+    InvalidQuery(#[from] InvalidQuery),
 
     /// An underlying backend storage operation failed.
     #[error("FTS backend error: {0}")]

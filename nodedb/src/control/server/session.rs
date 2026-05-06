@@ -402,8 +402,11 @@ impl Session {
                     expansion_depth,
                     final_top_k,
                     rrf_k: (vector_k, graph_k),
+                    rrf_k_triple: None,
                     vector_field: body["vector_field"].as_str().unwrap_or("").to_string(),
                     options: Default::default(),
+                    bm25_query: None,
+                    bm25_field: None,
                 })
             }
             "alter_collection_policy" => {

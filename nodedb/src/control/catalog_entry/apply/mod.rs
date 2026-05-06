@@ -19,6 +19,7 @@ pub mod rls;
 pub mod role;
 pub mod schedule;
 pub mod sequence;
+pub mod synonym_group;
 pub mod tenant;
 pub mod trigger;
 pub mod user;
@@ -129,5 +130,9 @@ fn apply_to_inner(entry: &CatalogEntry, catalog: &SystemCatalog) {
             tenant_id,
             object_name,
         } => owner::delete(object_type, *tenant_id, object_name, catalog),
+        CatalogEntry::PutSynonymGroup(stored) => synonym_group::put(stored, catalog),
+        CatalogEntry::DeleteSynonymGroup { tenant_id, name } => {
+            synonym_group::delete(*tenant_id, name, catalog)
+        }
     }
 }

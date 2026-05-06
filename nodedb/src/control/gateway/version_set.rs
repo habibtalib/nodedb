@@ -218,6 +218,7 @@ pub fn touched_collections(plan: &PhysicalPlan) -> Vec<String> {
                 Search { collection, .. }
                 | BM25ScoreScan { collection, .. }
                 | HybridSearch { collection, .. }
+                | HybridSearchTriple { collection, .. }
                 | PhraseSearch { collection, .. } => out.push(collection.clone()),
             }
         }
@@ -334,6 +335,18 @@ pub fn touched_collections(plan: &PhysicalPlan) -> Vec<String> {
                 } => {
                     out.push(large_collection.clone());
                     out.push(small_collection.clone());
+                }
+
+                LateralTopK {
+                    inner_collection, ..
+                } => {
+                    out.push(inner_collection.clone());
+                }
+
+                LateralLoop {
+                    inner_collection, ..
+                } => {
+                    out.push(inner_collection.clone());
                 }
 
                 // No user-collection field.

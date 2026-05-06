@@ -47,19 +47,52 @@ pub fn bmw_search<B: FtsBackend>(
     )?;
 
     let all_empty = lsm_term_blocks.iter().all(|tb| tb.df == 0);
+    eprintln!(
+        "[bmw_inner_debug] all_empty={all_empty} fuzzy={} dfs={:?}",
+        p.fuzzy_enabled,
+        lsm_term_blocks.iter().map(|tb| tb.df).collect::<Vec<_>>()
+    );
+    // When the LSM has no entries for any token and fuzzy is disabled, skip the
+    // backend exact-lookup pass and return None immediately so the caller falls
+    // back to the non-BMW scoring path, which reads from the backend directly.
+    // When fuzzy is enabled (or when we may have backend-resident postings that
+    // are worth probing), we always enter the per-token resolution loop below.
     if all_empty && !p.fuzzy_enabled {
-        return Ok(None);
+        // Even with no LSM postings, Origin may have postings stored directly in
+        // the redb backend (bypassing LSM). Check at least one token to decide.
+        let has_any_backend = p.query_tokens.iter().any(|tok| {
+            index
+                .backend
+                .read_postings(tid, collection, tok)
+                .ok()
+                .is_some_and(|v| !v.is_empty())
+        });
+        if !has_any_backend {
+            return Ok(None);
+        }
     }
 
-    for (i, _token) in p.query_tokens.iter().enumerate() {
-        if lsm_term_blocks[i].df == 0 && p.fuzzy_enabled {
-            let raw = p.raw_tokens.get(i).unwrap_or(_token);
-            let (posts, is_fuzzy) = index.fuzzy_lookup(tid, collection, raw)?;
-            has_fuzzy[i] = is_fuzzy;
-            if !posts.is_empty() {
-                let compact = to_compact(&posts, index, tid, collection)?;
+    for (i, token) in p.query_tokens.iter().enumerate() {
+        if lsm_term_blocks[i].df == 0 {
+            // First, try an exact backend lookup (covers Origin's redb-direct indexing
+            // path which bypasses the LSM memtable).
+            let backend_posts = index.backend.read_postings(tid, collection, token)?;
+            if !backend_posts.is_empty() {
+                let compact = to_compact(&backend_posts, index, tid, collection)?;
                 let blocks = into_blocks(compact);
                 lsm_term_blocks[i] = TermBlocks::from_blocks(blocks);
+                continue;
+            }
+            // Fall back to fuzzy matching when no exact posting exists.
+            if p.fuzzy_enabled {
+                let raw = p.raw_tokens.get(i).unwrap_or(token);
+                let (posts, is_fuzzy) = index.fuzzy_lookup(tid, collection, raw)?;
+                has_fuzzy[i] = is_fuzzy;
+                if !posts.is_empty() {
+                    let compact = to_compact(&posts, index, tid, collection)?;
+                    let blocks = into_blocks(compact);
+                    lsm_term_blocks[i] = TermBlocks::from_blocks(blocks);
+                }
             }
         }
     }

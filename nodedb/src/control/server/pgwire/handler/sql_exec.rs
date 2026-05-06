@@ -240,6 +240,7 @@ impl NodeDbPgHandler {
             && !upper.starts_with("SHOW TYPEGUARD")
             && !upper.starts_with("SHOW CONSTRAINTS")
             && !upper.starts_with("SHOW CONFLICT POLICY")
+            && upper != "SHOW SYNONYM GROUPS"
         {
             return self.handle_show(addr, sql_trimmed);
         }

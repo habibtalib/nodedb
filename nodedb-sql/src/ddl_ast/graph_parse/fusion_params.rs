@@ -13,7 +13,9 @@
 //! parsing did.
 
 use super::super::statement::GraphDirection;
-use super::helpers::{array_floats_after, float_pair_after, quoted_after, usize_after, word_after};
+use super::helpers::{
+    array_floats_after, float_pair_after, float_triple_after, quoted_after, usize_after, word_after,
+};
 use super::tokenizer::{Tok, tokenize};
 
 /// Keyword aliases for the shared fusion parameters.
@@ -33,6 +35,11 @@ pub struct FusionKeywords {
     /// Keyword that precedes `ARRAY[...]` in raw SQL (e.g. `QUERY` or
     /// `ARRAY` itself when there is no leading keyword).
     pub query_anchor: &'static str,
+    /// Keyword that precedes the BM25 query string for three-source fusion.
+    /// Empty string disables BM25 parsing for surfaces that do not support it.
+    pub bm25_query: &'static str,
+    /// Keyword that precedes the BM25 field name in three-source fusion.
+    pub bm25_field: &'static str,
 }
 
 /// Keywords used by `GRAPH RAG FUSION ON ...`.
@@ -46,6 +53,8 @@ pub const RAG_FUSION_KEYWORDS: FusionKeywords = FusionKeywords {
     direction: "DIRECTION",
     max_visited: "MAX_VISITED",
     query_anchor: "QUERY",
+    bm25_query: "BM25",
+    bm25_field: "ON",
 };
 
 /// Keywords used by `SEARCH ... USING FUSION(...)`.
@@ -59,12 +68,20 @@ pub const SEARCH_FUSION_KEYWORDS: FusionKeywords = FusionKeywords {
     direction: "DIRECTION",
     max_visited: "MAX_VISITED",
     query_anchor: "ARRAY",
+    bm25_query: "BM25",
+    bm25_field: "ON",
 };
 
 /// Typed parameter bag for every graph-vector fusion SQL surface.
 ///
 /// All fields are optional at parse time — bounds, caps, and
 /// "absent but required" errors are enforced at the pgwire boundary.
+///
+/// Three-source fusion (vector + text + graph) is enabled by populating
+/// `bm25_query` and `bm25_field` together with `rrf_k_triple`. When only
+/// `rrf_k` is set (two values), behaviour is unchanged from the two-source
+/// form. When `rrf_k_triple` is set it takes precedence and the BM25 leg
+/// participates in the fusion.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct FusionParams {
     pub query_vector: Option<Vec<f32>>,
@@ -72,10 +89,20 @@ pub struct FusionParams {
     pub expansion_depth: Option<usize>,
     pub edge_label: Option<String>,
     pub final_top_k: Option<usize>,
+    /// Two-source RRF k constants: `(vector_k, graph_k)`. Used when no
+    /// `bm25_query` is present (backwards-compatible two-source form).
     pub rrf_k: Option<(f64, f64)>,
+    /// Three-source RRF k constants: `(vector_k, text_k, graph_k)`. Set
+    /// when `RRF_K (kv, kt, kg)` is parsed and three values are found.
+    pub rrf_k_triple: Option<(f64, f64, f64)>,
     pub vector_field: Option<String>,
     pub direction: Option<GraphDirection>,
     pub max_visited: Option<usize>,
+    /// BM25 query string for the text leg of three-source fusion. Parsed
+    /// from `BM25 'query string' ON 'field_name'` in the FUSION DSL.
+    pub bm25_query: Option<String>,
+    /// Document field on which BM25 scoring is applied in three-source fusion.
+    pub bm25_field: Option<String>,
 }
 
 impl FusionParams {
@@ -90,16 +117,41 @@ impl FusionParams {
             Some("OUT") => Some(GraphDirection::Out),
             _ => None,
         };
+
+        // Try to parse a three-value RRF_K triple first; fall back to the
+        // two-value pair. This way `RRF_K (60.0, 35.0, 50.0)` populates
+        // `rrf_k_triple` and leaves `rrf_k` as None, while the legacy
+        // `RRF_K (60.0, 35.0)` continues to populate only `rrf_k`.
+        let rrf_k_triple = float_triple_after(toks, kw.rrf_k);
+        let rrf_k = if rrf_k_triple.is_some() {
+            None
+        } else {
+            float_pair_after(toks, kw.rrf_k)
+        };
+
+        // BM25 text leg — only parsed when the keyword is non-empty.
+        let (bm25_query, bm25_field) = if !kw.bm25_query.is_empty() {
+            (
+                quoted_after(toks, kw.bm25_query),
+                quoted_after(toks, kw.bm25_field),
+            )
+        } else {
+            (None, None)
+        };
+
         Self {
             query_vector: array_floats_after(sql, kw.query_anchor),
             vector_top_k: usize_after(toks, kw.vector_top_k),
             expansion_depth: usize_after(toks, kw.expansion_depth),
             edge_label: quoted_after(toks, kw.edge_label),
             final_top_k: usize_after(toks, kw.final_top_k),
-            rrf_k: float_pair_after(toks, kw.rrf_k),
+            rrf_k,
+            rrf_k_triple,
             vector_field: quoted_after(toks, kw.vector_field),
             direction,
             max_visited: usize_after(toks, kw.max_visited),
+            bm25_query,
+            bm25_field,
         }
     }
 }
@@ -147,6 +199,25 @@ mod tests {
         assert_eq!(p.edge_label.as_deref(), Some("related"));
         assert_eq!(p.final_top_k, Some(10));
         assert_eq!(p.rrf_k, Some((60.0, 35.0)));
+        assert_eq!(p.rrf_k_triple, None);
+    }
+
+    #[test]
+    fn search_fusion_three_source_parses() {
+        let (col, p) = parse_search_using_fusion(
+            "SEARCH entities USING FUSION(ARRAY[0.1, 0.3] VECTOR_FIELD 'embedding' \
+             VECTOR_TOP_K 50 BM25 'transformer attention' ON 'body' \
+             DEPTH 2 LABEL 'related_to' TOP 10 RRF_K (60.0, 35.0, 50.0))",
+        )
+        .unwrap();
+        assert_eq!(col, "entities");
+        assert_eq!(p.rrf_k, None);
+        assert_eq!(p.rrf_k_triple, Some((60.0, 35.0, 50.0)));
+        assert_eq!(p.bm25_query.as_deref(), Some("transformer attention"));
+        assert_eq!(p.bm25_field.as_deref(), Some("body"));
+        assert_eq!(p.expansion_depth, Some(2));
+        assert_eq!(p.edge_label.as_deref(), Some("related_to"));
+        assert_eq!(p.final_top_k, Some(10));
     }
 
     #[test]

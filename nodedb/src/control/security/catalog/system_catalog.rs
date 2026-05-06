@@ -146,6 +146,9 @@ impl SystemCatalog {
             let _ = write_txn
                 .open_table(super::types::SURROGATE_PK_REV)
                 .map_err(|e| catalog_err("init surrogate_pk_rev table", e))?;
+            let _ = write_txn
+                .open_table(SYNONYM_GROUPS)
+                .map_err(|e| catalog_err("init synonym_groups table", e))?;
         }
         write_txn
             .commit()

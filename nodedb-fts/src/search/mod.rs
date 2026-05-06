@@ -3,3 +3,4 @@ pub mod bmw;
 pub mod field_scoring;
 pub mod fuzzy_search;
 pub mod phrase;
+pub mod query_parser;

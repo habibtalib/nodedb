@@ -73,6 +73,11 @@ pub enum SearchTrigger {
     ArrayFlush,
     /// Array engine maintenance scalar (returns BOOL): `ARRAY_COMPACT(name)`.
     ArrayCompact,
+    /// Planner-intercepted graph-distance marker for three-source RRF fusion.
+    /// `graph_score(node_id_col, seed_id, depth => N, label => 'edge_label')`
+    /// is never evaluated per-row; the hybrid planner extracts its arguments
+    /// and builds a graph BFS spec in the physical plan.
+    GraphSearch,
 }
 
 /// Metadata about a known function.

@@ -205,13 +205,16 @@ pub fn required_permission(plan: &crate::bridge::envelope::PhysicalPlan) -> Perm
             | QueryOp::NestedLoopJoin { .. }
             | QueryOp::SortMergeJoin { .. }
             | QueryOp::RecursiveScan { .. }
-            | QueryOp::FacetCounts { .. },
+            | QueryOp::FacetCounts { .. }
+            | QueryOp::LateralTopK { .. }
+            | QueryOp::LateralLoop { .. },
         ) => Permission::Read,
 
         PhysicalPlan::Text(
             TextOp::Search { .. }
             | TextOp::BM25ScoreScan { .. }
             | TextOp::HybridSearch { .. }
+            | TextOp::HybridSearchTriple { .. }
             | TextOp::PhraseSearch { .. },
         ) => Permission::Read,
 
@@ -415,6 +418,11 @@ pub fn required_permission(plan: &crate::bridge::envelope::PhysicalPlan) -> Perm
             | MetaOp::CalvinExecutePassive { .. }
             | MetaOp::CalvinExecuteActive { .. },
         ) => Permission::Write,
+
+        // Synonym group DDL: Alter permission (same tier as CREATE/DROP other DDL objects).
+        PhysicalPlan::Meta(MetaOp::PutSynonymGroup { .. } | MetaOp::DeleteSynonymGroup { .. }) => {
+            Permission::Alter
+        }
     }
 }
 

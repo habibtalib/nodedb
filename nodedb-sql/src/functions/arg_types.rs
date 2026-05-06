@@ -122,12 +122,30 @@ pub static TEXT_MATCH_ARGS: &[ArgTypeSpec] = &[any("column"), typed("query", TEX
 
 // ── Hybrid search ─────────────────────────────────────────────────────────────
 
-pub static RRF_SCORE_ARGS: &[ArgTypeSpec] = &[
-    typed("rank1", INT64_ONLY),
-    typed("rank2", INT64_ONLY),
-    typed("k1", INT64_ONLY),
-    typed("k2", INT64_ONLY),
+/// Two-source `rrf_score(rank1, rank2, k1?, k2?)` — vector + text.
+/// Accepts 2–4 arguments; the planner validates arity at plan time.
+pub static RRF_SCORE_ARGS: &[ArgTypeSpec] = &[any("rank1"), any("rank2"), any("k1"), any("k2")];
+
+/// Three-source `rrf_score(rank1, rank2, rank3, k1?, k2?, k3?)` — vector + text + graph.
+/// Shares the same function name; arity dispatch happens in the planner.
+pub static RRF_SCORE_TRIPLE_ARGS: &[ArgTypeSpec] = &[
+    any("rank1"),
+    any("rank2"),
+    any("rank3"),
+    any("k1"),
+    any("k2"),
+    any("k3"),
 ];
+
+/// `graph_score(node_id_col, seed_id, depth => N, label => 'edge_label')`.
+///
+/// This is a planner-intercepted marker function — it is never evaluated
+/// per-row. The hybrid planner recognises it as the graph-distance source
+/// in a three-source `rrf_score(...)` call and lowers it to a graph BFS
+/// spec attached to the physical plan. Arguments beyond the first two are
+/// named (`depth =>`, `label =>`).
+pub static GRAPH_SCORE_ARGS: &[ArgTypeSpec] =
+    &[any("node_id_col"), any("seed_id"), any_variadic("options")];
 
 // ── Spatial ───────────────────────────────────────────────────────────────────
 
