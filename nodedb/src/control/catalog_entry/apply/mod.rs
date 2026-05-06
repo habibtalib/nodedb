@@ -10,6 +10,7 @@
 pub mod api_key;
 pub mod change_stream;
 pub mod collection;
+pub mod custom_type;
 pub mod function;
 pub mod materialized_view;
 pub mod owner;
@@ -133,6 +134,10 @@ fn apply_to_inner(entry: &CatalogEntry, catalog: &SystemCatalog) {
         CatalogEntry::PutSynonymGroup(stored) => synonym_group::put(stored, catalog),
         CatalogEntry::DeleteSynonymGroup { tenant_id, name } => {
             synonym_group::delete(*tenant_id, name, catalog)
+        }
+        CatalogEntry::PutCustomType(stored) => custom_type::put(stored, catalog),
+        CatalogEntry::DeleteCustomType { tenant_id, name } => {
+            custom_type::delete(*tenant_id, name, catalog)
         }
     }
 }

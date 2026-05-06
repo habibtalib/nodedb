@@ -10,6 +10,7 @@ pub mod collection_constraints;
 pub mod collections;
 pub mod column_stats;
 pub mod consumer_groups;
+pub mod custom_types;
 pub mod dependencies;
 pub mod function_types;
 pub mod functions;
@@ -47,6 +48,7 @@ pub use collection_constraints::{
     BalancedConstraintDef, CheckConstraintDef, EventDefinition, FieldDefinition, LegalHold,
     MaterializedSumDef, PeriodLockDef, StateTransitionDef, TransitionCheckDef, TransitionRule,
 };
+pub use custom_types::{CompositeField, CustomTypeDef, StoredCustomType};
 pub use function_types::{
     FunctionLanguage, FunctionParam, FunctionSecurity, FunctionVolatility, StoredFunction,
 };

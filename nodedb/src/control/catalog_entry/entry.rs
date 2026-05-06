@@ -7,7 +7,8 @@
 //! matches).
 
 use crate::control::security::catalog::{
-    StoredCollection, StoredMaterializedView, StoredRlsPolicy, StoredSynonymGroup,
+    StoredCollection, StoredCustomType, StoredMaterializedView, StoredRlsPolicy,
+    StoredSynonymGroup,
     auth_types::{
         StoredApiKey, StoredOwner, StoredPermission, StoredRole, StoredTenant, StoredUser,
     },
@@ -103,6 +104,13 @@ pub enum CatalogEntry {
     PutSynonymGroup(Box<StoredSynonymGroup>),
     /// Delete a synonym group. Post-apply removes it from the registry.
     DeleteSynonymGroup { tenant_id: u64, name: String },
+
+    // ── Custom type ────────────────────────────────────────────────
+    /// Upsert a custom type (enum or composite). Post-apply syncs the
+    /// in-memory `custom_type_registry`.
+    PutCustomType(Box<StoredCustomType>),
+    /// Delete a custom type. Post-apply removes it from the registry.
+    DeleteCustomType { tenant_id: u64, name: String },
 
     // ── Change stream ──────────────────────────────────────────────
     /// Upsert a CDC change-stream definition. Post-apply syncs the
@@ -250,6 +258,8 @@ impl CatalogEntry {
             Self::DeleteOwner { .. } => "delete_owner",
             Self::PutSynonymGroup(_) => "put_synonym_group",
             Self::DeleteSynonymGroup { .. } => "delete_synonym_group",
+            Self::PutCustomType(_) => "put_custom_type",
+            Self::DeleteCustomType { .. } => "delete_custom_type",
         }
     }
 }

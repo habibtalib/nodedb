@@ -187,5 +187,13 @@ pub(crate) fn invalidate_gateway_cache_for_entry(entry: &CatalogEntry, shared: &
         CatalogEntry::DeleteSynonymGroup { .. } => {
             // no-op: same as PutSynonymGroup.
         }
+
+        // ── Custom type: registry-only change, no plan shape effect ───────────
+        CatalogEntry::PutCustomType(_) => {
+            // no-op: type resolution happens at query time via the registry.
+        }
+        CatalogEntry::DeleteCustomType { .. } => {
+            // no-op: same as PutCustomType.
+        }
     }
 }

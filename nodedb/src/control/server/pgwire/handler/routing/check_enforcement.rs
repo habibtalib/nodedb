@@ -12,6 +12,27 @@ use crate::types::TenantId;
 
 use super::super::core::NodeDbPgHandler;
 
+/// Extract the collection name and operation type from an INSERT or UPDATE SQL
+/// statement. Returns `None` for any other statement kind.
+fn extract_collection_from_sql(sql: &str) -> Option<(String, bool)> {
+    let upper = sql.to_uppercase();
+    if upper.starts_with("INSERT INTO ") {
+        let after = sql["INSERT INTO ".len()..].trim_start();
+        let end = after
+            .find(|c: char| c.is_whitespace() || c == '(')
+            .unwrap_or(after.len());
+        Some((after[..end].to_lowercase(), true))
+    } else if upper.starts_with("UPDATE ") {
+        let after = sql["UPDATE ".len()..].trim_start();
+        let end = after
+            .find(|c: char| c.is_whitespace())
+            .unwrap_or(after.len());
+        Some((after[..end].to_lowercase(), false))
+    } else {
+        None
+    }
+}
+
 impl NodeDbPgHandler {
     /// Enforce general CHECK constraints before planning INSERT or UPDATE SQL.
     ///
@@ -23,22 +44,7 @@ impl NodeDbPgHandler {
         sql: &str,
         tenant_id: TenantId,
     ) -> PgWireResult<()> {
-        let upper = sql.to_uppercase();
-
-        // Only intercept INSERT and UPDATE statements.
-        let (coll_name, is_insert) = if upper.starts_with("INSERT INTO ") {
-            let after = sql["INSERT INTO ".len()..].trim_start();
-            let end = after
-                .find(|c: char| c.is_whitespace() || c == '(')
-                .unwrap_or(after.len());
-            (after[..end].to_lowercase(), true)
-        } else if upper.starts_with("UPDATE ") {
-            let after = sql["UPDATE ".len()..].trim_start();
-            let end = after
-                .find(|c: char| c.is_whitespace())
-                .unwrap_or(after.len());
-            (after[..end].to_lowercase(), false)
-        } else {
+        let Some((coll_name, is_insert)) = extract_collection_from_sql(sql) else {
             return Ok(());
         };
 
@@ -88,6 +94,65 @@ impl NodeDbPgHandler {
             &fields,
         )
         .await
+    }
+
+    /// Validate enum-typed column values against the custom type registry.
+    ///
+    /// Intercepts INSERT and UPDATE for any collection whose `fields` list
+    /// contains a user-defined enum type. No-op if the collection has no
+    /// enum-typed columns or if the SQL is not an INSERT/UPDATE.
+    pub(super) async fn enforce_enum_labels_if_needed(
+        &self,
+        sql: &str,
+        tenant_id: crate::types::TenantId,
+    ) -> PgWireResult<()> {
+        let Some((coll_name, is_insert)) = extract_collection_from_sql(sql) else {
+            return Ok(());
+        };
+
+        let Some(catalog) = self.state.credentials.catalog() else {
+            return Ok(());
+        };
+        let coll = match catalog.get_collection(tenant_id.as_u64(), &coll_name) {
+            Ok(Some(c)) => c,
+            _ => return Ok(()),
+        };
+
+        // Quick path: no user-defined types means nothing to validate.
+        if coll.fields.is_empty() {
+            return Ok(());
+        }
+
+        let fields = if is_insert {
+            match extract_insert_fields(sql) {
+                Ok(f) => f,
+                Err(_) => return Ok(()), // Unparseable; let the planner handle errors.
+            }
+        } else {
+            match extract_update_fields(sql) {
+                Ok(f) => f,
+                Err(_) => return Ok(()),
+            }
+        };
+
+        for (field_name, type_name) in &coll.fields {
+            let Some(value) = fields.get(field_name.as_str()) else {
+                continue;
+            };
+            let label = match value {
+                nodedb_types::Value::String(s) => s.as_str(),
+                _ => continue,
+            };
+            if let Err(msg) = self.state.custom_type_registry.validate_enum_label(
+                tenant_id.as_u64(),
+                type_name,
+                label,
+            ) {
+                return Err(pgwire_err("22P02", &msg));
+            }
+        }
+
+        Ok(())
     }
 }
 

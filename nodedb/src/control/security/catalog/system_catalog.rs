@@ -149,6 +149,9 @@ impl SystemCatalog {
             let _ = write_txn
                 .open_table(SYNONYM_GROUPS)
                 .map_err(|e| catalog_err("init synonym_groups table", e))?;
+            let _ = write_txn
+                .open_table(CUSTOM_TYPES)
+                .map_err(|e| catalog_err("init custom_types table", e))?;
         }
         write_txn
             .commit()

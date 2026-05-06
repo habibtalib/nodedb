@@ -156,6 +156,10 @@ pub(super) const METADATA: TableDefinition<&str, &[u8]> = TableDefinition::new("
 pub(super) const SYNONYM_GROUPS: TableDefinition<&str, &[u8]> =
     TableDefinition::new("_system.synonym_groups");
 
+/// Table: "{tenant_id}:{type_name}" -> MessagePack-serialized `StoredCustomType`.
+pub(super) const CUSTOM_TYPES: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("_system.custom_types");
+
 /// Table: "wasm_module:{sha256_hex}" -> raw WASM binary bytes.
 pub(super) const WASM_MODULES: TableDefinition<&str, &[u8]> =
     TableDefinition::new("_system.wasm_modules");

@@ -169,3 +169,39 @@ pub fn build_generated_column_specs(
 
     specs
 }
+
+/// Replace user-defined type names with their physical storage type (`TEXT`)
+/// so that `build_collection_type` can parse a valid strict schema.
+///
+/// Enum and composite values are stored physically as `TEXT`. The original
+/// type names are preserved in `StoredCollection.fields` for drop-protection
+/// and SHOW COLLECTIONS output.
+pub(super) fn resolve_custom_type_columns(
+    columns: &[(String, String)],
+    state: &crate::control::state::SharedState,
+    tenant_id: u64,
+) -> Vec<(String, String)> {
+    columns
+        .iter()
+        .map(|(col_name, type_str)| {
+            // Extract the bare type name (before any modifier like NOT NULL).
+            let bare = type_str.split_whitespace().next().unwrap_or(type_str);
+            if state
+                .custom_type_registry
+                .exists(tenant_id, &bare.to_lowercase())
+            {
+                // Replace the custom type name with TEXT, preserving any
+                // trailing modifiers (e.g. "priority NOT NULL" → "TEXT NOT NULL").
+                let rest = type_str[bare.len()..].trim();
+                let resolved = if rest.is_empty() {
+                    "TEXT".to_string()
+                } else {
+                    format!("TEXT {rest}")
+                };
+                (col_name.clone(), resolved)
+            } else {
+                (col_name.clone(), type_str.clone())
+            }
+        })
+        .collect()
+}
