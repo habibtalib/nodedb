@@ -7,17 +7,14 @@
 //!   decommission plan strips the node from all groups, and the
 //!   rebalancer loop naturally re-evaluates on its next tick.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+mod common;
+
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use async_trait::async_trait;
-
-use nodedb_cluster::error::Result;
-use nodedb_cluster::rebalance::PlannedMove;
 use nodedb_cluster::rebalancer::{
-    AlwaysReadyGate, ElectionGate, LoadMetrics, LoadMetricsProvider, MigrationDispatcher,
-    RebalancerKickHook, RebalancerLoop, RebalancerLoopConfig,
+    AlwaysReadyGate, ElectionGate, LoadMetricsProvider, MigrationDispatcher, RebalancerKickHook,
+    RebalancerLoop, RebalancerLoopConfig,
 };
 use nodedb_cluster::routing::RoutingTable;
 use nodedb_cluster::swim::MemberState;
@@ -25,63 +22,7 @@ use nodedb_cluster::swim::subscriber::MembershipSubscriber;
 use nodedb_cluster::topology::{ClusterTopology, NodeInfo, NodeState};
 use nodedb_types::NodeId;
 
-struct DynamicProvider {
-    metrics: Mutex<Vec<LoadMetrics>>,
-}
-
-impl DynamicProvider {
-    fn new(initial: Vec<LoadMetrics>) -> Arc<Self> {
-        Arc::new(Self {
-            metrics: Mutex::new(initial),
-        })
-    }
-    fn push(&self, m: LoadMetrics) {
-        self.metrics.lock().unwrap().push(m);
-    }
-}
-
-#[async_trait]
-impl LoadMetricsProvider for DynamicProvider {
-    async fn snapshot(&self) -> Result<Vec<LoadMetrics>> {
-        Ok(self.metrics.lock().unwrap().clone())
-    }
-}
-
-struct RecordingDispatcher {
-    calls: Mutex<Vec<PlannedMove>>,
-    fired: AtomicBool,
-}
-
-impl RecordingDispatcher {
-    fn new() -> Arc<Self> {
-        Arc::new(Self {
-            calls: Mutex::new(Vec::new()),
-            fired: AtomicBool::new(false),
-        })
-    }
-}
-
-#[async_trait]
-impl MigrationDispatcher for RecordingDispatcher {
-    async fn dispatch(&self, mv: PlannedMove) -> Result<()> {
-        self.calls.lock().unwrap().push(mv);
-        self.fired.store(true, Ordering::SeqCst);
-        Ok(())
-    }
-}
-
-fn lm(id: u64, v: u32, bytes_mib: u64, w: f64, r: f64) -> LoadMetrics {
-    LoadMetrics {
-        node_id: id,
-        vshards_led: v,
-        bytes_stored: bytes_mib * 1_048_576,
-        writes_per_sec: w,
-        reads_per_sec: r,
-        qps_recent: 0.0,
-        p95_latency_us: 0,
-        cpu_utilization: 0.0,
-    }
-}
+use common::rebalancer::{DynamicProvider, RecordingDispatcher, lm};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn add_node_triggers_rebalance_via_kick() {
@@ -151,18 +92,18 @@ async fn add_node_triggers_rebalance_via_kick() {
     // Wait for the dispatcher to fire.
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
     while std::time::Instant::now() < deadline {
-        if dispatcher.fired.load(Ordering::SeqCst) {
+        if dispatcher.fired() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert!(
-        dispatcher.fired.load(Ordering::SeqCst),
+        dispatcher.fired(),
         "kick did not trigger a rebalancer dispatch"
     );
 
     // At least one move should target node 4 (the cold newcomer).
-    let calls = dispatcher.calls.lock().unwrap().clone();
+    let calls = dispatcher.snapshot();
     assert!(!calls.is_empty());
     let to_4 = calls.iter().filter(|m| m.target_node == 4).count();
     assert!(

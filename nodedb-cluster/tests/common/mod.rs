@@ -1,6 +1,7 @@
 #![allow(dead_code, unused_imports)]
 
 pub mod calvin_test_node;
+pub mod rebalancer;
 pub mod test_node;
 
 pub use calvin_test_node::{
