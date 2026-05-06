@@ -4334,6 +4334,7 @@ dependencies = [
  "nodedb-types",
  "rust-stemmers",
  "serde",
+ "sonic-rs",
  "thiserror 2.0.18",
  "tracing",
  "unicode-normalization",

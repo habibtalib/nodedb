@@ -177,8 +177,11 @@ fn cross_model_query_vector_graph_relational() {
             expansion_depth: 2,
             final_top_k: 5,
             rrf_k: (60.0, 10.0),
+            rrf_k_triple: None,
             vector_field: String::new(),
             options: Default::default(),
+            bm25_query: None,
+            bm25_field: None,
         }),
     );
     let rag_body = payload_value(&rag_payload);
