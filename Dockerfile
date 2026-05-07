@@ -45,23 +45,6 @@ USER nonroot:nonroot
 
 COPY --from=builder --chown=nonroot:nonroot /build/target/release/nodedb /usr/local/bin/nodedb
 
-# nodedb dynamically links libz.so.1 (transitively via crates that default to
-# system zlib — e.g. flate2 with its default `zlib` feature). Chainguard's
-# glibc-dynamic ships only glibc + libgcc + ca-certs + tzdata, so the runtime
-# fails immediately with: "error while loading shared libraries: libz.so.1:
-# cannot open shared object file: No such file or directory".
-#
-# Copy the Debian builder's libz into a default ld.so search path. The glob
-# covers both amd64 and arm64 — per-arch builds only see their own multiarch
-# directory, so exactly one match per build.
-#
-# Long-term cleanup options (any of these would let us drop this COPY):
-#   * Switch flate2 (and any other zlib-using deps) to the `rust_backend`
-#     feature so libz becomes a build-time C lib statically linked.
-#   * Or vendor libz via the `libz-sys` `static` feature.
-#   * Or move runtime to `cgr.dev/chainguard/wolfi-base` + `apk add zlib`.
-COPY --from=builder /lib/*-linux-gnu/libz.so.1 /usr/lib/libz.so.1
-
 # Bind to all interfaces (required for Docker port mapping)
 # Point data dir at the declared volume
 ENV NODEDB_HOST=0.0.0.0 \

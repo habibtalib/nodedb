@@ -26,7 +26,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.94"
 license = "BUSL-1.1"
@@ -133,6 +133,13 @@ loro = "=1.10.8"
 # Kafka bridge
 rdkafka = { version = "0.36", features = ["cmake-build"] }
 
+# zlib: rdkafka-sys (and other transitive C deps) link libz dynamically by
+# default, which makes the release binary depend on libz.so.1 at runtime and
+# breaks minimal base images (e.g. Chainguard glibc-dynamic). Force the
+# `static` feature on libz-sys via Cargo's feature unification so zlib is
+# baked into the binary and the runtime image needs no extra .so files.
+libz-sys = { version = "1", features = ["static"] }
+
 # Regex
 regex = "1"
 
@@ -152,9 +159,12 @@ serde_json = "1"
 sonic-rs = "0.5"
 chrono = { version = "0.4", features = ["std"], default-features = false }
 
-# MessagePack
+# MessagePack 
 rmpv = "1"
-zerompk = { version = "0.4", git = "https://github.com/farhan-syah/zerompk", rev = "1dd71a0de6b6c99f2c2dbbc69106bb87b1e2cdcb", features = ["std", "derive"] }
+zerompk = { version = "0.4", git = "https://github.com/farhan-syah/zerompk", rev = "1dd71a0de6b6c99f2c2dbbc69106bb87b1e2cdcb", features = [
+  "std",
+  "derive",
+] }
 
 # Bitmap
 roaring = "0.11"

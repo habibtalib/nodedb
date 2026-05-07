@@ -77,7 +77,7 @@ For zero-trust environments. Both client and server present certificates.
 Configure in `nodedb.toml`:
 
 ```toml
-[tls]
+[server.tls]
 cert = "/path/to/server.crt"
 key = "/path/to/server.key"
 client_ca = "/path/to/ca.crt"     # enables mTLS

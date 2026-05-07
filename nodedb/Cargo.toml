@@ -88,6 +88,10 @@ snap = { workspace = true }
 flate2 = { workspace = true }
 tonic = { workspace = true }
 rdkafka = { workspace = true }
+# Direct dep purely so the workspace's `libz-sys` feature set (with `static`)
+# applies via Cargo feature unification — keeps zlib statically linked into
+# the release binary so runtime images don't need libz.so.1.
+libz-sys = { workspace = true }
 
 # Password hashing & cryptography
 argon2 = { workspace = true }

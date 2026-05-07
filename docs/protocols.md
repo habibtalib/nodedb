@@ -286,24 +286,24 @@ Native opcodes are used internally by the Rust SDK (`nodedb-client`), FFI bindin
 ### Default behaviour
 
 All five listeners (`pgwire`, `native`, `http`, `resp`, `ilp`) default to
-**plaintext** when no `[tls]` section is present in the configuration file.
+**plaintext** when no `[server.tls]` section is present in the configuration file.
 This is suitable for local development and for deployments where TLS is
 terminated at an external load balancer or sidecar proxy.
 
-**Production deployments MUST configure `[tls] cert_path` and
-`[tls] key_path`** whenever clients connect over any untrusted network.
+**Production deployments MUST configure `[server.tls] cert_path` and
+`[server.tls] key_path`** whenever clients connect over any untrusted network.
 Without TLS, credentials (including SCRAM-SHA-256 client proofs), query
 text, and result data are transmitted in plaintext.
 
 ### Enabling TLS
 
 ```toml
-[tls]
+[server.tls]
 cert_path = "/etc/nodedb/tls/server.crt"
 key_path  = "/etc/nodedb/tls/server.key"
 ```
 
-When `[tls]` is present, TLS is enabled on all five listeners by default.
+When `[server.tls]` is present, TLS is enabled on all five listeners by default.
 The certificate must be PEM-encoded. Generate a self-signed cert for
 testing with `openssl req -x509 -newkey rsa:4096 -nodes ...` or a
 production certificate from any ACME-compatible CA.
@@ -313,7 +313,7 @@ production certificate from any ACME-compatible CA.
 Individual listeners can opt out of TLS using the per-protocol flags:
 
 ```toml
-[tls]
+[server.tls]
 cert_path = "/etc/nodedb/tls/server.crt"
 key_path  = "/etc/nodedb/tls/server.key"
 pgwire    = true   # default when [tls] is set
@@ -332,7 +332,7 @@ NodeDB watches cert/key files for modification-time changes and atomically
 swaps the TLS configuration without restarting listeners:
 
 ```toml
-[tls]
+[server.tls]
 cert_path                 = "/etc/nodedb/tls/server.crt"
 key_path                  = "/etc/nodedb/tls/server.key"
 cert_reload_interval_secs = 3600   # default: 1 hour; 0 to disable
