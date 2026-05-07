@@ -3,7 +3,7 @@
 # Requires Linux kernel >= 5.1 (io_uring)
 
 # ── Stage 1: Chef base (rust + build deps + cargo-chef) ──────────────────────
-FROM rust:1.94-bookworm AS chef
+FROM rust:1.95-bookworm AS chef
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
@@ -31,34 +31,19 @@ RUN cargo chef cook --release --recipe-path recipe.json --bin nodedb
 COPY . .
 RUN cargo build --release -p nodedb
 
-# ── Stage 5: Minimal runtime ──────────────────────────────────────────────────
-FROM debian:bookworm-slim AS runtime
+# ── Stage 5: Minimal runtime (Chainguard glibc-dynamic) ──────────────────────
+# Wolfi-based, daily-rebuilt against patched packages — typically 0 CVEs.
+# Ships only glibc + libgcc + ca-certificates + tzdata. No shell, no package
+# manager, no `curl` — that's why the binary has a built-in `healthcheck`
+# subcommand (see ctl/healthcheck.rs).
+FROM cgr.dev/chainguard/glibc-dynamic:latest AS runtime
 
-# ca-certificates: needed for JWKS fetch, OTLP export, S3 archival
-# curl: needed for HEALTHCHECK
-# gosu: drop privileges from root after fixing data-dir ownership in entrypoint
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    gosu \
-    && rm -rf /var/lib/apt/lists/*
+# `nonroot` user (uid/gid 65532) is built into the Chainguard base. The
+# declared VOLUME below inherits this ownership, so named volumes work
+# out of the box without an entrypoint chown step.
+USER nonroot:nonroot
 
-# Non-root user
-RUN groupadd --system --gid 10001 nodedb \
-    && useradd --system --uid 10001 --gid 10001 --no-create-home nodedb
-
-# Data and config directories
-RUN mkdir -p /var/lib/nodedb /etc/nodedb \
-    && chown nodedb:nodedb /var/lib/nodedb
-
-COPY --from=builder /build/target/release/nodedb /usr/local/bin/nodedb
-
-# Entrypoint: when started as root, fix data-dir ownership and drop to the
-# nodedb user. When already started as a non-root user (e.g. `--user 10001`),
-# exec directly. This makes `-v <named-volume>:/var/lib/nodedb` work even
-# when Docker initialises the volume as root-owned (common on Linux hosts).
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+COPY --from=builder --chown=nonroot:nonroot /build/target/release/nodedb /usr/local/bin/nodedb
 
 # Bind to all interfaces (required for Docker port mapping)
 # Point data dir at the declared volume
@@ -72,8 +57,8 @@ EXPOSE 6432 6433 6480 9090 4317 4318
 
 VOLUME ["/var/lib/nodedb"]
 
+# Probe local /health via the binary's built-in subcommand. No curl needed.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s \
-    CMD curl -f http://localhost:6480/health || exit 1
+    CMD ["/usr/local/bin/nodedb", "healthcheck"]
 
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["/usr/local/bin/nodedb"]
+ENTRYPOINT ["/usr/local/bin/nodedb"]
