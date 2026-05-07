@@ -50,8 +50,8 @@ async fn audit_records_grant_revoke() {
     assert!(events.iter().any(|e| e.detail.contains("revoked")));
 }
 
-#[test]
-fn audit_flush_persists_to_catalog() {
+#[tokio::test]
+async fn audit_flush_persists_to_catalog() {
     let dir = tempfile::tempdir().unwrap();
     let wal_path = dir.path().join("test.wal");
     let wal = Arc::new(nodedb::wal::WalManager::open_for_testing(&wal_path).unwrap());
@@ -88,8 +88,8 @@ fn audit_flush_persists_to_catalog() {
     assert!(max_seq >= 2);
 }
 
-#[test]
-fn audit_sequence_survives_restart() {
+#[tokio::test]
+async fn audit_sequence_survives_restart() {
     let dir = tempfile::tempdir().unwrap();
     let wal_path = dir.path().join("test.wal");
     let catalog_path = dir.path().join("system.redb");
@@ -112,6 +112,16 @@ fn audit_sequence_survives_restart() {
         state.audit_record(AuditEvent::AuthSuccess, None, "src", "event1");
         state.audit_record(AuditEvent::AuthSuccess, None, "src", "event2");
         state.flush_audit_log();
+        // Signal shutdown so background tasks (e.g. array GC) that hold
+        // Arc<OriginOpLog> wake up and exit, releasing all redb file locks
+        // before we reopen the same on-disk paths to simulate a restart.
+        state.shutdown.signal();
+        drop(state);
+        // Yield to give background tasks a chance to observe the shutdown
+        // signal and release their Arc references before we reopen.
+        for _ in 0..16 {
+            tokio::task::yield_now().await;
+        }
     }
 
     {

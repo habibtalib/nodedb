@@ -401,8 +401,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn single_node_no_remote() {
+    #[tokio::test]
+    async fn single_node_no_remote() {
         let dir = tempfile::tempdir().unwrap();
         let (_, _, state, _, _) = crate::event::test_utils::event_test_deps(&dir);
         // No cluster_routing → always local.

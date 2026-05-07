@@ -503,8 +503,8 @@ mod tests {
         assert_eq!(id.username, "admin");
     }
 
-    #[test]
-    fn local_scope_always_fires() {
+    #[tokio::test]
+    async fn local_scope_always_fires() {
         let sched = make_schedule("local_job", Some("orders"), ScheduleScope::Local);
         // Even if we had cluster routing, LOCAL always fires.
         let dir = tempfile::tempdir().unwrap();
@@ -512,8 +512,8 @@ mod tests {
         assert!(should_fire_on_this_node(&sched, &state));
     }
 
-    #[test]
-    fn single_node_always_fires() {
+    #[tokio::test]
+    async fn single_node_always_fires() {
         let sched = make_schedule("normal_job", Some("orders"), ScheduleScope::Normal);
         let dir = tempfile::tempdir().unwrap();
         let (_, _, state, _, _) = crate::event::test_utils::event_test_deps(&dir);
@@ -522,16 +522,16 @@ mod tests {
         assert!(should_fire_on_this_node(&sched, &state));
     }
 
-    #[test]
-    fn local_scope_healthy_without_raft() {
+    #[tokio::test]
+    async fn local_scope_healthy_without_raft() {
         let sched = make_schedule("local_job", None, ScheduleScope::Local);
         let dir = tempfile::tempdir().unwrap();
         let (_, _, state, _, _) = crate::event::test_utils::event_test_deps(&dir);
         assert!(is_raft_group_healthy(&sched, &state));
     }
 
-    #[test]
-    fn single_node_healthy_without_raft() {
+    #[tokio::test]
+    async fn single_node_healthy_without_raft() {
         let sched = make_schedule("job", Some("orders"), ScheduleScope::Normal);
         let dir = tempfile::tempdir().unwrap();
         let (_, _, state, _, _) = crate::event::test_utils::event_test_deps(&dir);

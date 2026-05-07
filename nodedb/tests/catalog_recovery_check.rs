@@ -173,8 +173,8 @@ fn make_blacklist_entry(key: &str, kind: &str) -> StoredBlacklistEntry {
 // ── tests ─────────────────────────────────────────────────────────────────────
 
 /// A completely clean catalog passes all verifiers.
-#[test]
-fn happy_path_clean_catalog_passes_all_verifiers() {
+#[tokio::test]
+async fn happy_path_clean_catalog_passes_all_verifiers() {
     let dir = tempfile::tempdir().unwrap();
     let (shared, creds) = make_shared(dir.path());
     let catalog = creds.catalog().as_ref().unwrap();
@@ -190,8 +190,8 @@ fn happy_path_clean_catalog_passes_all_verifiers() {
 }
 
 /// RLS policy in redb but not in the in-memory store → MissingInRegistry.
-#[test]
-fn rls_policy_orphan_refuses_startup() {
+#[tokio::test]
+async fn rls_policy_orphan_refuses_startup() {
     let dir = tempfile::tempdir().unwrap();
     let (shared, creds) = make_shared(dir.path());
     let catalog = creds.catalog().as_ref().unwrap();
@@ -220,8 +220,8 @@ fn rls_policy_orphan_refuses_startup() {
 }
 
 /// Blacklist entry in redb but not in memory → MissingInRegistry.
-#[test]
-fn blacklist_ghost_refuses_startup() {
+#[tokio::test]
+async fn blacklist_ghost_refuses_startup() {
     let dir = tempfile::tempdir().unwrap();
     let (shared, creds) = make_shared(dir.path());
     let catalog = creds.catalog().as_ref().unwrap();
@@ -236,8 +236,8 @@ fn blacklist_ghost_refuses_startup() {
 }
 
 /// Schedule in redb but not in memory → MissingInRegistry.
-#[test]
-fn schedule_orphan_refuses_startup() {
+#[tokio::test]
+async fn schedule_orphan_refuses_startup() {
     let dir = tempfile::tempdir().unwrap();
     let (shared, creds) = make_shared(dir.path());
     let catalog = creds.catalog().as_ref().unwrap();
@@ -252,8 +252,8 @@ fn schedule_orphan_refuses_startup() {
 }
 
 /// Alert rule in redb but not in memory → MissingInRegistry.
-#[test]
-fn alert_orphan_refuses_startup() {
+#[tokio::test]
+async fn alert_orphan_refuses_startup() {
     let dir = tempfile::tempdir().unwrap();
     let (shared, creds) = make_shared(dir.path());
     let catalog = creds.catalog().as_ref().unwrap();
@@ -268,8 +268,8 @@ fn alert_orphan_refuses_startup() {
 }
 
 /// Streaming MV in redb but not in memory → MissingInRegistry.
-#[test]
-fn mv_orphan_refuses_startup() {
+#[tokio::test]
+async fn mv_orphan_refuses_startup() {
     let dir = tempfile::tempdir().unwrap();
     let (shared, creds) = make_shared(dir.path());
     let catalog = creds.catalog().as_ref().unwrap();
@@ -287,8 +287,8 @@ fn mv_orphan_refuses_startup() {
 }
 
 /// Change stream in redb but not in memory → MissingInRegistry.
-#[test]
-fn change_stream_orphan_refuses_startup() {
+#[tokio::test]
+async fn change_stream_orphan_refuses_startup() {
     let dir = tempfile::tempdir().unwrap();
     let (shared, creds) = make_shared(dir.path());
     let catalog = creds.catalog().as_ref().unwrap();
@@ -306,8 +306,8 @@ fn change_stream_orphan_refuses_startup() {
 }
 
 /// Consumer group in redb but not in memory → MissingInRegistry.
-#[test]
-fn consumer_group_orphan_refuses_startup() {
+#[tokio::test]
+async fn consumer_group_orphan_refuses_startup() {
     let dir = tempfile::tempdir().unwrap();
     let (shared, creds) = make_shared(dir.path());
     let catalog = creds.catalog().as_ref().unwrap();
@@ -325,8 +325,8 @@ fn consumer_group_orphan_refuses_startup() {
 }
 
 /// Retention policy in redb but not in memory → MissingInRegistry.
-#[test]
-fn retention_policy_orphan_refuses_startup() {
+#[tokio::test]
+async fn retention_policy_orphan_refuses_startup() {
     let dir = tempfile::tempdir().unwrap();
     let (shared, creds) = make_shared(dir.path());
     let catalog = creds.catalog().as_ref().unwrap();
@@ -346,8 +346,8 @@ fn retention_policy_orphan_refuses_startup() {
 /// User in redb but not loaded into memory → MissingInRegistry.
 /// Simulates a load_from bug by using a CredentialStore::new() (in-memory only)
 /// while the catalog was written by a separately-opened store.
-#[test]
-fn credential_ghost_refuses_startup() {
+#[tokio::test]
+async fn credential_ghost_refuses_startup() {
     let dir = tempfile::tempdir().unwrap();
     let catalog_path = dir.path().join("system.redb");
     let wal_path = dir.path().join("test.wal");
@@ -399,8 +399,8 @@ fn credential_ghost_refuses_startup() {
 }
 
 /// RLS policy value mismatch (enabled flag differs between redb and memory).
-#[test]
-fn rls_policy_value_mismatch_detected() {
+#[tokio::test]
+async fn rls_policy_value_mismatch_detected() {
     let dir = tempfile::tempdir().unwrap();
     let (shared, creds) = make_shared(dir.path());
     let catalog = creds.catalog().as_ref().unwrap();
@@ -430,8 +430,8 @@ fn rls_policy_value_mismatch_detected() {
 }
 
 /// Re-prove that the triggers verifier still fires (existing verifier regression).
-#[test]
-fn triggers_verifier_still_fires() {
+#[tokio::test]
+async fn triggers_verifier_still_fires() {
     let dir = tempfile::tempdir().unwrap();
     let (shared, creds) = make_shared(dir.path());
     let catalog = creds.catalog().as_ref().unwrap();
@@ -467,8 +467,8 @@ fn triggers_verifier_still_fires() {
 }
 
 /// Re-prove that the api_keys verifier still fires (existing verifier regression).
-#[test]
-fn api_keys_verifier_still_fires() {
+#[tokio::test]
+async fn api_keys_verifier_still_fires() {
     let dir = tempfile::tempdir().unwrap();
     let (shared, creds) = make_shared(dir.path());
     let catalog = creds.catalog().as_ref().unwrap();
@@ -493,8 +493,8 @@ fn api_keys_verifier_still_fires() {
 
 /// Repair cycle: verify detects divergence, repair runs automatically,
 /// post-repair verify should show repaired count matches detected.
-#[test]
-fn repair_cycle_succeeds_for_schedules() {
+#[tokio::test]
+async fn repair_cycle_succeeds_for_schedules() {
     let dir = tempfile::tempdir().unwrap();
     let (shared, creds) = make_shared(dir.path());
     let catalog = creds.catalog().as_ref().unwrap();
