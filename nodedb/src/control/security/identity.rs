@@ -21,6 +21,11 @@ pub struct AuthenticatedIdentity {
     /// Username (for display, logging, audit).
     pub username: String,
     /// Tenant this user belongs to.
+    ///
+    /// Single-tenant per user; database is the multi-axis (added by 10_BOUNDARY).
+    /// Cross-tenant access requires separate user accounts per tenant, or superuser.
+    /// Audit (05_AUTH_PREREQ H): no code path branches on "user belongs to multiple
+    /// tenants" — the single-tenant invariant holds throughout the codebase.
     pub tenant_id: TenantId,
     /// How the user authenticated.
     pub auth_method: AuthMethod,
