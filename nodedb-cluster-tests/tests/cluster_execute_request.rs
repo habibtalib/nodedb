@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: BUSL-1.1
-
 //! Integration tests for `ExecuteRequest` / `ExecuteResponse` cross-node RPC.
 //!
 //! Tests the C-β physical-plan forwarding path end-to-end:

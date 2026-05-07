@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: BUSL-1.1
-
 //! vShard migration test for array CRDT Raft replication.
 //!
 //! Verifies that array ops continue to replicate correctly after a Raft

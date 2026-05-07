@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: BUSL-1.1
-
 //! Cluster integration test: surrogate identity survives a vShard routing
 //! cut-over.
 //!

@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: BUSL-1.1
-
 //! End-to-end cluster test: CREATE / INSERT / SELECT across 3 pgwire
 //! clients, one per node.
 //!

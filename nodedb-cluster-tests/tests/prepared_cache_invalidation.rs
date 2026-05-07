@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: BUSL-1.1
-
 //! Per-descriptor plan cache invalidation on a 3-node cluster.
 //!
 //! The plan cache now records the set of `(descriptor_id,

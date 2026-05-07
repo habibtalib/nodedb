@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: BUSL-1.1
-
 //! End-to-end 3-node cluster integration tests for the distributed Array
 //! Engine.
 //!

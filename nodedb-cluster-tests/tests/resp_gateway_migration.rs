@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: BUSL-1.1
-
 //! Integration tests for the RESP → gateway migration (C-δ.3).
 //!
 //! Tests:

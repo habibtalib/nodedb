@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: BUSL-1.1
-
 //! Asserts that `spawn_post_apply_async_side_effects` fires on
 //! followers, not just on the metadata-group leader.
 //!

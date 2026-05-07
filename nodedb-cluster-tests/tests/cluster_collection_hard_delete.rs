@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: BUSL-1.1
-
 //! 3-node cluster test for the collection hard-delete pipeline.
 //!
 //! Asserts that `DROP COLLECTION ... PURGE` issued on one node

@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: BUSL-1.1
-
 //! Partition + recovery test for array CRDT Raft replication.
 //!
 //! Simulates a lagging replica: writes are accepted on the 3-node cluster

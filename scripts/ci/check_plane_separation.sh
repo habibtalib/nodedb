@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Plane-separation gate.
 #
-# NodeDB's three-plane execution model (Control / Data / Event — see
-# `nodedb/CLAUDE.md`) is a correctness boundary, not a performance hint.
-# This gate enforces three structural invariants:
+# NodeDB's three-plane execution model (Control / Data / Event) is a
+# correctness boundary, not a performance hint. This gate enforces three
+# structural invariants:
 #
 #   1. Data Plane purity: `nodedb/src/data/**` must not import or call
 #      `tokio::*`. The Data Plane is single-threaded thread-per-core
@@ -114,7 +114,7 @@ if [ ${#violations[@]} -gt 0 ]; then
     echo "  - carry a '// no-plane-separation: <reason>' marker on the"
     echo "    same line or the directly-preceding line."
     echo
-    echo "Plane rules (see nodedb/CLAUDE.md):"
+    echo "Plane rules:"
     echo "  - Data Plane (nodedb/src/data/) is !Send + TPC: no tokio."
     echo "  - Control Plane (nodedb/src/control/) is Send + Sync: no io_uring."
     echo "  - Bridge (nodedb-bridge/, nodedb/src/bridge/) is lock-free SPSC:"

@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: BUSL-1.1
-
 //! End-to-end cluster tests for array CRDT Raft replication.
 //!
 //! Covers: basic replication, idempotency, and schema sync across a 3-node

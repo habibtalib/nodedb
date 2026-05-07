@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: BUSL-1.1
-
 //! Cluster end-to-end BACKUP / RESTORE.
 //!
 //! Verifies that the wire-streaming COPY surface fans out across

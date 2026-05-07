@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: BUSL-1.1
-
 //! 3-node cluster integration test for surrogate identity replication.
 //!
 //! Verifies that surrogate allocations made on the Raft leader are
@@ -54,8 +53,6 @@ fn pg_detail(e: &tokio_postgres::Error) -> String {
 /// and prints a plan; vshard transfer execution is not driven by SQL,
 /// so end-to-end "transfer preserves surrogate mappings" cannot be
 /// asserted from an integration test until an execute path exists.
-/// Tracked in resource/SQL_CLUSTER_CHECKLIST.md (F.2 / migration
-/// executor wiring), not in this file.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn surrogate_alloc_replicates_to_followers() {
     let cluster = TestCluster::spawn_three()

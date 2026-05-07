@@ -32,10 +32,10 @@
 //! ## Note on test scope
 //!
 //! This test exercises a single `CoreLoop` with fail-point injection — the
-//! correct scope for executor-layer testing. The 3-node variant described in
-//! the checklist would require a full cluster test harness wired with the
-//! scheduler's `LockManager`; that is the scheduler's domain, not the
-//! executor's. The executor contract above is complete and sufficient.
+//! correct scope for executor-layer testing. A 3-node cluster variant would
+//! require a full cluster test harness wired with the scheduler's
+//! `LockManager`; that lives in the scheduler's tests, not here. The
+//! executor contract above is complete and sufficient.
 
 mod common;
 #[allow(unused_imports)]

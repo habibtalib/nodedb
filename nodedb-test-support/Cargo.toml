@@ -1,0 +1,30 @@
+[package]
+name = "nodedb-test-support"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Shared test harness for NodeDB integration tests (not for end-user consumption)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# Production crates this harness drives.
+nodedb = { workspace = true }
+nodedb-array = { workspace = true }
+nodedb-bridge = { workspace = true }
+nodedb-cluster = { workspace = true }
+nodedb-types = { workspace = true }
+nodedb-wal = { workspace = true }
+
+# Runtime + wire deps used by the harness itself.
+tokio = { workspace = true, features = ["test-util"] }
+tokio-postgres = { workspace = true }
+tempfile = "3"
+serde_json = { workspace = true }
+sonic-rs = { workspace = true }
+zerompk = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }

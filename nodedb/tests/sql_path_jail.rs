@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-//! Filesystem paths are not part of the SQL surface.
+//! Filesystem path-jail rules for SQL surface area.
 //!
-//! `BACKUP TENANT`, `RESTORE TENANT` (+ `DRY RUN`), `COPY <coll> FROM`,
-//! and `EXPORT AUDIT LOG` reject any quoted-path argument with a
-//! SQLSTATE error. The error names the wire-streaming alternative
-//! (`COPY ... TO STDOUT`, `... FROM STDIN`, `SELECT FROM
-//! system.audit_log`). Rejection happens before any `std::fs` call,
-//! so caller-named paths never reach the filesystem and bytes from
-//! caller-named files never reach a deserializer.
+//! `BACKUP TENANT`, `RESTORE TENANT` (+ `DRY RUN`), and `EXPORT AUDIT
+//! LOG` reject any quoted-path argument with a SQLSTATE error naming
+//! the wire-streaming alternative (`COPY ... TO STDOUT`, `... FROM
+//! STDIN`, `SELECT FROM system.audit_log`). Rejection happens before
+//! any `std::fs` call, so caller-named paths never reach the
+//! filesystem and bytes from caller-named files never reach a
+//! deserializer.
+//!
+//! `COPY <coll> FROM '<path>'` is a real feature, but its path jail
+//! still blocks (a) non-absolute paths and (b) any path containing a
+//! `..` component. Absolute, non-traversal paths are accepted under
+//! the server UID's filesystem permissions.
 
 mod common;
 use common::pgwire_harness::TestServer;
@@ -206,21 +211,12 @@ async fn copy_from_rejects_path_form_absolute_system_file() {
     assert_structural_rejection(&msg, &["stdin", "copy"]);
 }
 
-#[tokio::test]
-async fn copy_from_rejects_path_form_tempdir() {
-    let server = TestServer::start().await;
-    server
-        .exec("CREATE COLLECTION pjc3 (id TEXT PRIMARY KEY, content TEXT) WITH (engine='document_strict')")
-        .await
-        .ok();
-
-    let dir = tempfile::tempdir().unwrap();
-    let target = dir.path().join("data.ndjson");
-    std::fs::write(&target, b"{\"id\":\"a\",\"content\":\"x\"}\n").unwrap();
-    let sql = format!("COPY pjc3 FROM '{}'", target.display());
-    let msg = err_of(&server, &sql).await;
-    assert_structural_rejection(&msg, &["stdin", "copy"]);
-}
+// `COPY <coll> FROM '<absolute readable path>'` is a real feature —
+// see `control/server/pgwire/ddl/collection/copy_from/`. The path
+// jail is "no relative paths, no `..` traversal", not "no paths at
+// all". An absolute, non-traversal path that resolves to a readable
+// file under the server's UID is accepted; it's the operator's job
+// to grant or deny that UID access to the path.
 
 // ────────────────────────────────────────────────────────────────────
 // EXPORT AUDIT LOG TO '<path>' — same removal.

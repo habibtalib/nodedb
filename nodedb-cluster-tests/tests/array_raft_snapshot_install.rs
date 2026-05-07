@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: BUSL-1.1
-
 //! Snapshot install test for array CRDT Raft replication.
 //!
 //! Verifies that a schema snapshot proposed via `handle_schema` is applied

@@ -115,14 +115,15 @@ fn extract_vector_surrogates(payload: &[u8]) -> Vec<u32> {
 }
 
 /// Extract surrogate u32 values from a `TextOp::Search` response.
-/// FTS hits encode the surrogate as `doc_id: "<8-char hex>"`.
+/// FTS hits share the document-scan envelope `{id, data}`; `id` is the
+/// 8-char hex surrogate produced by `surrogate_to_doc_id`.
 fn extract_fts_surrogates(payload: &[u8]) -> Vec<u32> {
     parse_json(payload)
         .as_array()
         .unwrap_or(&vec![])
         .iter()
         .filter_map(|h| {
-            h.get("doc_id")
+            h.get("id")
                 .and_then(|v| v.as_str())
                 .and_then(|hex| u32::from_str_radix(hex, 16).ok())
         })
