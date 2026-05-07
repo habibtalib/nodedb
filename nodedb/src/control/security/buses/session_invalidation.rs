@@ -86,6 +86,13 @@ impl SessionInvalidationBus {
         (Self { tx }, rx)
     }
 
+    /// Wrap an existing sender (e.g. clone of the bus's sender) as a publisher.
+    /// Used to give the `CredentialStore` a publishing handle to the same channel
+    /// without creating a second independent bus.
+    pub fn from_existing(tx: broadcast::Sender<SessionInvalidated>) -> Self {
+        Self { tx }
+    }
+
     /// Publish a session-invalidation event.
     ///
     /// Returns the number of active receivers that accepted the message.

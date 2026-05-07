@@ -38,6 +38,13 @@ impl UserChangeBus {
         (Self { tx }, rx)
     }
 
+    /// Wrap an existing sender as a publisher.  Used to give the
+    /// `CredentialStore` a publishing handle to the same channel
+    /// without creating a second independent bus.
+    pub fn from_existing(tx: broadcast::Sender<UserChanged>) -> Self {
+        Self { tx }
+    }
+
     /// Publish a user-change event.
     ///
     /// Returns the number of active receivers that accepted the message.

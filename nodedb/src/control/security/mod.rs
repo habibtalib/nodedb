@@ -40,6 +40,7 @@ pub mod role;
 pub mod scope;
 pub mod session_handle;
 pub mod session_registry;
+pub mod sessions;
 pub mod siem;
 pub mod tenant;
 pub mod time;
