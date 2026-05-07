@@ -3,6 +3,14 @@
 # Called by:
 #   - ci.yml      (PR checks)
 #   - release.yml (pre-publish gate)
+#
+# Cache strategy: both jobs share the same `target/` cache via
+# `shared-key: workspace`. The `lint` job seeds the cache on cold runs;
+# subsequent `test` runs start warm and only need to recompile what
+# changed. Avoids the previous 3x compile (lint + test + test-cluster).
+#
+# Job structure: fast tests and 3-node cluster tests run sequentially
+# in the same job so we don't pay the ~10-minute cold compile twice.
 
 name: Test
 
@@ -27,7 +35,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: lint
+          shared-key: workspace
       - name: Install system deps
         run: |
           sudo apt-get update
@@ -55,10 +63,17 @@ jobs:
       - name: Dependency audit
         run: cargo deny check
 
-  # Stage 1 — fast tests (everything except 3-node cluster suite).
+  # Single test job: runs the fast suite first, then the 3-node cluster
+  # suite (`nodedb-cluster-tests`) on the same runner. Combining them
+  # avoids a second cold compile of the whole workspace; the cluster
+  # crate is only a thin layer on top of the deps the fast suite has
+  # already built.
+  #
   # `--no-fail-fast` so a regression surfaces every failure in one run.
+  # Cluster tests are intentionally not fail-fast either, but they are
+  # serialised by `.config/nextest.toml`'s `cluster` test group.
   test:
-    name: Test (fast)
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -66,7 +81,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: test
+          shared-key: workspace
       - name: Install system deps
         run: |
           sudo apt-get update
@@ -77,46 +92,13 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: nextest
-      - name: Run tests
+      - name: Run fast tests
         run: |
           cargo nextest run \
             --workspace --exclude nodedb-cluster-tests \
             --all-features \
             --cargo-profile ci --profile ci \
             --no-fail-fast
-      - name: Upload JUnit report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: junit-report-fast
-          path: target/nextest/ci/junit.xml
-          if-no-files-found: ignore
-
-  # Stage 2 — 3-node cluster integration suite. Lives in its own crate
-  # (`nodedb-cluster-tests`) so there is no overlap with stage 1.
-  # Sequenced via `needs: test` — no point spending ~20 min here when
-  # the basics already broke.
-  test-cluster:
-    name: Test (cluster)
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: test-cluster
-      - name: Install system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake clang libclang-dev pkg-config protobuf-compiler perl \
-            libcurl4-openssl-dev libsasl2-dev
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@v2
-        with:
-          tool: nextest
       - name: Run cluster tests
         run: |
           cargo nextest run \
@@ -128,6 +110,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: junit-report-cluster
+          name: junit-report
           path: target/nextest/ci/junit.xml
           if-no-files-found: ignore
