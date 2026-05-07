@@ -4134,6 +4134,7 @@ dependencies = [
  "nodedb-spatial",
  "nodedb-sql",
  "nodedb-strict",
+ "nodedb-test-support",
  "nodedb-types",
  "nodedb-vector",
  "nodedb-wal",
@@ -4265,6 +4266,26 @@ dependencies = [
  "uuid",
  "x509-parser 0.16.0",
  "xxhash-rust",
+ "zerompk",
+]
+
+[[package]]
+name = "nodedb-cluster-tests"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "nodedb",
+ "nodedb-array",
+ "nodedb-bridge",
+ "nodedb-cluster",
+ "nodedb-test-support",
+ "nodedb-types",
+ "serde_json",
+ "sonic-rs",
+ "tempfile",
+ "tokio",
+ "tokio-postgres",
  "zerompk",
 ]
 
@@ -4451,6 +4472,26 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "nodedb-test-support"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "nodedb",
+ "nodedb-array",
+ "nodedb-bridge",
+ "nodedb-cluster",
+ "nodedb-types",
+ "nodedb-wal",
+ "serde_json",
+ "sonic-rs",
+ "tempfile",
+ "tokio",
+ "tokio-postgres",
+ "zerompk",
 ]
 
 [[package]]

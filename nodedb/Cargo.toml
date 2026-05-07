@@ -4,9 +4,12 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-readme.workspace = true
+readme = "README.md"
 repository.workspace = true
 homepage.workspace = true
+documentation = "https://docs.rs/nodedb"
+keywords = ["database", "vector", "graph", "columnar", "hybrid"]
+categories = ["database-implementations", "science::neuroscience"]
 description = "Local-first, real-time, edge-to-cloud hybrid database for multi-modal workloads"
 
 [[bin]]
@@ -152,6 +155,7 @@ proptest = "1"
 nodedb-types = { workspace = true }
 reqwest = { workspace = true }
 nodedb-array = { workspace = true }
+nodedb-test-support = { workspace = true }
 tower = { workspace = true }
 rcgen = "0.13"
 

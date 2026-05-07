@@ -20,6 +20,8 @@ members = [
   "nodedb-columnar",
   "nodedb-array",
   "nodedb-sql",
+  "nodedb-test-support",
+  "nodedb-cluster-tests",
 ]
 resolver = "2"
 
@@ -35,25 +37,27 @@ documentation = "https://docs.rs/nodedb"
 
 [workspace.dependencies]
 # Foundation crates (internal)
-nodedb-types = { path = "nodedb-types", version = "0" }
-nodedb-client = { path = "nodedb-client", version = "0" }
-nodedb-bridge = { path = "nodedb-bridge", version = "0" }
-nodedb-wal = { path = "nodedb-wal", version = "0" }
-nodedb-mem = { path = "nodedb-mem", version = "0" }
-nodedb-crdt = { path = "nodedb-crdt", version = "0" }
-nodedb-raft = { path = "nodedb-raft", version = "0" }
-nodedb-cluster = { path = "nodedb-cluster", version = "0" }
-nodedb-query = { path = "nodedb-query", version = "0" }
-nodedb-codec = { path = "nodedb-codec", version = "0" }
-nodedb-spatial = { path = "nodedb-spatial", version = "0" }
-nodedb-graph = { path = "nodedb-graph", version = "0" }
-nodedb-vector = { path = "nodedb-vector", version = "0" }
-nodedb-vector-gpu = { path = "nodedb-vector-gpu", version = "0" }
-nodedb-fts = { path = "nodedb-fts", version = "0" }
-nodedb-strict = { path = "nodedb-strict", version = "0" }
-nodedb-columnar = { path = "nodedb-columnar", version = "0" }
-nodedb-array = { path = "nodedb-array", version = "0" }
-nodedb-sql = { path = "nodedb-sql", version = "0" }
+nodedb = { path = "nodedb" }
+nodedb-types = { path = "nodedb-types", version = "0.1" }
+nodedb-client = { path = "nodedb-client", version = "0.1" }
+nodedb-bridge = { path = "nodedb-bridge", version = "0.1" }
+nodedb-wal = { path = "nodedb-wal", version = "0.1" }
+nodedb-mem = { path = "nodedb-mem", version = "0.1" }
+nodedb-crdt = { path = "nodedb-crdt", version = "0.1" }
+nodedb-raft = { path = "nodedb-raft", version = "0.1" }
+nodedb-cluster = { path = "nodedb-cluster", version = "0.1" }
+nodedb-query = { path = "nodedb-query", version = "0.1" }
+nodedb-codec = { path = "nodedb-codec", version = "0.1" }
+nodedb-spatial = { path = "nodedb-spatial", version = "0.1" }
+nodedb-graph = { path = "nodedb-graph", version = "0.1" }
+nodedb-vector = { path = "nodedb-vector", version = "0.1" }
+nodedb-vector-gpu = { path = "nodedb-vector-gpu", version = "0.1" }
+nodedb-fts = { path = "nodedb-fts", version = "0.1" }
+nodedb-strict = { path = "nodedb-strict", version = "0.1" }
+nodedb-columnar = { path = "nodedb-columnar", version = "0.1" }
+nodedb-array = { path = "nodedb-array", version = "0.1" }
+nodedb-sql = { path = "nodedb-sql", version = "0.1" }
+nodedb-test-support = { path = "nodedb-test-support" }
 
 # Async runtimes
 tokio = { version = "1", features = ["full"] }
@@ -150,7 +154,7 @@ chrono = { version = "0.4", features = ["std"], default-features = false }
 
 # MessagePack
 rmpv = "1"
-zerompk = { version = "0.4", features = ["std", "derive"] }
+zerompk = { version = "0.4", git = "https://github.com/farhan-syah/zerompk", rev = "1dd71a0de6b6c99f2c2dbbc69106bb87b1e2cdcb", features = ["std", "derive"] }
 
 # Bitmap
 roaring = "0.11"
@@ -259,8 +263,7 @@ inherits = "dev"
 debug = true
 
 [patch.crates-io]
-# Pinned to the fork carrying opt-in schema-evolution support
-# (`#[msgpack(default)]`, `skip_value`, mid-struct-default compile guard).
-# Bump the `rev` whenever the fork is updated.
-zerompk = { git = "https://github.com/farhan-syah/zerompk", rev = "1dd71a0de6b6c99f2c2dbbc69106bb87b1e2cdcb" }
-zerompk_derive = { git = "https://github.com/farhan-syah/zerompk", rev = "1dd71a0de6b6c99f2c2dbbc69106bb87b1e2cdcb" }
+# zerompk_derive is pulled in transitively by zerompk via the git source above;
+# the patch entry below ensures any sibling crate that references it via the
+# crates.io name resolves to the same fork rev.
+zerompk_derive = { version = "0.4", git = "https://github.com/farhan-syah/zerompk", rev = "1dd71a0de6b6c99f2c2dbbc69106bb87b1e2cdcb" }
