@@ -72,7 +72,8 @@ pub use graph::Direction;
 pub use hlc::{Hlc, HlcClock};
 pub use hnsw::{HnswCheckpoint, HnswNodeSnapshot, HnswParams};
 pub use id::{
-    CollectionId, DocumentId, EdgeId, EdgeIdParseError, IdError, IdType, NodeId, ShapeId, TenantId,
+    CollectionId, DatabaseId, DocumentId, EdgeId, EdgeIdParseError, IdError, IdType, NodeId,
+    ShapeId, TenantId,
 };
 pub use json_msgpack::{
     JsonValue, json_from_msgpack, json_to_msgpack, json_to_msgpack_or_empty,
