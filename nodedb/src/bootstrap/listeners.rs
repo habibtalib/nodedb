@@ -55,7 +55,7 @@ pub async fn spawn_protocol_listeners(
     let tls_for = |enabled: bool| -> Option<tokio_rustls::TlsAcceptor> {
         if enabled { base_acceptor.clone() } else { None }
     };
-    let tls_flags = config.tls.as_ref();
+    let tls_flags = config.server.tls.as_ref();
     let pgwire_tls_enabled = tls_flags.is_some_and(|t| t.pgwire);
     let http_tls_enabled = tls_flags.is_some_and(|t| t.http);
     let resp_tls_enabled = tls_flags.is_some_and(|t| t.resp);
@@ -89,7 +89,7 @@ pub async fn spawn_protocol_listeners(
     let http_auth_mode = config.auth.mode.clone();
     let http_listen = config.http_addr();
     let http_tls = if http_tls_enabled {
-        config.tls.clone()
+        config.server.tls.clone()
     } else {
         None
     };

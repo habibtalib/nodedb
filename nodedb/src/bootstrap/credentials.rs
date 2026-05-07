@@ -45,7 +45,10 @@ pub fn replay_surrogate_wal(shared: &Arc<SharedState>, wal_records: &Arc<[WalRec
 /// Bootstrap the superuser credential from config / data dir, or warn about trust mode.
 pub fn bootstrap_superuser(shared: &Arc<SharedState>, config: &ServerConfig) -> anyhow::Result<()> {
     let auth_mode = config.auth.mode.clone();
-    match config.auth.resolve_superuser_password(&config.data_dir) {
+    match config
+        .auth
+        .resolve_superuser_password(&config.server.data_dir)
+    {
         Ok(Some(password)) => {
             shared
                 .credentials
@@ -79,11 +82,11 @@ pub fn print_startup_banner(config: &ServerConfig, cluster_mode_str: &str) {
     eprintln!(
         "{}",
         crate::version::format_banner(
-            config.ports.pgwire,
-            config.ports.http,
-            config.ports.native,
+            config.server.ports.pgwire,
+            config.server.ports.http,
+            config.server.ports.native,
             cluster_mode_str,
-            &config.data_dir.display().to_string(),
+            &config.server.data_dir.display().to_string(),
             &format!("{:?}", config.auth.mode),
         )
     );

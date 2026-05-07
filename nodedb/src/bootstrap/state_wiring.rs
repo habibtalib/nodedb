@@ -109,7 +109,10 @@ pub fn wire_state(
             .as_ref()
             .map(|s| s.to_snapshot_storage_config())
             .unwrap_or_else(crate::config::server::SnapshotStorageSettings::default_storage_config);
-        match crate::storage::snapshot_writer::build_snapshot_store(&snap_cfg, &config.data_dir) {
+        match crate::storage::snapshot_writer::build_snapshot_store(
+            &snap_cfg,
+            &config.server.data_dir,
+        ) {
             Ok(store) => {
                 if let Some(state) = Arc::get_mut(shared) {
                     state.snapshot_storage = store;
@@ -132,8 +135,10 @@ pub fn wire_state(
             .unwrap_or_else(
                 crate::config::server::QuarantineStorageSettings::default_storage_config,
             );
-        match crate::storage::quarantine::registry::build_quarantine_store(&q_cfg, &config.data_dir)
-        {
+        match crate::storage::quarantine::registry::build_quarantine_store(
+            &q_cfg,
+            &config.server.data_dir,
+        ) {
             Ok(store) => {
                 if let Some(state) = Arc::get_mut(shared) {
                     state.quarantine_storage = store;
@@ -209,7 +214,7 @@ pub fn wire_state(
             crate::control::trace_export::TraceExporter::disabled()
         };
         state.debug_endpoints_enabled = config.observability.debug_endpoints_enabled;
-        state.data_dir = config.data_dir.clone();
+        state.data_dir = config.server.data_dir.clone();
         state.scheduler_config = config.scheduler.clone();
     }
 

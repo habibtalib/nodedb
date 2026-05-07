@@ -1,0 +1,184 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! `[server]` section: process/runtime configuration.
+//!
+//! Groups the fields that describe *how the server runs* — bind address,
+//! ports, resource budgets, on-disk location, log format — and keeps them
+//! distinct from the independent subsystem tables (`[auth]`, `[tls]`,
+//! `[cluster]`, …) which sit as siblings at the root.
+
+use std::net::{IpAddr, Ipv4Addr};
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+
+use super::env::parse_memory_size;
+use super::log_format::LogFormat;
+use super::paths::default_data_dir;
+use super::ports::PortsConfig;
+use super::tls::TlsSettings;
+
+/// Server-level (process/runtime) configuration. Lives under the
+/// `[server]` table in the TOML file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServerSection {
+    /// Bind address shared by all protocol listeners.
+    /// Default: 127.0.0.1 (localhost only). Use 0.0.0.0 for all interfaces.
+    #[serde(default = "default_host")]
+    pub host: IpAddr,
+
+    /// Per-protocol port numbers.
+    #[serde(default)]
+    pub ports: PortsConfig,
+
+    /// Data directory for WAL, segments, and indexes.
+    #[serde(default = "default_data_dir")]
+    pub data_dir: PathBuf,
+
+    /// Number of Data Plane cores. Defaults to available CPUs minus one
+    /// (reserving one core for the Control Plane).
+    #[serde(default = "default_data_plane_cores")]
+    pub data_plane_cores: usize,
+
+    /// Global memory ceiling. Accepts either a raw byte count
+    /// (`memory_limit = 4294967296`) or a human-readable string
+    /// (`memory_limit = "4GiB"`). The memory governor enforces this.
+    #[serde(
+        default = "default_memory_limit",
+        deserialize_with = "deserialize_memory_limit"
+    )]
+    pub memory_limit: usize,
+
+    /// Maximum concurrent client connections across all listeners.
+    /// Enforced at accept time via a shared semaphore — no permit means
+    /// immediate TCP RST. Prevents connection floods from exhausting memory
+    /// before per-tenant quotas kick in (those are checked post-authentication).
+    /// 0 = unlimited (not recommended for production).
+    #[serde(default = "default_max_connections")]
+    pub max_connections: usize,
+
+    /// Log output format: `"text"` (default, human-readable) or `"json"` (structured).
+    /// Unknown values are rejected at startup — there is no silent fallback.
+    #[serde(default)]
+    pub log_format: LogFormat,
+
+    /// Per-listener TLS configuration. Lives under `[server.tls]` because
+    /// it directly modifies the listeners declared in `[server.ports]`
+    /// (per-protocol toggles + cert paths). When absent, every listener
+    /// runs in plaintext. When present, individual protocols can still
+    /// opt out via the per-protocol bool fields on [`TlsSettings`].
+    #[serde(default)]
+    pub tls: Option<TlsSettings>,
+}
+
+impl Default for ServerSection {
+    fn default() -> Self {
+        Self {
+            host: default_host(),
+            ports: PortsConfig::default(),
+            data_dir: default_data_dir(),
+            data_plane_cores: default_data_plane_cores(),
+            memory_limit: default_memory_limit(),
+            max_connections: default_max_connections(),
+            log_format: LogFormat::Text,
+            tls: None,
+        }
+    }
+}
+
+fn default_host() -> IpAddr {
+    IpAddr::V4(Ipv4Addr::LOCALHOST)
+}
+
+fn default_data_plane_cores() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get().saturating_sub(1).max(1))
+        .unwrap_or(1)
+}
+
+fn default_memory_limit() -> usize {
+    1024 * 1024 * 1024 // 1 GiB
+}
+
+fn default_max_connections() -> usize {
+    4096
+}
+
+/// Deserializer for `memory_limit` that accepts either a raw byte count
+/// (`memory_limit = 4294967296`) or a human-readable string
+/// (`memory_limit = "4GiB"`). Suffixes: `K/KiB`, `M/MiB`, `G/GiB`, `T/TiB`,
+/// case-insensitive. See [`parse_memory_size`].
+fn deserialize_memory_limit<'de, D>(deserializer: D) -> std::result::Result<usize, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct MemSizeVisitor;
+
+    impl<'de> Visitor<'de> for MemSizeVisitor {
+        type Value = usize;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a byte count integer or a string like \"4GiB\" / \"512MiB\"")
+        }
+
+        fn visit_u64<E: de::Error>(self, v: u64) -> std::result::Result<usize, E> {
+            usize::try_from(v).map_err(|_| de::Error::custom("memory_limit too large for usize"))
+        }
+
+        fn visit_i64<E: de::Error>(self, v: i64) -> std::result::Result<usize, E> {
+            if v < 0 {
+                return Err(de::Error::custom("memory_limit must be non-negative"));
+            }
+            usize::try_from(v).map_err(|_| de::Error::custom("memory_limit too large for usize"))
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> std::result::Result<usize, E> {
+            parse_memory_size(v).map_err(|e| de::Error::custom(format!("memory_limit: {e}")))
+        }
+    }
+
+    deserializer.deserialize_any(MemSizeVisitor)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_match_documented_values() {
+        let s = ServerSection::default();
+        assert_eq!(s.host, IpAddr::V4(Ipv4Addr::LOCALHOST));
+        assert_eq!(s.memory_limit, 1024 * 1024 * 1024);
+        assert!(s.data_plane_cores >= 1);
+        assert_eq!(s.max_connections, 4096);
+        assert_eq!(s.log_format, LogFormat::Text);
+    }
+
+    #[test]
+    fn memory_limit_string_form_parses() {
+        let s: ServerSection = toml::from_str("memory_limit = \"4GiB\"\n").unwrap();
+        assert_eq!(s.memory_limit, 4 * 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn memory_limit_int_form_parses() {
+        let s: ServerSection = toml::from_str("memory_limit = 2147483648\n").unwrap();
+        assert_eq!(s.memory_limit, 2147483648);
+    }
+
+    #[test]
+    fn memory_limit_negative_rejected() {
+        let result: Result<ServerSection, _> = toml::from_str("memory_limit = -1\n");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn unknown_field_rejected() {
+        let result: Result<ServerSection, _> = toml::from_str("frobnicate = true\n");
+        assert!(result.is_err());
+    }
+}

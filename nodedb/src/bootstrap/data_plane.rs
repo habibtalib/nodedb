@@ -75,7 +75,7 @@ pub fn spawn_data_plane_cores(
         quarantine_registry,
         system_metrics,
     } = resources;
-    let num_cores = config.data_plane_cores;
+    let num_cores = config.server.data_plane_cores;
     let compaction_cfg = CoreCompactionConfig {
         interval: config.checkpoint.compaction_interval(),
         tombstone_threshold: config.checkpoint.compaction_tombstone_threshold,
@@ -92,7 +92,7 @@ pub fn spawn_data_plane_cores(
             core_id,
             data_side.request_rx,
             data_side.response_tx,
-            &config.data_dir,
+            &config.server.data_dir,
             Arc::clone(&wal_records),
             replay_tombstones.clone(),
             num_cores,

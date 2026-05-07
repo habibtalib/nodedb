@@ -170,7 +170,7 @@ pub fn apply_env_overrides(config: &mut ServerConfig) {
         match val.trim().parse::<IpAddr>() {
             Ok(ip) => {
                 tracing::info!(env_var = "NODEDB_HOST", value = %val, "environment variable override applied");
-                config.host = ip;
+                config.server.host = ip;
             }
             Err(_) => {
                 tracing::warn!(
@@ -182,11 +182,11 @@ pub fn apply_env_overrides(config: &mut ServerConfig) {
         }
     }
 
-    apply_port_env("NODEDB_PORT_NATIVE", &mut config.ports.native);
-    apply_port_env("NODEDB_PORT_PGWIRE", &mut config.ports.pgwire);
-    apply_port_env("NODEDB_PORT_HTTP", &mut config.ports.http);
-    apply_optional_port_env("NODEDB_PORT_RESP", &mut config.ports.resp);
-    apply_optional_port_env("NODEDB_PORT_ILP", &mut config.ports.ilp);
+    apply_port_env("NODEDB_PORT_NATIVE", &mut config.server.ports.native);
+    apply_port_env("NODEDB_PORT_PGWIRE", &mut config.server.ports.pgwire);
+    apply_port_env("NODEDB_PORT_HTTP", &mut config.server.ports.http);
+    apply_optional_port_env("NODEDB_PORT_RESP", &mut config.server.ports.resp);
+    apply_optional_port_env("NODEDB_PORT_ILP", &mut config.server.ports.ilp);
 
     if let Ok(val) = std::env::var("NODEDB_DATA_DIR") {
         let path = std::path::PathBuf::from(&val);
@@ -195,7 +195,7 @@ pub fn apply_env_overrides(config: &mut ServerConfig) {
             value = %val,
             "environment variable override applied"
         );
-        config.data_dir = path;
+        config.server.data_dir = path;
     }
 
     if let Ok(val) = std::env::var("NODEDB_MEMORY_LIMIT") {
@@ -207,7 +207,7 @@ pub fn apply_env_overrides(config: &mut ServerConfig) {
                     bytes,
                     "environment variable override applied"
                 );
-                config.memory_limit = bytes;
+                config.server.memory_limit = bytes;
             }
             Err(e) => {
                 tracing::warn!(
@@ -290,7 +290,7 @@ pub fn apply_env_overrides(config: &mut ServerConfig) {
                     value = cores,
                     "environment variable override applied"
                 );
-                config.data_plane_cores = cores;
+                config.server.data_plane_cores = cores;
             }
             Err(_) => {
                 tracing::warn!(
@@ -310,7 +310,7 @@ pub fn apply_env_overrides(config: &mut ServerConfig) {
                     value = n,
                     "environment variable override applied"
                 );
-                config.max_connections = n;
+                config.server.max_connections = n;
             }
             Err(_) => {
                 tracing::warn!(
@@ -331,7 +331,7 @@ pub fn apply_env_overrides(config: &mut ServerConfig) {
                     value = "text",
                     "environment variable override applied"
                 );
-                config.log_format = super::LogFormat::Text;
+                config.server.log_format = super::LogFormat::Text;
             }
             "json" => {
                 tracing::info!(
@@ -339,7 +339,7 @@ pub fn apply_env_overrides(config: &mut ServerConfig) {
                     value = "json",
                     "environment variable override applied"
                 );
-                config.log_format = super::LogFormat::Json;
+                config.server.log_format = super::LogFormat::Json;
             }
             _ => {
                 tracing::warn!(
@@ -353,7 +353,7 @@ pub fn apply_env_overrides(config: &mut ServerConfig) {
 
     // ── Per-protocol TLS toggles ─────────────────────────────────
 
-    if let Some(ref mut tls) = config.tls {
+    if let Some(ref mut tls) = config.server.tls {
         apply_bool_env("NODEDB_TLS_NATIVE", &mut tls.native);
         apply_bool_env("NODEDB_TLS_PGWIRE", &mut tls.pgwire);
         apply_bool_env("NODEDB_TLS_HTTP", &mut tls.http);
@@ -515,7 +515,10 @@ mod tests {
         unsafe { std::env::set_var("NODEDB_DATA_DIR", "/tmp/test-nodedb") };
         let mut cfg = ServerConfig::default();
         apply_env_overrides(&mut cfg);
-        assert_eq!(cfg.data_dir, std::path::PathBuf::from("/tmp/test-nodedb"));
+        assert_eq!(
+            cfg.server.data_dir,
+            std::path::PathBuf::from("/tmp/test-nodedb")
+        );
         unsafe { std::env::remove_var("NODEDB_DATA_DIR") };
     }
 
@@ -527,15 +530,15 @@ mod tests {
         unsafe { std::env::set_var("NODEDB_MEMORY_LIMIT", "2GiB") };
         let mut cfg = ServerConfig::default();
         apply_env_overrides(&mut cfg);
-        assert_eq!(cfg.memory_limit, 2 * 1024 * 1024 * 1024);
+        assert_eq!(cfg.server.memory_limit, 2 * 1024 * 1024 * 1024);
 
         // ── Malformed value → memory_limit unchanged ──
         unsafe { std::env::set_var("NODEDB_MEMORY_LIMIT", "notanumber") };
         let mut cfg = ServerConfig::default();
-        let before = cfg.memory_limit;
+        let before = cfg.server.memory_limit;
         apply_env_overrides(&mut cfg);
         assert_eq!(
-            cfg.memory_limit, before,
+            cfg.server.memory_limit, before,
             "malformed value must not change config"
         );
 

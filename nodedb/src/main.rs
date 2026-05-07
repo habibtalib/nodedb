@@ -109,12 +109,12 @@ async fn main() -> anyhow::Result<()> {
         features = nodedb::version::features_str(),
         host = %nodedb::version::hostname(),
         pid = std::process::id(),
-        pgwire_port = config.ports.pgwire,
-        http_port = config.ports.http,
-        native_port = config.ports.native,
+        pgwire_port = config.server.ports.pgwire,
+        http_port = config.server.ports.http,
+        native_port = config.server.ports.native,
         cluster_mode = cluster_mode_str,
-        cores = config.data_plane_cores,
-        memory_limit = config.memory_limit,
+        cores = config.server.data_plane_cores,
+        memory_limit = config.server.memory_limit,
         "nodedb starting",
     );
 
@@ -149,15 +149,15 @@ async fn main() -> anyhow::Result<()> {
         startup_seq.register_gate(StartupPhase::GatewayEnable, "gateway-enable");
 
     // Initialize memory governor (per-engine budgets + global ceiling).
-    let byte_budgets = config.engines.to_byte_budgets(config.memory_limit);
-    let governor = nodedb::memory::init_governor(config.memory_limit, &byte_budgets)?;
+    let byte_budgets = config.engines.to_byte_budgets(config.server.memory_limit);
+    let governor = nodedb::memory::init_governor(config.server.memory_limit, &byte_budgets)?;
 
     // Open WAL, validate, replay, and load tombstone set.
     let (wal, wal_records, replay_tombstones) = bootstrap::wal_init::init_wal(&config)?;
     wal_gate.fire();
 
     // Create SPSC bridge: Dispatcher (Control Plane) + CoreChannelDataSide (Data Plane).
-    let num_cores = config.data_plane_cores;
+    let num_cores = config.server.data_plane_cores;
     let (mut dispatcher, data_sides) = Dispatcher::new(num_cores, 1024);
 
     // Create Event Bus: per-core ring buffers (Data Plane → Event Plane).
@@ -205,11 +205,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Event Plane resources (spawned after SharedState is created — needs it for trigger dispatch).
     let watermark_store = Arc::new(
-        nodedb::event::watermark::WatermarkStore::open(&config.data_dir)
+        nodedb::event::watermark::WatermarkStore::open(&config.server.data_dir)
             .expect("failed to open event plane watermark store"),
     );
     let trigger_dlq = Arc::new(std::sync::Mutex::new(
-        nodedb::event::trigger::TriggerDlq::open(&config.data_dir)
+        nodedb::event::trigger::TriggerDlq::open(&config.server.data_dir)
             .expect("failed to open trigger DLQ"),
     ));
 
@@ -220,7 +220,7 @@ async fn main() -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("cluster config: {e}"))?;
         let handle = nodedb::control::cluster::init_cluster(
             cluster_cfg,
-            &config.data_dir,
+            &config.server.data_dir,
             &config.tuning.cluster_transport,
         )
         .await?;
@@ -314,7 +314,7 @@ async fn main() -> anyhow::Result<()> {
             Some(nodedb::control::cluster::start_raft(
                 handle,
                 Arc::clone(&shared),
-                &config.data_dir,
+                &config.server.data_dir,
                 shutdown_rx.clone(),
                 &config.tuning.cluster_transport,
             )?)
@@ -340,7 +340,10 @@ async fn main() -> anyhow::Result<()> {
     bootstrap::background_loops::spawn_response_poller(&shared);
 
     // Spawn all persistent background loops and subsystems.
-    bootstrap::background_loops::spawn_background_loops(
+    // The returned EventPlane handle MUST be held for the server's lifetime —
+    // dropping it shuts down every event consumer and the Data Plane will
+    // silently drop every WriteEvent it emits afterward.
+    let _event_plane = bootstrap::background_loops::spawn_background_loops(
         &shared,
         bootstrap::background_loops::EventPlaneComponents {
             wal: Arc::clone(&wal),
@@ -354,9 +357,9 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Create shared connection semaphore — enforced across all listeners.
-    let conn_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_connections));
+    let conn_semaphore = Arc::new(tokio::sync::Semaphore::new(config.server.max_connections));
     info!(
-        max_connections = config.max_connections,
+        max_connections = config.server.max_connections,
         "connection limit configured"
     );
 
@@ -371,14 +374,14 @@ async fn main() -> anyhow::Result<()> {
     bootstrap::signal::spawn_signal_handlers(
         Arc::clone(&shared),
         Arc::clone(&conn_semaphore),
-        config.max_connections,
+        config.server.max_connections,
         shutdown_bus.clone(),
     );
 
     // Build shared TLS acceptor if configured. Per-protocol flags control
     // which listeners actually use it — `tls_for(flag)` returns None when
     // the flag is false, disabling TLS on that protocol.
-    let base_acceptor: Option<tokio_rustls::TlsAcceptor> = match &config.tls {
+    let base_acceptor: Option<tokio_rustls::TlsAcceptor> = match &config.server.tls {
         Some(tls) => {
             let check_interval = Duration::from_secs(tls.cert_reload_interval_secs.unwrap_or(3600));
             let (_tls_rx, _tls_tx) = nodedb::control::server::tls_reload::start_tls_reloader(
@@ -400,7 +403,7 @@ async fn main() -> anyhow::Result<()> {
     let tls_for = |enabled: bool| -> Option<tokio_rustls::TlsAcceptor> {
         if enabled { base_acceptor.clone() } else { None }
     };
-    let tls_flags = config.tls.as_ref();
+    let tls_flags = config.server.tls.as_ref();
     let native_tls_enabled = tls_flags.is_some_and(|t| t.native);
 
     // Wait for raft readiness, run catalog sanity check, warm peer cache, fire gates.

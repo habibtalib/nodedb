@@ -14,7 +14,7 @@ use crate::ServerConfig;
 /// `tracing::info!` / `tracing::warn!` calls are expected to emit.
 pub fn init_tracing(config: &ServerConfig) {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"));
-    if config.log_format == crate::config::LogFormat::Json {
+    if config.server.log_format == crate::config::LogFormat::Json {
         tracing_subscriber::registry()
             .with(
                 tracing_subscriber::fmt::layer()

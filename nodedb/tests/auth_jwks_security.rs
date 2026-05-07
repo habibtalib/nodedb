@@ -171,6 +171,7 @@ async fn single_provider_with_empty_configured_issuer_still_rejects_any_token() 
 fn config_toml_with_provider(jwks_url: &str, issuer: &str) -> String {
     format!(
         r#"
+[server]
 data_dir         = "/tmp/nodedb-security-test"
 data_plane_cores = 1
 memory_limit     = 1073741824
@@ -279,6 +280,7 @@ fn config_accepts_http_jwks_when_allow_http_and_host_listed() {
     // Self-hosted dev / in-cluster IdP: an explicit allow-list for the
     // hostname unlocks http:// for THAT host only.
     let toml = r#"
+[server]
 data_dir         = "/tmp/nodedb-security-test"
 data_plane_cores = 1
 memory_limit     = 1073741824
@@ -322,6 +324,7 @@ fn config_rejects_http_jwks_for_non_allowlisted_host_even_when_allow_http() {
     // allow_http_jwks is scoped — a URL whose host isn't in the list
     // still fails. This is the property that keeps the relaxation narrow.
     let toml = r#"
+[server]
 data_dir         = "/tmp/nodedb-security-test"
 data_plane_cores = 1
 memory_limit     = 1073741824
@@ -366,6 +369,7 @@ issuer   = "https://auth.example.com/"
 fn config_rejects_ip_literal_jwks_even_with_allow_list() {
     // Literals are never allowed, regardless of CIDR allow-list.
     let toml = r#"
+[server]
 data_dir         = "/tmp/nodedb-security-test"
 data_plane_cores = 1
 memory_limit     = 1073741824
