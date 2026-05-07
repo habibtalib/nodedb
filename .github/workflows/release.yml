@@ -310,6 +310,8 @@ jobs:
           tags: farhansyah/nodedb:${{ needs.validate-version.outputs.version }}-${{ matrix.label }}
           cache-from: type=gha,scope=${{ matrix.label }}
           cache-to: type=gha,scope=${{ matrix.label }},mode=max
+          sbom: true
+          provenance: mode=max
 
   docker-manifest:
     name: Docker manifest
@@ -386,4 +388,4 @@ jobs:
             '{embeds:[{title:$title,url:$url,description:$desc,color:$color}]}')
 
           curl -fsS -H "Content-Type: application/json" \
-            -X POST -d "$PAYLOAD" "$DISCORD_RELEASE_WEBHOOK_URL" 
+            -X POST -d "$PAYLOAD" "$DISCORD_RELEASE_WEBHOOK_URL"
