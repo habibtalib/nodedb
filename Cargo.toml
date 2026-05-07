@@ -37,7 +37,7 @@ documentation = "https://docs.rs/nodedb"
 
 [workspace.dependencies]
 # Foundation crates (internal)
-nodedb = { path = "nodedb" }
+nodedb = { path = "nodedb", version = "0.1" }
 nodedb-types = { path = "nodedb-types", version = "0.1" }
 nodedb-client = { path = "nodedb-client", version = "0.1" }
 nodedb-bridge = { path = "nodedb-bridge", version = "0.1" }
@@ -57,7 +57,7 @@ nodedb-strict = { path = "nodedb-strict", version = "0.1" }
 nodedb-columnar = { path = "nodedb-columnar", version = "0.1" }
 nodedb-array = { path = "nodedb-array", version = "0.1" }
 nodedb-sql = { path = "nodedb-sql", version = "0.1" }
-nodedb-test-support = { path = "nodedb-test-support" }
+nodedb-test-support = { path = "nodedb-test-support", version = "0.1" }
 
 # Async runtimes
 tokio = { version = "1", features = ["full"] }
