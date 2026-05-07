@@ -92,6 +92,19 @@ pub enum AuditEvent {
     /// and dropped events.  Lag on the audit bus is itself a security
     /// event: it means audit rows may be missing.
     AuditBusLagged = 27,
+    /// A runtime permission check returned false — the authenticated user
+    /// was denied access to a collection or cluster resource. Emitted at
+    /// the `PermissionStore::check` decision point.
+    PermissionDenied = 28,
+    /// A Row-Level Security write policy rejected a document write.
+    /// Emitted by `rls::eval::check_compiled_write` on denial.
+    RlsRejected = 29,
+    /// A user's failed-login counter reached the lockout threshold and
+    /// the account was locked for `lockout_duration_secs`.
+    LockoutTriggered = 30,
+    /// A pre-authentication rate-limit bucket (per-IP or per-username)
+    /// rejected a login attempt before SCRAM/Argon2 verification.
+    LoginRateLimited = 31,
 }
 
 impl AuditEvent {
@@ -129,6 +142,10 @@ impl AuditEvent {
             Self::AuditCheckpoint => 25,
             Self::SessionRevoked => 26,
             Self::AuditBusLagged => 27,
+            Self::PermissionDenied => 28,
+            Self::RlsRejected => 29,
+            Self::LockoutTriggered => 30,
+            Self::LoginRateLimited => 31,
         }
     }
 
@@ -141,7 +158,51 @@ impl AuditEvent {
                 | Self::AuthzDenied
                 | Self::SessionConnect
                 | Self::SessionDisconnect
+                | Self::PermissionDenied
+                | Self::RlsRejected
+                | Self::LockoutTriggered
+                | Self::LoginRateLimited
         )
+    }
+
+    /// Return a stable snake_case filter key for use in SQL `WHERE event_type = '...'`
+    /// comparisons.  The returned strings are used by `SHOW AUDIT WHERE event_type`
+    /// and by the `event_type` column in audit query results.
+    pub fn snake_name(&self) -> &'static str {
+        match self {
+            Self::AuthSuccess => "auth_success",
+            Self::AuthFailure => "auth_failure",
+            Self::AuthzDenied => "authz_denied",
+            Self::PrivilegeChange => "privilege_change",
+            Self::TenantCreated => "tenant_created",
+            Self::TenantDeleted => "tenant_deleted",
+            Self::SnapshotBegin => "snapshot_begin",
+            Self::SnapshotEnd => "snapshot_end",
+            Self::RestoreBegin => "restore_begin",
+            Self::RestoreEnd => "restore_end",
+            Self::CertRotation => "cert_rotation",
+            Self::CertRotationFailed => "cert_rotation_failed",
+            Self::KeyRotation => "key_rotation",
+            Self::ConfigChange => "config_change",
+            Self::NodeJoined => "node_joined",
+            Self::NodeLeft => "node_left",
+            Self::AdminAction => "admin_action",
+            Self::SessionConnect => "session_connect",
+            Self::SessionDisconnect => "session_disconnect",
+            Self::QueryExec => "query_exec",
+            Self::RlsDenied => "rls_denied",
+            Self::RowChange => "row_change",
+            Self::DdlChange => "ddl_change",
+            Self::SessionHandleFingerprintMismatch => "session_handle_fingerprint_mismatch",
+            Self::SessionHandleResolveMissSpike => "session_handle_resolve_miss_spike",
+            Self::AuditCheckpoint => "audit_checkpoint",
+            Self::SessionRevoked => "session_revoked",
+            Self::AuditBusLagged => "audit_bus_lagged",
+            Self::PermissionDenied => "permission_denied",
+            Self::RlsRejected => "rls_rejected",
+            Self::LockoutTriggered => "lockout_triggered",
+            Self::LoginRateLimited => "login_rate_limited",
+        }
     }
 
     /// Minimum audit level required to record this event.
@@ -175,6 +236,11 @@ impl AuditEvent {
             // they are never filtered out even in the lowest-verbosity mode.
             Self::SessionRevoked => AuditLevel::Minimal,
             Self::AuditBusLagged => AuditLevel::Minimal,
+            // Denial events are security-critical: always at Minimal.
+            Self::PermissionDenied => AuditLevel::Minimal,
+            Self::RlsRejected => AuditLevel::Minimal,
+            Self::LockoutTriggered => AuditLevel::Minimal,
+            Self::LoginRateLimited => AuditLevel::Minimal,
         }
     }
 }
