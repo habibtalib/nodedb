@@ -5,6 +5,7 @@ pub mod audit;
 pub mod auth_apikey;
 pub mod auth_context;
 pub mod blacklist;
+pub mod buses;
 pub mod catalog;
 pub mod ceiling;
 pub mod conditional;

@@ -171,6 +171,12 @@ impl SharedState {
         // per-stream drop counters into the same registry that the HTTP
         // /metrics endpoint reads.
         let system_metrics = Arc::new(crate::control::metrics::SystemMetrics::new());
+
+        let shared_audit = Arc::new(Mutex::new(audit_log));
+        let (si_bus, uc_bus, bus_consumer_task) =
+            super::buses_init::init_security_buses(Arc::clone(&shared_audit));
+        let bus_consumer_handle = Some(bus_consumer_task);
+
         let state = Arc::new(Self {
             dispatcher: Mutex::new(dispatcher),
             tracker: RequestTracker::new(),
@@ -178,7 +184,7 @@ impl SharedState {
             quiesce,
             http_client: Arc::new(reqwest::Client::new()),
             credentials: Arc::clone(&credentials),
-            audit: Arc::new(Mutex::new(audit_log)),
+            audit: shared_audit,
             api_keys,
             roles,
             permissions,
@@ -200,6 +206,9 @@ impl SharedState {
                 std::collections::HashMap::new(),
             )),
             array_gc_handle: None,
+            session_invalidation_bus: si_bus,
+            user_change_bus: uc_bus,
+            bus_consumer_handle,
             array_sync_schemas: {
                 let data_dir = catalog_path.parent().unwrap_or(std::path::Path::new("."));
                 let schema_db = {

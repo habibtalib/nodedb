@@ -169,6 +169,12 @@ pub struct SharedState {
     >,
     /// GC background task handle for shutdown await.
     pub array_gc_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Session-invalidation broadcast bus.  Dropping the sender shuts down the consumer.
+    pub session_invalidation_bus: crate::control::security::buses::SessionInvalidationBus,
+    /// User-change broadcast bus.  Dropping the sender shuts down the consumer.
+    pub user_change_bus: crate::control::security::buses::UserChangeBus,
+    /// Audit-row consumer task for the security buses.  Awaited on graceful shutdown.
+    pub bus_consumer_handle: Option<tokio::task::JoinHandle<()>>,
     /// Per-array schema CRDT registry for array sync (survives restarts).
     pub array_sync_schemas: std::sync::Arc<crate::control::array_sync::OriginSchemaRegistry>,
     /// Per-session outbound array CRDT frame channels for the WebSocket send loop.

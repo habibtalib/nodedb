@@ -84,6 +84,14 @@ pub enum AuditEvent {
     /// deleted; never on a no-op prune. The surviving chain verifies as:
     ///   verify(checkpoint) → valid; verify(first_surviving) → valid.
     AuditCheckpoint = 25,
+    /// An open session was actively revoked (DROP USER, soft-delete,
+    /// full role purge).  Emitted by the bus consumer **before** the
+    /// connection is closed so the row is durable even if close fails.
+    SessionRevoked = 26,
+    /// The security audit bus consumer fell behind its broadcast channel
+    /// and dropped events.  Lag on the audit bus is itself a security
+    /// event: it means audit rows may be missing.
+    AuditBusLagged = 27,
 }
 
 impl AuditEvent {
@@ -119,6 +127,8 @@ impl AuditEvent {
             Self::SessionHandleFingerprintMismatch => 23,
             Self::SessionHandleResolveMissSpike => 24,
             Self::AuditCheckpoint => 25,
+            Self::SessionRevoked => 26,
+            Self::AuditBusLagged => 27,
         }
     }
 
@@ -161,6 +171,10 @@ impl AuditEvent {
                 AuditLevel::Standard
             }
             Self::AuditCheckpoint => AuditLevel::Minimal,
+            // Security-critical events: always recorded at Minimal level so
+            // they are never filtered out even in the lowest-verbosity mode.
+            Self::SessionRevoked => AuditLevel::Minimal,
+            Self::AuditBusLagged => AuditLevel::Minimal,
         }
     }
 }

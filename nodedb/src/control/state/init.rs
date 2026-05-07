@@ -88,6 +88,11 @@ impl SharedState {
             Arc::clone(&test_credentials),
             Arc::new(crate::control::surrogate::NoopWalAppender),
         ));
+        let shared_audit = Arc::new(Mutex::new(AuditLog::new(10_000)));
+        let (si_bus, uc_bus, bus_consumer_task) =
+            super::buses_init::init_security_buses(Arc::clone(&shared_audit));
+        let bus_consumer_handle = Some(bus_consumer_task);
+
         let state = Arc::new(Self {
             dispatcher: Mutex::new(dispatcher),
             tracker: RequestTracker::new(),
@@ -95,7 +100,7 @@ impl SharedState {
             quiesce: crate::bridge::quiesce::CollectionQuiesce::new(),
             http_client: Arc::new(reqwest::Client::new()),
             credentials: Arc::clone(&test_credentials),
-            audit: Arc::new(Mutex::new(AuditLog::new(10_000))),
+            audit: shared_audit,
             api_keys: ApiKeyStore::new(),
             roles: RoleStore::new(),
             permissions: PermissionStore::new(),
@@ -178,6 +183,9 @@ impl SharedState {
                 std::collections::HashMap::new(),
             )),
             array_gc_handle: None,
+            session_invalidation_bus: si_bus,
+            user_change_bus: uc_bus,
+            bus_consumer_handle,
             array_sync_schemas: {
                 let db = std::sync::Arc::new(
                     redb::Database::builder()

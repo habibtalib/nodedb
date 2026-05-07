@@ -140,6 +140,20 @@ mod tests {
         );
     }
 
+    /// Pins the canonical hash for `AuditEvent::SessionRevoked` (discriminant 26).
+    /// This confirms the variant is correctly encoded and that its discriminant
+    /// is stable across refactors.
+    #[test]
+    fn hash_pinned_for_session_revoked() {
+        let entry = make_entry(1, AuditEvent::SessionRevoked, "");
+        let h = hash_entry(&entry);
+        // Pinned hash. Updating this string requires explicit reasoning — encoding changes break audit chain compatibility.
+        assert_eq!(
+            h, "de50ebc3c59d139a5da1941ec75f3d2e5b2c7f9fe1ccd28fa084d60e3cb58cf2",
+            "canonical hash for SessionRevoked (discriminant 26) must not drift"
+        );
+    }
+
     #[test]
     fn different_events_produce_different_hashes() {
         let e1 = make_entry(1, AuditEvent::AuthSuccess, "");
