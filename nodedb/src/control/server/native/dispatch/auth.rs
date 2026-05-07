@@ -11,7 +11,7 @@ use crate::control::state::SharedState;
 ///
 /// Returns `(identity, warning)` — warning is non-empty when the account
 /// is in a password grace period or `must_change_password` is set.
-pub(crate) fn handle_auth(
+pub(crate) async fn handle_auth(
     state: &SharedState,
     auth_mode: &crate::config::auth::AuthMode,
     auth: &ProtoAuth,
@@ -34,7 +34,7 @@ pub(crate) fn handle_auth(
         }
     };
 
-    super::super::super::session_auth::authenticate(state, auth_mode, &body, peer_addr)
+    super::super::super::session_auth::authenticate(state, auth_mode, &body, peer_addr).await
 }
 
 /// Respond to a ping with a pong.

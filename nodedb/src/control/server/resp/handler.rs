@@ -6,6 +6,7 @@ use sonic_rs;
 
 use crate::bridge::envelope::{PhysicalPlan, Status};
 use crate::bridge::physical_plan::KvOp;
+use crate::control::security::audit::ArcAuditEmitter;
 use crate::control::state::SharedState;
 
 use super::codec::RespValue;
@@ -112,7 +113,10 @@ fn handle_auth(cmd: &RespCommand, session: &mut RespSession, state: &SharedState
     state.credentials.check_lockout(username).ok();
 
     if !state.credentials.verify_password(username, password) {
-        state.credentials.record_login_failure(username);
+        let emitter = ArcAuditEmitter(std::sync::Arc::clone(&state.audit));
+        state
+            .credentials
+            .record_login_failure(username, None, &emitter);
         state.auth_metrics.record_auth_failure("resp_password");
         return RespValue::err("WRONGPASS invalid username-password pair");
     }

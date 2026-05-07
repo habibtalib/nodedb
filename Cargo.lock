@@ -4182,6 +4182,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "unicode-normalization",
+ "uuid",
  "wasmtime",
  "x509-parser 0.16.0",
  "zeroize",

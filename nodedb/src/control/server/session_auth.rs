@@ -17,7 +17,9 @@
 //! On failure, returns `{"status": "error", "error": "..."}` and closes connection.
 
 use crate::config::auth::AuthMode;
-use crate::control::security::audit::AuditEvent;
+use crate::control::security::audit::{
+    ArcAuditEmitter, AuditEmitContext, AuditEmitter, AuditEvent,
+};
 use crate::control::security::auth_context::{AuthContext, generate_session_id};
 use crate::control::security::identity::{AuthMethod, AuthenticatedIdentity, Role};
 use crate::control::security::util::base64_url_decode;
@@ -117,12 +119,32 @@ pub fn trust_identity(state: &SharedState, username: &str) -> AuthenticatedIdent
     }
 }
 
+/// Minimum wall-clock time for any authentication attempt that ends in failure.
+///
+/// All failed password auth paths (rate-limit, lockout, wrong password, unknown
+/// user) sleep until `auth_start + AUTH_FLOOR` before returning an error.  This
+/// makes the reject latency indistinguishable from a real Argon2 verification,
+/// so an attacker cannot use timing to tell a rate-limit rejection from a
+/// credential rejection — or to probe whether a username exists.
+///
+/// 200 ms matches a conservative Argon2id baseline (m=65536, t=3, p=1 on a
+/// mid-range server core). Operators running faster Argon2 params can accept a
+/// slightly narrower timing envelope; operators running slower params should
+/// increase this constant.
+pub const AUTH_FLOOR: std::time::Duration = std::time::Duration::from_millis(200);
+
 /// Authenticate a native protocol connection from the first JSON frame.
 ///
 /// Returns `(identity, warning)` on success. The `warning` string is non-empty
 /// when the account is in password grace period or `must_change_password` is set
 /// — the caller should forward it to the client as a notice/warning.
-pub fn authenticate(
+///
+/// All failure paths on the `"password"` method enforce a constant-time floor
+/// equal to [`AUTH_FLOOR`]: the function sleeps until `start + AUTH_FLOOR`
+/// before returning any `Err`. This prevents timing oracle attacks that could
+/// distinguish rate-limit rejection from credential rejection or reveal user
+/// existence.
+pub async fn authenticate(
     state: &SharedState,
     auth_mode: &AuthMode,
     body: &serde_json::Value,
@@ -171,14 +193,68 @@ pub fn authenticate(
                     detail: "missing 'password' for password auth".into(),
                 })?;
 
-            // Check lockout.
-            state.credentials.check_lockout(username)?;
+            // Record the auth start time for constant-time floor enforcement.
+            // All failure returns below sleep until `auth_start + AUTH_FLOOR`
+            // so the reject latency is indistinguishable from a real Argon2
+            // verification, regardless of which gate tripped.
+            let auth_start = std::time::Instant::now();
+
+            // Pre-authentication login rate-limit check (before lockout and
+            // Argon2 verification — cheap exit path).  Both the per-IP and
+            // per-username buckets are consulted.
+            use crate::control::security::ratelimit::limiter::LoginRateLimitOutcome;
+            let peer_ip_str = peer_addr
+                .parse::<std::net::SocketAddr>()
+                .map(|s| s.ip().to_string())
+                .unwrap_or_else(|_| peer_addr.to_string());
+            let rl_outcome = state.rate_limiter.check_login(&peer_ip_str, username);
+            if !matches!(rl_outcome, LoginRateLimitOutcome::Allowed) {
+                let emitter = ArcAuditEmitter(std::sync::Arc::clone(&state.audit));
+                let detail = match rl_outcome {
+                    LoginRateLimitOutcome::IpExceeded => {
+                        format!("login rate limited (ip={peer_ip_str}): {username}")
+                    }
+                    LoginRateLimitOutcome::UserExceeded => {
+                        format!("login rate limited (user): {username}")
+                    }
+                    LoginRateLimitOutcome::Allowed => unreachable!(),
+                };
+                emitter.emit(
+                    AuditEvent::LoginRateLimited,
+                    "login_rate_limit",
+                    &detail,
+                    AuditEmitContext::new(None, "", username),
+                );
+                state.auth_metrics.record_auth_failure("password");
+                // Constant-time floor: sleep until auth_start + AUTH_FLOOR
+                // so timing cannot distinguish a rate-limit rejection from a
+                // real Argon2 credential check.
+                enforce_auth_floor(auth_start).await;
+                return Err(crate::Error::RejectedAuthz {
+                    tenant_id: TenantId::new(0),
+                    resource: "authentication failed".into(),
+                });
+            }
+
+            // Check lockout (after rate-limit, before Argon2).
+            if let Err(e) = state.credentials.check_lockout(username) {
+                // Constant-time floor before returning lockout error.
+                enforce_auth_floor(auth_start).await;
+                return Err(e);
+            }
 
             let (verified, pw_warning) = state
                 .credentials
                 .verify_password_with_status(username, password);
             if !verified {
-                state.credentials.record_login_failure(username);
+                let emitter = ArcAuditEmitter(std::sync::Arc::clone(&state.audit));
+                let peer_ip = peer_addr
+                    .parse::<std::net::SocketAddr>()
+                    .ok()
+                    .map(|s| s.ip());
+                state
+                    .credentials
+                    .record_login_failure(username, peer_ip, &emitter);
                 state.audit_record(
                     AuditEvent::AuthFailure,
                     None,
@@ -186,9 +262,12 @@ pub fn authenticate(
                     &format!("native password auth failed: {username}"),
                 );
                 state.auth_metrics.record_auth_failure("password");
+                // Argon2 already ran (≈AUTH_FLOOR elapsed); the sleep is a
+                // no-op when Argon2 was slower than the floor.
+                enforce_auth_floor(auth_start).await;
                 return Err(crate::Error::RejectedAuthz {
                     tenant_id: TenantId::new(0),
-                    resource: format!("authentication failed for user '{username}'"),
+                    resource: "authentication failed".into(),
                 });
             }
 
@@ -481,6 +560,20 @@ pub fn check_rate_limit(
     }
 
     Ok(result)
+}
+
+/// Sleep until `auth_start + AUTH_FLOOR` to enforce a constant-time error path.
+///
+/// Called on every password-auth failure so that no failure mode (rate-limit,
+/// lockout, wrong password, unknown user) can be distinguished from any other
+/// by wall-clock timing.  When Argon2 already ran, `auth_start` is old enough
+/// that the sleep duration is effectively zero.
+async fn enforce_auth_floor(auth_start: std::time::Instant) {
+    let deadline = auth_start + AUTH_FLOOR;
+    let now = std::time::Instant::now();
+    if deadline > now {
+        tokio::time::sleep(deadline - now).await;
+    }
 }
 
 /// Redact a JWT token for safe logging: show only the first 10 chars.

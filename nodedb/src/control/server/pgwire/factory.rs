@@ -15,7 +15,7 @@ use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 use crate::config::auth::AuthMode;
-use crate::control::security::audit::AuditEvent;
+use crate::control::security::audit::{ArcAuditEmitter, AuditEvent};
 use crate::control::security::credential::CredentialStore;
 use crate::control::state::SharedState;
 
@@ -41,6 +41,50 @@ impl AuthSource for NodeDbAuthSource {
         let username = login.user().unwrap_or("unknown");
         let source = login.host();
 
+        // Record auth start time for constant-time floor enforcement on all
+        // failure paths (rate-limit, lockout, unknown user).
+        let auth_start = std::time::Instant::now();
+
+        // Pre-authentication login rate-limit check — consulted before lockout
+        // and before SCRAM credential lookup begins.
+        use crate::control::security::ratelimit::limiter::LoginRateLimitOutcome;
+        use crate::control::server::session_auth::AUTH_FLOOR;
+        let peer_ip_str = source
+            .parse::<std::net::SocketAddr>()
+            .map(|s| s.ip().to_string())
+            .unwrap_or_else(|_| source.to_string());
+        let rl_outcome = self.state.rate_limiter.check_login(&peer_ip_str, username);
+        if !matches!(rl_outcome, LoginRateLimitOutcome::Allowed) {
+            use crate::control::security::audit::{
+                ArcAuditEmitter, AuditEmitContext, AuditEmitter,
+            };
+            let emitter = ArcAuditEmitter(std::sync::Arc::clone(&self.state.audit));
+            let detail = match rl_outcome {
+                LoginRateLimitOutcome::IpExceeded => {
+                    format!("login rate limited (ip={peer_ip_str}): {username}")
+                }
+                LoginRateLimitOutcome::UserExceeded => {
+                    format!("login rate limited (user): {username}")
+                }
+                LoginRateLimitOutcome::Allowed => unreachable!(),
+            };
+            emitter.emit(
+                AuditEvent::LoginRateLimited,
+                "login_rate_limit",
+                &detail,
+                AuditEmitContext::new(None, "", username),
+            );
+            self.state.auth_metrics.record_auth_failure("scram");
+            // Constant-time floor before returning the generic invalid-password
+            // error so timing cannot distinguish rate-limit from wrong password.
+            let deadline = auth_start + AUTH_FLOOR;
+            let now = std::time::Instant::now();
+            if deadline > now {
+                tokio::time::sleep(deadline - now).await;
+            }
+            return Err(PgWireError::InvalidPassword(username.to_owned()));
+        }
+
         // Check lockout before returning credentials.
         if self.credentials.check_lockout(username).is_err() {
             self.state.audit_record(
@@ -49,6 +93,12 @@ impl AuthSource for NodeDbAuthSource {
                 source,
                 &format!("user '{username}' is locked out"),
             );
+            // Constant-time floor for lockout rejection.
+            let deadline = auth_start + AUTH_FLOOR;
+            let now = std::time::Instant::now();
+            if deadline > now {
+                tokio::time::sleep(deadline - now).await;
+            }
             return Err(PgWireError::InvalidPassword(format!(
                 "{username} (account locked)"
             )));
@@ -69,7 +119,10 @@ impl AuthSource for NodeDbAuthSource {
                 Ok(Password::new(Some(creds.salt), creds.salted_password))
             }
             None => {
-                self.credentials.record_login_failure(username);
+                let emitter = ArcAuditEmitter(std::sync::Arc::clone(&self.state.audit));
+                let source_ip = source.parse::<std::net::SocketAddr>().ok().map(|s| s.ip());
+                self.credentials
+                    .record_login_failure(username, source_ip, &emitter);
                 self.state.audit_record(
                     AuditEvent::AuthFailure,
                     None,
@@ -226,7 +279,11 @@ impl StartupHandler for AuthStartup {
                     }
                     Err(_) if was_in_auth => {
                         // SCRAM failed — increment lockout counter.
-                        state.credentials.record_login_failure(&username);
+                        let emitter = ArcAuditEmitter(std::sync::Arc::clone(&state.audit));
+                        let scram_ip = source.parse::<std::net::SocketAddr>().ok().map(|s| s.ip());
+                        state
+                            .credentials
+                            .record_login_failure(&username, scram_ip, &emitter);
                         state.audit_record(
                             AuditEvent::AuthFailure,
                             None,

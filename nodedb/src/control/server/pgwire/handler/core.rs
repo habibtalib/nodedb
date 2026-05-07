@@ -25,7 +25,9 @@ use pgwire::messages::PgWireFrontendMessage;
 use crate::bridge::envelope::PhysicalPlan;
 use crate::config::auth::AuthMode;
 use crate::control::planner::context::QueryContext;
-use crate::control::security::audit::AuditEvent;
+use crate::control::security::audit::{
+    AuditEmitContext, AuditEmitter, AuditEvent, NoopAuditEmitter,
+};
 use crate::control::security::identity::{
     AuthMethod, AuthenticatedIdentity, Role, required_permission, role_grants_permission,
 };
@@ -145,11 +147,18 @@ impl NodeDbPgHandler {
         if let Some(coll) = collection
             && coll.starts_with("_system")
         {
-            self.state.audit_record(
-                AuditEvent::AuthzDenied,
-                Some(identity.tenant_id),
+            let emitter = crate::control::security::audit::ArcAuditEmitter(std::sync::Arc::clone(
+                &self.state.audit,
+            ));
+            emitter.emit(
+                AuditEvent::PermissionDenied,
                 &identity.username,
                 &format!("system catalog access denied: {coll}"),
+                AuditEmitContext::new(
+                    Some(identity.tenant_id),
+                    &identity.user_id.to_string(),
+                    &identity.username,
+                ),
             );
             return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
@@ -159,11 +168,15 @@ impl NodeDbPgHandler {
         }
 
         // Check collection-level permissions (ownership + explicit grants + role grants).
+        // Noop emitter here — the role fallback below is the terminal decision point.
         if let Some(coll) = collection
-            && self
-                .state
-                .permissions
-                .check(identity, required, coll, &self.state.roles)
+            && self.state.permissions.check(
+                identity,
+                required,
+                coll,
+                &self.state.roles,
+                &NoopAuditEmitter,
+            )
         {
             return Ok(());
         }
@@ -177,11 +190,23 @@ impl NodeDbPgHandler {
         if has_permission {
             Ok(())
         } else {
-            self.state.audit_record(
-                AuditEvent::AuthzDenied,
-                Some(identity.tenant_id),
+            // Terminal denial — emit PermissionDenied audit row.
+            let emitter = crate::control::security::audit::ArcAuditEmitter(std::sync::Arc::clone(
+                &self.state.audit,
+            ));
+            emitter.emit(
+                AuditEvent::PermissionDenied,
                 &identity.username,
-                &format!("permission {:?} denied", required),
+                &format!(
+                    "permission {:?} denied{}",
+                    required,
+                    collection.map(|c| format!(" on '{c}'")).unwrap_or_default()
+                ),
+                AuditEmitContext::new(
+                    Some(identity.tenant_id),
+                    &identity.user_id.to_string(),
+                    &identity.username,
+                ),
             );
 
             Err(PgWireError::UserError(Box::new(ErrorInfo::new(

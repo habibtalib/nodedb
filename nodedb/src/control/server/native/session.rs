@@ -201,7 +201,7 @@ impl NativeSession {
 
         // Auth handling.
         if op == OpCode::Auth {
-            return self.handle_auth(seq, &req.fields);
+            return self.handle_auth(seq, &req.fields).await;
         }
 
         // Ping requires no auth.
@@ -413,7 +413,7 @@ impl NativeSession {
     }
 
     /// Handle authentication request.
-    fn handle_auth(&mut self, seq: u64, fields: &RequestFields) -> NativeResponse {
+    async fn handle_auth(&mut self, seq: u64, fields: &RequestFields) -> NativeResponse {
         let auth = match fields {
             RequestFields::Text(f) => match &f.auth {
                 Some(a) => a,
@@ -431,7 +431,9 @@ impl NativeSession {
             &self.auth_mode,
             auth,
             &self.peer_addr.to_string(),
-        ) {
+        )
+        .await
+        {
             Ok((identity, warning)) => {
                 let mut resp = NativeResponse::auth_ok(
                     seq,
