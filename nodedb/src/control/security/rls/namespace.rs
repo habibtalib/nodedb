@@ -6,6 +6,7 @@
 //! `GRANT READ ON namespace.collection TO role`.
 //! Namespaces are dot-separated prefixes.
 
+use crate::control::security::audit::NoopAuditEmitter;
 use crate::control::security::identity::{AuthenticatedIdentity, Permission};
 use crate::control::security::permission::PermissionStore;
 use crate::control::security::role::RoleStore;
@@ -23,7 +24,13 @@ pub fn check_namespace_authz(
         return true;
     }
 
-    if permission_store.check(identity, required_permission, collection, role_store) {
+    if permission_store.check(
+        identity,
+        required_permission,
+        collection,
+        role_store,
+        &NoopAuditEmitter,
+    ) {
         return true;
     }
 
@@ -31,11 +38,23 @@ pub fn check_namespace_authz(
     for i in (0..parts.len()).rev() {
         let namespace = parts[..i].join(".");
         if !namespace.is_empty()
-            && permission_store.check(identity, required_permission, &namespace, role_store)
+            && permission_store.check(
+                identity,
+                required_permission,
+                &namespace,
+                role_store,
+                &NoopAuditEmitter,
+            )
         {
             return true;
         }
     }
 
-    permission_store.check(identity, required_permission, "*", role_store)
+    permission_store.check(
+        identity,
+        required_permission,
+        "*",
+        role_store,
+        &NoopAuditEmitter,
+    )
 }
