@@ -13,4 +13,4 @@ for per-version changes.
 
 ## License
 
-Licensed under the Business Source License 1.1 ([`LICENSE.md`](../LICENSE.md)).
+Licensed under the Business Source License 1.1 ([`LICENSE`](../LICENSE)).

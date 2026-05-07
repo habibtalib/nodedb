@@ -1,8 +1,8 @@
 # `nodedb-spatial`
 
-> R*-tree, OGC predicates, geohash, H3 hexagonal indexes
+> R\*-tree, OGC predicates, geohash, H3 hexagonal indexes
 
-Geospatial primitives shared between Origin and Lite. Bulk-loaded R*-tree, full set of OGC `ST_*` predicates (`Contains`, `Intersects`, `DWithin`, `Distance`, ...), WKB / WKT / GeoJSON interchange.
+Geospatial primitives shared between Origin and Lite. Bulk-loaded R*-tree, full set of OGC `ST\_*` predicates (`Contains`, `Intersects`, `DWithin`, `Distance`, ...), WKB / WKT / GeoJSON interchange.
 
 ## Status
 
@@ -13,4 +13,4 @@ for per-version changes.
 
 ## License
 
-Licensed under the Apache License, Version 2.0 ([`LICENSE-APACHE`](../LICENSE-APACHE)).
+Licensed under the Apache License, Version 2.0 ([`LICENSE-APACHE`](../LICENSE-APACHE-2.0)).

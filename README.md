@@ -35,7 +35,7 @@
   <a href="https://github.com/NodeDB-Lab/nodedb/releases">
     <img src="https://img.shields.io/github/v/release/NodeDB-Lab/nodedb?display_name=tag" alt="Latest release">
   </a>
-  <a href="https://github.com/NodeDB-Lab/nodedb/blob/main/LICENSE.md">
+  <a href="https://github.com/NodeDB-Lab/nodedb/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-BUSL--1.1-blue" alt="License">
   </a>
   <a href="https://github.com/NodeDB-Lab/nodedb/stargazers">
@@ -241,4 +241,4 @@ Pre-1.0 versions may change internals between releases — those changes are cri
 NodeDB uses a dual-license model:
 
 - **Shared engine crates** (`nodedb-types`, `nodedb-vector`, `nodedb-graph`, `nodedb-fts`, `nodedb-spatial`, `nodedb-codec`, `nodedb-columnar`, `nodedb-array`, `nodedb-sql`, `nodedb-client`, `nodedb-query`, `nodedb-strict`) — [Apache 2.0](LICENSE-APACHE). Use them freely in your own projects, SDKs, and tools.
-- **Server crates** (`nodedb`, `nodedb-wal`, `nodedb-raft`, `nodedb-cluster`, `nodedb-bridge`, `nodedb-mem`, `nodedb-crdt`) — [Business Source License 1.1](LICENSE.md). Free for any use except offering NodeDB as a hosted database service (DBaaS). Converts to Apache 2.0 on 2030-05-01.
+- **Server crates** (`nodedb`, `nodedb-wal`, `nodedb-raft`, `nodedb-cluster`, `nodedb-bridge`, `nodedb-mem`, `nodedb-crdt`) — [Business Source License 1.1](LICENSE). Free for any use except offering NodeDB as a hosted database service (DBaaS). Converts to Apache 2.0 on 2030-05-01.
