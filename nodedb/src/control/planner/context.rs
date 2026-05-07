@@ -69,6 +69,11 @@ pub struct QueryContext {
     /// array's retention policy. `None` for sub-planners.
     bitemporal_retention_registry:
         Option<Arc<crate::engine::bitemporal::BitemporalRetentionRegistry>>,
+    /// Per-tenant maximum vector dimension (0 = unlimited). Updated
+    /// per-request by connection handlers via `set_max_vector_dim` so
+    /// `VectorPrimaryInsert` conversion can reject oversized vectors without
+    /// an extra `TenantIsolation` lock inside the planner hot path.
+    max_vector_dim: std::sync::atomic::AtomicU32,
 }
 
 /// Inputs needed to construct an `OriginCatalog` per plan call.
@@ -116,6 +121,7 @@ impl QueryContext {
             surrogate_assigner: None,
             cluster_enabled: false,
             bitemporal_retention_registry: None,
+            max_vector_dim: std::sync::atomic::AtomicU32::new(0),
         }
     }
 
@@ -136,6 +142,10 @@ impl QueryContext {
         ctx.surrogate_assigner = Some(Arc::clone(&state.surrogate_assigner));
         ctx.cluster_enabled = state.cluster_topology.is_some();
         ctx.bitemporal_retention_registry = Some(Arc::clone(&state.bitemporal_retention_registry));
+        // max_vector_dim starts at 0 (unlimited); connection handlers call
+        // set_max_vector_dim before each planning call.
+        ctx.max_vector_dim
+            .store(0, std::sync::atomic::Ordering::Relaxed);
         ctx
     }
 
@@ -158,7 +168,24 @@ impl QueryContext {
             surrogate_assigner: Some(Arc::clone(&state.surrogate_assigner)),
             cluster_enabled: state.cluster_topology.is_some(),
             bitemporal_retention_registry: Some(Arc::clone(&state.bitemporal_retention_registry)),
+            // max_vector_dim is tenant-specific; callers supply it via
+            // `with_tenant_quota` after construction so the context can be
+            // reused across tenants on the same connection without carrying
+            // stale quota values.
+            max_vector_dim: std::sync::atomic::AtomicU32::new(0),
         }
+    }
+
+    /// Update the per-tenant vector dimension cap for the next plan call.
+    ///
+    /// Called by connection handlers after resolving the tenant's quota from
+    /// `TenantIsolation`. Using an atomic allows `&self` (no exclusive borrow
+    /// needed since handlers do not pipeline concurrent plan calls on one
+    /// connection). Relaxed ordering is sufficient: this value is written
+    /// before the planning call begins and read only within that same call.
+    pub fn set_max_vector_dim(&self, dim: u32) {
+        self.max_vector_dim
+            .store(dim, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Override the default rounding mode for `ROUND()`.
@@ -189,6 +216,7 @@ impl QueryContext {
             surrogate_assigner: None,
             cluster_enabled: false,
             bitemporal_retention_registry: None,
+            max_vector_dim: std::sync::atomic::AtomicU32::new(0),
         }
     }
 
@@ -261,6 +289,9 @@ impl QueryContext {
             surrogate_assigner: self.surrogate_assigner.clone(),
             cluster_enabled: self.cluster_enabled,
             bitemporal_retention_registry: self.bitemporal_retention_registry.clone(),
+            max_vector_dim: self
+                .max_vector_dim
+                .load(std::sync::atomic::Ordering::Relaxed),
         };
         let tasks = super::sql_plan_convert::convert(&plans, tenant_id, &ctx)?;
         Ok((tasks, version_set))
@@ -365,6 +396,9 @@ impl QueryContext {
             surrogate_assigner: self.surrogate_assigner.clone(),
             cluster_enabled: self.cluster_enabled,
             bitemporal_retention_registry: self.bitemporal_retention_registry.clone(),
+            max_vector_dim: self
+                .max_vector_dim
+                .load(std::sync::atomic::Ordering::Relaxed),
         };
         let mut tasks = super::sql_plan_convert::convert(&plans, tenant_id, &ctx)?;
 

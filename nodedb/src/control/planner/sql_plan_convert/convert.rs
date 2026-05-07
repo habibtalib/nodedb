@@ -50,6 +50,9 @@ pub struct ConvertContext {
     /// update the purge-scheduler's view of the array's retention policy.
     /// `None` for sub-planners that don't own array DDL.
     pub bitemporal_retention_registry: Option<Arc<BitemporalRetentionRegistry>>,
+    /// Per-tenant maximum vector dimension (0 = unlimited). Checked in
+    /// `VectorPrimaryInsert` conversion before the task is built.
+    pub max_vector_dim: u32,
 }
 
 /// Convert a list of SqlPlans to PhysicalTasks.

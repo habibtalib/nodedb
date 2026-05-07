@@ -218,6 +218,12 @@ impl ToMessagePack for ErrorDetails {
             ErrorDetails::Internal { component, detail } => {
                 write2(writer, TAG_INTERNAL, component, detail)
             }
+            ErrorDetails::TenantVectorDimExceeded { dim, limit } => {
+                write2(writer, TAG_TENANT_VECTOR_DIM_EXCEEDED, dim, limit)
+            }
+            ErrorDetails::TenantGraphDepthExceeded { depth, limit } => {
+                write2(writer, TAG_TENANT_GRAPH_DEPTH_EXCEEDED, depth, limit)
+            }
         }
     }
 }

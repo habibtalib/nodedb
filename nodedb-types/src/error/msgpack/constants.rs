@@ -104,3 +104,5 @@ pub(super) const TAG_DISPATCH: u16 = 46;
 pub(super) const TAG_INTERNAL: u16 = 47;
 pub(super) const TAG_UNSUPPORTED_OPCODE: u16 = 48;
 pub(super) const TAG_HANDSHAKE_FAILED: u16 = 49;
+pub(super) const TAG_TENANT_VECTOR_DIM_EXCEEDED: u16 = 50;
+pub(super) const TAG_TENANT_GRAPH_DEPTH_EXCEEDED: u16 = 51;

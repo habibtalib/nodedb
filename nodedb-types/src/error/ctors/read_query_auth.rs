@@ -138,4 +138,28 @@ impl NodeDbError {
             cause: None,
         }
     }
+
+    /// Vector insert or index rejected: vector `dim` exceeds tenant's
+    /// `max_vector_dim` quota.
+    pub fn tenant_vector_dim_exceeded(dim: u32, limit: u32) -> Self {
+        Self {
+            code: ErrorCode::TENANT_VECTOR_DIM_EXCEEDED,
+            message: format!("vector dimension {dim} exceeds tenant quota max_vector_dim={limit}"),
+            details: ErrorDetails::TenantVectorDimExceeded { dim, limit },
+            cause: None,
+        }
+    }
+
+    /// Graph traversal rejected: requested `depth` exceeds tenant's
+    /// `max_graph_depth` quota.
+    pub fn tenant_graph_depth_exceeded(depth: u32, limit: u32) -> Self {
+        Self {
+            code: ErrorCode::TENANT_GRAPH_DEPTH_EXCEEDED,
+            message: format!(
+                "graph traversal depth {depth} exceeds tenant quota max_graph_depth={limit}"
+            ),
+            details: ErrorDetails::TenantGraphDepthExceeded { depth, limit },
+            cause: None,
+        }
+    }
 }

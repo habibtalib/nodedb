@@ -46,6 +46,12 @@ impl ErrorCode {
     // Auth / Security (2000–2099)
     pub const AUTHORIZATION_DENIED: Self = Self(2000);
     pub const AUTH_EXPIRED: Self = Self(2001);
+    /// Vector insert or index rejected because the vector dimension exceeds the
+    /// tenant's `max_vector_dim` quota.
+    pub const TENANT_VECTOR_DIM_EXCEEDED: Self = Self(2010);
+    /// Graph traversal rejected because the requested depth exceeds the tenant's
+    /// `max_graph_depth` quota.
+    pub const TENANT_GRAPH_DEPTH_EXCEEDED: Self = Self(2011);
 
     // Protocol handshake (2100–2199)
     pub const HANDSHAKE_FAILED: Self = Self(2100);

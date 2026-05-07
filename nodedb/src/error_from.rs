@@ -241,6 +241,20 @@ impl From<Error> for NodeDbError {
             Error::SessionCapExceeded { cap } => NodeDbError::bad_request(format!(
                 "session cap ({cap}) exceeded — rejecting new login"
             )),
+            Error::TenantVectorDimExceeded { dim, limit } => {
+                NodeDbError::tenant_vector_dim_exceeded(dim, limit)
+            }
+            Error::TenantGraphDepthExceeded { depth, limit } => {
+                NodeDbError::tenant_graph_depth_exceeded(depth, limit)
+            }
+            Error::RoleInheritanceCycle { child, parent } => NodeDbError::bad_request(format!(
+                "role inheritance cycle: granting '{parent}' as parent of '{child}' would create a cycle"
+            )),
+            Error::RoleInheritanceDepthExceeded { depth, limit } => {
+                NodeDbError::bad_request(format!(
+                    "role inheritance depth {depth} exceeds the maximum allowed depth of {limit}"
+                ))
+            }
         }
     }
 }

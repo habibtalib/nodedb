@@ -227,6 +227,7 @@ mod tests {
                 surrogate_assigner: None,
                 cluster_enabled: false,
                 bitemporal_retention_registry: None,
+                max_vector_dim: 0,
             },
         )
         .expect("convert insert-select");
@@ -275,6 +276,7 @@ mod tests {
                 surrogate_assigner: None,
                 cluster_enabled: false,
                 bitemporal_retention_registry: None,
+                max_vector_dim: 0,
             },
         )
         .expect("convert insert-select with star");

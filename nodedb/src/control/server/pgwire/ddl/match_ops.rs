@@ -32,6 +32,35 @@ pub async fn match_query(
     let query = crate::engine::graph::pattern::compiler::parse(sql)
         .map_err(|e| sqlstate_error("42601", &format!("MATCH parse error: {e}")))?;
 
+    // Enforce the tenant's max_graph_depth quota.  Reject if any edge in the
+    // pattern exceeds the cap.  Unbounded [*] (max_hops == usize::MAX) is
+    // rejected when the tenant has any finite cap.
+    {
+        let tenants = match state.tenants.lock() {
+            Ok(t) => t,
+            Err(p) => p.into_inner(),
+        };
+        let limit = tenants.quota(identity.tenant_id).max_graph_depth;
+        if limit > 0 {
+            for clause in &query.clauses {
+                for chain in &clause.patterns {
+                    for triple in &chain.triples {
+                        let hops = triple.edge.max_hops;
+                        if hops > limit as usize {
+                            return Err(sqlstate_error(
+                                "42P17",
+                                &format!(
+                                    "MATCH traversal depth {hops} exceeds tenant quota \
+                                     max_graph_depth={limit}"
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Collect column names for response schema.
     let column_names: Vec<String> = if query.return_columns.is_empty() {
         // Return all bound node variables.

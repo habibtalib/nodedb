@@ -143,6 +143,7 @@ mod tests {
             surrogate_assigner: None,
             cluster_enabled,
             bitemporal_retention_registry: None,
+            max_vector_dim: 0,
         }
     }
 

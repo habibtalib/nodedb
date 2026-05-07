@@ -104,6 +104,27 @@ fn read_collection_deactivated<'a, R: Read<'a>>(
     Ok((collection, retention_expires_at_ns, undrop_hint))
 }
 
+/// Read two `u32` fields, tolerating `field_count < 2` by substituting `0`.
+fn read2_u32<'a, R: Read<'a>>(reader: &mut R, field_count: usize) -> zerompk::Result<(u32, u32)> {
+    let v1 = if field_count >= 1 {
+        reader.read_u8()?;
+        reader.read_u32()?
+    } else {
+        0
+    };
+    let v2 = if field_count >= 2 {
+        reader.read_u8()?;
+        reader.read_u32()?
+    } else {
+        0
+    };
+    for _ in 2..field_count {
+        reader.read_u8()?;
+        skip_one(reader)?;
+    }
+    Ok((v1, v2))
+}
+
 fn read_fan_out<'a, R: Read<'a>>(
     reader: &mut R,
     field_count: usize,
@@ -455,6 +476,14 @@ impl<'a> FromMessagePack<'a> for ErrorDetails {
             TAG_INTERNAL => {
                 let (component, detail) = read2_str_tolerant(reader, field_count)?;
                 Ok(ErrorDetails::Internal { component, detail })
+            }
+            TAG_TENANT_VECTOR_DIM_EXCEEDED => {
+                let (dim, limit) = read2_u32(reader, field_count)?;
+                Ok(ErrorDetails::TenantVectorDimExceeded { dim, limit })
+            }
+            TAG_TENANT_GRAPH_DEPTH_EXCEEDED => {
+                let (depth, limit) = read2_u32(reader, field_count)?;
+                Ok(ErrorDetails::TenantGraphDepthExceeded { depth, limit })
             }
             _unknown => {
                 skip_fields(reader, field_count)?;

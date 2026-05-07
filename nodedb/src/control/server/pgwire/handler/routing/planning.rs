@@ -89,6 +89,17 @@ impl NodeDbPgHandler {
             })?;
         let has_returning = returning_spec.is_some();
 
+        // Propagate the tenant's vector-dimension quota so ConvertContext can
+        // reject oversized vectors without an extra lock inside the planner.
+        {
+            let tenants = match self.state.tenants.lock() {
+                Ok(t) => t,
+                Err(p) => p.into_inner(),
+            };
+            self.query_ctx
+                .set_max_vector_dim(tenants.quota(tenant_id).max_vector_dim);
+        }
+
         // Enforce general CHECK constraints for INSERT/UPDATE before planning.
         self.enforce_check_constraints_if_needed(&clean_sql, tenant_id)
             .await?;

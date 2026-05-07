@@ -64,6 +64,7 @@ fn sql_to_physical(sql: &str) -> PhysicalPlan {
         surrogate_assigner: None,
         cluster_enabled: false,
         bitemporal_retention_registry: None,
+        max_vector_dim: 0,
     };
     let tenant_id = nodedb::types::TenantId::new(1);
     let tasks = convert(&plans, tenant_id, &ctx).unwrap();

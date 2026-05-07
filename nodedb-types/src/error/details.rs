@@ -86,6 +86,12 @@ pub enum ErrorDetails {
     AuthorizationDenied { resource: String },
     #[serde(rename = "auth_expired")]
     AuthExpired,
+    /// Tenant quota: vector dimension exceeds `max_vector_dim`.
+    #[serde(rename = "tenant_vector_dim_exceeded")]
+    TenantVectorDimExceeded { dim: u32, limit: u32 },
+    /// Tenant quota: graph traversal depth exceeds `max_graph_depth`.
+    #[serde(rename = "tenant_graph_depth_exceeded")]
+    TenantGraphDepthExceeded { depth: u32, limit: u32 },
 
     // Protocol handshake
     #[serde(rename = "handshake_failed")]

@@ -285,6 +285,30 @@ pub enum Error {
     #[error("session cap ({cap}) exceeded — rejecting new login")]
     SessionCapExceeded { cap: usize },
 
+    /// Vector insert or index rejected: the vector dimension exceeds the
+    /// tenant's `max_vector_dim` quota.
+    #[error("vector dimension {dim} exceeds tenant quota max_vector_dim={limit}")]
+    TenantVectorDimExceeded { dim: u32, limit: u32 },
+
+    /// Graph traversal rejected: the requested depth exceeds the tenant's
+    /// `max_graph_depth` quota.
+    #[error("graph traversal depth {depth} exceeds tenant quota max_graph_depth={limit}")]
+    TenantGraphDepthExceeded { depth: u32, limit: u32 },
+
+    /// A GRANT ROLE would create a cycle in the role inheritance graph.
+    ///
+    /// NodeDB enforces a DAG at write time so `resolve_inheritance` never
+    /// needs runtime cycle detection.
+    #[error(
+        "role inheritance cycle: granting '{parent}' as parent of '{child}' would create a cycle"
+    )]
+    RoleInheritanceCycle { child: String, parent: String },
+
+    /// A GRANT ROLE would push the inheritance chain past
+    /// `MAX_ROLE_INHERITANCE_DEPTH`. Rejected at catalog-write time.
+    #[error("role inheritance depth {depth} exceeds the maximum allowed depth of {limit}")]
+    RoleInheritanceDepthExceeded { depth: usize, limit: usize },
+
     /// The OLLP dependent-read retry loop exhausted its retry budget.
     ///
     /// The predicate's matching set kept changing across retries. Consider
