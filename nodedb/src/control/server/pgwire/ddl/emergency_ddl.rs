@@ -127,7 +127,7 @@ pub fn bulk_blacklist(
             blacklisted_count += 1;
 
             if kill_sessions {
-                killed_count += state.session_registry.kill_sessions_for_user(&user.id);
+                killed_count += state.session_registry.kill_sessions_for_username(&user.id);
             }
         }
     }

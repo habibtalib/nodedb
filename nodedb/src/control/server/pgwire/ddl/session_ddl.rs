@@ -51,7 +51,7 @@ pub fn show_sessions(
         .map(|s| {
             let mut enc = DataRowEncoder::new(schema.clone());
             let _ = enc.encode_field(&s.session_id);
-            let _ = enc.encode_field(&s.user_id);
+            let _ = enc.encode_field(&s.user_id.to_string());
             let _ = enc.encode_field(&s.db_user);
             let _ = enc.encode_field(&s.auth_method);
             let _ = enc.encode_field(&s.connected_at.to_string());
@@ -118,7 +118,13 @@ pub fn kill_user_sessions(
             "syntax: KILL USER SESSIONS '<auth_user_id>'",
         ));
     }
-    let user_id = parts[3].trim_matches('\'');
+    let user_id_str = parts[3].trim_matches('\'');
+    let user_id: u64 = user_id_str.parse().map_err(|_| {
+        sqlstate_error(
+            "22003",
+            &format!("invalid user_id '{user_id_str}': must be numeric"),
+        )
+    })?;
 
     let killed = state.session_registry.kill_sessions_for_user(user_id);
 
@@ -126,7 +132,7 @@ pub fn kill_user_sessions(
         crate::control::security::audit::AuditEvent::AdminAction,
         Some(identity.tenant_id),
         &identity.username,
-        &format!("killed {killed} sessions for user '{user_id}'"),
+        &format!("killed {killed} sessions for user_id={user_id}"),
     );
 
     Ok(vec![Response::Execution(Tag::new(&format!(

@@ -72,7 +72,8 @@ pub fn create_user(
                 .put_user(&stored)
                 .map_err(|e| sqlstate_error("XX000", &format!("catalog write: {e}")))?;
         }
-        state.credentials.install_replicated_user(&stored);
+        // CREATE USER: no open sessions exist for a brand-new user.
+        state.credentials.install_replicated_user(&stored, None);
     } else {
         // Cluster mode: `propose_catalog_entry` waits for the
         // entry to be applied on THIS node, which runs the
@@ -142,7 +143,8 @@ pub fn alter_user(
                 .credentials
                 .prepare_user_update(username, Some(password.as_str()), None)
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-            propose_and_install(state, stored)?;
+            // Password change — no role/access change; no invalidation.
+            propose_and_install(state, stored, None)?;
 
             state.audit_record(
                 AuditEvent::PrivilegeChange,
@@ -166,7 +168,11 @@ pub fn alter_user(
                 .credentials
                 .prepare_user_update(username, None, Some(vec![parsed_role.clone()]))
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-            propose_and_install(state, stored)?;
+            propose_and_install(
+                state,
+                stored,
+                Some(crate::control::security::buses::SessionInvalidationReason::RoleAltered),
+            )?;
 
             state.audit_record(
                 AuditEvent::PrivilegeChange,
@@ -183,7 +189,7 @@ pub fn alter_user(
                 .credentials
                 .prepare_set_must_change_password(username, true)
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-            propose_and_install(state, stored)?;
+            propose_and_install(state, stored, None)?;
 
             state.audit_record(
                 AuditEvent::PrivilegeChange,
@@ -200,7 +206,7 @@ pub fn alter_user(
                 .credentials
                 .prepare_set_password_expires_at(username, 0)
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-            propose_and_install(state, stored)?;
+            propose_and_install(state, stored, None)?;
 
             state.audit_record(
                 AuditEvent::PrivilegeChange,
@@ -223,7 +229,7 @@ pub fn alter_user(
                 .credentials
                 .prepare_set_password_expires_at(username, expires_at)
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-            propose_and_install(state, stored)?;
+            propose_and_install(state, stored, None)?;
 
             state.audit_record(
                 AuditEvent::PrivilegeChange,
@@ -247,7 +253,7 @@ pub fn alter_user(
                 .credentials
                 .prepare_set_password_expires_at(username, expires_at)
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-            propose_and_install(state, stored)?;
+            propose_and_install(state, stored, None)?;
 
             state.audit_record(
                 AuditEvent::PrivilegeChange,
@@ -261,9 +267,14 @@ pub fn alter_user(
 }
 
 /// Propose a `StoredUser` via Raft and install it locally on single-node.
+///
+/// `invalidation` is passed to `install_replicated_user` for in-process
+/// session notification in single-node mode.  Cluster-mode notifications
+/// arrive via `post_apply::user::put` after Raft commit.
 fn propose_and_install(
     state: &SharedState,
     stored: crate::control::security::catalog::StoredUser,
+    invalidation: Option<crate::control::security::buses::SessionInvalidationReason>,
 ) -> PgWireResult<()> {
     let entry = crate::control::catalog_entry::CatalogEntry::PutUser(Box::new(stored.clone()));
     let log_index = crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
@@ -274,7 +285,9 @@ fn propose_and_install(
                 .put_user(&stored)
                 .map_err(|e| sqlstate_error("XX000", &format!("catalog write: {e}")))?;
         }
-        state.credentials.install_replicated_user(&stored);
+        state
+            .credentials
+            .install_replicated_user(&stored, invalidation);
     }
     Ok(())
 }

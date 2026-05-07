@@ -426,6 +426,11 @@ pub(super) async fn dispatch(
             state, identity, parts,
         ));
     }
+    if upper.starts_with("SHOW AUDIT WHERE") {
+        return Some(super::super::inspect::show_audit_where(
+            state, identity, parts,
+        ));
+    }
     if upper.starts_with("SHOW AUDIT LOG") || upper.starts_with("SHOW AUDIT_LOG") {
         return Some(super::super::inspect::show_audit_log(
             state, identity, parts,

@@ -33,6 +33,7 @@ fn propose_user_with_roles(
     state: &SharedState,
     username: &str,
     new_roles: Vec<Role>,
+    invalidation: crate::control::security::buses::SessionInvalidationReason,
 ) -> PgWireResult<()> {
     let stored = state
         .credentials
@@ -47,7 +48,9 @@ fn propose_user_with_roles(
                 .put_user(&stored)
                 .map_err(|e| sqlstate_error("XX000", &format!("catalog write: {e}")))?;
         }
-        state.credentials.install_replicated_user(&stored);
+        state
+            .credentials
+            .install_replicated_user(&stored, Some(invalidation));
     }
     Ok(())
 }
@@ -73,7 +76,12 @@ pub fn grant_role(
     if !roles.contains(&role) {
         roles.push(role.clone());
     }
-    propose_user_with_roles(state, username, roles)?;
+    propose_user_with_roles(
+        state,
+        username,
+        roles,
+        crate::control::security::buses::SessionInvalidationReason::RoleGranted,
+    )?;
 
     state.audit_record(
         AuditEvent::PrivilegeChange,
@@ -111,7 +119,12 @@ pub fn revoke_role(
             &format!("user '{username}' does not have role '{role}'"),
         ));
     }
-    propose_user_with_roles(state, username, roles)?;
+    propose_user_with_roles(
+        state,
+        username,
+        roles,
+        crate::control::security::buses::SessionInvalidationReason::RoleRevoked,
+    )?;
 
     state.audit_record(
         AuditEvent::PrivilegeChange,
