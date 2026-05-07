@@ -7,17 +7,22 @@ pub mod auth_types;
 pub mod auth_users;
 pub mod blacklist;
 pub mod change_streams;
+pub mod checkpoint;
 pub mod checkpoints;
+pub mod collection;
 pub mod collection_constraints;
 pub mod collections;
 pub mod column_stats;
 pub mod consumer_groups;
 pub mod custom_types;
+pub mod database;
+pub mod database_types;
 pub mod dependencies;
 pub mod function_types;
 pub mod functions;
 pub mod l2_cleanup_queue;
 pub mod lockout;
+pub mod materialized_view;
 pub mod materialized_views;
 pub mod metadata;
 pub mod orgs;
@@ -35,6 +40,7 @@ pub mod surrogate_hwm;
 pub mod surrogate_pk;
 pub mod synonym_groups;
 pub mod system_catalog;
+pub mod tables;
 pub mod topics;
 pub mod trigger_types;
 pub mod triggers;
@@ -52,6 +58,7 @@ pub use collection_constraints::{
     MaterializedSumDef, PeriodLockDef, StateTransitionDef, TransitionCheckDef, TransitionRule,
 };
 pub use custom_types::{CompositeField, CustomTypeDef, StoredCustomType};
+pub use database_types::{DatabaseDescriptor, DatabaseStatus, ParentCloneRef};
 pub use function_types::{
     FunctionLanguage, FunctionParam, FunctionSecurity, FunctionVolatility, StoredFunction,
 };

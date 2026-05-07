@@ -157,6 +157,15 @@ impl SystemCatalog {
             let _ = write_txn
                 .open_table(super::lockout::LOCKOUT_STATE_TABLE)
                 .map_err(|e| catalog_err("init lockout_state table", e))?;
+            let _ = write_txn
+                .open_table(DATABASES)
+                .map_err(|e| catalog_err("init databases table", e))?;
+            let _ = write_txn
+                .open_table(DATABASES_BY_NAME)
+                .map_err(|e| catalog_err("init databases_by_name table", e))?;
+            let _ = write_txn
+                .open_table(DATABASE_HWM)
+                .map_err(|e| catalog_err("init database_hwm table", e))?;
         }
         write_txn
             .commit()
