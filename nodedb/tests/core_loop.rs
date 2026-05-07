@@ -40,20 +40,36 @@ mod test_security_and_isolation;
 mod test_tenant_cache_isolation;
 #[path = "executor_tests/test_tenant_isolation_cdc.rs"]
 mod test_tenant_isolation_cdc;
+#[path = "executor_tests/test_tenant_isolation_cdc_negative.rs"]
+mod test_tenant_isolation_cdc_negative;
 #[path = "executor_tests/test_tenant_isolation_fulltext.rs"]
 mod test_tenant_isolation_fulltext;
+#[path = "executor_tests/test_tenant_isolation_fulltext_negative.rs"]
+mod test_tenant_isolation_fulltext_negative;
 #[path = "executor_tests/test_tenant_isolation_graph.rs"]
 mod test_tenant_isolation_graph;
+#[path = "executor_tests/test_tenant_isolation_graph_negative.rs"]
+mod test_tenant_isolation_graph_negative;
 #[path = "executor_tests/test_tenant_isolation_kv.rs"]
 mod test_tenant_isolation_kv;
+#[path = "executor_tests/test_tenant_isolation_kv_negative.rs"]
+mod test_tenant_isolation_kv_negative;
 #[path = "executor_tests/test_tenant_isolation_rls.rs"]
 mod test_tenant_isolation_rls;
+#[path = "executor_tests/test_tenant_isolation_rls_negative.rs"]
+mod test_tenant_isolation_rls_negative;
 #[path = "executor_tests/test_tenant_isolation_sparse.rs"]
 mod test_tenant_isolation_sparse;
+#[path = "executor_tests/test_tenant_isolation_sparse_negative.rs"]
+mod test_tenant_isolation_sparse_negative;
 #[path = "executor_tests/test_tenant_isolation_timeseries.rs"]
 mod test_tenant_isolation_timeseries;
+#[path = "executor_tests/test_tenant_isolation_timeseries_negative.rs"]
+mod test_tenant_isolation_timeseries_negative;
 #[path = "executor_tests/test_tenant_isolation_vector.rs"]
 mod test_tenant_isolation_vector;
+#[path = "executor_tests/test_tenant_isolation_vector_negative.rs"]
+mod test_tenant_isolation_vector_negative;
 #[path = "executor_tests/test_tenant_purge.rs"]
 mod test_tenant_purge;
 #[path = "executor_tests/test_tenant_quota.rs"]
