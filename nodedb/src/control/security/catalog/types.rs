@@ -166,6 +166,13 @@ pub(super) const CUSTOM_TYPES: TableDefinition<&str, &[u8]> =
 pub(super) const WASM_MODULES: TableDefinition<&str, &[u8]> =
     TableDefinition::new("_system.wasm_modules");
 
+/// Table: username -> MessagePack-serialized `StoredLockoutRecord`.
+///
+/// Persistent mirror of the in-memory `LoginAttemptTracker`. Written on every
+/// failure and success; rebuilt into cache on `CredentialStore::open`.
+pub(super) const LOCKOUT_STATE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("_system.lockout_state");
+
 /// Table: blacklist key (user_id or IP) -> MessagePack-serialized blacklist entry.
 pub(super) const BLACKLIST: TableDefinition<&str, &[u8]> =
     TableDefinition::new("_system.blacklist");

@@ -17,6 +17,7 @@ pub mod dependencies;
 pub mod function_types;
 pub mod functions;
 pub mod l2_cleanup_queue;
+pub mod lockout;
 pub mod materialized_views;
 pub mod metadata;
 pub mod orgs;
@@ -55,6 +56,7 @@ pub use function_types::{
     FunctionLanguage, FunctionParam, FunctionSecurity, FunctionVolatility, StoredFunction,
 };
 pub use l2_cleanup_queue::StoredL2CleanupEntry;
+pub use lockout::StoredLockoutRecord;
 pub use orgs::{StoredOrg, StoredOrgMember};
 pub use procedure_types::StoredProcedure;
 pub use rls::StoredRlsPolicy;

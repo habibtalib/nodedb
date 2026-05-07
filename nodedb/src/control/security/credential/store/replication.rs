@@ -173,29 +173,48 @@ impl CredentialStore {
         Ok(stored)
     }
 
-    /// Install a replicated `StoredUser` into the in-memory cache.
-    /// Called by the production `MetadataCommitApplier` post-apply
-    /// hook after the applier has written the record to local
-    /// redb. Never errors — a poisoned lock falls through to
-    /// in-place recovery so a single bad user write doesn't stall
-    /// raft.
-    pub fn install_replicated_user(&self, stored: &StoredUser) {
-        let record = UserRecord::from_stored(stored.clone());
+    /// Install a replicated `StoredUser` into the in-memory cache and
+    /// trigger bus publishes.
+    ///
+    /// `invalidation` carries the reason that the Raft proposer attached to
+    /// the log entry (e.g. `RoleGranted`, `UserDropped`).  Pass `None` for
+    /// plain `CREATE USER` entries where no open sessions exist.
+    ///
+    /// Never errors — a poisoned lock falls through to in-place recovery so a
+    /// single bad user write doesn't stall raft.
+    pub fn install_replicated_user(
+        &self,
+        stored: &StoredUser,
+        invalidation: Option<super::super::super::buses::SessionInvalidationReason>,
+    ) {
+        let mut record = UserRecord::from_stored(stored.clone());
+
+        // Bump next_user_id to stay ahead of replicated ids.
+        {
+            let mut next = self.next_user_id.write().unwrap_or_else(|p| p.into_inner());
+            if stored.user_id + 1 > *next {
+                *next = stored.user_id + 1;
+            }
+        }
+
+        // Persist + version bump + bus publishes (errors are swallowed so
+        // that a single bad write doesn't stall Raft).
+        let _ = self.commit_user_mutation(&mut record, invalidation);
+
         let mut users = self.users.write().unwrap_or_else(|p| p.into_inner());
         users.insert(stored.username.clone(), record);
-        let mut next = self.next_user_id.write().unwrap_or_else(|p| p.into_inner());
-        if stored.user_id + 1 > *next {
-            *next = stored.user_id + 1;
-        }
     }
 
-    /// Mark a replicated user as inactive in the in-memory cache.
-    /// Symmetric partner to `install_replicated_user` for the
-    /// `CatalogEntry::DeactivateUser` variant.
+    /// Mark a replicated user as inactive in the in-memory cache and publish
+    /// `UserDeactivated` so open sessions are hard-revoked.
     pub fn install_replicated_deactivate(&self, username: &str) {
         let mut users = self.users.write().unwrap_or_else(|p| p.into_inner());
         if let Some(record) = users.get_mut(username) {
             record.is_active = false;
+            let _ = self.commit_user_mutation(
+                record,
+                Some(super::super::super::buses::SessionInvalidationReason::UserDeactivated),
+            );
         }
     }
 }

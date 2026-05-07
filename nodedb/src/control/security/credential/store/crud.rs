@@ -4,6 +4,7 @@
 
 use crate::types::TenantId;
 
+use super::super::super::buses::SessionInvalidationReason;
 use super::super::super::identity::Role;
 use super::super::super::time::now_secs;
 use super::super::hash::{
@@ -53,7 +54,8 @@ impl CredentialStore {
             password_changed_at: now,
         };
 
-        self.persist_user(&mut record)?;
+        // create_user: no open sessions to invalidate — no invalidation reason.
+        self.commit_user_mutation(&mut record, None)?;
         users.insert(username.to_string(), record);
         Ok(user_id)
     }
@@ -94,25 +96,28 @@ impl CredentialStore {
             password_changed_at: now,
         };
 
-        self.persist_user(&mut record)?;
+        // Service-account creation: no open sessions — no invalidation reason.
+        self.commit_user_mutation(&mut record, None)?;
         users.insert(name.to_string(), record);
         Ok(user_id)
     }
 
-    /// Deactivate a user (soft delete). Persists the change.
+    /// Deactivate a user (soft delete). Persists the change and publishes
+    /// `UserDeactivated` to trigger hard-revoke of open sessions.
     pub fn deactivate_user(&self, username: &str) -> crate::Result<bool> {
         let mut users = write_lock(&self.users)?;
         if let Some(record) = users.get_mut(username) {
             record.is_active = false;
-            self.persist_user(record)?;
+            self.commit_user_mutation(record, Some(SessionInvalidationReason::UserDeactivated))?;
             Ok(true)
         } else {
             Ok(false)
         }
     }
 
-    /// Update a user's password. Recomputes both Argon2 hash and
-    /// SCRAM credentials.
+    /// Update a user's password. Recomputes both Argon2 hash and SCRAM
+    /// credentials.  Password change is a credential mutation but does not
+    /// change role/access — no session invalidation reason.
     pub fn update_password(&self, username: &str, password: &str) -> crate::Result<()> {
         let mut users = write_lock(&self.users)?;
         let record = users
@@ -132,7 +137,8 @@ impl CredentialStore {
         record.password_expires_at = self.compute_expiry();
         record.must_change_password = false;
         record.password_changed_at = now_secs();
-        self.persist_user(record)?;
+        // Password change only — no role/access change, no session invalidation.
+        self.commit_user_mutation(record, None)?;
         Ok(())
     }
 
@@ -150,7 +156,7 @@ impl CredentialStore {
             });
         }
         record.must_change_password = required;
-        self.persist_user(record)?;
+        self.commit_user_mutation(record, None)?;
         Ok(())
     }
 
@@ -168,7 +174,7 @@ impl CredentialStore {
             });
         }
         record.password_expires_at = 0;
-        self.persist_user(record)?;
+        self.commit_user_mutation(record, None)?;
         Ok(())
     }
 
@@ -186,11 +192,12 @@ impl CredentialStore {
             });
         }
         record.password_expires_at = expires_at;
-        self.persist_user(record)?;
+        self.commit_user_mutation(record, None)?;
         Ok(())
     }
 
-    /// Replace all roles for a user.
+    /// Replace all roles for a user. Triggers identity rehydrate on open
+    /// sessions via `RoleAltered`.
     pub fn update_roles(&self, username: &str, roles: Vec<Role>) -> crate::Result<()> {
         let mut users = write_lock(&self.users)?;
         let record = users
@@ -200,11 +207,12 @@ impl CredentialStore {
             })?;
         record.is_superuser = roles.contains(&Role::Superuser);
         record.roles = roles;
-        self.persist_user(record)?;
+        self.commit_user_mutation(record, Some(SessionInvalidationReason::RoleAltered))?;
         Ok(())
     }
 
-    /// Add a role to a user (if not already present).
+    /// Add a role to a user (if not already present). Triggers `RoleGranted`
+    /// soft-revoke on open sessions.
     pub fn add_role(&self, username: &str, role: Role) -> crate::Result<()> {
         let mut users = write_lock(&self.users)?;
         let record = users
@@ -218,11 +226,12 @@ impl CredentialStore {
                 record.is_superuser = true;
             }
         }
-        self.persist_user(record)?;
+        self.commit_user_mutation(record, Some(SessionInvalidationReason::RoleGranted))?;
         Ok(())
     }
 
-    /// Remove a role from a user.
+    /// Remove a role from a user. Triggers `RoleRevoked` soft-revoke on
+    /// open sessions.
     pub fn remove_role(&self, username: &str, role: &Role) -> crate::Result<()> {
         let mut users = write_lock(&self.users)?;
         let record = users
@@ -234,7 +243,7 @@ impl CredentialStore {
         if matches!(role, Role::Superuser) {
             record.is_superuser = false;
         }
-        self.persist_user(record)?;
+        self.commit_user_mutation(record, Some(SessionInvalidationReason::RoleRevoked))?;
         Ok(())
     }
 }
