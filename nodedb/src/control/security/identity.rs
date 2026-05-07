@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+// All match arms on PermissionTarget must be exhaustive. Wildcard catch-alls
+// are denied here so that adding Database(DatabaseId) in 10_BOUNDARY forces
+// a compile error at every match site rather than silently falling through.
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::str::FromStr;
 
 use crate::types::TenantId;
@@ -118,6 +123,8 @@ pub enum Permission {
     Execute,
 }
 
+// TODO-AUDIT: extend with Database(DatabaseId) arm when 10_BOUNDARY lands —
+// every match on PermissionTarget must add a Database branch at that point.
 /// What the permission applies to.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PermissionTarget {

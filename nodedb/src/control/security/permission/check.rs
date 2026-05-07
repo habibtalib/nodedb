@@ -68,7 +68,13 @@ impl PermissionStore {
         }
 
         for role in &identity.roles {
-            let chain = role_store.resolve_inheritance(role);
+            let chain = match role_store.resolve_inheritance(role) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to resolve role inheritance — denying");
+                    continue;
+                }
+            };
             for ancestor in &chain {
                 let role_grantee = ancestor.to_string();
                 if grants.contains(&Grant {
@@ -144,7 +150,13 @@ impl PermissionStore {
         }
 
         for role in &identity.roles {
-            let chain = role_store.resolve_inheritance(role);
+            let chain = match role_store.resolve_inheritance(role) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to resolve role inheritance — denying");
+                    continue;
+                }
+            };
             for ancestor in &chain {
                 if grants.contains(&Grant {
                     target: target.clone(),

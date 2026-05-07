@@ -14,6 +14,14 @@ use crate::types::TenantId;
 use super::catalog::{StoredRole, SystemCatalog};
 use super::identity::Role;
 
+/// Maximum allowed depth of a custom role inheritance chain (self + ancestors).
+///
+/// A chain of depth 8 means the role itself plus up to 7 ancestors. Any
+/// attempt to create a role or assign a parent that would produce a chain
+/// longer than this is rejected at catalog-write time with
+/// [`crate::Error::RoleInheritanceDepthExceeded`].
+pub const MAX_ROLE_INHERITANCE_DEPTH: usize = 8;
+
 /// In-memory custom role record.
 #[derive(Debug, Clone)]
 pub struct CustomRole {
@@ -135,13 +143,8 @@ impl RoleStore {
                 detail: format!("role '{name}' already exists"),
             });
         }
-        if let Some(parent_name) = parent
-            && !is_builtin(parent_name)
-            && !roles.contains_key(parent_name)
-        {
-            return Err(crate::Error::BadRequest {
-                detail: format!("parent role '{parent_name}' does not exist"),
-            });
+        if let Some(parent_name) = parent {
+            validate_parent(name, parent_name, &roles)?;
         }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -180,14 +183,9 @@ impl RoleStore {
             });
         }
 
-        // Validate parent exists (built-in or custom).
-        if let Some(parent_name) = parent
-            && !is_builtin(parent_name)
-            && !roles.contains_key(parent_name)
-        {
-            return Err(crate::Error::BadRequest {
-                detail: format!("parent role '{parent_name}' does not exist"),
-            });
+        // Validate parent exists (built-in or custom) and enforce depth/cycle rules.
+        if let Some(parent_name) = parent {
+            validate_parent(name, parent_name, &roles)?;
         }
 
         let now = std::time::SystemTime::now()
@@ -246,41 +244,56 @@ impl RoleStore {
     }
 
     /// Resolve the full permission chain for a role, following inheritance.
-    /// Returns a list of role names from the given role up through its ancestors.
-    pub fn resolve_inheritance(&self, role: &Role) -> Vec<Role> {
+    ///
+    /// Returns a list of role names from the given role up through its
+    /// ancestors, capped at `MAX_ROLE_INHERITANCE_DEPTH` entries (self +
+    /// ancestors). The catalog enforces no cycles and no chains deeper than
+    /// `MAX_ROLE_INHERITANCE_DEPTH` at write time, so this walk is O(depth)
+    /// with no HashSet needed. If the stored chain somehow violates the
+    /// invariant (e.g. data written before the cap was introduced), the walk
+    /// returns an error rather than truncating silently.
+    pub fn resolve_inheritance(&self, role: &Role) -> crate::Result<Vec<Role>> {
         let mut chain = vec![role.clone()];
 
         if let Role::Custom(name) = role {
-            let roles = match self.roles.read() {
-                Ok(r) => r,
-                Err(_) => return chain,
-            };
+            let roles = self.roles.read().map_err(|e| crate::Error::Internal {
+                detail: format!("role store lock poisoned: {e}"),
+            })?;
 
             let mut current = name.as_str();
-            let mut visited = std::collections::HashSet::new();
-            visited.insert(current.to_string());
 
-            while let Some(custom) = roles.get(current) {
-                if let Some(ref parent_name) = custom.parent {
-                    if !visited.insert(parent_name.clone()) {
-                        break; // Cycle detected — stop.
-                    }
-                    let parent_role: Role = match parent_name.parse() {
-                        Ok(r) => r,
-                        Err(e) => match e {},
-                    };
-                    chain.push(parent_role);
-                    if is_builtin(parent_name) {
-                        break; // Built-in roles don't have parents.
-                    }
-                    current = parent_name;
-                } else {
+            loop {
+                if chain.len() > MAX_ROLE_INHERITANCE_DEPTH {
+                    return Err(crate::Error::RoleInheritanceDepthExceeded {
+                        depth: chain.len(),
+                        limit: MAX_ROLE_INHERITANCE_DEPTH,
+                    });
+                }
+                // Built-in roles have no further parents.
+                if is_builtin(current) {
                     break;
+                }
+                match roles.get(current) {
+                    Some(custom) => match &custom.parent {
+                        Some(parent_name) => {
+                            // Role::from_str is infallible (Err = Infallible);
+                            // matching on the uninhabited error proves it at
+                            // compile time without an unwrap.
+                            let parent_role: Role = match parent_name.parse() {
+                                Ok(r) => r,
+                                Err(e) => match e {},
+                            };
+                            chain.push(parent_role);
+                            current = parent_name.as_str();
+                        }
+                        None => break,
+                    },
+                    None => break,
                 }
             }
         }
 
-        chain
+        Ok(chain)
     }
 
     /// Look up a custom role by name. Returns None if not found.
@@ -297,6 +310,72 @@ impl RoleStore {
         };
         roles.values().cloned().collect()
     }
+}
+
+/// Walk the inheritance chain starting from `start_name` upward through the
+/// given `roles` map. Returns the chain length (number of hops including
+/// `start_name` itself). If the chain is a cycle or exceeds
+/// `MAX_ROLE_INHERITANCE_DEPTH`, returns the corresponding error.
+///
+/// This is the single authoritative write-time check — both `create_role` and
+/// `prepare_role` call it so the guarantee holds for every catalog mutation path.
+fn check_inheritance_chain(
+    proposed_child: &str,
+    proposed_parent: &str,
+    roles: &HashMap<String, CustomRole>,
+) -> crate::Result<()> {
+    // Walk upward from the proposed parent. If we encounter `proposed_child`
+    // we have a cycle. If we exceed MAX_ROLE_INHERITANCE_DEPTH hops we stop.
+    let mut current = proposed_parent;
+    // depth counts the total chain: proposed_child (1) + proposed_parent (2) + ancestors.
+    let mut depth: usize = 2;
+
+    loop {
+        if current == proposed_child {
+            return Err(crate::Error::RoleInheritanceCycle {
+                child: proposed_child.to_string(),
+                parent: proposed_parent.to_string(),
+            });
+        }
+        if depth > MAX_ROLE_INHERITANCE_DEPTH {
+            return Err(crate::Error::RoleInheritanceDepthExceeded {
+                depth,
+                limit: MAX_ROLE_INHERITANCE_DEPTH,
+            });
+        }
+        // Built-in roles have no further parents; chain ends here.
+        if is_builtin(current) {
+            break;
+        }
+        match roles.get(current) {
+            Some(role) => match &role.parent {
+                Some(parent_name) => {
+                    current = parent_name.as_str();
+                    depth += 1;
+                }
+                None => break,
+            },
+            None => break,
+        }
+    }
+    Ok(())
+}
+
+/// Validate that `parent_name` refers to an existing role (built-in or
+/// custom) and that adopting it as `child_name`'s parent does not create a
+/// cycle or exceed `MAX_ROLE_INHERITANCE_DEPTH`. Shared by `prepare_role`
+/// and `create_role` so both catalog mutation paths enforce the same rules.
+fn validate_parent(
+    child_name: &str,
+    parent_name: &str,
+    roles: &HashMap<String, CustomRole>,
+) -> crate::Result<()> {
+    if !is_builtin(parent_name) && !roles.contains_key(parent_name) {
+        return Err(crate::Error::BadRequest {
+            detail: format!("parent role '{parent_name}' does not exist"),
+        });
+    }
+    check_inheritance_chain(child_name, parent_name, roles)
 }
 
 fn is_builtin(name: &str) -> bool {
@@ -415,14 +494,145 @@ mod tests {
             .create_role("leaf", TenantId::new(1), Some("mid"), None)
             .unwrap();
 
-        let chain = store.resolve_inheritance(&Role::Custom("leaf".into()));
+        let chain = store
+            .resolve_inheritance(&Role::Custom("leaf".into()))
+            .unwrap();
         assert_eq!(chain.len(), 4); // leaf → mid → base → readonly
     }
 
     #[test]
     fn resolve_builtin_no_chain() {
         let store = RoleStore::new();
-        let chain = store.resolve_inheritance(&Role::ReadOnly);
+        let chain = store.resolve_inheritance(&Role::ReadOnly).unwrap();
         assert_eq!(chain.len(), 1);
+    }
+
+    /// A chain of 8 custom roles (each inheriting from the previous) must
+    /// succeed at grant time and resolve cleanly.
+    #[test]
+    fn role_inheritance_depth_8_succeeds() {
+        let store = RoleStore::new();
+        // Create roles r1 … r8 where r1 has no parent, r2→r1, …, r8→r7.
+        store
+            .create_role("r1", TenantId::new(1), None, None)
+            .unwrap();
+        for i in 2..=8usize {
+            let name = format!("r{i}");
+            let parent = format!("r{}", i - 1);
+            store
+                .create_role(&name, TenantId::new(1), Some(&parent), None)
+                .expect("depth-8 chain should be accepted");
+        }
+        // resolve_inheritance for r8 should return 8 entries.
+        let chain = store
+            .resolve_inheritance(&Role::Custom("r8".into()))
+            .unwrap();
+        assert_eq!(chain.len(), 8);
+    }
+
+    /// Adding a 9th ancestor must be rejected with `RoleInheritanceDepthExceeded`.
+    #[test]
+    fn role_inheritance_depth_9_rejected() {
+        let store = RoleStore::new();
+        store
+            .create_role("r1", TenantId::new(1), None, None)
+            .unwrap();
+        for i in 2..=8usize {
+            let name = format!("r{i}");
+            let parent = format!("r{}", i - 1);
+            store
+                .create_role(&name, TenantId::new(1), Some(&parent), None)
+                .unwrap();
+        }
+        // r9 → r8 would create a 9-node chain — must be rejected.
+        let err = store
+            .create_role("r9", TenantId::new(1), Some("r8"), None)
+            .unwrap_err();
+        assert!(
+            matches!(err, crate::Error::RoleInheritanceDepthExceeded { .. }),
+            "expected RoleInheritanceDepthExceeded, got: {err:?}"
+        );
+    }
+
+    /// A→B→C, then attempting to grant C a parent of A must return
+    /// `RoleInheritanceCycle`.
+    #[test]
+    fn role_inheritance_cycle_rejected() {
+        let store = RoleStore::new();
+        store
+            .create_role("a", TenantId::new(1), None, None)
+            .unwrap();
+        store
+            .create_role("b", TenantId::new(1), Some("a"), None)
+            .unwrap();
+        store
+            .create_role("c", TenantId::new(1), Some("b"), None)
+            .unwrap();
+        // Now try to create a new role "d" with parent "c" that would make a→b→c→d and
+        // then try to make "a" a child of "c" (a cycle): create_role("a2", parent=c)
+        // won't cycle, but creating any role with parent chain looping back is what we test.
+        // Simulate by directly trying to insert a role whose parent chain leads back to itself.
+        // The simplest test: try to create role "loop" with parent "c" AND
+        // separately verify we can't create a role whose ancestor is itself.
+        // Direct cycle: create role "x" with parent "x" is caught by existence check first.
+        // Real test: A→B→C exists. Now drop C and re-create with parent A (not a cycle).
+        // The canonical test: A inherits B, B inherits C. Try to make C's parent = A.
+        // We can't mutate existing parents in this API, so test via prepare_role:
+        // a has no parent, b→a, c→b. Making a role "d" with parent "c" is fine.
+        // Cycle test: simulate A→B→C and try making A's chain go through C by
+        // adding role "cycle_root" with parent="c" where "cycle_root" is also
+        // somewhere above c — but since parents are immutable after creation,
+        // we use check_inheritance_chain directly.
+        //
+        // Real observable cycle via public API: create roles in reverse to force a
+        // cycle attempt at write time.
+        let store2 = RoleStore::new();
+        store2
+            .create_role("roleA", TenantId::new(1), None, None)
+            .unwrap();
+        store2
+            .create_role("roleB", TenantId::new(1), Some("roleA"), None)
+            .unwrap();
+        store2
+            .create_role("roleC", TenantId::new(1), Some("roleB"), None)
+            .unwrap();
+        // Now try to create "roleA_child" with parent "roleC" — no cycle.
+        store2
+            .create_role("roleA_child", TenantId::new(1), Some("roleC"), None)
+            .unwrap();
+        // Cycle: call check_inheritance_chain directly for roleA → roleC (roleA is ancestor).
+        let roles_guard = store2.roles.read().unwrap();
+        let err = check_inheritance_chain("roleA", "roleC", &roles_guard).unwrap_err();
+        drop(roles_guard);
+        assert!(
+            matches!(err, crate::Error::RoleInheritanceCycle { .. }),
+            "expected RoleInheritanceCycle, got: {err:?}"
+        );
+    }
+
+    /// `resolve_inheritance` must return at most `MAX_ROLE_INHERITANCE_DEPTH`
+    /// entries and never spin infinitely.
+    #[test]
+    fn resolve_inheritance_bounded() {
+        let store = RoleStore::new();
+        // Build a valid chain of exactly MAX_ROLE_INHERITANCE_DEPTH roles.
+        store
+            .create_role("root", TenantId::new(1), None, None)
+            .unwrap();
+        let mut prev = "root".to_string();
+        for i in 1..MAX_ROLE_INHERITANCE_DEPTH {
+            let name = format!("node{i}");
+            store
+                .create_role(&name, TenantId::new(1), Some(&prev), None)
+                .unwrap();
+            prev = name;
+        }
+        let chain = store.resolve_inheritance(&Role::Custom(prev)).unwrap();
+        assert!(
+            chain.len() <= MAX_ROLE_INHERITANCE_DEPTH,
+            "chain length {} exceeds MAX_ROLE_INHERITANCE_DEPTH {}",
+            chain.len(),
+            MAX_ROLE_INHERITANCE_DEPTH
+        );
     }
 }
