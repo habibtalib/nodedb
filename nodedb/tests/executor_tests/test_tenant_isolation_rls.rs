@@ -5,11 +5,14 @@
 //! Tenant A's RLS policies must be invisible to Tenant B.
 //! RLS policies are scoped by `(tenant_id, collection)` by construction.
 
+use nodedb::control::security::audit::NoopAuditEmitter;
 use nodedb::control::security::auth_context::AuthContext;
 use nodedb::control::security::identity::{AuthMethod, AuthenticatedIdentity, Role};
 use nodedb::control::security::predicate::{CompareOp, PredicateValue, RlsPredicate};
 use nodedb::control::security::rls::{PolicyType, RlsPolicy, RlsPolicyStore};
 use nodedb_types::TenantId;
+
+const NOOP: &NoopAuditEmitter = &NoopAuditEmitter;
 
 const TENANT_A: u64 = 10;
 const TENANT_B: u64 = 20;
@@ -55,7 +58,7 @@ fn rls_policies_isolated_between_tenants() {
     // Tenant A's write on "orders" with status=pending → BLOCKED by RLS.
     let pending_doc = serde_json::json!({"status": "pending", "amount": 100});
     let result_a =
-        store.check_write_with_auth(TENANT_A, "orders", &pending_doc, &make_auth(TENANT_A));
+        store.check_write_with_auth(TENANT_A, "orders", &pending_doc, &make_auth(TENANT_A), NOOP);
     assert!(
         result_a.is_err(),
         "Tenant A's RLS should block pending writes"
@@ -63,7 +66,7 @@ fn rls_policies_isolated_between_tenants() {
 
     // Tenant B's write on "orders" with status=pending → ALLOWED (no policy for Tenant B).
     let result_b =
-        store.check_write_with_auth(TENANT_B, "orders", &pending_doc, &make_auth(TENANT_B));
+        store.check_write_with_auth(TENANT_B, "orders", &pending_doc, &make_auth(TENANT_B), NOOP);
     assert!(
         result_b.is_ok(),
         "Tenant B has no RLS policy — write should be allowed"
@@ -73,7 +76,13 @@ fn rls_policies_isolated_between_tenants() {
     let approved_doc = serde_json::json!({"status": "approved", "amount": 200});
     assert!(
         store
-            .check_write_with_auth(TENANT_A, "orders", &approved_doc, &make_auth(TENANT_A))
+            .check_write_with_auth(
+                TENANT_A,
+                "orders",
+                &approved_doc,
+                &make_auth(TENANT_A),
+                NOOP
+            )
             .is_ok()
     );
 }
