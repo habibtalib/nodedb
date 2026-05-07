@@ -10,9 +10,6 @@ use nodedb::bridge::physical_plan::{DocumentOp, GraphOp, KvOp, MetaOp, Timeserie
 
 use crate::helpers::*;
 
-const TENANT_A: u64 = 10;
-const TENANT_B: u64 = 20;
-
 #[test]
 fn purge_removes_all_tenant_data() {
     let (mut core, mut tx, mut rx, _dir) = make_core();

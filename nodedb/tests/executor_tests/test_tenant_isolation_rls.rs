@@ -5,6 +5,7 @@
 //! Tenant A's RLS policies must be invisible to Tenant B.
 //! RLS policies are scoped by `(tenant_id, collection)` by construction.
 
+use crate::helpers::{TENANT_A, TENANT_B};
 use nodedb::control::security::audit::NoopAuditEmitter;
 use nodedb::control::security::auth_context::AuthContext;
 use nodedb::control::security::identity::{AuthMethod, AuthenticatedIdentity, Role};
@@ -13,9 +14,6 @@ use nodedb::control::security::rls::{PolicyType, RlsPolicy, RlsPolicyStore};
 use nodedb_types::TenantId;
 
 const NOOP: &NoopAuditEmitter = &NoopAuditEmitter;
-
-const TENANT_A: u64 = 10;
-const TENANT_B: u64 = 20;
 
 fn make_auth(tenant_id: u64) -> AuthContext {
     let identity = AuthenticatedIdentity {

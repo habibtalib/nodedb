@@ -145,6 +145,12 @@ pub fn payload_value(payload: &[u8]) -> serde_json::Value {
 
 // ── Tenant-aware helpers ────────────────────────────────────────────
 
+/// Canonical tenant IDs used across tenant-isolation integration tests.
+/// Two distinct, non-zero IDs suffice to exercise every isolation boundary;
+/// keep them stable so test output is comparable across files.
+pub const TENANT_A: u64 = 10;
+pub const TENANT_B: u64 = 20;
+
 pub fn make_request_for_tenant(tenant_id: u64, plan: PhysicalPlan) -> Request {
     Request {
         tenant_id: TenantId::new(tenant_id),

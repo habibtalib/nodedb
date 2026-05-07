@@ -6,11 +6,9 @@
 //! data between tenants. Two tenants with the same collection name and
 //! partition IDs must have independent cache entries.
 
+use crate::helpers::{TENANT_A, TENANT_B};
 use nodedb::engine::timeseries::query_cache::{self, QueryCache};
 use nodedb::engine::timeseries::recent_cache::{CachedPartition, RecentWindowCache};
-
-const TENANT_A: u64 = 10;
-const TENANT_B: u64 = 20;
 
 #[test]
 fn query_cache_tenant_isolation() {
