@@ -14,9 +14,11 @@
 //! ```
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use nodedb_bridge::backpressure::{BackpressureConfig, BackpressureController, PressureState};
 use nodedb_bridge::buffer::{Consumer, Producer, RingBuffer};
+use nodedb_bridge::error::BridgeError;
 
 use super::types::WriteEvent;
 
@@ -30,6 +32,10 @@ pub struct EventProducer {
     inner: Producer<WriteEvent>,
     core_id: usize,
     backpressure: Arc<BackpressureController>,
+    /// Latched once the consumer half is dropped, so we log the
+    /// disconnect exactly once per producer instead of spamming
+    /// a warning for every dropped event.
+    disconnect_logged: AtomicBool,
 }
 
 impl EventProducer {
@@ -74,11 +80,31 @@ impl EventProducer {
 
         match self.inner.try_push(event) {
             Ok(()) => true,
-            Err(_) => {
+            Err(BridgeError::Full { .. }) => {
                 tracing::warn!(
                     core = self.core_id,
                     utilization = util,
                     "event bus full — event dropped (WAL-backed, will replay on gap)"
+                );
+                false
+            }
+            Err(BridgeError::Disconnected { .. }) => {
+                // Consumer dropped — Event Plane is gone (shutdown or lifecycle bug).
+                // Log once per producer; further events would just be noise.
+                if !self.disconnect_logged.swap(true, Ordering::Relaxed) {
+                    tracing::warn!(
+                        core = self.core_id,
+                        "event bus consumer disconnected — Event Plane is not running; \
+                         events will be silently dropped on this core until restart"
+                    );
+                }
+                false
+            }
+            Err(e) => {
+                tracing::warn!(
+                    core = self.core_id,
+                    error = %e,
+                    "event bus push failed — event dropped"
                 );
                 false
             }
@@ -147,6 +173,7 @@ pub fn create_event_bus_with_capacity(
             inner: producer,
             core_id,
             backpressure: Arc::clone(&backpressure),
+            disconnect_logged: AtomicBool::new(false),
         });
 
         consumers.push(EventConsumerRx {
