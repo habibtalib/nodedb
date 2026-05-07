@@ -255,6 +255,21 @@ async fn main() -> anyhow::Result<()> {
         &root_span,
     )?;
 
+    // Apply login rate-limit capacities from cluster config (or defaults).
+    {
+        let (ip_cap, user_cap) = config
+            .cluster
+            .as_ref()
+            .map(|c| {
+                (
+                    c.login_attempts_per_ip_per_min,
+                    c.login_attempts_per_user_per_min,
+                )
+            })
+            .unwrap_or((30, 10));
+        shared.rate_limiter.set_login_capacities(ip_cap, user_cap);
+    }
+
     // System catalog (redb) is open — fire the ClusterCatalogOpen gate.
     catalog_gate.fire();
 
