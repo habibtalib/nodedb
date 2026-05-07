@@ -14,6 +14,7 @@
 //! SELECT RESOLVE_PERMISSION('user-42', 'doc-123', 'documents');
 //! ```
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -62,7 +63,7 @@ pub async fn set_permission_tree(
         return Err(sqlstate_error("XX000", "catalog unavailable"));
     };
     let mut coll = catalog
-        .get_collection(tenant_id.as_u64(), &collection)
+        .get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &collection)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
         .ok_or_else(|| {
             sqlstate_error(
@@ -83,7 +84,7 @@ pub async fn set_permission_tree(
         .map_err(|e| sqlstate_error("XX000", &format!("serialize PERMISSION_TREE: {e}")))?;
     coll.permission_tree_def = Some(def_json);
     catalog
-        .put_collection(&coll)
+        .put_collection(DatabaseId::DEFAULT, &coll)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
 
     // Update in-memory cache.
@@ -128,7 +129,7 @@ pub async fn drop_permission_tree(
         return Err(sqlstate_error("XX000", "catalog unavailable"));
     };
     let mut coll = catalog
-        .get_collection(tenant_id.as_u64(), &collection)
+        .get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &collection)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
         .ok_or_else(|| {
             sqlstate_error(
@@ -139,7 +140,7 @@ pub async fn drop_permission_tree(
 
     coll.permission_tree_def = None;
     catalog
-        .put_collection(&coll)
+        .put_collection(DatabaseId::DEFAULT, &coll)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
 
     // Update in-memory cache.

@@ -14,6 +14,7 @@
 //! ) [WITH (EVAL_INTERVAL = '<duration>')]
 //! ```
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -51,7 +52,7 @@ pub async fn create_retention_policy(
 
     // Validate collection exists and is timeseries.
     if let Some(catalog) = state.credentials.catalog() {
-        match catalog.get_collection(tenant_id, &parsed.collection) {
+        match catalog.get_collection(DatabaseId::DEFAULT, tenant_id, &parsed.collection) {
             Ok(Some(coll)) if coll.collection_type.is_timeseries() => {}
             Ok(Some(_)) => {
                 return Err(sqlstate_error(

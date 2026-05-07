@@ -16,6 +16,7 @@ use crate::engine::array::wal::{
 };
 use crate::types::{TenantId, VShardId};
 use crate::wal::manager::WalManager;
+use nodedb_types::DatabaseId;
 
 /// Append a write operation to the WAL for single-node durability.
 ///
@@ -223,7 +224,8 @@ pub fn wal_append_if_write_with_creds(
             // WAL bypass: skip WAL if collection has wal=false in timeseries_config.
             if let Some(creds) = credentials
                 && let Some(catalog) = creds.catalog()
-                && let Ok(Some(coll)) = catalog.get_collection(tenant_id.as_u64(), collection)
+                && let Ok(Some(coll)) =
+                    catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), collection)
                 && let Some(config) = coll.get_timeseries_config()
                 && config.get("wal").and_then(|v| v.as_str()) == Some("false")
             {
@@ -530,7 +532,8 @@ pub fn wal_append_timeseries(
     // WAL bypass check.
     if let Some(creds) = credentials
         && let Some(catalog) = creds.catalog()
-        && let Ok(Some(coll)) = catalog.get_collection(tenant_id.as_u64(), collection)
+        && let Ok(Some(coll)) =
+            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), collection)
         && let Some(config) = coll.get_timeseries_config()
         && config.get("wal").and_then(|v| v.as_str()) == Some("false")
     {

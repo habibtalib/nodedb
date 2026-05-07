@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -65,7 +66,11 @@ pub fn alter_collection_owner(
     let catalog = catalog_ref
         .as_ref()
         .ok_or_else(|| sqlstate_error("XX000", "catalog unavailable for ALTER COLLECTION OWNER"))?;
-    let mut stored = match catalog.get_collection(identity.tenant_id.as_u64(), collection) {
+    let mut stored = match catalog.get_collection(
+        DatabaseId::DEFAULT,
+        identity.tenant_id.as_u64(),
+        collection,
+    ) {
         Ok(Some(c)) => c,
         Ok(None) => {
             return Err(sqlstate_error(
@@ -81,7 +86,7 @@ pub fn alter_collection_owner(
         .map_err(|e| sqlstate_error("XX000", &format!("metadata propose: {e}")))?;
     if log_index == 0 {
         catalog
-            .put_collection(&stored)
+            .put_collection(DatabaseId::DEFAULT, &stored)
             .map_err(|e| sqlstate_error("XX000", &format!("catalog write: {e}")))?;
         state.permissions.install_replicated_owner(
             &crate::control::security::catalog::StoredOwner {

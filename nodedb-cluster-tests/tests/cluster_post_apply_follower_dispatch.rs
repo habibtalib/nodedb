@@ -75,7 +75,11 @@ async fn async_dispatch_fires_on_follower_for_put_and_purge() {
         let catalog_opt = node.shared.credentials.catalog();
         let catalog = catalog_opt.as_ref().expect("catalog on every node");
         let coll = catalog
-            .get_collection(1, "follower_dispatch_smoke")
+            .get_collection(
+                nodedb_types::DatabaseId::DEFAULT,
+                1,
+                "follower_dispatch_smoke",
+            )
             .expect("get_collection")
             .expect("PutCollection apply must land on every node (leader + followers)");
         assert!(

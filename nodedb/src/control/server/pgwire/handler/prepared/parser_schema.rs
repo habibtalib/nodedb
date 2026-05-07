@@ -6,6 +6,7 @@
 //! handling to infer parameter and result-field types from SQL text and
 //! catalog metadata.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::Type;
 use pgwire::api::results::FieldInfo;
 
@@ -99,9 +100,12 @@ pub(super) fn fields_from_projection(
 ) -> Vec<FieldInfo> {
     use pgwire::api::results::FieldFormat;
 
-    let info = plan
-        .and_then(|p| plan_collection(p))
-        .and_then(|name| catalog.get_collection(name).ok().flatten());
+    let info = plan.and_then(|p| plan_collection(p)).and_then(|name| {
+        catalog
+            .get_collection(DatabaseId::DEFAULT, name)
+            .ok()
+            .flatten()
+    });
 
     let mut fields = Vec::with_capacity(projection.len());
     for item in projection {
@@ -193,7 +197,10 @@ pub(super) fn result_fields_for_returning(
         _ => return None,
     };
 
-    let info = catalog.get_collection(collection).ok().flatten()?;
+    let info = catalog
+        .get_collection(DatabaseId::DEFAULT, collection)
+        .ok()
+        .flatten()?;
 
     let fields = match &spec.columns {
         ReturningColumns::Star => columns_to_field_info(&info.columns),
@@ -248,7 +255,7 @@ pub(super) fn infer_result_fields(
         _ => return Vec::new(),
     };
 
-    let info = match catalog.get_collection(collection) {
+    let info = match catalog.get_collection(DatabaseId::DEFAULT, collection) {
         Ok(Some(i)) => i,
         Ok(None) | Err(_) => return Vec::new(),
     };

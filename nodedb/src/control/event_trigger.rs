@@ -6,6 +6,7 @@
 //! for each write. When a WHEN condition matches, the THEN action is
 //! executed as a SQL statement via the Control Plane query path.
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use tracing::{debug, info, warn};
@@ -61,7 +62,11 @@ async fn process_event(shared: &SharedState, event: &ChangeEvent) {
         None => return,
     };
 
-    let coll = match catalog.get_collection(event.tenant_id.as_u64(), &event.collection) {
+    let coll = match catalog.get_collection(
+        DatabaseId::DEFAULT,
+        event.tenant_id.as_u64(),
+        &event.collection,
+    ) {
         Ok(Some(c)) => c,
         _ => return,
     };

@@ -123,7 +123,7 @@ impl TestClusterNode {
         // `load_collections_for_tenant` filters out `is_active = false`
         // records, so a deactivated collection drops out of the count.
         catalog
-            .load_collections_for_tenant(1)
+            .load_collections_for_tenant(nodedb_types::DatabaseId::DEFAULT, 1)
             .map(|v| v.len())
             .unwrap_or(0)
     }
@@ -403,7 +403,11 @@ impl TestClusterNode {
             .credentials
             .catalog()
             .as_ref()
-            .and_then(|c| c.get_collection(tenant_id, name).ok().flatten())
+            .and_then(|c| {
+                c.get_collection(nodedb_types::DatabaseId::DEFAULT, tenant_id, name)
+                    .ok()
+                    .flatten()
+            })
             .map(|coll| (coll.descriptor_version, coll.modification_hlc))
     }
 

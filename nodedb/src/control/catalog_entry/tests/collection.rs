@@ -7,6 +7,7 @@ use crate::control::catalog_entry::codec::{decode, encode};
 use crate::control::catalog_entry::entry::CatalogEntry;
 use crate::control::catalog_entry::tests::open_catalog;
 use crate::control::security::catalog::StoredCollection;
+use nodedb_types::DatabaseId;
 
 #[test]
 fn roundtrip_put_collection() {
@@ -49,7 +50,7 @@ fn apply_put_collection_writes_redb() {
     apply_to(&CatalogEntry::PutCollection(Box::new(stored)), catalog);
 
     let loaded = catalog
-        .get_collection(1, "widgets")
+        .get_collection(DatabaseId::DEFAULT, 1, "widgets")
         .unwrap()
         .expect("present");
     assert_eq!(loaded.name, "widgets");
@@ -78,7 +79,7 @@ fn apply_deactivate_collection_preserves_record() {
     );
 
     let loaded = catalog
-        .get_collection(1, "archived")
+        .get_collection(DatabaseId::DEFAULT, 1, "archived")
         .unwrap()
         .expect("record preserved");
     assert!(!loaded.is_active);
@@ -95,5 +96,10 @@ fn apply_deactivate_missing_is_noop() {
         },
         catalog,
     );
-    assert!(catalog.get_collection(1, "ghost").unwrap().is_none());
+    assert!(
+        catalog
+            .get_collection(DatabaseId::DEFAULT, 1, "ghost")
+            .unwrap()
+            .is_none()
+    );
 }

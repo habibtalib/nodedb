@@ -2,6 +2,7 @@
 
 //! DESCRIBE COLLECTION and SHOW COLLECTIONS DDL.
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use futures::stream;
@@ -32,7 +33,7 @@ pub fn describe_collection(
         None => return Err(sqlstate_error("XX000", "catalog not available")),
     };
 
-    let coll = match catalog.get_collection(tenant_id.as_u64(), name) {
+    let coll = match catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), name) {
         Ok(Some(c)) if c.is_active => c,
         _ => {
             return Err(sqlstate_error(
@@ -200,14 +201,14 @@ pub fn show_collections(
     let collections = if let Some(catalog) = state.credentials.catalog() {
         if identity.is_superuser {
             catalog
-                .load_all_collections()
+                .load_all_collections(DatabaseId::DEFAULT)
                 .unwrap_or_default()
                 .into_iter()
                 .filter(|c| c.is_active)
                 .collect::<Vec<_>>()
         } else {
             catalog
-                .load_collections_for_tenant(tenant_id.as_u64())
+                .load_collections_for_tenant(DatabaseId::DEFAULT, tenant_id.as_u64())
                 .unwrap_or_default()
         }
     } else {

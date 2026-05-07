@@ -6,6 +6,7 @@
 //! - `SHOW PARTITIONS FOR name`
 //! - `ALTER TIMESERIES name SET (...)`
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use futures::stream;
@@ -36,7 +37,7 @@ pub fn create_timeseries(
     let tenant_id = identity.tenant_id;
 
     if let Some(catalog) = state.credentials.catalog()
-        && let Ok(Some(_)) = catalog.get_collection(tenant_id.as_u64(), &name)
+        && let Ok(Some(_)) = catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &name)
     {
         return Err(sqlstate_error(
             "42P07",
@@ -97,7 +98,7 @@ pub fn create_timeseries(
 
     if let Some(catalog) = state.credentials.catalog() {
         catalog
-            .put_collection(&coll)
+            .put_collection(DatabaseId::DEFAULT, &coll)
             .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     }
 
@@ -141,7 +142,7 @@ pub fn show_partitions(
 
     // Verify collection exists and is timeseries.
     if let Some(catalog) = state.credentials.catalog() {
-        match catalog.get_collection(tenant_id.as_u64(), &name) {
+        match catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &name) {
             Ok(Some(coll)) if coll.collection_type.is_timeseries() => {}
             Ok(Some(_)) => {
                 return Err(sqlstate_error(
@@ -225,7 +226,7 @@ pub fn alter_timeseries(
 
     if let Some(catalog) = state.credentials.catalog() {
         let mut coll = catalog
-            .get_collection(tenant_id.as_u64(), &name)
+            .get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &name)
             .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
             .ok_or_else(|| {
                 sqlstate_error("42P01", &format!("collection '{name}' does not exist"))
@@ -259,7 +260,7 @@ pub fn alter_timeseries(
         }
 
         catalog
-            .put_collection(&coll)
+            .put_collection(DatabaseId::DEFAULT, &coll)
             .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     } else {
         return Err(sqlstate_error("XX000", "catalog unavailable"));
@@ -295,7 +296,7 @@ pub fn rewrite_partitions(
 
     // Verify collection exists and is timeseries.
     if let Some(catalog) = state.credentials.catalog() {
-        match catalog.get_collection(tenant_id.as_u64(), &name) {
+        match catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &name) {
             Ok(Some(coll)) if coll.collection_type.is_timeseries() => {}
             Ok(Some(_)) => {
                 return Err(sqlstate_error(

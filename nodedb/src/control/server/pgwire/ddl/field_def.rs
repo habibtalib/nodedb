@@ -8,6 +8,7 @@
 //! Stores the field definition in the catalog. Applied during writes (DEFAULT,
 //! ASSERT, TYPE validation) and reads (VALUE computed fields).
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -68,7 +69,7 @@ pub fn define_field(
 
     // Store in catalog.
     if let Some(catalog) = state.credentials.catalog() {
-        match catalog.get_collection(tenant_id.as_u64(), &collection) {
+        match catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &collection) {
             Ok(Some(mut coll)) => {
                 // Remove existing definition for this field if any.
                 coll.field_defs.retain(|f| f.name != field_name);
@@ -92,7 +93,7 @@ pub fn define_field(
                     coll.fields.push((field_name.clone(), resolved_type));
                 }
 
-                if let Err(e) = catalog.put_collection(&coll) {
+                if let Err(e) = catalog.put_collection(DatabaseId::DEFAULT, &coll) {
                     return Err(sqlstate_error("XX000", &format!("save collection: {e}")));
                 }
             }
@@ -166,11 +167,11 @@ pub fn define_event(
     };
 
     if let Some(catalog) = state.credentials.catalog() {
-        match catalog.get_collection(tenant_id.as_u64(), &collection) {
+        match catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &collection) {
             Ok(Some(mut coll)) => {
                 coll.event_defs.retain(|e| e.name != event_name);
                 coll.event_defs.push(def);
-                if let Err(e) = catalog.put_collection(&coll) {
+                if let Err(e) = catalog.put_collection(DatabaseId::DEFAULT, &coll) {
                     return Err(sqlstate_error("XX000", &format!("save collection: {e}")));
                 }
             }

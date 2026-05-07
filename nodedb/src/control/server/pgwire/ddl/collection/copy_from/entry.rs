@@ -2,6 +2,7 @@
 
 //! Entry point: `copy_from_file`, path validation, and engine-support check.
 
+use nodedb_types::DatabaseId;
 use std::path::Path;
 
 use pgwire::api::results::{Response, Tag};
@@ -125,7 +126,7 @@ fn check_engine_support(
         Some(c) => c,
         None => return Ok(()), // No catalog means schemaless fallback — allow.
     };
-    let stored = match catalog.get_collection(tenant_id.as_u64(), collection) {
+    let stored = match catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), collection) {
         Ok(Some(c)) => c,
         Ok(None) => return Ok(()), // Collection doesn't exist yet — will fail at INSERT.
         Err(e) => {

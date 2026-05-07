@@ -336,6 +336,8 @@ impl MetadataApplier for MetadataCommitApplier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nodedb_types::DatabaseId;
+
     use crate::control::catalog_entry::CatalogEntry;
     use crate::control::security::catalog::StoredCollection;
     use nodedb_cluster::encode_entry;
@@ -378,7 +380,7 @@ mod tests {
             .catalog()
             .as_ref()
             .unwrap()
-            .get_collection(7, "orders")
+            .get_collection(DatabaseId::DEFAULT, 7, "orders")
             .unwrap()
             .expect("present");
         assert_eq!(loaded.name, "orders");
@@ -405,7 +407,7 @@ mod tests {
             .catalog()
             .as_ref()
             .unwrap()
-            .get_collection(7, "archived")
+            .get_collection(DatabaseId::DEFAULT, 7, "archived")
             .unwrap()
             .expect("preserved");
         assert!(!loaded.is_active);

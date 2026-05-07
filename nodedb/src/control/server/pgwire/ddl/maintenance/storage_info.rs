@@ -2,6 +2,7 @@
 
 //! `SHOW STORAGE FOR collection` and `SHOW COMPACTION STATUS` handlers.
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use futures::stream;
@@ -36,7 +37,7 @@ pub fn handle_show_storage(
     // Verify collection exists.
     if let Some(catalog) = state.credentials.catalog()
         && catalog
-            .get_collection(tenant_id, &collection)
+            .get_collection(DatabaseId::DEFAULT, tenant_id, &collection)
             .ok()
             .flatten()
             .is_none()

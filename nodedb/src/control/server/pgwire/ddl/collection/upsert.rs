@@ -2,6 +2,7 @@
 
 //! UPSERT INTO dispatch for schemaless and KV collections.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -59,7 +60,8 @@ pub async fn upsert_document(
 
     // Enforce type guards and CHECK constraints (after BEFORE trigger).
     if let Some(catalog) = state.credentials.catalog()
-        && let Ok(Some(coll_def)) = catalog.get_collection(tenant_id.as_u64(), &parsed.coll_name)
+        && let Ok(Some(coll_def)) =
+            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &parsed.coll_name)
     {
         // Inject DEFAULT/VALUE + validate type guards (combined).
         if !coll_def.type_guards.is_empty()
@@ -93,7 +95,8 @@ pub async fn upsert_document(
 
     // Validate enum-typed columns against the custom type registry.
     if let Some(catalog) = state.credentials.catalog()
-        && let Ok(Some(coll_def)) = catalog.get_collection(tenant_id.as_u64(), &parsed.coll_name)
+        && let Ok(Some(coll_def)) =
+            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &parsed.coll_name)
     {
         for (field_name, type_name) in &coll_def.fields {
             if let Some(value) = fields.get(field_name.as_str()) {

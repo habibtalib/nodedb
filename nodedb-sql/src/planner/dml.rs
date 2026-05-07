@@ -2,6 +2,7 @@
 
 //! INSERT, UPDATE, DELETE planning.
 
+use nodedb_types::DatabaseId;
 use sqlparser::ast::{self};
 
 use super::dml_helpers::{
@@ -78,7 +79,7 @@ pub fn plan_insert(ins: &ast::Insert, catalog: &dyn SqlCatalog) -> Result<Vec<Sq
         }
     };
     let info = catalog
-        .get_collection(&table_name)?
+        .get_collection(DatabaseId::DEFAULT, &table_name)?
         .ok_or_else(|| SqlError::UnknownTable {
             name: table_name.clone(),
         })?;
@@ -164,7 +165,7 @@ pub fn plan_upsert(ins: &ast::Insert, catalog: &dyn SqlCatalog) -> Result<Vec<Sq
         }
     };
     let info = catalog
-        .get_collection(&table_name)?
+        .get_collection(DatabaseId::DEFAULT, &table_name)?
         .ok_or_else(|| SqlError::UnknownTable {
             name: table_name.clone(),
         })?;
@@ -226,7 +227,7 @@ fn plan_upsert_with_on_conflict(
         }
     };
     let info = catalog
-        .get_collection(&table_name)?
+        .get_collection(DatabaseId::DEFAULT, &table_name)?
         .ok_or_else(|| SqlError::UnknownTable {
             name: table_name.clone(),
         })?;

@@ -4,6 +4,8 @@
 
 use std::collections::HashMap;
 
+use nodedb_types::DatabaseId;
+
 use crate::error::{Result, SqlError};
 use crate::parser::normalize::{
     normalize_ident, normalize_object_name_checked, table_name_from_factor,
@@ -204,7 +206,7 @@ impl TableScope {
         }
         if let Some((name, alias)) = table_name_from_factor(factor)? {
             let info = catalog
-                .get_collection(&name)?
+                .get_collection(DatabaseId::DEFAULT, &name)?
                 .ok_or_else(|| SqlError::UnknownTable { name: name.clone() })?;
             self.add(ResolvedTable { name, alias, info })?;
         }

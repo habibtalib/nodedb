@@ -2,6 +2,7 @@
 
 //! DDL handlers for adding and dropping constraints.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -53,7 +54,7 @@ pub fn add_state_constraint(
     };
 
     let mut coll = catalog
-        .get_collection(tenant_id, &coll_name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, &coll_name)
         .map_err(|e| err("XX000", &e.to_string()))?
         .ok_or_else(|| err("42P01", &format!("collection '{coll_name}' not found")))?;
 
@@ -70,7 +71,7 @@ pub fn add_state_constraint(
 
     coll.state_constraints.push(def);
     catalog
-        .put_collection(&coll)
+        .put_collection(DatabaseId::DEFAULT, &coll)
         .map_err(|e| err("XX000", &e.to_string()))?;
 
     state.schema_version.bump();
@@ -116,7 +117,7 @@ pub fn add_transition_check(
     };
 
     let mut coll = catalog
-        .get_collection(tenant_id, &coll_name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, &coll_name)
         .map_err(|e| err("XX000", &e.to_string()))?
         .ok_or_else(|| err("42P01", &format!("collection '{coll_name}' not found")))?;
 
@@ -129,7 +130,7 @@ pub fn add_transition_check(
 
     coll.transition_checks.push(def);
     catalog
-        .put_collection(&coll)
+        .put_collection(DatabaseId::DEFAULT, &coll)
         .map_err(|e| err("XX000", &e.to_string()))?;
 
     state.schema_version.bump();
@@ -190,7 +191,7 @@ pub fn add_check_constraint(
     };
 
     let mut coll = catalog
-        .get_collection(tenant_id, &coll_name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, &coll_name)
         .map_err(|e| err("XX000", &e.to_string()))?
         .ok_or_else(|| err("42P01", &format!("collection '{coll_name}' not found")))?;
 
@@ -215,7 +216,7 @@ pub fn add_check_constraint(
 
     coll.check_constraints.push(def);
     catalog
-        .put_collection(&coll)
+        .put_collection(DatabaseId::DEFAULT, &coll)
         .map_err(|e| err("XX000", &e.to_string()))?;
 
     state.schema_version.bump();
@@ -248,7 +249,7 @@ pub fn drop_constraint(
     };
 
     let mut coll = catalog
-        .get_collection(tenant_id, &coll_name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, &coll_name)
         .map_err(|e| err("XX000", &e.to_string()))?
         .ok_or_else(|| err("42P01", &format!("collection '{coll_name}' not found")))?;
 
@@ -271,7 +272,7 @@ pub fn drop_constraint(
     }
 
     catalog
-        .put_collection(&coll)
+        .put_collection(DatabaseId::DEFAULT, &coll)
         .map_err(|e| err("XX000", &e.to_string()))?;
 
     state.schema_version.bump();

@@ -12,6 +12,7 @@
 //! schema references the type. Each type receives a stable u32 OID from the
 //! high-numbered range (70000+) so pgwire clients see a recognisable type.
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use futures::stream;
@@ -264,7 +265,7 @@ fn find_referencing_collections(
         Some(c) => c,
         None => return Vec::new(),
     };
-    let collections = match catalog.load_collections_for_tenant(tenant_id) {
+    let collections = match catalog.load_collections_for_tenant(DatabaseId::DEFAULT, tenant_id) {
         Ok(c) => c,
         Err(_) => return Vec::new(),
     };

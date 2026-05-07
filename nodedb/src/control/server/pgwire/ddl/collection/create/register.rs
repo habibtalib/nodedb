@@ -20,6 +20,7 @@ use crate::control::security::catalog::StoredCollection;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::types::TraceId;
+use nodedb_types::DatabaseId;
 
 use super::enforcement::{build_generated_column_specs, find_materialized_sum_bindings};
 
@@ -43,7 +44,8 @@ pub async fn dispatch_register_if_needed(
     let Some(catalog) = state.credentials.catalog() else {
         return Ok(());
     };
-    let Ok(Some(coll)) = catalog.get_collection(tenant_id.as_u64(), &name) else {
+    let Ok(Some(coll)) = catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &name)
+    else {
         return Ok(());
     };
     let (fields, _serial_fields) =
@@ -69,7 +71,8 @@ pub async fn dispatch_register_by_name(
     let Some(catalog) = state.credentials.catalog() else {
         return Ok(());
     };
-    let Ok(Some(coll)) = catalog.get_collection(tenant_id.as_u64(), name) else {
+    let Ok(Some(coll)) = catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), name)
+    else {
         return Ok(());
     };
     let mut indexes = derive_auto_indexes(coll.fields.iter().map(|(n, _)| n.as_str()));

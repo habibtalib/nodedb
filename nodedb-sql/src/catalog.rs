@@ -2,6 +2,7 @@
 
 //! `SqlCatalog` trait + descriptor-resolution error type.
 
+use nodedb_types::DatabaseId;
 use thiserror::Error;
 
 use crate::types::CollectionInfo;
@@ -65,7 +66,11 @@ pub enum SqlCatalogError {
 ///   Callers propagate this up so the pgwire layer can retry
 ///   the whole statement.
 pub trait SqlCatalog {
-    fn get_collection(&self, name: &str) -> Result<Option<CollectionInfo>, SqlCatalogError>;
+    fn get_collection(
+        &self,
+        database_id: DatabaseId,
+        name: &str,
+    ) -> Result<Option<CollectionInfo>, SqlCatalogError>;
 
     /// Look up an array by name. Returns `None` if no array with that
     /// name is registered. The default implementation returns `None` so

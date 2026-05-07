@@ -10,6 +10,7 @@
 //! Single-node mode is the degenerate case: routing table absent
 //! (or 1 node) → 1 section, origin = self.
 
+use nodedb_types::DatabaseId;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
@@ -85,7 +86,7 @@ pub async fn backup_tenant(state: &Arc<SharedState>, tenant_id: u64) -> Result<B
     // restore), and a restore whose source has already purged a
     // collection can resurrect rows that were properly reaped.
     if let Some(catalog) = state.credentials.catalog() {
-        if let Ok(all) = catalog.load_all_collections() {
+        if let Ok(all) = catalog.load_all_collections(DatabaseId::DEFAULT) {
             let mut blobs: Vec<nodedb_types::backup_envelope::StoredCollectionBlob> = Vec::new();
             for coll in all.iter().filter(|c| c.tenant_id == tenant_id) {
                 if let Ok(bytes) = zerompk::to_msgpack_vec(coll) {

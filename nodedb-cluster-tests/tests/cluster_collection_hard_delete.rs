@@ -25,7 +25,7 @@ fn catalog_has_collection(node: &TestClusterNode, name: &str) -> bool {
     let Some(cat) = cat_opt.as_ref() else {
         return false;
     };
-    match cat.get_collection(1, name) {
+    match cat.get_collection(nodedb_types::DatabaseId::DEFAULT, 1, name) {
         Ok(Some(c)) => c.is_active,
         _ => false,
     }

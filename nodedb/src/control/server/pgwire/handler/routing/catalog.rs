@@ -3,6 +3,7 @@
 //! Plan-cache freshness lookup against the local `SystemCatalog`.
 
 use crate::control::state::SharedState;
+use nodedb_types::DatabaseId;
 
 /// Look up the current descriptor version for `id` against the
 /// local `SystemCatalog`. Used by the plan cache's freshness
@@ -25,7 +26,7 @@ pub(super) fn current_descriptor_version(
     let catalog = catalog.as_ref()?;
     match id.kind {
         nodedb_cluster::DescriptorKind::Collection => catalog
-            .get_collection(tenant_id, &id.name)
+            .get_collection(DatabaseId::DEFAULT, tenant_id, &id.name)
             .ok()
             .flatten()
             .filter(|c| c.is_active)

@@ -281,6 +281,7 @@ mod tests {
     impl SqlCatalog for TestCatalog {
         fn get_collection(
             &self,
+            _: nodedb_types::DatabaseId,
             name: &str,
         ) -> std::result::Result<Option<CollectionInfo>, SqlCatalogError> {
             if name == "embeddings" {

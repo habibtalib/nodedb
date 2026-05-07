@@ -7,6 +7,7 @@
 //! min/max computation. Results stored in the system catalog for
 //! DataFusion cost-based optimization.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 
@@ -48,7 +49,7 @@ pub async fn handle_analyze(
     })?;
 
     let coll = catalog
-        .get_collection(tenant_id, &collection)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, &collection)
         .map_err(|e| {
             PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),

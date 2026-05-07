@@ -211,7 +211,7 @@ async fn ddl_waits_for_existing_lease_to_release() {
         .catalog()
         .as_ref()
         .unwrap()
-        .get_collection(TENANT, "drainable")
+        .get_collection(nodedb_types::DatabaseId::DEFAULT, TENANT, "drainable")
         .expect("read existing")
         .expect("exists");
 

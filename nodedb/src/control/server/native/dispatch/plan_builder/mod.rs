@@ -16,6 +16,7 @@ pub(crate) mod text;
 pub(crate) mod timeseries;
 pub(crate) mod vector;
 
+use nodedb_types::DatabaseId;
 use nodedb_types::protocol::{OpCode, TextFields};
 
 use crate::bridge::envelope::PhysicalPlan;
@@ -127,7 +128,11 @@ pub(super) fn collection_type(
 ) -> Option<nodedb_types::CollectionType> {
     let catalog = ctx.state.credentials.catalog().as_ref()?;
     let coll = catalog
-        .get_collection(ctx.identity.tenant_id.as_u64(), collection)
+        .get_collection(
+            DatabaseId::DEFAULT,
+            ctx.identity.tenant_id.as_u64(),
+            collection,
+        )
         .ok()??;
     Some(coll.collection_type.clone())
 }

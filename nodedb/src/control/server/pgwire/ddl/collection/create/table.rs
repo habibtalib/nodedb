@@ -6,6 +6,7 @@
 //! default. An explicit `WITH (engine='...')` overrides the engine type.
 //! All fields arrive pre-parsed from the `nodedb-sql` AST layer.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 use sonic_rs;
@@ -66,7 +67,8 @@ pub async fn create_table(
     let tenant_id = identity.tenant_id;
 
     if let Some(catalog) = state.credentials.catalog()
-        && let Ok(Some(existing)) = catalog.get_collection(tenant_id.as_u64(), name)
+        && let Ok(Some(existing)) =
+            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), name)
         && existing.is_active
     {
         return Err(sqlstate_error(
@@ -216,7 +218,7 @@ pub async fn create_table(
         && let Some(catalog) = state.credentials.catalog()
     {
         catalog
-            .put_collection(&coll)
+            .put_collection(DatabaseId::DEFAULT, &coll)
             .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     }
 

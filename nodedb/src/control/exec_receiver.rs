@@ -10,6 +10,7 @@
 //! Unlike the retired SQL-string forwarding path, this path skips planning
 //! entirely — the plan is already encoded by the sender.
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -81,7 +82,8 @@ impl LocalPlanExecutor {
         let catalog_ref = self.state.credentials.catalog();
         if let Some(catalog) = catalog_ref.as_ref() {
             for entry in &req.descriptor_versions {
-                match catalog.get_collection(req.tenant_id, &entry.collection) {
+                match catalog.get_collection(DatabaseId::DEFAULT, req.tenant_id, &entry.collection)
+                {
                     Ok(Some(stored)) => {
                         // Version 0 is the pre-B.1 sentinel; treat as 1 (same
                         // floor the drain gate uses).

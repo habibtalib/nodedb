@@ -22,6 +22,7 @@
 //! SHOW TYPEGUARDS;
 //! ```
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use futures::stream;
@@ -65,7 +66,7 @@ pub fn create_typeguard(
 
     let tenant_id = identity.tenant_id.as_u64();
     let mut coll = catalog
-        .get_collection(tenant_id, &coll_name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, &coll_name)
         .map_err(|e| err("XX000", &e.to_string()))?
         .ok_or_else(|| err("42P01", &format!("collection '{coll_name}' not found")))?;
 
@@ -89,7 +90,7 @@ pub fn create_typeguard(
 
     coll.type_guards = guards;
     catalog
-        .put_collection(&coll)
+        .put_collection(DatabaseId::DEFAULT, &coll)
         .map_err(|e| err("XX000", &e.to_string()))?;
 
     state.schema_version.bump();
@@ -122,7 +123,7 @@ pub fn alter_typeguard_add(
 
     let tenant_id = identity.tenant_id.as_u64();
     let mut coll = catalog
-        .get_collection(tenant_id, &coll_name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, &coll_name)
         .map_err(|e| err("XX000", &e.to_string()))?
         .ok_or_else(|| err("42P01", &format!("collection '{coll_name}' not found")))?;
 
@@ -147,7 +148,7 @@ pub fn alter_typeguard_add(
 
     coll.type_guards.push(guard);
     catalog
-        .put_collection(&coll)
+        .put_collection(DatabaseId::DEFAULT, &coll)
         .map_err(|e| err("XX000", &e.to_string()))?;
 
     state.schema_version.bump();
@@ -180,7 +181,7 @@ pub fn alter_typeguard_drop(
 
     let tenant_id = identity.tenant_id.as_u64();
     let mut coll = catalog
-        .get_collection(tenant_id, &coll_name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, &coll_name)
         .map_err(|e| err("XX000", &e.to_string()))?
         .ok_or_else(|| err("42P01", &format!("collection '{coll_name}' not found")))?;
 
@@ -195,7 +196,7 @@ pub fn alter_typeguard_drop(
     }
 
     catalog
-        .put_collection(&coll)
+        .put_collection(DatabaseId::DEFAULT, &coll)
         .map_err(|e| err("XX000", &e.to_string()))?;
 
     state.schema_version.bump();
@@ -241,7 +242,7 @@ pub fn drop_typeguard(
 
     let tenant_id = identity.tenant_id.as_u64();
     let mut coll = catalog
-        .get_collection(tenant_id, &coll_name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, &coll_name)
         .map_err(|e| err("XX000", &e.to_string()))?
         .ok_or_else(|| err("42P01", &format!("collection '{coll_name}' not found")))?;
 
@@ -257,7 +258,7 @@ pub fn drop_typeguard(
 
     coll.type_guards.clear();
     catalog
-        .put_collection(&coll)
+        .put_collection(DatabaseId::DEFAULT, &coll)
         .map_err(|e| err("XX000", &e.to_string()))?;
 
     state.schema_version.bump();
@@ -281,7 +282,7 @@ pub fn show_typeguard(
 
     let tenant_id = identity.tenant_id.as_u64();
     let coll = catalog
-        .get_collection(tenant_id, &coll_name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, &coll_name)
         .map_err(|e| err("XX000", &e.to_string()))?
         .ok_or_else(|| err("42P01", &format!("collection '{coll_name}' not found")))?;
 
@@ -321,7 +322,7 @@ pub fn show_typeguards(
 
     let tenant_id = identity.tenant_id.as_u64();
     let collections = catalog
-        .load_collections_for_tenant(tenant_id)
+        .load_collections_for_tenant(DatabaseId::DEFAULT, tenant_id)
         .map_err(|e| err("XX000", &e.to_string()))?;
 
     let schema = Arc::new(vec![text_field("collection"), text_field("fields")]);

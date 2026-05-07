@@ -2,6 +2,7 @@
 
 //! Single SELECT statement planning (no UNION, no CTE wrapper).
 
+use nodedb_types::DatabaseId;
 use sqlparser::ast::{self, Select};
 
 use super::helpers::{convert_projection, convert_where_to_filters, eval_constant_expr};
@@ -84,12 +85,11 @@ pub(super) fn plan_select(
                 .ok_or_else(|| SqlError::Unsupported {
                     detail: "LATERAL: outer side must be a plain table".into(),
                 })?;
-        let outer_info =
-            catalog
-                .get_collection(&outer_collection)?
-                .ok_or_else(|| SqlError::UnknownTable {
-                    name: outer_collection.clone(),
-                })?;
+        let outer_info = catalog
+            .get_collection(DatabaseId::DEFAULT, &outer_collection)?
+            .ok_or_else(|| SqlError::UnknownTable {
+                name: outer_collection.clone(),
+            })?;
         let outer_scan = SqlPlan::Scan {
             collection: outer_collection,
             alias: outer_alias.clone(),

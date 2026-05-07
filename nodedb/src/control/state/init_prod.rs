@@ -2,6 +2,7 @@
 
 //! SharedState::open — production constructor loading from disk.
 
+use nodedb_types::DatabaseId;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
@@ -148,7 +149,7 @@ impl SharedState {
         let mut permission_cache =
             crate::control::security::permission_tree::PermissionCache::new();
         if let Some(catalog) = credentials.catalog()
-            && let Ok(collections) = catalog.load_all_collections()
+            && let Ok(collections) = catalog.load_all_collections(DatabaseId::DEFAULT)
         {
             for coll in &collections {
                 if let Some(ref def_json) = coll.permission_tree_def

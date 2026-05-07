@@ -6,6 +6,7 @@
 //! type guards, and returns a result set of violations (field, document_id, detail).
 //! Does NOT modify or reject data — read-only audit.
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use futures::stream;
@@ -37,7 +38,7 @@ pub async fn validate_typeguard(
         .ok_or_else(|| super::parse::err("08000", "catalog not available"))?;
 
     let coll = catalog
-        .get_collection(tenant_id.as_u64(), &coll_name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &coll_name)
         .map_err(|e| super::parse::err("XX000", &format!("catalog error: {e}")))?
         .ok_or_else(|| {
             super::parse::err("42P01", &format!("collection '{coll_name}' not found"))

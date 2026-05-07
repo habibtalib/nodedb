@@ -13,6 +13,7 @@
 //! exists, only superuser / tenant_admin may undrop; the restore is
 //! audit-logged with an `owner_user_missing` marker.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -46,7 +47,7 @@ pub fn undrop_collection(
     //   - row absent: retention already expired or never existed.
     //   - row present + active: nothing to undrop.
     //   - row present + inactive: candidate for restore.
-    let mut stored = match catalog.get_collection(tenant_id.as_u64(), name) {
+    let mut stored = match catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), name) {
         Ok(Some(c)) => c,
         Ok(None) => {
             return Err(sqlstate_error(
@@ -113,7 +114,7 @@ pub fn undrop_collection(
     if log_index == 0 {
         // Single-node fallback: write directly.
         catalog
-            .put_collection(&stored)
+            .put_collection(DatabaseId::DEFAULT, &stored)
             .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     }
 

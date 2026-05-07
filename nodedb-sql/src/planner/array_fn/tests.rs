@@ -18,6 +18,7 @@ struct StubCatalog {
 impl SqlCatalog for StubCatalog {
     fn get_collection(
         &self,
+        _: nodedb_types::DatabaseId,
         _name: &str,
     ) -> std::result::Result<Option<CollectionInfo>, SqlCatalogError> {
         Ok(None)

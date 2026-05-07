@@ -159,6 +159,7 @@ impl OriginCatalog {
 impl SqlCatalog for OriginCatalog {
     fn get_collection(
         &self,
+        database_id: nodedb_types::DatabaseId,
         name: &str,
     ) -> std::result::Result<Option<CollectionInfo>, SqlCatalogError> {
         // Read through the local `SystemCatalog` redb. On cluster
@@ -170,7 +171,11 @@ impl SqlCatalog for OriginCatalog {
         let Some(catalog) = catalog_ref.as_ref() else {
             return Ok(None);
         };
-        let Some(stored) = catalog.get_collection(self.tenant_id, name).ok().flatten() else {
+        let Some(stored) = catalog
+            .get_collection(database_id, self.tenant_id, name)
+            .ok()
+            .flatten()
+        else {
             return Ok(None);
         };
         if !stored.is_active {

@@ -33,6 +33,7 @@
 //! error here — the compiler forces you to make a conscious
 //! decision about whether it needs a version stamp.
 
+use nodedb_types::DatabaseId;
 use nodedb_types::HlcClock;
 
 use crate::control::catalog_entry::CatalogEntry;
@@ -53,7 +54,7 @@ pub fn stamp(entry: CatalogEntry, clock: &HlcClock, catalog: &SystemCatalog) -> 
     match entry {
         CatalogEntry::PutCollection(mut stored) => {
             let prior = catalog
-                .get_collection(stored.tenant_id, &stored.name)
+                .get_collection(DatabaseId::DEFAULT, stored.tenant_id, &stored.name)
                 .ok()
                 .flatten()
                 .map(|c| c.descriptor_version)
@@ -200,7 +201,9 @@ mod tests {
             assert!(boxed.modification_hlc > prior_hlc);
             prior_hlc = boxed.modification_hlc;
             // Persist so the next iteration reads this as prior.
-            catalog.put_collection(&boxed).expect("put_collection");
+            catalog
+                .put_collection(DatabaseId::DEFAULT, &boxed)
+                .expect("put_collection");
         }
     }
 

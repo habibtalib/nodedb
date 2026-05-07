@@ -2,6 +2,7 @@
 
 //! `CREATE ALERT` DDL handler.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -55,7 +56,7 @@ pub fn create_alert(
     // Validate collection exists.
     if let Some(catalog) = state.credentials.catalog()
         && catalog
-            .get_collection(tenant_id, collection)
+            .get_collection(DatabaseId::DEFAULT, tenant_id, collection)
             .ok()
             .flatten()
             .is_none()

@@ -6,6 +6,7 @@
 //! Supported engines: `document_schemaless`, `document_strict`.
 //! All other engines return `SqlError::Unsupported`.
 
+use nodedb_types::DatabaseId;
 use sqlparser::ast::{self, MergeAction, MergeClauseKind as AstMergeClauseKind, MergeInsertKind};
 
 use super::ast_helpers::{qualified_ident_pair, strip_and_convert_filters};
@@ -35,12 +36,11 @@ pub fn plan_merge(stmt: &ast::Statement, catalog: &dyn SqlCatalog) -> Result<Vec
     let (target_name, target_alias) = extract_table_factor_name_alias(&merge.table)?;
     // The ON clause uses the alias (or table name if no alias) as the qualifier.
     let target_ref = target_alias.as_deref().unwrap_or(target_name.as_str());
-    let target_info =
-        catalog
-            .get_collection(&target_name)?
-            .ok_or_else(|| SqlError::UnknownTable {
-                name: target_name.clone(),
-            })?;
+    let target_info = catalog
+        .get_collection(DatabaseId::DEFAULT, &target_name)?
+        .ok_or_else(|| SqlError::UnknownTable {
+            name: target_name.clone(),
+        })?;
 
     // ── Resolve source ──
     let source_plan = plan_merge_source(&merge.source, catalog)?;
@@ -78,12 +78,11 @@ fn plan_merge_source(factor: &ast::TableFactor, catalog: &dyn SqlCatalog) -> Res
     match factor {
         ast::TableFactor::Table { name, alias, .. } => {
             let source_name = normalize_object_name_checked(name)?;
-            let source_info =
-                catalog
-                    .get_collection(&source_name)?
-                    .ok_or_else(|| SqlError::UnknownTable {
-                        name: source_name.clone(),
-                    })?;
+            let source_info = catalog
+                .get_collection(DatabaseId::DEFAULT, &source_name)?
+                .ok_or_else(|| SqlError::UnknownTable {
+                    name: source_name.clone(),
+                })?;
             let alias_str = alias.as_ref().map(|a| normalize_ident(&a.name));
             let source_rules = engine_rules::resolve_engine_rules(source_info.engine);
             source_rules.plan_scan(ScanParams {

@@ -7,6 +7,7 @@
 //! lookups scan all tenant collections (O(N×C)) — pass the collection
 //! name for production use.
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use futures::stream;
@@ -101,7 +102,7 @@ pub async fn tree_sum(
         vec![coll.clone()]
     } else if let Some(catalog) = state.credentials.catalog() {
         catalog
-            .load_collections_for_tenant(tenant_id.as_u64())
+            .load_collections_for_tenant(DatabaseId::DEFAULT, tenant_id.as_u64())
             .unwrap_or_default()
             .iter()
             .map(|c| c.name.clone())

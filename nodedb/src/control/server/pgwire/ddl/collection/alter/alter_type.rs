@@ -9,6 +9,7 @@
 //! Widening across discriminants would require a full online rewrite and
 //! is tracked as a separate enhancement.
 
+use nodedb_types::DatabaseId;
 use std::str::FromStr;
 
 use pgwire::api::results::{Response, Tag};
@@ -43,7 +44,7 @@ pub async fn alter_collection_alter_column_type(
     };
 
     let coll = catalog
-        .get_collection(tenant_id.as_u64(), name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), name)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
         .filter(|c| c.is_active)
         .ok_or_else(|| sqlstate_error("42P01", &format!("collection '{name}' does not exist")))?;
@@ -96,7 +97,7 @@ pub async fn alter_collection_alter_column_type(
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     if log_index == 0 {
         catalog
-            .put_collection(&updated)
+            .put_collection(DatabaseId::DEFAULT, &updated)
             .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     }
 

@@ -2,6 +2,7 @@
 
 //! INSERT INTO dispatch for schemaless, KV, and columnar collections.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -61,7 +62,8 @@ pub async fn insert_document(
     // INSERT didn't provide an explicit value.
     let mut fields = fields;
     if let Some(catalog) = state.credentials.catalog()
-        && let Ok(Some(coll_def)) = catalog.get_collection(tenant_id.as_u64(), &parsed.coll_name)
+        && let Ok(Some(coll_def)) =
+            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &parsed.coll_name)
     {
         for field_def in &coll_def.field_defs {
             if let Some(ref seq_name) = field_def.sequence_name
@@ -97,7 +99,8 @@ pub async fn insert_document(
 
     // Enforce type guards and CHECK constraints (after BEFORE trigger + sequence injection).
     if let Some(catalog) = state.credentials.catalog()
-        && let Ok(Some(coll_def)) = catalog.get_collection(tenant_id.as_u64(), &parsed.coll_name)
+        && let Ok(Some(coll_def)) =
+            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &parsed.coll_name)
     {
         // Inject DEFAULT/VALUE + validate type guards (combined).
         if !coll_def.type_guards.is_empty()
@@ -134,7 +137,8 @@ pub async fn insert_document(
     // label validation must happen here in the Control Plane since the Data
     // Plane sees only TEXT.
     if let Some(catalog) = state.credentials.catalog()
-        && let Ok(Some(coll_def)) = catalog.get_collection(tenant_id.as_u64(), &parsed.coll_name)
+        && let Ok(Some(coll_def)) =
+            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &parsed.coll_name)
     {
         for (field_name, type_name) in &coll_def.fields {
             if let Some(value) = fields.get(field_name.as_str()) {
@@ -166,7 +170,8 @@ pub async fn insert_document(
         .as_ref()
         .is_none_or(|ct| ct.is_schemaless())
         && let Some(catalog) = state.credentials.catalog()
-        && let Ok(Some(mut coll)) = catalog.get_collection(tenant_id.as_u64(), &parsed.coll_name)
+        && let Ok(Some(mut coll)) =
+            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &parsed.coll_name)
     {
         let mut changed = false;
         for (name, val) in &fields {
@@ -185,7 +190,7 @@ pub async fn insert_document(
             }
         }
         if changed {
-            let _ = catalog.put_collection(&coll);
+            let _ = catalog.put_collection(DatabaseId::DEFAULT, &coll);
         }
     }
 

@@ -2,6 +2,7 @@
 
 //! Virtual table row generators for each pg_catalog table.
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use futures::stream;
@@ -268,14 +269,14 @@ fn load_collections(
     };
     if identity.is_superuser {
         catalog
-            .load_all_collections()
+            .load_all_collections(DatabaseId::DEFAULT)
             .unwrap_or_default()
             .into_iter()
             .filter(|c| c.is_active)
             .collect()
     } else {
         catalog
-            .load_collections_for_tenant(identity.tenant_id.as_u64())
+            .load_collections_for_tenant(DatabaseId::DEFAULT, identity.tenant_id.as_u64())
             .unwrap_or_default()
     }
 }

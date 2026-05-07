@@ -2,6 +2,7 @@
 
 //! `SHOW CONSTRAINTS ON <collection>` — unified view of all constraint kinds.
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use futures::stream;
@@ -34,7 +35,7 @@ pub fn show_constraints(
 
     let tenant_id = identity.tenant_id.as_u64();
     let coll = catalog
-        .get_collection(tenant_id, &coll_name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, &coll_name)
         .map_err(|e| err("XX000", &e.to_string()))?
         .ok_or_else(|| err("42P01", &format!("collection '{coll_name}' not found")))?;
 

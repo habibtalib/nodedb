@@ -18,6 +18,7 @@
 //! [`PlanCache`] keyed on `(sql_text_hash, placeholder_types_hash,
 //! DescriptorVersionSet)` before calling the planner.
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
@@ -339,7 +340,7 @@ impl Gateway {
 
         GatewayVersionSet::from_plan(plan, |name| {
             catalog
-                .and_then(|c| c.get_collection(tenant_id, name).ok())
+                .and_then(|c| c.get_collection(DatabaseId::DEFAULT, tenant_id, name).ok())
                 .flatten()
                 .map(|col| col.descriptor_version.max(1))
                 .unwrap_or(0)
@@ -364,7 +365,7 @@ impl Gateway {
             .iter()
             .map(|(name, _)| {
                 let current_version = catalog
-                    .and_then(|c| c.get_collection(tenant_id, name).ok())
+                    .and_then(|c| c.get_collection(DatabaseId::DEFAULT, tenant_id, name).ok())
                     .flatten()
                     .map(|col| col.descriptor_version.max(1))
                     .unwrap_or(0);

@@ -13,6 +13,7 @@
 //! the error to the caller rather than silently letting the registry
 //! advance past a non-durable hwm.
 
+use nodedb_types::DatabaseId;
 use std::sync::{Arc, RwLock, Weak};
 
 use nodedb_types::Surrogate;
@@ -92,7 +93,7 @@ impl SurrogateAssigner {
         // Fast-path: existing binding. Done under a read lock — most
         // production calls land here once the per-collection working
         // set has been observed.
-        if let Some(s) = catalog.get_surrogate_for_pk(collection, pk_bytes)? {
+        if let Some(s) = catalog.get_surrogate_for_pk(DatabaseId::DEFAULT, collection, pk_bytes)? {
             return Ok(s);
         }
 
@@ -106,11 +107,11 @@ impl SurrogateAssigner {
         })?;
         // Re-check inside the lock: another assigner may have raced
         // us between the read above and the lock acquisition.
-        if let Some(s) = catalog.get_surrogate_for_pk(collection, pk_bytes)? {
+        if let Some(s) = catalog.get_surrogate_for_pk(DatabaseId::DEFAULT, collection, pk_bytes)? {
             return Ok(s);
         }
         let surrogate = registry.alloc_one()?;
-        catalog.put_surrogate(collection, pk_bytes, surrogate)?;
+        catalog.put_surrogate(DatabaseId::DEFAULT, collection, pk_bytes, surrogate)?;
         // Emit a durable WAL bind before the lock releases. Order is
         // load-bearing: a crash between catalog write and bind append
         // is invisible (the catalog row is already on disk via redb's
@@ -153,7 +154,7 @@ impl SurrogateAssigner {
             Some(c) => c,
             None => return Ok(Some(Surrogate::ZERO)),
         };
-        catalog.get_surrogate_for_pk(collection, pk_bytes)
+        catalog.get_surrogate_for_pk(DatabaseId::DEFAULT, collection, pk_bytes)
     }
 
     /// Expose the registry handle for read access by the Raft applier.
@@ -183,7 +184,7 @@ impl SurrogateAssigner {
         })?;
         let surrogate = registry.alloc_one()?;
         let self_bytes = surrogate.as_u32().to_be_bytes();
-        catalog.put_surrogate(collection, &self_bytes, surrogate)?;
+        catalog.put_surrogate(DatabaseId::DEFAULT, collection, &self_bytes, surrogate)?;
         self.wal_appender
             .record_bind_to_wal(surrogate.as_u32(), collection, &self_bytes)?;
 
@@ -273,7 +274,8 @@ mod tests {
         let s = a.assign("users", b"alice").unwrap();
         let cat = a.credential_store.catalog().as_ref().unwrap();
         assert_eq!(
-            cat.get_pk_for_surrogate("users", s).unwrap(),
+            cat.get_pk_for_surrogate(DatabaseId::DEFAULT, "users", s)
+                .unwrap(),
             Some(b"alice".to_vec())
         );
     }

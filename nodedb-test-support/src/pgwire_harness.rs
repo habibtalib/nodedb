@@ -387,7 +387,10 @@ impl TestServer {
                     }
                 }
                 catalog
-                    .load_collections_for_tenant(TenantId::new(1).as_u64())
+                    .load_collections_for_tenant(
+                        nodedb_types::DatabaseId::DEFAULT,
+                        TenantId::new(1).as_u64(),
+                    )
                     .ok()
             })
             .unwrap_or_default();

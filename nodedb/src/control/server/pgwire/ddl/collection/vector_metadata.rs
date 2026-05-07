@@ -5,6 +5,7 @@
 //! - `ALTER COLLECTION x SET VECTOR METADATA ON column (model = '...', dimensions = N, ...)`
 //! - `SHOW VECTOR MODELS` — catalog view of all vector columns with model metadata
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use futures::stream;
@@ -52,7 +53,7 @@ pub fn handle_set_vector_metadata(
     // Verify collection exists.
     if let Some(catalog) = state.credentials.catalog()
         && catalog
-            .get_collection(tenant_id, &collection)
+            .get_collection(DatabaseId::DEFAULT, tenant_id, &collection)
             .ok()
             .flatten()
             .is_none()

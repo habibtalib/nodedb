@@ -4,6 +4,7 @@
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use nodedb_types::DatabaseId;
 
 pub(super) fn collection_exists(
     state: &SharedState,
@@ -14,7 +15,10 @@ pub(super) fn collection_exists(
         return false;
     };
     let tid = identity.tenant_id.as_u64();
-    matches!(catalog.get_collection(tid, name), Ok(Some(_)))
+    matches!(
+        catalog.get_collection(DatabaseId::DEFAULT, tid, name),
+        Ok(Some(_))
+    )
 }
 
 pub(super) fn trigger_exists(

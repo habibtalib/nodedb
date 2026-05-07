@@ -33,6 +33,7 @@
 //! "degrade to no drain" fallback catalog DDL uses. Mixed clusters
 //! behave without drain safety until all nodes are upgraded.
 
+use nodedb_types::DatabaseId;
 use std::time::{Duration, Instant};
 
 use nodedb_cluster::{DescriptorId, DescriptorKind, MetadataEntry, encode_entry};
@@ -304,7 +305,7 @@ pub fn descriptor_id_and_prior_version(
     match entry {
         CatalogEntry::PutCollection(stored) => {
             let prior = catalog
-                .get_collection(stored.tenant_id, &stored.name)
+                .get_collection(DatabaseId::DEFAULT, stored.tenant_id, &stored.name)
                 .ok()
                 .flatten()
                 .map(|c| c.descriptor_version)

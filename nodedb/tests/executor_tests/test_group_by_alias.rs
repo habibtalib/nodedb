@@ -22,6 +22,7 @@ struct TimeseriesCatalog;
 impl SqlCatalog for TimeseriesCatalog {
     fn get_collection(
         &self,
+        _: nodedb_types::DatabaseId,
         name: &str,
     ) -> std::result::Result<Option<CollectionInfo>, nodedb_sql::SqlCatalogError> {
         let info = match name {

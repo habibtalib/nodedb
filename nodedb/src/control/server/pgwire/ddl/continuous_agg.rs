@@ -6,6 +6,7 @@
 //! - `DROP CONTINUOUS AGGREGATE <name>`
 //! - `SHOW CONTINUOUS AGGREGATES [FOR <source>]`
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -91,7 +92,7 @@ pub async fn create_continuous_aggregate(
     // Validate source collection exists and is timeseries.
     let tenant_id = identity.tenant_id;
     if let Some(catalog) = state.credentials.catalog() {
-        match catalog.get_collection(tenant_id.as_u64(), &def.source) {
+        match catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &def.source) {
             Ok(Some(coll)) if coll.collection_type.is_timeseries() => {}
             Ok(Some(_)) => {
                 return Err(sqlstate_error(

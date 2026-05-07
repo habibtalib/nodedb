@@ -13,6 +13,7 @@
 //!   handlers reject with a clear "dependents must be dropped
 //!   individually" message rather than silently succeeding.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -166,7 +167,7 @@ pub fn drop_collection(
     // already a no-op should not spawn extra raft rounds or audit
     // noise.
     if let Some(catalog) = state.credentials.catalog() {
-        match catalog.get_collection(tenant_id.as_u64(), name) {
+        match catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), name) {
             Ok(Some(coll)) if coll.is_active => {}
             Ok(Some(_)) if flags.purge => {}
             Ok(Some(_)) => {
@@ -228,12 +229,14 @@ pub fn drop_collection(
         // clustered deployment.
         if flags.purge {
             catalog
-                .delete_collection(tenant_id.as_u64(), name)
+                .delete_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), name)
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-        } else if let Ok(Some(mut coll)) = catalog.get_collection(tenant_id.as_u64(), name) {
+        } else if let Ok(Some(mut coll)) =
+            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), name)
+        {
             coll.is_active = false;
             catalog
-                .put_collection(&coll)
+                .put_collection(DatabaseId::DEFAULT, &coll)
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
         }
     }

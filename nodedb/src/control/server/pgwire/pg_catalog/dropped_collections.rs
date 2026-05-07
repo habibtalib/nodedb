@@ -26,6 +26,7 @@
 //! regular users see only their own tenant. Enforced in-handler to
 //! avoid leaking cross-tenant names.
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use futures::stream;
@@ -60,7 +61,7 @@ pub async fn dropped_collections(
     };
 
     let dropped = catalog
-        .load_dropped_collections()
+        .load_dropped_collections(DatabaseId::DEFAULT)
         .map_err(|e| pgwire::error::PgWireError::ApiError(Box::new(e)))?;
 
     // Live retention window — reads the same cell the GC sweeper

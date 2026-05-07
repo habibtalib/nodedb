@@ -25,6 +25,7 @@
 //!    to see every document, then partitions the resulting edges by
 //!    destination-shard for batched dispatch.
 
+use nodedb_types::DatabaseId;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -74,7 +75,7 @@ pub async fn create_graph_index(
         return Err(sqlstate_error("XX000", "no catalog available"));
     };
     if catalog
-        .get_collection(tenant_id.as_u64(), &collection)
+        .get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &collection)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
         .is_none()
     {

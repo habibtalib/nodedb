@@ -8,12 +8,14 @@
 
 use nodedb_sql::types::{CollectionInfo, EngineType};
 use nodedb_sql::{SqlCatalog, SqlCatalogError, SqlError, plan_sql};
+use nodedb_types::DatabaseId;
 
 struct Catalog;
 
 impl SqlCatalog for Catalog {
     fn get_collection(
         &self,
+        _: DatabaseId,
         name: &str,
     ) -> std::result::Result<Option<CollectionInfo>, SqlCatalogError> {
         let info = match name {

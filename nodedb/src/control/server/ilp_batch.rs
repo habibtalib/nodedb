@@ -2,6 +2,7 @@
 
 //! ILP batch dispatch and adaptive rate estimation.
 
+use nodedb_types::DatabaseId;
 use sonic_rs;
 use tracing::warn;
 
@@ -208,11 +209,11 @@ async fn flush_ilp_batch_inner(
                 if !fields.is_empty()
                     && let Some(catalog) = state.credentials.catalog().as_ref()
                     && let Ok(Some(mut coll)) =
-                        catalog.get_collection(tenant_id.as_u64(), &collection)
+                        catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &collection)
                     && coll.fields != fields
                 {
                     coll.fields = fields;
-                    if let Err(e) = catalog.put_collection(&coll) {
+                    if let Err(e) = catalog.put_collection(DatabaseId::DEFAULT, &coll) {
                         tracing::warn!(
                             collection = %collection,
                             error = %e,

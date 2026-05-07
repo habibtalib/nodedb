@@ -37,7 +37,12 @@ fn verify_redb_integrity_flags_orphan_procedure() {
 #[test]
 fn verify_redb_integrity_flags_orphan_trigger() {
     let (_dir, catalog) = make_catalog();
-    catalog.put_collection(&make_collection("orders")).unwrap();
+    catalog
+        .put_collection(
+            nodedb_types::DatabaseId::DEFAULT,
+            &make_collection("orders"),
+        )
+        .unwrap();
     catalog
         .put_owner(&StoredOwner {
             object_type: "collection".into(),

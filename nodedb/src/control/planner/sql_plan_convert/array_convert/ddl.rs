@@ -2,6 +2,7 @@
 
 //! `CREATE ARRAY` / `DROP ARRAY` lowering to `PhysicalTask`.
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use nodedb_types::config::retention::BitemporalRetention;
@@ -202,7 +203,7 @@ pub(in super::super) fn convert_drop_array(
                 detail: format!("array catalog remove: {e}"),
             });
         }
-        if let Err(e) = catalog.delete_all_surrogates_for_collection(name) {
+        if let Err(e) = catalog.delete_all_surrogates_for_collection(DatabaseId::DEFAULT, name) {
             return Err(crate::Error::PlanError {
                 detail: format!("array surrogate-map cleanup: {e}"),
             });

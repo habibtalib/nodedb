@@ -4,6 +4,7 @@
 //! the `(surrogate, collection, pk_bytes)` triple to the catalog and
 //! advance the in-memory registry past the bound surrogate.
 
+use nodedb_types::DatabaseId;
 use nodedb_types::Surrogate;
 use nodedb_wal::record::SurrogateBindPayload;
 
@@ -17,7 +18,12 @@ pub fn apply_surrogate_bind(
 ) -> crate::Result<()> {
     let parsed = SurrogateBindPayload::from_bytes(payload).map_err(crate::Error::Wal)?;
     let surrogate = Surrogate::new(parsed.surrogate);
-    catalog.put_surrogate(&parsed.collection, &parsed.pk_bytes, surrogate)?;
+    catalog.put_surrogate(
+        DatabaseId::DEFAULT,
+        &parsed.collection,
+        &parsed.pk_bytes,
+        surrogate,
+    )?;
     let guard = registry.write().map_err(|_| crate::Error::Internal {
         detail: "surrogate registry lock poisoned during WAL replay".into(),
     })?;
@@ -54,11 +60,12 @@ mod tests {
             .unwrap();
         apply_surrogate_bind(&payload, &cat, &reg).unwrap();
         assert_eq!(
-            cat.get_surrogate_for_pk("users", b"alice").unwrap(),
+            cat.get_surrogate_for_pk(DatabaseId::DEFAULT, "users", b"alice")
+                .unwrap(),
             Some(Surrogate::new(7))
         );
         assert_eq!(
-            cat.get_pk_for_surrogate("users", Surrogate::new(7))
+            cat.get_pk_for_surrogate(DatabaseId::DEFAULT, "users", Surrogate::new(7))
                 .unwrap(),
             Some(b"alice".to_vec())
         );
@@ -74,7 +81,8 @@ mod tests {
         apply_surrogate_bind(&payload, &cat, &reg).unwrap();
         apply_surrogate_bind(&payload, &cat, &reg).unwrap();
         assert_eq!(
-            cat.get_surrogate_for_pk("users", b"bob").unwrap(),
+            cat.get_surrogate_for_pk(DatabaseId::DEFAULT, "users", b"bob")
+                .unwrap(),
             Some(Surrogate::new(3))
         );
         assert_eq!(reg.read().unwrap().current_hwm(), 3);

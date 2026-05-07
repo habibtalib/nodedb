@@ -30,6 +30,7 @@
 //! every violation and the sanity-check wrapper aborts
 //! startup on any non-empty violation list.
 
+use nodedb_types::DatabaseId;
 use std::collections::HashSet;
 
 use crate::control::security::catalog::SystemCatalog;
@@ -47,7 +48,7 @@ pub fn verify_redb_integrity(catalog: &SystemCatalog) -> Vec<Divergence> {
     // it's logged and skipped — we can't cross-check what we
     // can't read, but we can still report the load error via
     // tracing and move on.
-    let collections = match catalog.load_all_collections() {
+    let collections = match catalog.load_all_collections(DatabaseId::DEFAULT) {
         Ok(v) => v,
         Err(e) => {
             tracing::error!(error = %e, "integrity: failed to load collections");

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -457,7 +458,11 @@ pub fn drop_user(
                 {
                     continue;
                 }
-                let mut stored = match catalog.get_collection(user_tenant.as_u64(), owner_obj) {
+                let mut stored = match catalog.get_collection(
+                    DatabaseId::DEFAULT,
+                    user_tenant.as_u64(),
+                    owner_obj,
+                ) {
                     Ok(Some(c)) => c,
                     _ => continue,
                 };
@@ -469,7 +474,7 @@ pub fn drop_user(
                     crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
                     && idx == 0
                 {
-                    let _ = catalog.put_collection(&stored);
+                    let _ = catalog.put_collection(DatabaseId::DEFAULT, &stored);
                     state.permissions.install_replicated_owner(
                         &crate::control::security::catalog::StoredOwner {
                             object_type: "collection".into(),

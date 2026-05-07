@@ -2,6 +2,7 @@
 
 //! Shared dispatch utilities used by both the pgwire and native endpoints.
 
+use nodedb_types::DatabaseId;
 use std::time::{Duration, Instant};
 
 use crate::bridge::envelope::Payload;
@@ -365,7 +366,8 @@ fn extract_write_metadata(
 /// Users opt in via `CREATE TIMESERIES name WITH (cdc = 'true')`.
 fn is_timeseries_cdc_enabled(shared: &SharedState, tenant_id: TenantId, collection: &str) -> bool {
     if let Some(catalog) = shared.credentials.catalog()
-        && let Ok(Some(coll)) = catalog.get_collection(tenant_id.as_u64(), collection)
+        && let Ok(Some(coll)) =
+            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), collection)
         && coll.collection_type.is_timeseries()
     {
         if let Some(config) = coll.get_timeseries_config()
