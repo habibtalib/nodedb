@@ -89,9 +89,24 @@ impl SharedState {
             Arc::new(crate::control::surrogate::NoopWalAppender),
         ));
         let shared_audit = Arc::new(Mutex::new(AuditLog::new(10_000)));
-        let (si_bus, uc_bus, bus_consumer_task) =
-            super::buses_init::init_security_buses(Arc::clone(&shared_audit));
+        let test_session_registry =
+            Arc::new(crate::control::security::sessions::SessionRegistry::new());
+        let (si_bus, uc_bus, bus_consumer_task) = super::buses_init::init_security_buses(
+            Arc::clone(&shared_audit),
+            Arc::clone(&test_session_registry),
+        );
         let bus_consumer_handle = Some(bus_consumer_task);
+        // Wire buses into the credential store so test mutations publish events.
+        test_credentials.set_buses(
+            Arc::new(
+                crate::control::security::buses::SessionInvalidationBus::from_existing(
+                    si_bus.sender(),
+                ),
+            ),
+            Arc::new(
+                crate::control::security::buses::UserChangeBus::from_existing(uc_bus.sender()),
+            ),
+        );
 
         let state = Arc::new(Self {
             dispatcher: Mutex::new(dispatcher),
@@ -136,7 +151,7 @@ impl SharedState {
             rate_limiter: crate::control::security::ratelimit::limiter::RateLimiter::default(),
             session_handles: crate::control::security::session_handle::SessionHandleStore::default(
             ),
-            session_registry: crate::control::security::session_registry::SessionRegistry::new(),
+            session_registry: test_session_registry,
             escalation: crate::control::security::escalation::EscalationEngine::default(),
             usage_counter: Arc::new(
                 crate::control::security::metering::counter::UsageCounter::new(),

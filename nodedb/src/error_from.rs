@@ -238,6 +238,9 @@ impl From<Error> for NodeDbError {
                 "OLLP dependent-read exhausted {retries} retries; the predicate's matching set \
                  kept changing across retries. Consider rephrasing as a static-key UPDATE if possible."
             )),
+            Error::SessionCapExceeded { cap } => NodeDbError::bad_request(format!(
+                "session cap ({cap}) exceeded — rejecting new login"
+            )),
         }
     }
 }

@@ -89,7 +89,11 @@ pub fn apply_post_apply_side_effects_sync(entry: &CatalogEntry, shared: &Arc<Sha
             change_stream::delete(*tenant_id, name.clone(), Arc::clone(shared));
         }
         CatalogEntry::PutUser(stored) => {
-            user::put((**stored).clone(), Arc::clone(shared));
+            user::put(
+                (**stored).clone(),
+                Arc::clone(shared),
+                Some(crate::control::security::buses::SessionInvalidationReason::RoleAltered),
+            );
         }
         CatalogEntry::DeactivateUser { username } => {
             user::deactivate(username.clone(), Arc::clone(shared));

@@ -281,6 +281,10 @@ pub enum Error {
     )]
     SequencerUnavailable,
 
+    /// New login rejected because the active-session registry is at capacity.
+    #[error("session cap ({cap}) exceeded — rejecting new login")]
+    SessionCapExceeded { cap: usize },
+
     /// The OLLP dependent-read retry loop exhausted its retry budget.
     ///
     /// The predicate's matching set kept changing across retries. Consider

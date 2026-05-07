@@ -61,8 +61,8 @@ pub struct SharedState {
     pub rate_limiter: crate::control::security::ratelimit::limiter::RateLimiter,
     /// Opaque session handle store (POST /api/auth/session → UUID).
     pub session_handles: crate::control::security::session_handle::SessionHandleStore,
-    /// Active session registry for KILL SESSIONS.
-    pub session_registry: crate::control::security::session_registry::SessionRegistry,
+    /// Active session registry for KILL SESSIONS and bus-consumer hard-revoke.
+    pub session_registry: Arc<crate::control::security::sessions::SessionRegistry>,
     /// Auto-escalation engine (violations → suspend → ban).
     pub escalation: crate::control::security::escalation::EscalationEngine,
     /// Usage metering counter (per-core atomic, periodic flush).
