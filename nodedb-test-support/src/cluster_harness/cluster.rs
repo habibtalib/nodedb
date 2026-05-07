@@ -52,10 +52,10 @@ impl TestCluster {
         // short under heavy host load (e.g. 500+ parallel unit tests
         // sharing the same CPU pool), causing peers to dial before
         // node 1's transport was ready — failing topology convergence.
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while node1.topology_size() < 1 {
             if std::time::Instant::now() >= deadline {
-                return Err("node 1 failed to bootstrap within 10s".into());
+                return Err("node 1 failed to bootstrap within 30s".into());
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
@@ -67,10 +67,10 @@ impl TestCluster {
         // Under load, spawning both peers simultaneously can overwhelm the
         // bootstrap leader's join handler, causing neither join to complete
         // within the topology convergence deadline.
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while node1.topology_size() < 2 {
             if std::time::Instant::now() >= deadline {
-                return Err("node 2 failed to join within 10s".into());
+                return Err("node 2 failed to join within 30s".into());
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
@@ -83,7 +83,7 @@ impl TestCluster {
 
         wait_for(
             "all 3 nodes report topology_size == 3",
-            Duration::from_secs(10),
+            Duration::from_secs(30),
             Duration::from_millis(50),
             || cluster.nodes.iter().all(|n| n.topology_size() == 3),
         )
@@ -114,7 +114,7 @@ impl TestCluster {
         // replication.
         wait_for(
             "all 3 nodes exit rolling-upgrade compat mode",
-            Duration::from_secs(10),
+            Duration::from_secs(30),
             Duration::from_millis(20),
             || {
                 cluster.nodes.iter().all(|n| {
@@ -145,7 +145,7 @@ impl TestCluster {
         // wasted CI minutes on cleanup of a doomed cluster bringup.
         wait_for(
             "metadata group has stable leader visible on every node",
-            Duration::from_secs(10),
+            Duration::from_secs(30),
             Duration::from_millis(20),
             || {
                 let leaders: Vec<u64> = cluster
@@ -182,7 +182,7 @@ impl TestCluster {
         // window deterministically.
         wait_for(
             "every Raft group has a stable leader visible on every node",
-            Duration::from_secs(10),
+            Duration::from_secs(30),
             Duration::from_millis(20),
             || {
                 // Snapshot every node's per-group leader view. A group

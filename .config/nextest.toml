@@ -43,6 +43,13 @@ threads-required = 'num-test-threads'
 # legitimate startup jitter without hiding real regressions — a
 # genuinely broken test fails twice in a row.
 retries = { backoff = "fixed", count = 2, delay = "1s" }
+# Cluster tests legitimately need more wall-clock than unit tests:
+# a 3-node cluster bring-up plus a multi-node DDL fan-out (e.g.
+# CREATE INDEX backfill across every peer) can stretch past the
+# default 120s ceiling under load without anything being wrong.
+# This override applies ONLY to the cluster-tests package — the
+# default 30s × 4 = 120s ceiling stays in force for unit tests.
+slow-timeout = { period = "30s", terminate-after = 6 }
 
 [test-groups]
 cluster = { max-threads = 1 }
