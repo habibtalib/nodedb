@@ -179,12 +179,21 @@ impl NativeConnection {
     }
 
     /// Authenticate with the server.
-    pub async fn authenticate(&mut self, method: AuthMethod) -> NodeDbResult<()> {
+    ///
+    /// `database` — optional target database name. When set it is sent in
+    /// the auth frame so the server can bind the connection's database
+    /// context at handshake time (equivalent to `psql -d <name>`).
+    pub async fn authenticate(
+        &mut self,
+        method: AuthMethod,
+        database: Option<&str>,
+    ) -> NodeDbResult<()> {
         let resp = self
             .send(
                 OpCode::Auth,
                 TextFields {
                     auth: Some(method),
+                    database: database.map(|s| s.to_string()),
                     ..Default::default()
                 },
             )

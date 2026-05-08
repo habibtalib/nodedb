@@ -29,6 +29,8 @@ pub use traits::NodeDb;
 pub use remote::NodeDbRemote;
 
 #[cfg(feature = "native")]
+pub use native::builder::ConnectionBuilder;
+#[cfg(feature = "native")]
 pub use native::client::NativeClient;
 
 // Re-export core types so users only need `nodedb-client` in their Cargo.toml.
