@@ -67,16 +67,35 @@ pub(super) fn plan_tiered_scan(
         .as_millis() as i64;
 
     let segments = compute_tier_segments(policy, query_time_range, now_ms);
-    let agg = AggQueryParams { filters, group_by, aggregates, gap_fill };
+    let agg = AggQueryParams {
+        filters,
+        group_by,
+        aggregates,
+        gap_fill,
+    };
 
     if segments.is_empty() {
         // Fallback: single raw scan (shouldn't happen, but defensive).
-        return vec![build_scan_task(scope, &policy.collection, query_time_range, 0, &agg)];
+        return vec![build_scan_task(
+            scope,
+            &policy.collection,
+            query_time_range,
+            0,
+            &agg,
+        )];
     }
 
     segments
         .iter()
-        .map(|seg| build_scan_task(scope, &seg.collection, seg.time_range, seg.bucket_interval_ms, &agg))
+        .map(|seg| {
+            build_scan_task(
+                scope,
+                &seg.collection,
+                seg.time_range,
+                seg.bucket_interval_ms,
+                &agg,
+            )
+        })
         .collect()
 }
 
@@ -204,7 +223,10 @@ fn build_scan_task(
     bucket_interval_ms: i64,
     agg: &AggQueryParams,
 ) -> PhysicalTask {
-    let ScopeIds { tenant_id, database_id } = scope;
+    let ScopeIds {
+        tenant_id,
+        database_id,
+    } = scope;
     PhysicalTask {
         tenant_id,
         vshard_id: VShardId::from_collection_in_database(database_id, collection),

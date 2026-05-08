@@ -46,8 +46,7 @@ pub(super) fn convert_lateral_top_k(
     let inner_filter_bytes = serialize_filters(inner_filters)?;
     let order_by_spec = sort_keys_to_spec(inner_order_by);
     let join_projection = projection_to_join_projections(projection);
-    let inner_coll_qualified =
-        super::convert::db_qualified(ctx.database_id, inner_collection);
+    let inner_coll_qualified = super::convert::db_qualified(ctx.database_id, inner_collection);
 
     Ok(vec![PhysicalTask {
         tenant_id,

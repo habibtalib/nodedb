@@ -56,10 +56,7 @@ fn serialize_join_filters(
 /// Returns `None` for hint shapes that cannot be represented as an
 /// `IndexedFetch` (e.g. non-string primary values that have no reasonable
 /// index-path encoding). The caller treats `None` as "no bitmap pushdown".
-fn bitmap_hint_to_plan(
-    hint: &BitmapHint,
-    database_id: DatabaseId,
-) -> Option<Box<PhysicalPlan>> {
+fn bitmap_hint_to_plan(hint: &BitmapHint, database_id: DatabaseId) -> Option<Box<PhysicalPlan>> {
     if !hint.extra_values.is_empty() {
         return None;
     }
@@ -91,14 +88,10 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_join(
         tenant_id,
         ctx,
     } = p;
-    let mut left_collection = super::super::convert::db_qualified(
-        p.ctx.database_id,
-        &extract_collection_name(left),
-    );
-    let mut right_collection = super::super::convert::db_qualified(
-        p.ctx.database_id,
-        &extract_collection_name(right),
-    );
+    let mut left_collection =
+        super::super::convert::db_qualified(p.ctx.database_id, &extract_collection_name(left));
+    let mut right_collection =
+        super::super::convert::db_qualified(p.ctx.database_id, &extract_collection_name(right));
     let mut left_alias = extract_scan_alias(left);
     let mut right_alias = extract_scan_alias(right);
     let join_projection = extract_join_projection_specs(projection);

@@ -48,14 +48,10 @@ pub(super) fn convert_aggregate(p: ConvertAggregateParams<'_>) -> crate::Result<
         ..
     } = input
     {
-        let mut left_collection = super::convert::db_qualified(
-            ctx.database_id,
-            &extract_collection_name(left),
-        );
-        let mut right_collection = super::convert::db_qualified(
-            ctx.database_id,
-            &extract_collection_name(right),
-        );
+        let mut left_collection =
+            super::convert::db_qualified(ctx.database_id, &extract_collection_name(left));
+        let mut right_collection =
+            super::convert::db_qualified(ctx.database_id, &extract_collection_name(right));
         let mut left_alias = extract_scan_alias(left);
         let mut right_alias = extract_scan_alias(right);
 
@@ -103,10 +99,7 @@ pub(super) fn convert_aggregate(p: ConvertAggregateParams<'_>) -> crate::Result<
     }
 
     // Standard aggregate on a single collection.
-    let collection = super::convert::db_qualified(
-        ctx.database_id,
-        &extract_collection_name(input),
-    );
+    let collection = super::convert::db_qualified(ctx.database_id, &extract_collection_name(input));
     let vshard = VShardId::from_collection_in_database(ctx.database_id, &collection);
     let (filters_ref, engine) = match input {
         SqlPlan::Scan {
