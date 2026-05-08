@@ -310,13 +310,16 @@ mod tests {
     use crate::calvin::types::{
         EngineKeySet, EpochBatch, ReadWriteSet, SequencedTxn, SortedVec, TxClass,
     };
-    use nodedb_types::{TenantId, id::VShardId};
+    use nodedb_types::{
+        TenantId,
+        id::{DatabaseId, VShardId},
+    };
 
     fn find_two_distinct_collections() -> (String, String) {
         let mut first: Option<(String, u32)> = None;
         for i in 0u32..512 {
             let name = format!("col_{i}");
-            let vshard = VShardId::from_collection(&name).as_u32();
+            let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &name).as_u32();
             if let Some((ref fname, fv)) = first {
                 if fv != vshard {
                     return (fname.clone(), name);
@@ -335,8 +338,8 @@ mod tests {
         // We'll use find_two_distinct_collections and use whatever vshards they hash to.
         let (col_a, col_b) = find_two_distinct_collections();
         let _ = (vshard_a, vshard_b); // actual vshard ids come from the collection hash
-        let real_va = VShardId::from_collection(&col_a).as_u32();
-        let real_vb = VShardId::from_collection(&col_b).as_u32();
+        let real_va = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &col_a).as_u32();
+        let real_vb = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &col_b).as_u32();
         let write_set = ReadWriteSet::new(vec![
             EngineKeySet::Document {
                 collection: col_a,

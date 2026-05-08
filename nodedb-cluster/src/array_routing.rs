@@ -34,8 +34,11 @@ pub const VSHARD_COUNT: u32 = 1024;
 
 /// Compute a vShard ID from a collection (array) name alone.
 ///
-/// Mirrors `VShardId::from_collection` in `nodedb::types::id` so callers
-/// get consistent results when falling back.
+/// Array-specific name-only fallback used by `array_sync` paths that route
+/// before a coordinate or tile extent is known. Uses the same DJB
+/// multiply-31 hash as `VShardId::from_collection_in_database`, but without
+/// the database scope — array-sync messages carry their own scoping in the
+/// header and route per-array by name.
 pub fn vshard_from_collection(array_name: &str) -> u32 {
     let hash = array_name
         .as_bytes()

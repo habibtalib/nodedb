@@ -2,10 +2,16 @@
 
 use std::collections::HashMap;
 
+use nodedb_types::id::{DatabaseId, VShardId};
+
 use crate::error::{ClusterError, Result};
 
 /// Number of virtual shards.
-pub const VSHARD_COUNT: u32 = 1024;
+///
+/// Re-exports [`VShardId::COUNT`] to keep the cluster routing layer and the
+/// types-layer hash function locked to the same constant. Changing the count
+/// in only one of the two crates would silently misroute every collection.
+pub const VSHARD_COUNT: u32 = VShardId::COUNT;
 
 /// Maps vShards to Raft groups and Raft groups to nodes.
 ///
@@ -253,18 +259,17 @@ impl RoutingTable {
     }
 }
 
-/// Compute the primary vShard for a collection name.
+/// Compute the primary vShard for a `(database, collection)` pair.
 ///
-/// Maps a collection name to its vShard ID.
-///
-/// Must match `VShardId::from_collection()` in the nodedb types module
-/// exactly — uses u16 accumulator with multiplier 31.
-pub fn vshard_for_collection(collection: &str) -> u32 {
-    let hash = collection
-        .as_bytes()
-        .iter()
-        .fold(0u32, |h, &b| h.wrapping_mul(31).wrapping_add(b as u32));
-    hash % VSHARD_COUNT
+/// Delegates to [`VShardId::from_collection_in_database`] so the cluster
+/// routing layer and the types-layer hash function cannot drift. The database
+/// id is folded into the hash so the same collection name in two different
+/// databases routes to independent vShards — required for multi-database
+/// isolation. Passing only the collection name (without `db`) would route
+/// every database through the same vShard space and silently corrupt
+/// cross-database deployments; the parameter is mandatory by design.
+pub fn vshard_for_collection(database_id: DatabaseId, collection: &str) -> u32 {
+    VShardId::from_collection_in_database(database_id, collection).as_u32()
 }
 
 /// FNV-1a 64-bit hash for deterministic key partitioning.
@@ -380,6 +385,40 @@ mod tests {
         let fnv = partition_hash(PlacementHashId::Fnv1a, key);
         let xx3 = partition_hash(PlacementHashId::XxHash3, key);
         assert_ne!(fnv, xx3, "FNV-1a and XxHash3 must produce distinct values");
+    }
+
+    #[test]
+    fn vshard_for_collection_matches_types_layer() {
+        // The cluster routing layer MUST agree with the types-layer hash
+        // for every (database, collection) pair. Drift here silently
+        // misroutes data across nodes — once this regresses, collections
+        // in any non-DEFAULT database resolve to the wrong vShard on the
+        // gateway while the data plane still keys them by the correct
+        // hash. This test pins the contract.
+        for db_raw in [0u64, 1, 2, 1024, 999_999] {
+            let db = DatabaseId::new(db_raw);
+            for name in ["users", "orders", "events", "a", "this_is_a_long_name"] {
+                assert_eq!(
+                    vshard_for_collection(db, name),
+                    VShardId::from_collection_in_database(db, name).as_u32(),
+                    "drift detected: db={db_raw} collection={name}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn vshard_for_collection_diverges_across_databases() {
+        // Same collection name in different databases must route to
+        // different vShards (probabilistic; "users" is a canonical
+        // example whose hashes are known to differ across DEFAULT and
+        // DatabaseId(1024)).
+        let v_default = vshard_for_collection(DatabaseId::DEFAULT, "users");
+        let v_other = vshard_for_collection(DatabaseId::new(1024), "users");
+        assert_ne!(
+            v_default, v_other,
+            "same collection name across databases must route independently"
+        );
     }
 
     #[test]

@@ -275,13 +275,16 @@ mod tests {
     use super::*;
     use crate::calvin::sequencer::inbox::AdmittedTx;
     use crate::calvin::types::{EngineKeySet, ReadWriteSet, SortedVec, TxClass};
-    use nodedb_types::{TenantId, id::VShardId};
+    use nodedb_types::{
+        TenantId,
+        id::{DatabaseId, VShardId},
+    };
 
     fn find_two_distinct_collections() -> (String, String) {
         let mut first: Option<(String, u32)> = None;
         for i in 0u32..512 {
             let name = format!("col_{i}");
-            let vshard = VShardId::from_collection(&name).as_u32();
+            let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &name).as_u32();
             if let Some((ref fname, fv)) = first {
                 if fv != vshard {
                     return (fname.clone(), name);
