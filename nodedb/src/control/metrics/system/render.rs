@@ -14,9 +14,193 @@ impl SystemMetrics {
         self.prometheus_shutdown_phases(&mut out);
         self.prometheus_cdc_stream_drops(&mut out);
         self.prometheus_backpressure(&mut out);
+        self.prometheus_database_metrics(&mut out);
         self.purge.write_prometheus(&mut out);
         self.io_metrics.write_prometheus(&mut out);
         out
+    }
+
+    /// Emit per-database labeled counters and gauges.
+    ///
+    /// Six series:
+    /// - `nodedb_database_queries_total{database="..."}` — cumulative queries
+    /// - `nodedb_database_errors_total{database="..."}` — cumulative errors
+    /// - `nodedb_database_collections_total{database="..."}` — current collection count
+    /// - `nodedb_database_tenants_total{database="..."}` — tenant count (stub-zero)
+    /// - `nodedb_database_memory_bytes{database="..."}` — memory usage (stub-zero)
+    /// - `nodedb_database_storage_bytes{database="..."}` — storage usage (stub-zero)
+    pub(super) fn prometheus_database_metrics(&self, out: &mut String) {
+        use std::fmt::Write as _;
+
+        let queries = self
+            .database_queries_by_name
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
+        if !queries.is_empty() {
+            let _ = out.write_str(
+                "# HELP nodedb_database_queries_total Queries executed against each database\n\
+                 # TYPE nodedb_database_queries_total counter\n",
+            );
+            let mut pairs: Vec<_> = queries.iter().collect();
+            pairs.sort_by(|a, b| a.0.cmp(b.0));
+            for (db, count) in pairs {
+                let _ = writeln!(
+                    out,
+                    r#"nodedb_database_queries_total{{database="{db}"}} {count}"#
+                );
+            }
+        }
+        drop(queries);
+
+        let errors = self
+            .database_errors_by_name
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
+        if !errors.is_empty() {
+            let _ = out.write_str(
+                "# HELP nodedb_database_errors_total Query errors against each database\n\
+                 # TYPE nodedb_database_errors_total counter\n",
+            );
+            let mut pairs: Vec<_> = errors.iter().collect();
+            pairs.sort_by(|a, b| a.0.cmp(b.0));
+            for (db, count) in pairs {
+                let _ = writeln!(
+                    out,
+                    r#"nodedb_database_errors_total{{database="{db}"}} {count}"#
+                );
+            }
+        }
+        drop(errors);
+
+        let colls = self
+            .database_collections_by_name
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
+        if !colls.is_empty() {
+            let _ = out.write_str(
+                "# HELP nodedb_database_collections_total Collections registered in each database\n\
+                 # TYPE nodedb_database_collections_total gauge\n",
+            );
+            let mut pairs: Vec<_> = colls.iter().collect();
+            pairs.sort_by(|a, b| a.0.cmp(b.0));
+            for (db, count) in pairs {
+                let _ = writeln!(
+                    out,
+                    r#"nodedb_database_collections_total{{database="{db}"}} {count}"#
+                );
+            }
+        }
+        drop(colls);
+
+        let tenants = self
+            .database_tenants_by_name
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
+        if !tenants.is_empty() {
+            let _ = out.write_str(
+                "# HELP nodedb_database_tenants_total Tenants registered in each database\n\
+                 # TYPE nodedb_database_tenants_total gauge\n",
+            );
+            let mut pairs: Vec<_> = tenants.iter().collect();
+            pairs.sort_by(|a, b| a.0.cmp(b.0));
+            for (db, count) in pairs {
+                let _ = writeln!(
+                    out,
+                    r#"nodedb_database_tenants_total{{database="{db}"}} {count}"#
+                );
+            }
+        }
+        drop(tenants);
+
+        let mem = self
+            .database_memory_bytes_by_name
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
+        if !mem.is_empty() {
+            let _ = out.write_str(
+                "# HELP nodedb_database_memory_bytes Memory used by each database (bytes)\n\
+                 # TYPE nodedb_database_memory_bytes gauge\n",
+            );
+            let mut pairs: Vec<_> = mem.iter().collect();
+            pairs.sort_by(|a, b| a.0.cmp(b.0));
+            for (db, bytes) in pairs {
+                let _ = writeln!(
+                    out,
+                    r#"nodedb_database_memory_bytes{{database="{db}"}} {bytes}"#
+                );
+            }
+        }
+        drop(mem);
+
+        let storage = self
+            .database_storage_bytes_by_name
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
+        if !storage.is_empty() {
+            let _ = out.write_str(
+                "# HELP nodedb_database_storage_bytes Storage used by each database (bytes)\n\
+                 # TYPE nodedb_database_storage_bytes gauge\n",
+            );
+            let mut pairs: Vec<_> = storage.iter().collect();
+            pairs.sort_by(|a, b| a.0.cmp(b.0));
+            for (db, bytes) in pairs {
+                let _ = writeln!(
+                    out,
+                    r#"nodedb_database_storage_bytes{{database="{db}"}} {bytes}"#
+                );
+            }
+        }
+    }
+
+    /// Increment the per-database query counter.
+    pub fn record_database_query(&self, db_name: &str) {
+        if let Ok(mut m) = self.database_queries_by_name.write() {
+            *m.entry(db_name.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    /// Increment the per-database error counter.
+    pub fn record_database_error(&self, db_name: &str) {
+        if let Ok(mut m) = self.database_errors_by_name.write() {
+            *m.entry(db_name.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    /// Set (or update) the per-database collection count gauge.
+    pub fn set_database_collections(&self, db_name: &str, count: u64) {
+        if let Ok(mut m) = self.database_collections_by_name.write() {
+            m.insert(db_name.to_string(), count);
+        }
+    }
+
+    /// Set (or update) the per-database tenant count gauge.
+    ///
+    /// Stub-zero at registration; per-database tenant tracking is wired
+    /// alongside the per-database quota work.
+    pub fn set_database_tenants(&self, db_name: &str, count: u64) {
+        if let Ok(mut m) = self.database_tenants_by_name.write() {
+            m.insert(db_name.to_string(), count);
+        }
+    }
+
+    /// Set (or update) the per-database memory usage gauge (bytes).
+    ///
+    /// Stub-zero at database creation; per-database memory accounting is wired
+    /// alongside the memory governor per-database budget work.
+    pub fn set_database_memory_bytes(&self, db_name: &str, bytes: u64) {
+        if let Ok(mut m) = self.database_memory_bytes_by_name.write() {
+            m.insert(db_name.to_string(), bytes);
+        }
+    }
+
+    /// Set (or update) the per-database storage usage gauge (bytes).
+    ///
+    /// Stub-zero at database creation; per-database storage accounting is wired
+    /// alongside the compaction per-database tracking work.
+    pub fn set_database_storage_bytes(&self, db_name: &str, bytes: u64) {
+        if let Ok(mut m) = self.database_storage_bytes_by_name.write() {
+            m.insert(db_name.to_string(), bytes);
+        }
     }
 
     pub(super) fn prometheus_backpressure(&self, out: &mut String) {
