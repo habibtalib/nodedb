@@ -44,21 +44,31 @@ impl NodeDbPgHandler {
 
         // Column projection: re-encode each query response with one pgwire
         // field per named column from the SELECT list.
-        let projection = {
-            use super::super::projection::{
-                fields_for_projection, lookup_keys_for_projection, needs_projection,
-                parse_select_projection,
-            };
-            parse_select_projection(sql)
-                .filter(|items| needs_projection(items))
-                .map(|items| {
-                    let fields = fields_for_projection(&items);
-                    let keys = lookup_keys_for_projection(&items);
-                    (fields, keys)
-                })
+        use super::super::projection::{
+            ProjectionItem, fields_for_projection, lookup_keys_for_projection, needs_projection,
+            parse_select_projection, reproject_star_response,
         };
+        let items_opt = parse_select_projection(sql);
 
-        if let Some((fields, keys)) = projection {
+        // SELECT * — expand each row's JSON object into individual columns.
+        if matches!(items_opt.as_deref(), Some([ProjectionItem::Star])) {
+            let mut projected = Vec::with_capacity(responses.len());
+            for resp in responses {
+                projected.push(reproject_star_response(resp).await.map_err(|e| {
+                    PgWireError::UserError(Box::new(ErrorInfo::new(
+                        "ERROR".to_owned(),
+                        "XX000".to_owned(),
+                        format!("star projection failed: {e}"),
+                    )))
+                })?);
+            }
+            return Ok(projected);
+        }
+
+        // Named columns — re-encode with the declared column list.
+        if let Some(items) = items_opt.filter(|items| needs_projection(items)) {
+            let fields = fields_for_projection(&items);
+            let keys = lookup_keys_for_projection(&items);
             let mut projected = Vec::with_capacity(responses.len());
             for resp in responses {
                 projected.push(
@@ -112,7 +122,13 @@ impl NodeDbPgHandler {
 
         // When all tasks target a remote leader, route through the gateway.
         if self.should_forward_via_gateway(&tasks, consistency) {
-            return self.dispatch_tasks_via_gateway(tasks, tenant_id).await;
+            let database_id = self
+                .sessions
+                .get_current_database(addr)
+                .unwrap_or(crate::types::DatabaseId::DEFAULT);
+            return self
+                .dispatch_tasks_via_gateway(tasks, tenant_id, database_id)
+                .await;
         }
 
         let tx_state = self.sessions.transaction_state(addr);

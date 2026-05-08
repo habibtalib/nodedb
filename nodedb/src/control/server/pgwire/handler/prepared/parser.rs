@@ -50,6 +50,7 @@ impl NodeDbQueryParser {
         let catalog = crate::control::planner::catalog_adapter::OriginCatalog::new(
             Arc::clone(&self.state.credentials),
             tenant_id,
+            crate::types::DatabaseId::DEFAULT,
             Some(Arc::clone(&self.state.retention_policy_registry)),
         );
 

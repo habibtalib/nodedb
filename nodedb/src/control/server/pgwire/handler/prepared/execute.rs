@@ -38,6 +38,7 @@ impl NodeDbPgHandler {
     {
         let addr = client.socket_addr();
         let identity = self.resolve_identity(client)?;
+        self.enforce_database_access(&identity, &addr)?;
         let stmt = &portal.statement.statement;
         let tenant_id = identity.tenant_id;
 

@@ -236,6 +236,7 @@ fn cross_shard_identity(tenant_id: TenantId) -> AuthenticatedIdentity {
         roles: vec![Role::Superuser],
         is_superuser: true,
         default_database: None,
+        accessible_databases: crate::control::security::identity::DatabaseSet::All,
     }
 }
 

@@ -297,7 +297,11 @@ impl NodeDbPgHandler {
             ))));
         };
 
-        if super::super::ddl::dispatch(&self.state, identity, inner_sql)
+        let database_id = self
+            .sessions
+            .get_current_database(addr)
+            .unwrap_or(crate::types::DatabaseId::DEFAULT);
+        if super::super::ddl::dispatch(&self.state, identity, inner_sql, database_id)
             .await
             .is_some()
         {
@@ -332,7 +336,7 @@ impl NodeDbPgHandler {
         };
         let tasks = self
             .query_ctx
-            .plan_sql_with_rls(inner_sql, tenant_id, &sec)
+            .plan_sql_with_rls(inner_sql, tenant_id, database_id, &sec)
             .await
             .map_err(|e| {
                 let (severity, code, message) = error_to_sqlstate(&e);

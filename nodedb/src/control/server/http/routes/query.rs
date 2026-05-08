@@ -67,9 +67,7 @@ fn resolve_database_id(
         Ok(None) => Err(ApiError::BadRequest(format!(
             "3D000 database '{db_name}' does not exist"
         ))),
-        Err(e) => Err(ApiError::Internal(format!(
-            "catalog lookup failed: {e}"
-        ))),
+        Err(e) => Err(ApiError::Internal(format!("catalog lookup failed: {e}"))),
     }
 }
 
@@ -94,8 +92,13 @@ pub async fn query(
     let sql = body.sql.as_str();
 
     // Try DDL commands first (same as pgwire handler).
-    if let Some(result) =
-        crate::control::server::pgwire::ddl::dispatch(&state.shared, &identity, sql.trim()).await
+    if let Some(result) = crate::control::server::pgwire::ddl::dispatch(
+        &state.shared,
+        &identity,
+        sql.trim(),
+        database_id,
+    )
+    .await
     {
         return match result {
             Ok(responses) => {
@@ -132,7 +135,7 @@ pub async fn query(
     };
     let tasks = state
         .query_ctx
-        .plan_sql_with_rls(&clean_sql, tenant_id, &sec)
+        .plan_sql_with_rls(&clean_sql, tenant_id, database_id, &sec)
         .await
         .map_err(|e| ApiError::BadRequest(format!("SQL planning failed: {e}")))?;
 
@@ -368,7 +371,10 @@ pub async fn query_ndjson(
         roles: &state.shared.roles,
         permission_cache: Some(&*perm_cache),
     };
-    let tasks = match query_ctx.plan_sql_with_rls(sql, tenant_id, &sec).await {
+    let tasks = match query_ctx
+        .plan_sql_with_rls(sql, tenant_id, database_id, &sec)
+        .await
+    {
         Ok(t) => t,
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };

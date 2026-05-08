@@ -108,12 +108,18 @@ impl NodeDbPgHandler {
         self.enforce_enum_labels_if_needed(&clean_sql, tenant_id)
             .await?;
 
+        let database_id = self
+            .sessions
+            .get_current_database(addr)
+            .unwrap_or(crate::types::DatabaseId::DEFAULT);
+
         // Check plan cache before full planning.
         let cached_tasks = {
             let state = Arc::clone(&self.state);
             let tenant = tenant_id.as_u64();
+            let db = database_id;
             self.sessions.get_cached_plan(addr, &clean_sql, move |id| {
-                current_descriptor_version(&state, tenant, id)
+                current_descriptor_version(&state, tenant, db, id)
             })
         };
 
@@ -129,7 +135,7 @@ impl NodeDbPgHandler {
             };
             let tasks = self
                 .query_ctx
-                .plan_sql_with_params_and_rls(&clean_sql, params, tenant_id, &sec)
+                .plan_sql_with_params_and_rls(&clean_sql, params, tenant_id, database_id, &sec)
                 .await
                 .map_err(|e| {
                     let (severity, code, message) = error_to_sqlstate(&e);
@@ -155,7 +161,13 @@ impl NodeDbPgHandler {
                     permission_cache: Some(&*perm_cache),
                 };
                 self.query_ctx
-                    .plan_sql_with_rls_and_versions(&clean_sql, tenant_id, &sec, has_returning)
+                    .plan_sql_with_rls_and_versions(
+                        &clean_sql,
+                        tenant_id,
+                        database_id,
+                        &sec,
+                        has_returning,
+                    )
                     .await
             })
             .await

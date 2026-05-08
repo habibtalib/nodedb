@@ -15,13 +15,14 @@ impl NodeDbPgHandler {
         &self,
         tenant_id: TenantId,
         vshard_id: VShardId,
+        database_id: crate::types::DatabaseId,
         plan: &crate::bridge::envelope::PhysicalPlan,
     ) -> crate::Result<()> {
         crate::control::server::wal_dispatch::wal_append_if_write(
             &self.state.wal,
             tenant_id,
             vshard_id,
-            crate::types::DatabaseId::DEFAULT,
+            database_id,
             plan,
         )
     }

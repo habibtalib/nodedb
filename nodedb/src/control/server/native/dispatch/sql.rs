@@ -81,8 +81,17 @@ pub(crate) async fn handle_sql(ctx: &DispatchCtx<'_>, seq: u64, sql: &str) -> Na
     }
 
     // DDL: try DDL router first.
-    if let Some(result) =
-        super::super::super::pgwire::ddl::dispatch(ctx.state, ctx.identity, sql_trimmed).await
+    let database_id = ctx
+        .sessions
+        .get_current_database(ctx.peer_addr)
+        .unwrap_or(crate::types::DatabaseId::DEFAULT);
+    if let Some(result) = super::super::super::pgwire::ddl::dispatch(
+        ctx.state,
+        ctx.identity,
+        sql_trimmed,
+        database_id,
+    )
+    .await
     {
         return pgwire_result_to_native(seq, result).await;
     }
@@ -94,7 +103,7 @@ pub(crate) async fn handle_sql(ctx: &DispatchCtx<'_>, seq: u64, sql: &str) -> Na
 
     // DataFusion planning.
     ctx.state.tenant_request_start(ctx.tenant_id());
-    let result = execute_planned(ctx, seq, sql_trimmed).await;
+    let result = execute_planned(ctx, seq, sql_trimmed, database_id).await;
     ctx.state.tenant_request_end(ctx.tenant_id());
 
     if result.status == nodedb_types::protocol::ResponseStatus::Error {
@@ -105,7 +114,12 @@ pub(crate) async fn handle_sql(ctx: &DispatchCtx<'_>, seq: u64, sql: &str) -> Na
 }
 
 /// Plan SQL via DataFusion and dispatch tasks to the Data Plane.
-async fn execute_planned(ctx: &DispatchCtx<'_>, seq: u64, sql: &str) -> NativeResponse {
+async fn execute_planned(
+    ctx: &DispatchCtx<'_>,
+    seq: u64,
+    sql: &str,
+    database_id: crate::types::DatabaseId,
+) -> NativeResponse {
     // Extract per-query ON DENY override (e.g., SELECT ... ON DENY ERROR 'CODE' MESSAGE '...').
     let mut auth_ctx = ctx.auth_context.clone();
     let clean_sql =
@@ -122,7 +136,7 @@ async fn execute_planned(ctx: &DispatchCtx<'_>, seq: u64, sql: &str) -> NativeRe
     };
     let tasks = match ctx
         .query_ctx
-        .plan_sql_with_rls(&clean_sql, ctx.tenant_id(), &sec)
+        .plan_sql_with_rls(&clean_sql, ctx.tenant_id(), database_id, &sec)
         .await
     {
         Ok(t) => t,
@@ -386,9 +400,13 @@ async fn handle_explain(ctx: &DispatchCtx<'_>, seq: u64, sql: &str) -> NativeRes
         roles: &ctx.state.roles,
         permission_cache: Some(&*perm_cache),
     };
+    let database_id = ctx
+        .sessions
+        .get_current_database(ctx.peer_addr)
+        .unwrap_or(crate::types::DatabaseId::DEFAULT);
     match ctx
         .query_ctx
-        .plan_sql_with_rls(inner_sql, ctx.tenant_id(), &sec)
+        .plan_sql_with_rls(inner_sql, ctx.tenant_id(), database_id, &sec)
         .await
     {
         Ok(tasks) => {

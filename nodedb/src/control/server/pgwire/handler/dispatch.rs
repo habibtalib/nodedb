@@ -178,8 +178,13 @@ impl NodeDbPgHandler {
             // Phase 1: broadcast scan the right collection across all cores.
             // Uses broadcast_raw to get raw binary payloads (no JSON wrapping).
             let broadcast_data = if let Some(right_plan) = inline_right {
-                self.materialize_inline_join_side(task.tenant_id, task.vshard_id, right_plan)
-                    .await?
+                self.materialize_inline_join_side(
+                    task.tenant_id,
+                    task.vshard_id,
+                    task.database_id,
+                    right_plan,
+                )
+                .await?
             } else {
                 let right_scan = crate::bridge::envelope::PhysicalPlan::Document(
                     crate::bridge::physical_plan::DocumentOp::Scan {
@@ -355,8 +360,8 @@ impl NodeDbPgHandler {
     /// append but before Data Plane execution, the write is replayed on recovery.
     /// Reads bypass the WAL entirely.
     async fn dispatch_local(&self, task: PhysicalTask) -> crate::Result<Response> {
-        self.wal_append_if_write(task.tenant_id, task.vshard_id, &task.plan)?;
-        self.submit_to_data_plane(task.tenant_id, task.vshard_id, task.plan)
+        self.wal_append_if_write(task.tenant_id, task.vshard_id, task.database_id, &task.plan)?;
+        self.submit_to_data_plane(task.tenant_id, task.vshard_id, task.database_id, task.plan)
             .await
     }
 
@@ -366,7 +371,7 @@ impl NodeDbPgHandler {
     /// entire transaction has been written as a single `RecordType::Transaction`
     /// WAL record. Skipping per-task WAL avoids double-writing.
     pub(super) async fn dispatch_task_no_wal(&self, task: PhysicalTask) -> crate::Result<Response> {
-        self.submit_to_data_plane(task.tenant_id, task.vshard_id, task.plan)
+        self.submit_to_data_plane(task.tenant_id, task.vshard_id, task.database_id, task.plan)
             .await
     }
 
@@ -376,13 +381,14 @@ impl NodeDbPgHandler {
         &self,
         tenant_id: crate::types::TenantId,
         vshard_id: crate::types::VShardId,
+        database_id: DatabaseId,
         plan: crate::bridge::envelope::PhysicalPlan,
     ) -> crate::Result<Response> {
         let request_id = self.next_request_id();
         let request = Request {
             request_id,
             tenant_id,
-            database_id: DatabaseId::DEFAULT,
+            database_id,
             vshard_id,
             plan,
             deadline: Instant::now()
@@ -417,15 +423,16 @@ impl NodeDbPgHandler {
         &self,
         tenant_id: crate::types::TenantId,
         fallback_vshard_id: crate::types::VShardId,
+        database_id: DatabaseId,
         plan: &crate::bridge::envelope::PhysicalPlan,
     ) -> crate::Result<Vec<u8>> {
         let vshard_id = super::plan::extract_collection(plan)
-            .map(|c| crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, c))
+            .map(|c| crate::types::VShardId::from_collection_in_database(database_id, c))
             .unwrap_or(fallback_vshard_id);
         let task = crate::control::planner::physical::PhysicalTask {
             tenant_id,
             vshard_id,
-            database_id: DatabaseId::DEFAULT,
+            database_id,
             plan: plan.clone(),
             post_set_op: crate::control::planner::physical::PostSetOp::None,
         };

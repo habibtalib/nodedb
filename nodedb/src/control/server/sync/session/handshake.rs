@@ -60,6 +60,9 @@ impl SyncSession {
                 roles: vec![crate::control::security::identity::Role::ReadWrite],
                 is_superuser: false,
                 default_database: None,
+                accessible_databases: crate::control::security::identity::DatabaseSet::Some(
+                    smallvec::smallvec![nodedb_types::id::DatabaseId::DEFAULT],
+                ),
             };
             self.tenant_id = Some(identity.tenant_id);
             self.username = Some(identity.username.clone());

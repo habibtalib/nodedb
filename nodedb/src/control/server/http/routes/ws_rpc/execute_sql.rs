@@ -21,7 +21,9 @@ pub async fn execute_sql(
     // Quota enforcement — reject before planning or dispatch.
     shared.check_tenant_quota(tenant_id)?;
 
-    let tasks = query_ctx.plan_sql(sql, tenant_id).await?;
+    let tasks = query_ctx
+        .plan_sql(sql, tenant_id, crate::types::DatabaseId::DEFAULT)
+        .await?;
 
     shared.tenant_request_start(tenant_id);
 

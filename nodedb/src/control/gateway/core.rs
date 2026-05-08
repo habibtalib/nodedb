@@ -94,7 +94,7 @@ impl Gateway {
             tenant_id = ctx.tenant_id.as_u64()
         );
         let start = SystemTime::now();
-        let version_set = self.collect_version_set(&plan, ctx.tenant_id.as_u64());
+        let version_set = self.collect_version_set(&plan, ctx.tenant_id.as_u64(), ctx.database_id);
         let result = self
             .execute_with_version_set(ctx, plan, version_set)
             .instrument(span)
@@ -163,7 +163,8 @@ impl Gateway {
         if let Some(stored_vs) = self.plan_cache.lookup_version_set(&sql_key) {
             // Verify the stored version set is still current by cross-checking
             // each collection's current descriptor version.
-            let current_vs = self.verify_version_set(&stored_vs, ctx.tenant_id.as_u64());
+            let current_vs =
+                self.verify_version_set(&stored_vs, ctx.tenant_id.as_u64(), ctx.database_id);
             if current_vs == stored_vs {
                 // Version set is still current — try the full plan cache.
                 let full_key = PlanCacheKey {
@@ -187,7 +188,7 @@ impl Gateway {
 
         // Compute the actual version set from the plan (contains the real
         // collection names and their current descriptor versions).
-        let actual_vs = self.collect_version_set(&plan, ctx.tenant_id.as_u64());
+        let actual_vs = self.collect_version_set(&plan, ctx.tenant_id.as_u64(), ctx.database_id);
         let actual_key = PlanCacheKey {
             sql_text_hash: sql_hash,
             placeholder_types_hash: ph_hash,
@@ -340,13 +341,21 @@ impl Gateway {
     /// correct descriptor version. Using tenant 0 here would return version 0
     /// for every collection stored under any other tenant, causing spurious
     /// `DescriptorMismatch` rejections at the leader.
-    fn collect_version_set(&self, plan: &PhysicalPlan, tenant_id: u64) -> GatewayVersionSet {
+    ///
+    /// `database_id` scopes the catalog lookup to the session's current database
+    /// so that a plan from one database cannot be served under another.
+    fn collect_version_set(
+        &self,
+        plan: &PhysicalPlan,
+        tenant_id: u64,
+        database_id: DatabaseId,
+    ) -> GatewayVersionSet {
         let catalog_ref = self.shared.credentials.catalog();
         let catalog = catalog_ref.as_ref();
 
         GatewayVersionSet::from_plan(plan, |name| {
             catalog
-                .and_then(|c| c.get_collection(DatabaseId::DEFAULT, tenant_id, name).ok())
+                .and_then(|c| c.get_collection(database_id, tenant_id, name).ok())
                 .flatten()
                 .map(|col| col.descriptor_version.max(1))
                 .unwrap_or(0)
@@ -363,6 +372,7 @@ impl Gateway {
         &self,
         stored_vs: &GatewayVersionSet,
         tenant_id: u64,
+        database_id: DatabaseId,
     ) -> GatewayVersionSet {
         let catalog_ref = self.shared.credentials.catalog();
         let catalog = catalog_ref.as_ref();
@@ -371,7 +381,7 @@ impl Gateway {
             .iter()
             .map(|(name, _)| {
                 let current_version = catalog
-                    .and_then(|c| c.get_collection(DatabaseId::DEFAULT, tenant_id, name).ok())
+                    .and_then(|c| c.get_collection(database_id, tenant_id, name).ok())
                     .flatten()
                     .map(|col| col.descriptor_version.max(1))
                     .unwrap_or(0);

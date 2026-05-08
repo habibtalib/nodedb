@@ -10,6 +10,9 @@ use nodedb_types::DatabaseId;
 /// check — a cached plan is only returned when every recorded
 /// `(id, version)` still matches the current catalog.
 ///
+/// `database_id` scopes the lookup to the session's current database so
+/// a plan compiled in one database is not incorrectly reused in another.
+///
 /// Returns `None` if the descriptor has been dropped, the
 /// catalog is unavailable, or the descriptor kind is not
 /// currently tracked (only `Collection` goes through this
@@ -17,6 +20,7 @@ use nodedb_types::DatabaseId;
 pub(super) fn current_descriptor_version(
     state: &SharedState,
     tenant_id: u64,
+    database_id: DatabaseId,
     id: &nodedb_cluster::DescriptorId,
 ) -> Option<u64> {
     if id.tenant_id != tenant_id {
@@ -26,7 +30,7 @@ pub(super) fn current_descriptor_version(
     let catalog = catalog.as_ref()?;
     match id.kind {
         nodedb_cluster::DescriptorKind::Collection => catalog
-            .get_collection(DatabaseId::DEFAULT, tenant_id, &id.name)
+            .get_collection(database_id, tenant_id, &id.name)
             .ok()
             .flatten()
             .filter(|c| c.is_active)

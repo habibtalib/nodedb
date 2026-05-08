@@ -195,5 +195,25 @@ pub(super) fn describe_entry(e: &catalog_entry::CatalogEntry) -> (String, u64, S
         E::DeleteSynonymGroup { name, .. } => (name.clone(), 0, String::new()),
         E::PutCustomType(t) => (t.name.clone(), 0, String::new()),
         E::DeleteCustomType { name, .. } => (name.clone(), 0, String::new()),
+        E::PutDatabase(d) => (d.name.clone(), 0, String::new()),
+        E::DeleteDatabase { db_id } => (db_id.to_string(), 0, String::new()),
+        E::PutDatabaseGrant {
+            db_id,
+            user_id,
+            privilege,
+        } => (
+            format!("db:{db_id}:user:{user_id}:{privilege}"),
+            0,
+            String::new(),
+        ),
+        E::DeleteDatabaseGrant {
+            db_id,
+            user_id,
+            privilege,
+        } => (
+            format!("db:{db_id}:user:{user_id}:{privilege}"),
+            0,
+            String::new(),
+        ),
     }
 }

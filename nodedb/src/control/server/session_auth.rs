@@ -86,6 +86,7 @@ pub fn verify_api_key_identity(
         roles: user.roles,
         is_superuser: user.is_superuser,
         default_database: None,
+        accessible_databases: AuthenticatedIdentity::default_database_set(user.is_superuser),
     };
 
     state.audit_record(
@@ -117,6 +118,7 @@ pub fn trust_identity(state: &SharedState, username: &str) -> AuthenticatedIdent
             roles: vec![Role::Superuser],
             is_superuser: true,
             default_database: None,
+            accessible_databases: crate::control::security::identity::DatabaseSet::All,
         }
     }
 }

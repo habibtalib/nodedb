@@ -332,10 +332,15 @@ impl NodeDbPgHandler {
             );
         }
 
+        let database_id = self
+            .sessions
+            .get_current_database(addr)
+            .unwrap_or(crate::types::DatabaseId::DEFAULT);
+
         if let Some(rewritten) =
             super::super::system_functions::rewrite_purge_collection(sql_trimmed, &upper)
             && let Some(result) =
-                super::super::ddl::dispatch(&self.state, identity, &rewritten).await
+                super::super::ddl::dispatch(&self.state, identity, &rewritten, database_id).await
         {
             return result;
         }
@@ -347,7 +352,8 @@ impl NodeDbPgHandler {
             return result;
         }
 
-        if let Some(result) = super::super::ddl::dispatch(&self.state, identity, sql_trimmed).await
+        if let Some(result) =
+            super::super::ddl::dispatch(&self.state, identity, sql_trimmed, database_id).await
         {
             return result;
         }
@@ -434,7 +440,7 @@ impl NodeDbPgHandler {
     /// Execute a SELECT query and return results as JSON strings for cursor storage.
     pub(super) async fn execute_query_for_cursor(
         &self,
-        _addr: &std::net::SocketAddr,
+        addr: &std::net::SocketAddr,
         sql: &str,
         identity: &AuthenticatedIdentity,
     ) -> PgWireResult<Vec<String>> {
@@ -442,9 +448,14 @@ impl NodeDbPgHandler {
         let query_ctx =
             crate::control::planner::context::QueryContext::for_state_with_lease(&self.state);
 
-        if let Some(mode) = self.sessions.get_parameter(_addr, "rounding_mode") {
+        if let Some(mode) = self.sessions.get_parameter(addr, "rounding_mode") {
             query_ctx.set_rounding_mode(&mode);
         }
+
+        let database_id = self
+            .sessions
+            .get_current_database(addr)
+            .unwrap_or(crate::types::DatabaseId::DEFAULT);
 
         let auth_ctx = crate::control::server::session_auth::build_auth_context(identity);
         let perm_cache = self.state.permission_cache.read().await;
@@ -457,7 +468,7 @@ impl NodeDbPgHandler {
             permission_cache: Some(&*perm_cache),
         };
         let tasks = query_ctx
-            .plan_sql_with_rls(sql, tenant_id, &sec)
+            .plan_sql_with_rls(sql, tenant_id, database_id, &sec)
             .await
             .map_err(|e| {
                 PgWireError::UserError(Box::new(ErrorInfo::new(

@@ -80,10 +80,6 @@ pub struct Session {
     /// immutable for the session lifetime (a `USE DATABASE` issues a session reset).
     /// Resolution order: explicit (connection-string/handshake) > user default >
     /// tenant default > `DatabaseId::DEFAULT`.
-    ///
-    /// The explicit-from-handshake path (Section E, 10_BOUNDARY protocol) and user-default path
-    /// (Section G, 10_BOUNDARY auth) are not yet wired; until then this always
-    /// resolves to `DatabaseId::DEFAULT`.
     current_database: Option<DatabaseId>,
 }
 
@@ -111,9 +107,9 @@ impl Session {
     /// Resolve the database for this session at the first authenticated request.
     ///
     /// Resolution order:
-    /// 1. Explicit database from connection-string or handshake (Section E, 10_BOUNDARY protocol).
+    /// 1. Explicit database from connection-string or handshake.
     /// 2. Per-user default database from `AuthenticatedIdentity.default_database`
-    ///    (Section G, 10_BOUNDARY auth, wires `ALTER USER … SET DEFAULT DATABASE`).
+    ///    (set via `ALTER USER <name> SET DEFAULT DATABASE <db>`).
     /// 3. Tenant default database (not yet stored; reserved for future use).
     /// 4. `DatabaseId::DEFAULT` — the built-in `default` database.
     fn resolve_database(
@@ -123,8 +119,6 @@ impl Session {
         if let Some(db) = explicit {
             return db;
         }
-        // Per-user default database (stub — always None until Section G, 10_BOUNDARY auth,
-        // wires `ALTER USER … SET DEFAULT DATABASE` into the credential store).
         if let Some(db) = identity.default_database {
             return db;
         }
@@ -409,6 +403,14 @@ impl Session {
             };
 
             let resolved_db = Self::resolve_database(&identity, explicit_db);
+
+            // Enforce accessible_databases at session bind. Superusers bypass
+            // this check (can_access_database returns true for all databases).
+            if !identity.can_access_database(resolved_db) {
+                let msg = r#"{"status":"error","code":"ACCESS_DENIED","error":"access denied to database"}"#;
+                return Ok(msg.as_bytes().to_vec());
+            }
+
             self.current_database = Some(resolved_db);
 
             let warning_field = match &warning {
@@ -456,9 +458,9 @@ impl Session {
         // Tenant from authenticated identity, not from client payload.
         let tenant_id = identity.tenant_id;
 
-        // Database: resolved once and bound for the session lifetime. Explicit
-        // override from the handshake is `None` until Section E (10_BOUNDARY protocol) wires the
-        // wire-protocol field; until then every session uses the resolution chain default.
+        // Resolve and bind database on first request. Explicit handshake override
+        // is not yet wired from the native wire protocol; every session uses the
+        // resolution chain default (user default → tenant default → built-in default).
         if self.current_database.is_none() {
             self.current_database = Some(Self::resolve_database(identity, None));
         }

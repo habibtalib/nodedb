@@ -19,6 +19,8 @@ use pgwire::api::Type;
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 
+use super::super::types::text_field;
+
 /// Projection item from a parsed SELECT list.
 pub(super) enum ProjectionItem {
     /// SELECT *
@@ -304,6 +306,78 @@ pub(super) fn is_scan_wrapper(map: &serde_json::Map<String, serde_json::Value>) 
     map.len() == 2
         && matches!(map.get("id"), Some(serde_json::Value::String(_)))
         && matches!(map.get("data"), Some(serde_json::Value::Object(_)))
+}
+
+/// Re-encode a `SELECT *` envelope response as one pgwire field per key found
+/// in the row objects.
+///
+/// The column order is derived from the union of keys across all rows, with
+/// `id` placed first when present. Non-query responses pass through unchanged.
+pub(super) async fn reproject_star_response(response: Response) -> PgWireResult<Response> {
+    let qr = match response {
+        Response::Query(qr) => qr,
+        other => return Ok(other),
+    };
+
+    let flat_rows = collect_flat_rows(qr).await?;
+    if flat_rows.is_empty() {
+        let schema = Arc::new(vec![text_field("result")]);
+        return Ok(Response::Query(QueryResponse::new(
+            schema,
+            futures::stream::iter(Vec::<PgWireResult<_>>::new()),
+        )));
+    }
+
+    // Derive column order: id first (if present), then remaining keys
+    // in stable insertion order from the first row.
+    let mut cols: Vec<String> = Vec::new();
+    let first = &flat_rows[0];
+    if first.contains_key("id") {
+        cols.push("id".to_string());
+    }
+    for key in first.keys() {
+        if key != "id" {
+            cols.push(key.clone());
+        }
+    }
+    // Ensure any keys from later rows that were absent in the first row
+    // are also included (union over all rows).
+    for row in flat_rows.iter().skip(1) {
+        for key in row.keys() {
+            if !cols.contains(key) {
+                cols.push(key.clone());
+            }
+        }
+    }
+
+    let schema: Arc<Vec<_>> = Arc::new(cols.iter().map(|c| text_field(c)).collect());
+    let row_schema = schema.clone();
+    let pgwire_rows: Vec<PgWireResult<_>> = flat_rows
+        .iter()
+        .map(|obj| {
+            let mut encoder = DataRowEncoder::new(row_schema.clone());
+            for col in &cols {
+                match obj.get(col.as_str()) {
+                    None | Some(serde_json::Value::Null) => {
+                        let _ = encoder.encode_field(&Option::<String>::None);
+                    }
+                    Some(v) => {
+                        let text = match v {
+                            serde_json::Value::String(s) => s.clone(),
+                            other => other.to_string(),
+                        };
+                        let _ = encoder.encode_field(&text);
+                    }
+                }
+            }
+            Ok(encoder.take_row())
+        })
+        .collect();
+
+    Ok(Response::Query(QueryResponse::new(
+        schema,
+        futures::stream::iter(pgwire_rows),
+    )))
 }
 
 /// Decode the text bytes of the first field from a pgwire `DataRow` wire buffer.

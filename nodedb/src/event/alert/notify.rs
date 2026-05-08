@@ -248,6 +248,7 @@ fn alert_identity(tenant_id: TenantId, owner: &str) -> AuthenticatedIdentity {
         roles: vec![Role::Superuser],
         is_superuser: true,
         default_database: None,
+        accessible_databases: crate::control::security::identity::DatabaseSet::All,
     }
 }
 

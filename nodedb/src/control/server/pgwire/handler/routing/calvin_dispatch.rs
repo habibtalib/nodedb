@@ -81,6 +81,7 @@ impl NodeDbPgHandler {
             let predicted = run_preexec_scan(
                 &self.state,
                 tenant_id,
+                dep_task.database_id,
                 &dep_collection,
                 dep_filter_bytes.clone(),
             )
