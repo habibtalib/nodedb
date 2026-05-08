@@ -6,7 +6,7 @@ use nodedb_sql::types::SqlValue;
 
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::*;
-use crate::types::{DatabaseId, TenantId, VShardId};
+use crate::types::{TenantId, VShardId};
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::aggregate::{agg_expr_to_pair, extract_projection_names};
@@ -33,6 +33,8 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_timeseries_scan(
         ctx,
         temporal,
     } = p;
+    let coll_qualified = super::super::convert::db_qualified(ctx.database_id, collection);
+    let collection = coll_qualified.as_str();
     let filter_bytes = serialize_filters(filters)?;
     let agg_pairs: Vec<(String, String)> = aggregates.iter().map(agg_expr_to_pair).collect();
 
@@ -44,7 +46,10 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_timeseries_scan(
     {
         return Ok(super::super::super::auto_tier::plan_tiered_scan(
             &policy,
-            tenant_id,
+            super::super::super::auto_tier::ScopeIds {
+                tenant_id,
+                database_id: ctx.database_id,
+            },
             *time_range,
             filter_bytes,
             group_by.to_vec(),
@@ -54,11 +59,11 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_timeseries_scan(
     }
 
     let proj_names = extract_projection_names(projection, &[]);
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, collection);
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Timeseries(TimeseriesOp::Scan {
             collection: collection.into(),
             time_range: *time_range,
@@ -84,7 +89,9 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_timeseries_ingest(
     tenant_id: TenantId,
     ctx: &super::super::convert::ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
+    let coll_qualified = super::super::convert::db_qualified(ctx.database_id, collection);
+    let collection = coll_qualified.as_str();
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, collection);
     let mut payload = Vec::with_capacity(rows.len() * 128);
     write_msgpack_array_header(&mut payload, rows.len());
     let mut surrogates: Vec<nodedb_types::Surrogate> = Vec::with_capacity(rows.len());
@@ -114,7 +121,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_timeseries_ingest(
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Timeseries(TimeseriesOp::Ingest {
             collection: collection.into(),
             payload,

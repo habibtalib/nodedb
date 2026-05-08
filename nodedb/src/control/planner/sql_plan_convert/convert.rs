@@ -23,6 +23,17 @@ use convert_array_arms::convert_array_plans;
 #[path = "convert_array_arms.rs"]
 mod convert_array_arms;
 
+/// Qualify a raw collection name with its database ID so that storage keys
+/// for collections in different databases never collide.
+///
+/// The resulting string is used as the `collection` field in every physical
+/// plan variant that reaches the Data Plane. Storage engines key data on
+/// `(tenant_id, collection, document_id)` — by embedding the database ID
+/// into the collection token, isolation between databases is automatic.
+pub fn db_qualified(database_id: crate::types::DatabaseId, collection: &str) -> String {
+    format!("{}/{}", database_id.as_u64(), collection)
+}
+
 /// Conversion context holding optional references needed during plan conversion.
 pub struct ConvertContext {
     pub retention_registry: Option<Arc<RetentionPolicyRegistry>>,
@@ -53,6 +64,10 @@ pub struct ConvertContext {
     /// Per-tenant maximum vector dimension (0 = unlimited). Checked in
     /// `VectorPrimaryInsert` conversion before the task is built.
     pub max_vector_dim: u32,
+    /// Database scope for vShard computation. All `VShardId::from_collection_in_database`
+    /// calls must use this value so that collections in different databases are
+    /// routed to distinct shards and data-plane isolates them correctly.
+    pub database_id: crate::types::DatabaseId,
 }
 
 /// Convert a list of SqlPlans to PhysicalTasks.
@@ -80,7 +95,7 @@ pub(super) fn convert_one(
 
     match plan {
         SqlPlan::ConstantResult { columns, values } => {
-            super::set_ops::convert_constant_result(columns, values, tenant_id)
+            super::set_ops::convert_constant_result(columns, values, tenant_id, ctx)
         }
 
         SqlPlan::Scan {
@@ -107,6 +122,7 @@ pub(super) fn convert_one(
             window_functions,
             tenant_id,
             temporal,
+            database_id: ctx.database_id,
         }),
 
         SqlPlan::PointGet {
@@ -135,7 +151,15 @@ pub(super) fn convert_one(
             case_insensitive: _,
             temporal: _,
         } => super::scan::convert_document_index_lookup(
-            collection, field, value, filters, projection, *limit, *offset, tenant_id,
+            collection,
+            field,
+            value,
+            filters,
+            projection,
+            *limit,
+            *offset,
+            tenant_id,
+            ctx.database_id,
         ),
 
         SqlPlan::Insert {
@@ -222,6 +246,7 @@ pub(super) fn convert_one(
             target_filters,
             *returning,
             tenant_id,
+            ctx,
         ),
 
         SqlPlan::Delete {
@@ -234,7 +259,7 @@ pub(super) fn convert_one(
         SqlPlan::Truncate {
             collection,
             restart_identity,
-        } => super::set_ops::convert_truncate(collection, *restart_identity, tenant_id),
+        } => super::set_ops::convert_truncate(collection, *restart_identity, tenant_id, ctx),
 
         SqlPlan::Join {
             left,
@@ -348,6 +373,7 @@ pub(super) fn convert_one(
             top_k,
             score_alias.as_deref(),
             tenant_id,
+            ctx.database_id,
         ),
 
         SqlPlan::HybridSearch {
@@ -369,6 +395,7 @@ pub(super) fn convert_one(
             fuzzy,
             score_alias: score_alias.as_deref(),
             tenant_id,
+            database_id: ctx.database_id,
         }),
 
         SqlPlan::HybridSearchTriple {
@@ -397,6 +424,7 @@ pub(super) fn convert_one(
                 rrf_k,
                 score_alias: score_alias.as_deref(),
                 tenant_id,
+                database_id: ctx.database_id,
             },
         ),
 
@@ -419,6 +447,7 @@ pub(super) fn convert_one(
             limit,
             projection,
             tenant_id,
+            database_id: ctx.database_id,
         }),
 
         SqlPlan::Union { inputs, distinct } => {
@@ -454,6 +483,7 @@ pub(super) fn convert_one(
             distinct,
             limit,
             tenant_id,
+            database_id: ctx.database_id,
         }),
 
         SqlPlan::RecursiveValue {
@@ -473,6 +503,7 @@ pub(super) fn convert_one(
             max_depth,
             distinct,
             tenant_id,
+            database_id: ctx.database_id,
         }),
 
         SqlPlan::Cte { definitions, outer } => {
@@ -513,6 +544,7 @@ pub(super) fn convert_one(
             clauses,
             *returning,
             tenant_id,
+            ctx,
         ),
 
         SqlPlan::LateralTopK {

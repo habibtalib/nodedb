@@ -9,7 +9,7 @@ use crate::bridge::physical_plan::DocumentOp;
 use crate::bridge::physical_plan::document::merge_types::{
     MergeActionOp, MergeClauseKind as MergeClauseKindOp, MergeClauseOp,
 };
-use crate::types::{DatabaseId, TenantId, VShardId};
+use crate::types::{TenantId, VShardId};
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::filter::serialize_filters;
@@ -26,11 +26,18 @@ pub(in super::super) fn convert_merge(
     clauses: &[MergePlanClause],
     _returning: bool,
     tenant_id: TenantId,
+    ctx: &super::super::convert::ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
+    let target_qualified = super::super::convert::db_qualified(ctx.database_id, target);
+    let target = target_qualified.as_str();
     // Extract source collection name from the source scan plan.
     let source_collection = match source {
-        SqlPlan::Scan { collection, .. } => collection.clone(),
-        SqlPlan::DocumentIndexLookup { collection, .. } => collection.clone(),
+        SqlPlan::Scan { collection, .. } => {
+            super::super::convert::db_qualified(ctx.database_id, collection)
+        }
+        SqlPlan::DocumentIndexLookup { collection, .. } => {
+            super::super::convert::db_qualified(ctx.database_id, collection)
+        }
         other => {
             return Err(crate::Error::PlanError {
                 detail: format!("Merge source must be a Scan plan, got: {other:?}"),
@@ -43,12 +50,12 @@ pub(in super::super) fn convert_merge(
         .map(|c| convert_clause(c, source_alias))
         .collect::<crate::Result<Vec<_>>>()?;
 
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, target);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, target);
 
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Document(DocumentOp::Merge {
             target_collection: target.into(),
             source_collection,

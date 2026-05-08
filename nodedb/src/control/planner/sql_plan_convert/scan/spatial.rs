@@ -4,7 +4,7 @@
 
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::*;
-use crate::types::{DatabaseId, VShardId};
+use crate::types::VShardId;
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::aggregate::extract_projection_names;
@@ -24,8 +24,11 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_spatial_scan(
         limit,
         projection,
         tenant_id,
+        database_id,
     } = p;
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
+    let coll_qualified = super::super::convert::db_qualified(database_id, collection);
+    let collection = coll_qualified.as_str();
+    let vshard = VShardId::from_collection_in_database(database_id, collection);
     let attr_bytes = serialize_filters(attribute_filters)?;
     let proj_names = extract_projection_names(projection, &[]);
     let sp = match predicate {
@@ -37,7 +40,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_spatial_scan(
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id,
         plan: PhysicalPlan::Spatial(SpatialOp::Scan {
             collection: collection.into(),
             field: field.to_string(),

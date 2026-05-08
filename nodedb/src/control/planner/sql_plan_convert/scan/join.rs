@@ -56,13 +56,17 @@ fn serialize_join_filters(
 /// Returns `None` for hint shapes that cannot be represented as an
 /// `IndexedFetch` (e.g. non-string primary values that have no reasonable
 /// index-path encoding). The caller treats `None` as "no bitmap pushdown".
-fn bitmap_hint_to_plan(hint: &BitmapHint) -> Option<Box<PhysicalPlan>> {
+fn bitmap_hint_to_plan(
+    hint: &BitmapHint,
+    database_id: DatabaseId,
+) -> Option<Box<PhysicalPlan>> {
     if !hint.extra_values.is_empty() {
         return None;
     }
+    let collection = super::super::convert::db_qualified(database_id, &hint.collection);
     let value_str = sql_value_to_string(&hint.primary_value);
     Some(Box::new(PhysicalPlan::Document(DocumentOp::IndexedFetch {
-        collection: hint.collection.clone(),
+        collection,
         path: hint.field.clone(),
         value: value_str,
         filters: Vec::new(),
@@ -87,8 +91,14 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_join(
         tenant_id,
         ctx,
     } = p;
-    let mut left_collection = extract_collection_name(left);
-    let mut right_collection = extract_collection_name(right);
+    let mut left_collection = super::super::convert::db_qualified(
+        p.ctx.database_id,
+        &extract_collection_name(left),
+    );
+    let mut right_collection = super::super::convert::db_qualified(
+        p.ctx.database_id,
+        &extract_collection_name(right),
+    );
     let mut left_alias = extract_scan_alias(left);
     let mut right_alias = extract_scan_alias(right);
     let join_projection = extract_join_projection_specs(projection);
@@ -127,15 +137,16 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_join(
     if join_type.as_str() == "right" {
         std::mem::swap(&mut raw_left_bm, &mut raw_right_bm);
     }
-    let inline_left_bitmap = raw_left_bm.and_then(|h| bitmap_hint_to_plan(&h));
-    let inline_right_bitmap = raw_right_bm.and_then(|h| bitmap_hint_to_plan(&h));
+    let db_id = p.ctx.database_id;
+    let inline_left_bitmap = raw_left_bm.and_then(|h| bitmap_hint_to_plan(&h, db_id));
+    let inline_right_bitmap = raw_right_bm.and_then(|h| bitmap_hint_to_plan(&h, db_id));
 
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &left_collection);
+    let vshard = VShardId::from_collection_in_database(p.ctx.database_id, &left_collection);
 
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id: p.ctx.database_id,
         plan: PhysicalPlan::Query(QueryOp::HashJoin {
             left_collection,
             right_collection,

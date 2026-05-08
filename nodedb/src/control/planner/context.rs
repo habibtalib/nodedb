@@ -91,19 +91,25 @@ struct CatalogInputs {
 }
 
 impl CatalogInputs {
-    fn build_adapter(&self, tenant_id: u64) -> super::catalog_adapter::OriginCatalog {
+    fn build_adapter(
+        &self,
+        tenant_id: u64,
+        database_id: crate::types::DatabaseId,
+    ) -> super::catalog_adapter::OriginCatalog {
         if let Some(weak) = &self.shared
             && let Some(shared) = weak.upgrade()
         {
             super::catalog_adapter::OriginCatalog::new_with_lease(
                 &shared,
                 tenant_id,
+                database_id,
                 self.retention_policy_registry.clone(),
             )
         } else {
             super::catalog_adapter::OriginCatalog::new(
                 Arc::clone(&self.credentials),
                 tenant_id,
+                database_id,
                 self.retention_policy_registry.clone(),
             )
         }
@@ -223,12 +229,17 @@ impl QueryContext {
     /// Parse SQL and convert to NodeDB physical plan(s).
     ///
     /// Uses nodedb-sql for parsing and planning, then converts to PhysicalTasks.
+    /// `database_id` scopes catalog lookups to a specific database namespace.
+    /// Pass `DatabaseId::DEFAULT` when no explicit database scope is needed
+    /// (e.g. internal queries from event triggers or scheduled jobs).
     pub async fn plan_sql(
         &self,
         sql: &str,
         tenant_id: crate::types::TenantId,
+        database_id: crate::types::DatabaseId,
     ) -> crate::Result<Vec<super::physical::PhysicalTask>> {
-        self.plan_with_nodedb_sql(sql, tenant_id).map(|(t, _)| t)
+        self.plan_with_nodedb_sql(sql, tenant_id, database_id)
+            .map(|(t, _)| t)
     }
 
     /// Core planning via nodedb-sql: parse → plan → optimize → convert.
@@ -243,6 +254,7 @@ impl QueryContext {
         &self,
         sql: &str,
         tenant_id: crate::types::TenantId,
+        database_id: crate::types::DatabaseId,
     ) -> crate::Result<(
         Vec<super::physical::PhysicalTask>,
         super::descriptor_set::DescriptorVersionSet,
@@ -259,7 +271,7 @@ impl QueryContext {
         // `recorded_versions` field is per-plan state, and
         // two concurrent plans through a shared QueryContext
         // would otherwise interleave their recorded sets.
-        let catalog = inputs.build_adapter(tenant_id.as_u64());
+        let catalog = inputs.build_adapter(tenant_id.as_u64(), database_id);
         let plans = nodedb_sql::plan_sql(sql, &catalog).map_err(|e| match e {
             nodedb_sql::SqlError::RetryableSchemaChanged { descriptor } => {
                 crate::Error::RetryableSchemaChanged { descriptor }
@@ -292,6 +304,7 @@ impl QueryContext {
             max_vector_dim: self
                 .max_vector_dim
                 .load(std::sync::atomic::Ordering::Relaxed),
+            database_id,
         };
         let tasks = super::sql_plan_convert::convert(&plans, tenant_id, &ctx)?;
         Ok((tasks, version_set))
@@ -305,9 +318,10 @@ impl QueryContext {
         &self,
         sql: &str,
         tenant_id: crate::types::TenantId,
+        database_id: crate::types::DatabaseId,
         sec: &PlanSecurityContext<'_>,
     ) -> crate::Result<Vec<super::physical::PhysicalTask>> {
-        self.plan_sql_with_rls_returning(sql, tenant_id, sec, false)
+        self.plan_sql_with_rls_returning(sql, tenant_id, database_id, sec, false)
             .await
     }
 
@@ -316,10 +330,11 @@ impl QueryContext {
         &self,
         sql: &str,
         tenant_id: crate::types::TenantId,
+        database_id: crate::types::DatabaseId,
         sec: &PlanSecurityContext<'_>,
         returning: bool,
     ) -> crate::Result<Vec<super::physical::PhysicalTask>> {
-        self.plan_sql_with_rls_and_versions(sql, tenant_id, sec, returning)
+        self.plan_sql_with_rls_and_versions(sql, tenant_id, database_id, sec, returning)
             .await
             .map(|(tasks, _)| tasks)
     }
@@ -334,13 +349,14 @@ impl QueryContext {
         &self,
         sql: &str,
         tenant_id: crate::types::TenantId,
+        database_id: crate::types::DatabaseId,
         sec: &PlanSecurityContext<'_>,
         _returning: bool,
     ) -> crate::Result<(
         Vec<super::physical::PhysicalTask>,
         super::descriptor_set::DescriptorVersionSet,
     )> {
-        let (mut tasks, version_set) = self.plan_with_nodedb_sql(sql, tenant_id)?;
+        let (mut tasks, version_set) = self.plan_with_nodedb_sql(sql, tenant_id, database_id)?;
 
         // Inject RLS predicates.
         super::rls_injection::inject_rls(&mut tasks, sec.rls_store, sec.auth)?;
@@ -362,6 +378,7 @@ impl QueryContext {
         sql: &str,
         params: &[nodedb_sql::ParamValue],
         tenant_id: crate::types::TenantId,
+        database_id: crate::types::DatabaseId,
         sec: &PlanSecurityContext<'_>,
     ) -> crate::Result<Vec<super::physical::PhysicalTask>> {
         let inputs = match &self.catalog_inputs {
@@ -379,7 +396,7 @@ impl QueryContext {
         // through a different cache key), but constructing the
         // adapter fresh keeps the adapter's state per-plan and
         // allows future extension.
-        let catalog = inputs.build_adapter(tenant_id.as_u64());
+        let catalog = inputs.build_adapter(tenant_id.as_u64(), database_id);
         let plans = nodedb_sql::plan_sql_with_params(sql, params, &catalog).map_err(|e| {
             crate::Error::PlanError {
                 detail: format!("{e}"),
@@ -399,6 +416,7 @@ impl QueryContext {
             max_vector_dim: self
                 .max_vector_dim
                 .load(std::sync::atomic::Ordering::Relaxed),
+            database_id,
         };
         let mut tasks = super::sql_plan_convert::convert(&plans, tenant_id, &ctx)?;
 

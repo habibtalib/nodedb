@@ -355,6 +355,7 @@ pub async fn coordinate_cross_shard_hop(
                         plan_ctx.plan_sql(
                             &sql_for_plan,
                             crate::types::TenantId::new(tenant_id_u64),
+                            crate::types::DatabaseId::DEFAULT,
                         ),
                     )
                 });

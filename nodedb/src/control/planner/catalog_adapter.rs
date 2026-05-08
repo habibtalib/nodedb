@@ -40,6 +40,7 @@ use nodedb_sql::{
 use crate::control::planner::descriptor_set::DescriptorVersionSet;
 use crate::control::security::credential::CredentialStore;
 use crate::control::state::SharedState;
+use crate::types::DatabaseId;
 
 /// Adapter bridging the NodeDB catalog to the `SqlCatalog` trait.
 ///
@@ -54,6 +55,10 @@ use crate::control::state::SharedState;
 pub struct OriginCatalog {
     credentials: Arc<CredentialStore>,
     tenant_id: u64,
+    /// Database namespace to scope catalog lookups. Queries from a session
+    /// that is bound to `db_alpha` must only see collections in `db_alpha`,
+    /// even if a same-named collection exists in another database.
+    database_id: DatabaseId,
     retention_policy_registry:
         Option<Arc<crate::engine::timeseries::retention_policy::RetentionPolicyRegistry>>,
     /// Array catalog handle. When `None`, `lookup_array` returns
@@ -98,6 +103,7 @@ impl OriginCatalog {
     pub fn new(
         credentials: Arc<CredentialStore>,
         tenant_id: u64,
+        database_id: DatabaseId,
         retention_policy_registry: Option<
             Arc<crate::engine::timeseries::retention_policy::RetentionPolicyRegistry>,
         >,
@@ -105,6 +111,7 @@ impl OriginCatalog {
         Self {
             credentials,
             tenant_id,
+            database_id,
             retention_policy_registry,
             drain_tracker: None,
             recorded_versions: Mutex::new(DescriptorVersionSet::new()),
@@ -120,6 +127,7 @@ impl OriginCatalog {
     pub fn new_with_lease(
         shared: &Arc<SharedState>,
         tenant_id: u64,
+        database_id: DatabaseId,
         retention_policy_registry: Option<
             Arc<crate::engine::timeseries::retention_policy::RetentionPolicyRegistry>,
         >,
@@ -127,6 +135,7 @@ impl OriginCatalog {
         Self {
             credentials: Arc::clone(&shared.credentials),
             tenant_id,
+            database_id,
             retention_policy_registry,
             drain_tracker: Some(Arc::clone(&shared.lease_drain)),
             recorded_versions: Mutex::new(DescriptorVersionSet::new()),
@@ -159,7 +168,7 @@ impl OriginCatalog {
 impl SqlCatalog for OriginCatalog {
     fn get_collection(
         &self,
-        database_id: nodedb_types::DatabaseId,
+        _database_id: nodedb_types::DatabaseId,
         name: &str,
     ) -> std::result::Result<Option<CollectionInfo>, SqlCatalogError> {
         // Read through the local `SystemCatalog` redb. On cluster
@@ -167,12 +176,18 @@ impl SqlCatalog for OriginCatalog {
         // written the replicated record here via
         // `CatalogEntry::apply_to`, so a single read path works
         // for both single-node and cluster modes.
+        //
+        // Use `self.database_id` (the session-bound database) rather than
+        // the `_database_id` parameter, which is always `DatabaseId::DEFAULT`
+        // from the nodedb-sql planner. This enforces per-database namespace
+        // isolation at plan time: a query in `db_alpha` cannot resolve a
+        // collection that lives in `db_beta`.
         let catalog_ref = self.credentials.catalog();
         let Some(catalog) = catalog_ref.as_ref() else {
             return Ok(None);
         };
         let Some(stored) = catalog
-            .get_collection(database_id, self.tenant_id, name)
+            .get_collection(self.database_id, self.tenant_id, name)
             .ok()
             .flatten()
         else {

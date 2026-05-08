@@ -19,7 +19,7 @@ use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::MetaOp;
 use crate::control::array_catalog::ArrayCatalogEntry;
 use crate::engine::bitemporal::registry::BitemporalEngineKind;
-use crate::types::{DatabaseId, TenantId, VShardId};
+use crate::types::{TenantId, VShardId};
 
 use super::super::physical::{PhysicalTask, PostSetOp};
 use super::convert::ConvertContext;
@@ -149,11 +149,11 @@ pub(super) fn convert_alter_array(
         }
     }
 
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, name);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, name);
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Meta(MetaOp::AlterArray {
             array_id: name.to_string(),
             audit_retain_ms,

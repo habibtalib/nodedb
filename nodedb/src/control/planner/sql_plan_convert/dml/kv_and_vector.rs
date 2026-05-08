@@ -4,7 +4,7 @@ use nodedb_sql::types::{KvInsertIntent, SqlExpr, SqlValue, VectorPrimaryRow};
 
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::*;
-use crate::types::{DatabaseId, TenantId, VShardId};
+use crate::types::{TenantId, VShardId};
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
@@ -23,12 +23,14 @@ pub(in super::super) fn convert_kv_insert(
     tenant_id: TenantId,
     ctx: &ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
+    let coll_qualified = super::super::convert::db_qualified(ctx.database_id, collection);
+    let collection = coll_qualified.as_str();
     let update_values = if on_conflict_updates.is_empty() {
         Vec::new()
     } else {
         assignments_to_update_values(on_conflict_updates)?
     };
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, collection);
     let ttl_ms = ttl_secs * 1000;
     let mut tasks = Vec::with_capacity(entries.len());
     for (key_val, value_cols) in entries {
@@ -79,7 +81,7 @@ pub(in super::super) fn convert_kv_insert(
         tasks.push(PhysicalTask {
             tenant_id,
             vshard_id: vshard,
-            database_id: crate::types::DatabaseId::DEFAULT,
+            database_id: ctx.database_id,
             plan: PhysicalPlan::Kv(op),
             post_set_op: PostSetOp::None,
         });
@@ -96,7 +98,9 @@ pub(in super::super) fn convert_vector_primary_insert(
     tenant_id: TenantId,
     ctx: &ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
+    let coll_qualified = super::super::convert::db_qualified(ctx.database_id, collection);
+    let collection = coll_qualified.as_str();
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, collection);
     let mut tasks = Vec::with_capacity(rows.len());
     for row in rows {
         // Enforce per-tenant vector dimension quota before building any task.
@@ -132,7 +136,7 @@ pub(in super::super) fn convert_vector_primary_insert(
         tasks.push(PhysicalTask {
             tenant_id,
             vshard_id: vshard,
-            database_id: crate::types::DatabaseId::DEFAULT,
+            database_id: ctx.database_id,
             plan: PhysicalPlan::Vector(VectorOp::DirectUpsert {
                 collection: collection.to_string(),
                 field: field.to_string(),
@@ -164,6 +168,7 @@ mod tests {
             cluster_enabled: false,
             bitemporal_retention_registry: None,
             max_vector_dim,
+            database_id: crate::types::DatabaseId::DEFAULT,
         }
     }
 

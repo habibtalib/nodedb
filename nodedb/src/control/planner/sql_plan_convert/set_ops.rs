@@ -6,7 +6,7 @@ use nodedb_sql::types::{Projection, SqlPlan, SqlValue};
 
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::*;
-use crate::types::{DatabaseId, TenantId, VShardId};
+use crate::types::{TenantId, VShardId};
 
 use super::super::physical::{PhysicalTask, PostSetOp};
 use super::convert::{ConvertContext, convert_one};
@@ -17,6 +17,7 @@ pub(super) fn convert_constant_result(
     columns: &[String],
     values: &[SqlValue],
     tenant_id: TenantId,
+    ctx: &ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
     let mut obj = serde_json::Map::new();
     for (col, val) in columns.iter().zip(values.iter()) {
@@ -33,8 +34,8 @@ pub(super) fn convert_constant_result(
     })?;
     Ok(vec![PhysicalTask {
         tenant_id,
-        vshard_id: VShardId::from_collection_in_database(DatabaseId::DEFAULT, ""),
-        database_id: crate::types::DatabaseId::DEFAULT,
+        vshard_id: VShardId::from_collection_in_database(ctx.database_id, ""),
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Meta(MetaOp::RawResponse { payload }),
         post_set_op: PostSetOp::None,
     }])
@@ -44,12 +45,15 @@ pub(super) fn convert_truncate(
     collection: &str,
     restart_identity: bool,
     tenant_id: TenantId,
+    ctx: &ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
+    let coll_qualified = super::convert::db_qualified(ctx.database_id, collection);
+    let collection = coll_qualified.as_str();
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, collection);
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Document(DocumentOp::Truncate {
             collection: collection.into(),
             restart_identity,
@@ -128,8 +132,10 @@ pub(super) fn convert_insert_select(
     target: &str,
     source: &SqlPlan,
     tenant_id: TenantId,
-    _ctx: &ConvertContext,
+    ctx: &ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
+    let target_qualified = super::convert::db_qualified(ctx.database_id, target);
+    let target = target_qualified.as_str();
     let SqlPlan::Scan {
         collection,
         filters,
@@ -166,15 +172,16 @@ pub(super) fn convert_insert_select(
     }
 
     let filter_bytes = super::filter::serialize_filters(filters)?;
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, target);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, target);
+    let source_coll_qualified = super::convert::db_qualified(ctx.database_id, collection);
 
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Document(DocumentOp::InsertSelect {
             target_collection: target.into(),
-            source_collection: collection.clone(),
+            source_collection: source_coll_qualified,
             source_filters: filter_bytes,
             source_limit: limit.unwrap_or(10_000),
         }),
@@ -231,6 +238,7 @@ mod tests {
                 cluster_enabled: false,
                 bitemporal_retention_registry: None,
                 max_vector_dim: 0,
+                database_id: crate::types::DatabaseId::DEFAULT,
             },
         )
         .expect("convert insert-select");
@@ -280,6 +288,7 @@ mod tests {
                 cluster_enabled: false,
                 bitemporal_retention_registry: None,
                 max_vector_dim: 0,
+                database_id: crate::types::DatabaseId::DEFAULT,
             },
         )
         .expect("convert insert-select with star");

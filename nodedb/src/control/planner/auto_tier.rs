@@ -19,6 +19,13 @@ use crate::types::{DatabaseId, TenantId, VShardId};
 
 use super::physical::{PhysicalTask, PostSetOp};
 
+/// Tenant + database scope identity, passed together to avoid over-8-arg signatures.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ScopeIds {
+    pub(super) tenant_id: TenantId,
+    pub(super) database_id: DatabaseId,
+}
+
 /// A time segment assigned to a specific tier.
 #[derive(Debug)]
 struct TierSegment {
@@ -32,6 +39,14 @@ struct TierSegment {
     bucket_interval_ms: i64,
 }
 
+/// Aggregation query parameters shared across all tier segments.
+struct AggQueryParams {
+    filters: Vec<u8>,
+    group_by: Vec<String>,
+    aggregates: Vec<(String, String)>,
+    gap_fill: String,
+}
+
 /// Plan a tiered scan: split the query time range across tiers and return
 /// one `PhysicalTask` per tier segment.
 ///
@@ -39,7 +54,7 @@ struct TierSegment {
 /// continuous aggregate (`_policy_{name}_tier{N}`).
 pub(super) fn plan_tiered_scan(
     policy: &RetentionPolicyDef,
-    tenant_id: TenantId,
+    scope: ScopeIds,
     query_time_range: (i64, i64),
     filters: Vec<u8>,
     group_by: Vec<String>,
@@ -52,35 +67,16 @@ pub(super) fn plan_tiered_scan(
         .as_millis() as i64;
 
     let segments = compute_tier_segments(policy, query_time_range, now_ms);
+    let agg = AggQueryParams { filters, group_by, aggregates, gap_fill };
 
     if segments.is_empty() {
         // Fallback: single raw scan (shouldn't happen, but defensive).
-        return vec![build_scan_task(
-            tenant_id,
-            &policy.collection,
-            query_time_range,
-            0,
-            &filters,
-            &group_by,
-            &aggregates,
-            &gap_fill,
-        )];
+        return vec![build_scan_task(scope, &policy.collection, query_time_range, 0, &agg)];
     }
 
     segments
         .iter()
-        .map(|seg| {
-            build_scan_task(
-                tenant_id,
-                &seg.collection,
-                seg.time_range,
-                seg.bucket_interval_ms,
-                &filters,
-                &group_by,
-                &aggregates,
-                &gap_fill,
-            )
-        })
+        .map(|seg| build_scan_task(scope, &seg.collection, seg.time_range, seg.bucket_interval_ms, &agg))
         .collect()
 }
 
@@ -201,31 +197,28 @@ pub(crate) fn explain_tier_selection(
 }
 
 /// Build a single `PhysicalTask` for a tier segment.
-#[allow(clippy::too_many_arguments)]
 fn build_scan_task(
-    tenant_id: TenantId,
+    scope: ScopeIds,
     collection: &str,
     time_range: (i64, i64),
     bucket_interval_ms: i64,
-    filters: &[u8],
-    group_by: &[String],
-    aggregates: &[(String, String)],
-    gap_fill: &str,
+    agg: &AggQueryParams,
 ) -> PhysicalTask {
+    let ScopeIds { tenant_id, database_id } = scope;
     PhysicalTask {
         tenant_id,
-        vshard_id: VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection),
-        database_id: crate::types::DatabaseId::DEFAULT,
+        vshard_id: VShardId::from_collection_in_database(database_id, collection),
+        database_id,
         plan: PhysicalPlan::Timeseries(TimeseriesOp::Scan {
             collection: collection.to_string(),
             time_range,
             projection: Vec::new(),
             limit: usize::MAX,
-            filters: filters.to_vec(),
+            filters: agg.filters.clone(),
             bucket_interval_ms,
-            group_by: group_by.to_vec(),
-            aggregates: aggregates.to_vec(),
-            gap_fill: gap_fill.to_string(),
+            group_by: agg.group_by.clone(),
+            aggregates: agg.aggregates.clone(),
+            gap_fill: agg.gap_fill.clone(),
             computed_columns: Vec::new(),
             rls_filters: Vec::new(),
             system_as_of_ms: None,
@@ -339,7 +332,10 @@ mod tests {
             .as_millis() as i64;
         let tasks = plan_tiered_scan(
             &policy,
-            TenantId::new(1),
+            ScopeIds {
+                tenant_id: TenantId::new(1),
+                database_id: crate::types::DatabaseId::DEFAULT,
+            },
             (now - 30 * 86_400_000, now),
             Vec::new(),
             Vec::new(),

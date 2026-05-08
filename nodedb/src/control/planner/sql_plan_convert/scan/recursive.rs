@@ -4,7 +4,7 @@
 
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::*;
-use crate::types::{DatabaseId, VShardId};
+use crate::types::VShardId;
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::filter::serialize_filters;
@@ -13,13 +13,15 @@ use super::super::scan_params::{RecursiveScanParams, RecursiveValueParams};
 pub(in crate::control::planner::sql_plan_convert) fn convert_recursive_scan(
     p: RecursiveScanParams<'_>,
 ) -> crate::Result<Vec<PhysicalTask>> {
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, p.collection);
+    let coll_qualified = super::super::convert::db_qualified(p.database_id, p.collection);
+    let collection = coll_qualified.as_str();
+    let vshard = VShardId::from_collection_in_database(p.database_id, collection);
     Ok(vec![PhysicalTask {
         tenant_id: p.tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id: p.database_id,
         plan: PhysicalPlan::Query(QueryOp::RecursiveScan {
-            collection: p.collection.into(),
+            collection: collection.into(),
             base_filters: serialize_filters(p.base_filters)?,
             recursive_filters: serialize_filters(p.recursive_filters)?,
             join_link: p.join_link.clone(),
@@ -40,7 +42,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_recursive_value(
     Ok(vec![PhysicalTask {
         tenant_id: p.tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id: p.database_id,
         plan: PhysicalPlan::Query(QueryOp::RecursiveValue {
             cte_name: p.cte_name.into(),
             columns: p.columns.to_vec(),

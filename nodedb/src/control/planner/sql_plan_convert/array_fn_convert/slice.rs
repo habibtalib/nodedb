@@ -12,7 +12,7 @@ use nodedb_sql::types_array::ArraySliceAst;
 
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::{ArrayOp, ClusterArrayOp};
-use crate::types::{DatabaseId, TenantId, VShardId};
+use crate::types::{TenantId, VShardId};
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
@@ -59,7 +59,7 @@ pub(crate) fn convert_slice(
         super::helpers::resolve_array_temporal(temporal, "ARRAY_SLICE")?;
     let attr_indices = resolve_attr_indices(name, attr_projection, &schema)?;
     let aid = ArrayId::new(tenant_id, name);
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, name);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, name);
 
     let plan = if ctx.cluster_enabled {
         // In cluster mode emit a ClusterArray variant. The routing loop
@@ -98,7 +98,7 @@ pub(crate) fn convert_slice(
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id: ctx.database_id,
         plan,
         post_set_op: PostSetOp::None,
     }])
@@ -247,6 +247,7 @@ mod tests {
             cluster_enabled,
             bitemporal_retention_registry: None,
             max_vector_dim: 0,
+            database_id: crate::types::DatabaseId::DEFAULT,
         };
         (ctx, handle)
     }

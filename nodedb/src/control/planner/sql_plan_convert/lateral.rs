@@ -46,15 +46,17 @@ pub(super) fn convert_lateral_top_k(
     let inner_filter_bytes = serialize_filters(inner_filters)?;
     let order_by_spec = sort_keys_to_spec(inner_order_by);
     let join_projection = projection_to_join_projections(projection);
+    let inner_coll_qualified =
+        super::convert::db_qualified(ctx.database_id, inner_collection);
 
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: outer_vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Query(QueryOp::LateralTopK {
             outer_plan: Box::new(outer_task.plan),
             outer_alias: outer_alias_str,
-            inner_collection: inner_collection.to_string(),
+            inner_collection: inner_coll_qualified,
             inner_filters: inner_filter_bytes,
             inner_order_by: order_by_spec,
             inner_limit,
@@ -99,7 +101,7 @@ pub(super) fn convert_lateral_loop(
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: outer_vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Query(QueryOp::LateralLoop {
             outer_plan: Box::new(outer_task.plan),
             outer_alias: outer_alias_str,

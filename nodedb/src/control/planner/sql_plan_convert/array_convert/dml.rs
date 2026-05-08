@@ -10,7 +10,7 @@ use nodedb_sql::types_array::{ArrayCoordLiteral, ArrayInsertRow};
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::{ArrayOp, ClusterArrayOp};
 use crate::engine::array::wal::{ArrayDeleteCell, ArrayPutCell};
-use crate::types::{DatabaseId, TenantId, VShardId};
+use crate::types::{TenantId, VShardId};
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
@@ -56,7 +56,7 @@ pub(in super::super) fn convert_insert_array(
 
     let aid = ArrayId::new(tenant_id, name);
     let wal_lsn = wal.next_lsn().as_u64();
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, name);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, name);
     let system_now_ms = chrono::Utc::now().timestamp_millis();
 
     if ctx.cluster_enabled {
@@ -97,7 +97,7 @@ pub(in super::super) fn convert_insert_array(
         return Ok(vec![PhysicalTask {
             tenant_id,
             vshard_id: vshard,
-            database_id: crate::types::DatabaseId::DEFAULT,
+            database_id: ctx.database_id,
             plan: PhysicalPlan::ClusterArray(ClusterArrayOp::Put {
                 array_id: aid,
                 array_id_msgpack,
@@ -138,7 +138,7 @@ pub(in super::super) fn convert_insert_array(
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Array(ArrayOp::Put {
             array_id: aid,
             cells_msgpack,
@@ -180,7 +180,7 @@ pub(in super::super) fn convert_delete_array(
 
     let aid = ArrayId::new(tenant_id, name);
     let wal_lsn = wal.next_lsn().as_u64();
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, name);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, name);
     let system_now_ms = chrono::Utc::now().timestamp_millis();
 
     if ctx.cluster_enabled {
@@ -211,7 +211,7 @@ pub(in super::super) fn convert_delete_array(
         return Ok(vec![PhysicalTask {
             tenant_id,
             vshard_id: vshard,
-            database_id: crate::types::DatabaseId::DEFAULT,
+            database_id: ctx.database_id,
             plan: PhysicalPlan::ClusterArray(ClusterArrayOp::Delete {
                 array_id: aid,
                 array_id_msgpack,
@@ -240,7 +240,7 @@ pub(in super::super) fn convert_delete_array(
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Array(ArrayOp::Delete {
             array_id: aid,
             coords_msgpack,

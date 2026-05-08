@@ -6,7 +6,7 @@ use nodedb_sql::types::{EngineType, Filter, SqlValue};
 
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::*;
-use crate::types::{DatabaseId, TenantId, VShardId};
+use crate::types::{TenantId, VShardId};
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::aggregate::{
@@ -35,11 +35,14 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_scan(
         window_functions,
         tenant_id,
         temporal,
+        database_id,
     } = p;
+    let coll_qualified = super::super::convert::db_qualified(database_id, collection);
+    let collection = coll_qualified.as_str();
     let filter_bytes = serialize_filters(filters)?;
     let proj_names = extract_projection_names(projection, window_functions);
     let sort = convert_sort_keys(sort_keys);
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
+    let vshard = VShardId::from_collection_in_database(database_id, collection);
     let computed_bytes = extract_computed_columns(projection, window_functions)?;
     let window_bytes = serialize_window_functions(window_functions)?;
 
@@ -119,7 +122,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_scan(
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id,
         plan: physical,
         post_set_op: PostSetOp::None,
     }])
@@ -140,10 +143,13 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_document_index_look
     limit: Option<usize>,
     offset: usize,
     tenant_id: TenantId,
+    database_id: crate::types::DatabaseId,
 ) -> crate::Result<Vec<PhysicalTask>> {
+    let coll_qualified = super::super::convert::db_qualified(database_id, collection);
+    let collection = coll_qualified.as_str();
     let filter_bytes = serialize_filters(filters)?;
     let proj_names = extract_projection_names(projection, &[]);
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
+    let vshard = VShardId::from_collection_in_database(database_id, collection);
     let physical = PhysicalPlan::Document(DocumentOp::IndexedFetch {
         collection: collection.into(),
         path: field.into(),
@@ -156,7 +162,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_document_index_look
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id,
         plan: physical,
         post_set_op: PostSetOp::None,
     }])
@@ -170,7 +176,9 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_point_get(
     tenant_id: TenantId,
     ctx: &super::super::convert::ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
-    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
+    let coll_qualified = super::super::convert::db_qualified(ctx.database_id, collection);
+    let collection = coll_qualified.as_str();
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, collection);
     let physical = match engine {
         EngineType::KeyValue => PhysicalPlan::Kv(KvOp::Get {
             collection: collection.into(),
@@ -250,7 +258,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_point_get(
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
-        database_id: crate::types::DatabaseId::DEFAULT,
+        database_id: ctx.database_id,
         plan: physical,
         post_set_op: PostSetOp::None,
     }])
