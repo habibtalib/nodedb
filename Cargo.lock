@@ -4214,6 +4214,7 @@ version = "0.1.1"
 dependencies = [
  "fluxbench",
  "libc",
+ "nodedb-types",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

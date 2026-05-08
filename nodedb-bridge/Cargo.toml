@@ -21,6 +21,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 libc = { workspace = true }
 tokio = { workspace = true, optional = true }
+nodedb-types = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
