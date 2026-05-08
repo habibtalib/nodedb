@@ -9,7 +9,12 @@ use nodedb_sql::ddl_ast::NodedbStatement;
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::ddl::database::{
-    handle_alter_database, handle_create_database, handle_drop_database, handle_show_databases,
+    handle_alter_database, handle_create_database, handle_drop_database,
+    handle_show_database_quota, handle_show_database_usage, handle_show_databases,
+};
+use crate::control::server::pgwire::ddl::tenant::{
+    handle_alter_tenant_quota, handle_show_tenant_quota_in_database,
+    handle_show_tenant_usage_in_database,
 };
 use crate::control::state::SharedState;
 
@@ -53,6 +58,30 @@ pub(super) fn try_dispatch_database(
         }
 
         NodedbStatement::ShowDatabases => Some(handle_show_databases(state, identity)),
+
+        NodedbStatement::ShowDatabaseQuota { name } => {
+            Some(handle_show_database_quota(state, identity, name))
+        }
+
+        NodedbStatement::ShowDatabaseUsage { name } => {
+            Some(handle_show_database_usage(state, identity, name))
+        }
+
+        NodedbStatement::AlterTenant {
+            name,
+            database,
+            operation,
+        } => Some(handle_alter_tenant_quota(
+            state, identity, name, database, operation,
+        )),
+
+        NodedbStatement::ShowTenantQuotaInDatabase { name, database } => Some(
+            handle_show_tenant_quota_in_database(state, identity, name, database),
+        ),
+
+        NodedbStatement::ShowTenantUsageInDatabase { name, database } => Some(
+            handle_show_tenant_usage_in_database(state, identity, name, database),
+        ),
 
         // UseDatabase is handled before the DDL router in execute_single_sql;
         // if it reaches here, something went wrong in the call chain.

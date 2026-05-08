@@ -30,7 +30,10 @@ pub(super) async fn import_csv(
     opts: CsvOptions,
     database_id: nodedb_types::DatabaseId,
 ) -> PgWireResult<usize> {
-    let CsvOptions { delimiter, has_header } = opts;
+    let CsvOptions {
+        delimiter,
+        has_header,
+    } = opts;
     let bytes = tokio::fs::read(path)
         .await
         .map_err(|e| sqlstate_error("58030", &format!("COPY: cannot read '{path}': {e}")))?;

@@ -9,11 +9,11 @@ use nodedb_sql::ddl_ast::NodedbStatement;
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::ddl::change_stream::create_change_stream;
+use crate::control::server::pgwire::ddl::collection::copy_from::CopyFromOptions;
 use crate::control::server::pgwire::ddl::collection::{
     CreateCollectionRequest, CreateIndexRequest, copy_from_file, copy_to_file, create_collection,
     create_index, create_table, dispatch_register_by_name,
 };
-use crate::control::server::pgwire::ddl::collection::copy_from::CopyFromOptions;
 use crate::control::server::pgwire::ddl::conflict_policy::show_conflict_policy;
 use crate::control::server::pgwire::ddl::continuous_agg::{
     CreateContinuousAggregateRequest, create_continuous_aggregate,

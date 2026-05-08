@@ -15,7 +15,7 @@ use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::types::sqlstate_error;
 use crate::control::state::SharedState;
 
-use super::csv_import::{import_csv, CsvOptions};
+use super::csv_import::{CsvOptions, import_csv};
 use super::json_import::{import_json_array, import_ndjson};
 
 /// Maximum file size accepted for COPY FROM (16 GiB).
@@ -38,7 +38,11 @@ pub async fn copy_from_file(
     options: CopyFromOptions<'_>,
     database_id: DatabaseId,
 ) -> PgWireResult<Vec<Response>> {
-    let CopyFromOptions { format, delimiter, header } = options;
+    let CopyFromOptions {
+        format,
+        delimiter,
+        header,
+    } = options;
     validate_path(path)?;
 
     // Check file size before reading.

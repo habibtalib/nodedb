@@ -3,19 +3,21 @@
 //! Handler for `ALTER DATABASE <name> <operation>`.
 //!
 //! Supported operations:
-//!   RENAME TO <new>           — updates name in `_system.databases` and rebuilds the
-//!                               `_system.databases_by_name` reverse index atomically.
-//!   SET QUOTA (<quota_id>)    — stores the quota reference id; enforcement is owned
-//!                               by the quota subsystem and reads from `quota_ref`.
-//!   SET DEFAULT               — marks this database as the per-user default. Returns
-//!                               FEATURE_NOT_YET_IMPLEMENTED until per-user default
-//!                               binding lands (use ALTER USER ... SET DEFAULT DATABASE).
-//!   MATERIALIZE               — triggers background clone materialization. Returns
-//!                               FEATURE_NOT_YET_IMPLEMENTED until the clone subsystem lands.
-//!   PROMOTE                   — promotes a mirror to writable primary. Returns
-//!                               FEATURE_NOT_YET_IMPLEMENTED until the mirror subsystem lands.
+//!   RENAME TO <new>                       — updates name in `_system.databases` and rebuilds the
+//!                                           `_system.databases_by_name` reverse index atomically.
+//!   SET QUOTA (max_memory_bytes = ..., .) — writes a `QuotaRecord` into `_system.database_quotas`;
+//!                                           absent fields are merged from the existing record or
+//!                                           `QuotaRecord::DEFAULT`.
+//!   SET DEFAULT                           — marks this database as the per-user default. Returns
+//!                                           `FEATURE_NOT_YET_IMPLEMENTED` until per-user default
+//!                                           binding lands (use ALTER USER ... SET DEFAULT DATABASE).
+//!   MATERIALIZE                           — triggers background clone materialization. Returns
+//!                                           `FEATURE_NOT_YET_IMPLEMENTED` until the clone subsystem lands.
+//!   PROMOTE                               — promotes a mirror to writable primary. Returns
+//!                                           `FEATURE_NOT_YET_IMPLEMENTED` until the mirror subsystem lands.
 
 use nodedb_sql::ddl_ast::AlterDatabaseOperation;
+use nodedb_types::QuotaRecord;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -90,24 +92,33 @@ pub fn handle_alter_database(
             );
         }
 
-        AlterDatabaseOperation::SetQuota { quota_id } => {
-            descriptor.quota_ref = *quota_id;
-            let proposed = propose_catalog_entry(
-                state,
-                &CatalogEntry::PutDatabase(Box::new(descriptor.clone())),
-            )
-            .map_err(|e| sqlstate_error("XX000", &format!("catalog propose failed: {e}")))?;
-            if proposed == 0 {
-                catalog
-                    .put_database(&descriptor)
-                    .map_err(|e| sqlstate_error("XX000", &format!("catalog write failed: {e}")))?;
-            }
+        AlterDatabaseOperation::SetQuota(spec) => {
+            // Load existing record (or DEFAULT) — kept verbatim for the audit
+            // before/after diff so operators can reconstruct what changed.
+            let before = catalog
+                .get_database_quota(db_id)
+                .map_err(|e| sqlstate_error("XX000", &format!("quota read failed: {e}")))?
+                .unwrap_or(QuotaRecord::DEFAULT);
+            let mut record = before.clone();
+            record.merge(spec);
+
+            // Snapshot the live cluster-wide ceiling configured at startup
+            // from `[server]` config; the catalog layer enforces the
+            // sum-of-database-quotas invariant against it.
+            let ceiling = state.quota_ceiling_snapshot();
+            catalog
+                .put_database_quota(db_id, &record, &ceiling)
+                .map_err(|e| sqlstate_error("53400", &format!("{e}")))?;
 
             state.audit_record(
                 crate::control::security::audit::AuditEvent::DdlChange,
                 None,
                 &identity.username,
-                &format!("ALTER DATABASE {name} SET QUOTA {quota_id}"),
+                &format!(
+                    "ALTER DATABASE {name} SET QUOTA — before: [{}] — after: [{}]",
+                    before.audit_summary(),
+                    record.audit_summary()
+                ),
             );
         }
 

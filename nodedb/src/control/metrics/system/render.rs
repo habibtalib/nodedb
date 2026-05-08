@@ -193,6 +193,39 @@ impl SystemMetrics {
         }
     }
 
+    /// Read the current per-database memory gauge (bytes). Returns 0 if no
+    /// sample has been recorded yet — `0` is a valid gauge state, not a
+    /// "missing" sentinel. Used by `SHOW DATABASE USAGE` to render live usage.
+    pub fn database_memory_bytes(&self, db_name: &str) -> u64 {
+        self.database_memory_bytes_by_name
+            .read()
+            .ok()
+            .and_then(|m| m.get(db_name).copied())
+            .unwrap_or(0)
+    }
+
+    /// Read the current per-database storage gauge (bytes). See
+    /// [`Self::database_memory_bytes`] for "no sample" semantics.
+    pub fn database_storage_bytes(&self, db_name: &str) -> u64 {
+        self.database_storage_bytes_by_name
+            .read()
+            .ok()
+            .and_then(|m| m.get(db_name).copied())
+            .unwrap_or(0)
+    }
+
+    /// Read the cumulative per-database query counter. Cumulative since
+    /// process start — not a rate. `SHOW DATABASE USAGE` exposes this for
+    /// `max_qps`-budgeted workloads as the raw counter; rate computation is
+    /// the caller's responsibility (delta over a sampling window).
+    pub fn database_queries_total(&self, db_name: &str) -> u64 {
+        self.database_queries_by_name
+            .read()
+            .ok()
+            .and_then(|m| m.get(db_name).copied())
+            .unwrap_or(0)
+    }
+
     /// Set (or update) the per-database storage usage gauge (bytes).
     ///
     /// Stub-zero at database creation; per-database storage accounting is wired
