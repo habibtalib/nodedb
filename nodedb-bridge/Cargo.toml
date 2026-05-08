@@ -31,3 +31,7 @@ tracing-subscriber = { workspace = true }
 [[bench]]
 name = "throughput"
 harness = false
+
+[[bench]]
+name = "wfq_fairness"
+harness = false
