@@ -227,6 +227,30 @@ impl ToMessagePack for ErrorDetails {
             ErrorDetails::QuotaOvercommit { field } => write1(writer, TAG_QUOTA_OVERCOMMIT, field),
             ErrorDetails::QuotaExceeded { scope } => write1(writer, TAG_QUOTA_EXCEEDED, scope),
             ErrorDetails::ServerOverload => write_unit(writer, TAG_SERVER_OVERLOAD),
+            ErrorDetails::CloneDepthExceeded { depth, limit } => {
+                write2(writer, TAG_CLONE_DEPTH_EXCEEDED, depth, limit)
+            }
+            ErrorDetails::CannotCloneMirror { database } => {
+                write1(writer, TAG_CANNOT_CLONE_MIRROR, database)
+            }
+            ErrorDetails::CloneDependency { dependents } => {
+                writer.write_array_len(2)?;
+                writer.write_u16(TAG_CLONE_DEPENDENCY)?;
+                writer.write_array_len(dependents.len())?;
+                for dep in dependents {
+                    dep.write(writer)?;
+                }
+                Ok(())
+            }
+            ErrorDetails::ClonePredatesQueryTime {
+                as_of_lsn,
+                created_at_lsn,
+            } => write2(
+                writer,
+                TAG_CLONE_PREDATES_QUERY_TIME,
+                as_of_lsn,
+                created_at_lsn,
+            ),
         }
     }
 }

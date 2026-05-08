@@ -16,6 +16,7 @@ pub mod approx;
 pub mod array_cell;
 pub mod backup_envelope;
 pub mod bbox;
+pub mod clone;
 pub mod collection;
 pub mod collection_config;
 pub mod columnar;
@@ -58,6 +59,7 @@ pub mod wire_version;
 pub use approx::{CountMinSketch, HyperLogLog, SpaceSaving, TDigest};
 pub use array_cell::ArrayCell;
 pub use bbox::{BoundingBox, geometry_bbox};
+pub use clone::{CloneOrigin, CloneStatus, MAX_CLONE_DEPTH};
 pub use collection::{CollectionType, CollectionTypeParseError};
 pub use collection_config::{PayloadAtom, PayloadIndexKind, PrimaryEngine, VectorPrimaryConfig};
 pub use columnar::{

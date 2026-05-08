@@ -180,6 +180,16 @@ pub enum ErrorDetails {
     #[serde(rename = "server_overload")]
     ServerOverload,
 
+    // Clone DDL
+    #[serde(rename = "clone_depth_exceeded")]
+    CloneDepthExceeded { depth: u32, limit: u32 },
+    #[serde(rename = "cannot_clone_mirror")]
+    CannotCloneMirror { database: String },
+    #[serde(rename = "clone_dependency")]
+    CloneDependency { dependents: Vec<String> },
+    #[serde(rename = "clone_predates_query_time")]
+    ClonePredatesQueryTime { as_of_lsn: u64, created_at_lsn: u64 },
+
     // Bridge / Dispatch / Internal
     #[serde(rename = "bridge")]
     Bridge {

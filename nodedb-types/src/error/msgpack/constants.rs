@@ -54,6 +54,16 @@
 // |  46 | Dispatch                  |
 // |  47 | Internal                  |
 // |  48 | UnsupportedOpcode         |
+// |  49 | HandshakeFailed           |
+// |  50 | TenantVectorDimExceeded   |
+// |  51 | TenantGraphDepthExceeded  |
+// |  52 | QuotaOvercommit           |
+// |  53 | QuotaExceeded             |
+// |  54 | ServerOverload            |
+// |  55 | CloneDepthExceeded        |
+// |  56 | CannotCloneMirror         |
+// |  57 | CloneDependency           |
+// |  58 | ClonePredatesQueryTime    |
 
 pub(super) const TAG_CONSTRAINT_VIOLATION: u16 = 1;
 pub(super) const TAG_WRITE_CONFLICT: u16 = 2;
@@ -109,3 +119,7 @@ pub(super) const TAG_TENANT_GRAPH_DEPTH_EXCEEDED: u16 = 51;
 pub(super) const TAG_QUOTA_OVERCOMMIT: u16 = 52;
 pub(super) const TAG_QUOTA_EXCEEDED: u16 = 53;
 pub(super) const TAG_SERVER_OVERLOAD: u16 = 54;
+pub(super) const TAG_CLONE_DEPTH_EXCEEDED: u16 = 55;
+pub(super) const TAG_CANNOT_CLONE_MIRROR: u16 = 56;
+pub(super) const TAG_CLONE_DEPENDENCY: u16 = 57;
+pub(super) const TAG_CLONE_PREDATES_QUERY_TIME: u16 = 58;

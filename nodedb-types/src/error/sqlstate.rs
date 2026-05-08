@@ -163,6 +163,35 @@ pub const QUOTA_EXCEEDED: &str = "53400";
 /// server may accept requests again shortly — clients should retry after backoff.
 pub const SERVER_OVERLOAD: &str = "57P03";
 
+// ── Clone DDL (Class 54 / 55 / 0A) ──────────────────────────────────────────
+
+/// `54011` — NodeDB extension: clone chain depth exceeds `MAX_CLONE_DEPTH`.
+///
+/// Uses Class 54 "Program Limit Exceeded" because the limit is a hard-coded
+/// structural cap (depth 8), not a runtime quota setting.
+pub const CLONE_DEPTH_EXCEEDED: &str = "54011";
+
+/// `0A000` — NodeDB extension: a mirror database cannot be cloned.
+///
+/// Aliased to `feature_not_supported` — cloning a mirror creates ambiguous
+/// lineage; the operator must promote the mirror to a writable database first.
+pub const CANNOT_CLONE_MIRROR: &str = "0A000";
+
+/// `55006` — NodeDB extension: source database has active clone dependents.
+///
+/// Uses Class 55 "Object Not In Prerequisite State" because the source is in
+/// the correct state for normal use but cannot be dropped until dependents are
+/// resolved.
+pub const CLONE_DEPENDENCY: &str = "55006";
+
+/// `22023` — NodeDB extension: `AS OF` timestamp predates the clone's
+/// creation point; the database did not exist at that time.
+///
+/// Uses Class 22 "Data Exception" / `22023` (invalid parameter value) because
+/// the user-supplied timestamp is valid in general but out of range for this
+/// specific clone.
+pub const CLONE_PREDATES_QUERY_TIME: &str = "22023";
+
 // ── Class XX — Internal Error ────────────────────────────────────────────────
 
 /// `XX000` — `internal_error`
@@ -213,6 +242,10 @@ mod tests {
             QUOTA_OVERCOMMIT,
             QUOTA_EXCEEDED,
             SERVER_OVERLOAD,
+            CLONE_DEPTH_EXCEEDED,
+            CANNOT_CLONE_MIRROR,
+            CLONE_DEPENDENCY,
+            CLONE_PREDATES_QUERY_TIME,
         ];
         for code in &codes {
             assert_eq!(

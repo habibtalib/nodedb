@@ -125,6 +125,49 @@ fn read2_u32<'a, R: Read<'a>>(reader: &mut R, field_count: usize) -> zerompk::Re
     Ok((v1, v2))
 }
 
+/// Read two `u64` fields, tolerating `field_count < 2` by substituting `0`.
+fn read2_u64<'a, R: Read<'a>>(reader: &mut R, field_count: usize) -> zerompk::Result<(u64, u64)> {
+    let v1 = if field_count >= 1 {
+        reader.read_u8()?;
+        reader.read_u64()?
+    } else {
+        0
+    };
+    let v2 = if field_count >= 2 {
+        reader.read_u8()?;
+        reader.read_u64()?
+    } else {
+        0
+    };
+    for _ in 2..field_count {
+        reader.read_u8()?;
+        skip_one(reader)?;
+    }
+    Ok((v1, v2))
+}
+
+/// Read a single array field containing strings.
+/// The field layout is: `{key: u8, value: [str, ...]}`.
+fn read_string_vec<'a, R: Read<'a>>(
+    reader: &mut R,
+    field_count: usize,
+) -> zerompk::Result<Vec<String>> {
+    if field_count < 1 {
+        return Ok(Vec::new());
+    }
+    reader.read_u8()?; // key
+    let len = reader.read_array_len()?;
+    let mut out = Vec::with_capacity(len);
+    for _ in 0..len {
+        out.push(reader.read_string()?.into_owned());
+    }
+    for _ in 1..field_count {
+        reader.read_u8()?;
+        skip_one(reader)?;
+    }
+    Ok(out)
+}
+
 fn read_fan_out<'a, R: Read<'a>>(
     reader: &mut R,
     field_count: usize,
@@ -496,6 +539,26 @@ impl<'a> FromMessagePack<'a> for ErrorDetails {
             TAG_SERVER_OVERLOAD => {
                 skip_fields(reader, field_count)?;
                 Ok(ErrorDetails::ServerOverload)
+            }
+            TAG_CLONE_DEPTH_EXCEEDED => {
+                let (depth, limit) = read2_u32(reader, field_count)?;
+                Ok(ErrorDetails::CloneDepthExceeded { depth, limit })
+            }
+            TAG_CANNOT_CLONE_MIRROR => {
+                let (database,) = read1_str(reader, field_count)?;
+                Ok(ErrorDetails::CannotCloneMirror { database })
+            }
+            TAG_CLONE_DEPENDENCY => {
+                // field_count fields: the array of dependents.
+                let dependents = read_string_vec(reader, field_count)?;
+                Ok(ErrorDetails::CloneDependency { dependents })
+            }
+            TAG_CLONE_PREDATES_QUERY_TIME => {
+                let (as_of_lsn, created_at_lsn) = read2_u64(reader, field_count)?;
+                Ok(ErrorDetails::ClonePredatesQueryTime {
+                    as_of_lsn,
+                    created_at_lsn,
+                })
             }
             _unknown => {
                 skip_fields(reader, field_count)?;

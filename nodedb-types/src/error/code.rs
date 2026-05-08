@@ -61,6 +61,17 @@ impl ErrorCode {
     /// The server is under global resource pressure and cannot accept new requests.
     pub const SERVER_OVERLOAD: Self = Self(1403);
 
+    // Clone (1500–1599)
+
+    /// A `CLONE DATABASE` would exceed the maximum clone chain depth of 8.
+    pub const CLONE_DEPTH_EXCEEDED: Self = Self(1500);
+    /// A mirror database cannot be cloned; promote the mirror first.
+    pub const CANNOT_CLONE_MIRROR: Self = Self(1501);
+    /// The source database cannot be dropped while clones depend on it.
+    pub const CLONE_DEPENDENCY: Self = Self(1502);
+    /// A bitemporal `AS OF` query timestamp predates the clone's creation LSN.
+    pub const CLONE_PREDATES_QUERY_TIME: Self = Self(1503);
+
     // Auth / Security (2000–2099)
     pub const AUTHORIZATION_DENIED: Self = Self(2000);
     pub const AUTH_EXPIRED: Self = Self(2001);
