@@ -140,6 +140,29 @@ pub const CANNOT_CONNECT_NOW: &str = "57P03";
 /// `57P04` — `database_dropped` (not-leader redirect; client should retry elsewhere)
 pub const DATABASE_DROPPED: &str = "57P04";
 
+// ── Quota-specific aliases (Class 53 / 57) ───────────────────────────────────
+//
+// PostgreSQL class 53 "Insufficient Resources" is the closest match for quota
+// exhaustion conditions.  Class 57P03 "cannot_connect_now" covers transient
+// overload situations where the server is running but cannot accept the request.
+
+/// `53400` — `configuration_limit_exceeded`: sum of tenant/database quotas would
+/// exceed the configured global or parent ceiling (`QUOTA_OVERCOMMIT`).
+/// Alias for [`CONFIGURATION_LIMIT_EXCEEDED`].
+pub const QUOTA_OVERCOMMIT: &str = "53400";
+
+/// `53400` — `configuration_limit_exceeded`: tenant or database has exhausted its
+/// configured resource budget (`TENANT_QUOTA_EXCEEDED`, `DATABASE_QUOTA_EXCEEDED`).
+/// Class 53 is preferred over 54 because the limit is a runtime configuration
+/// setting, not a hard-coded program limit.
+pub const QUOTA_EXCEEDED: &str = "53400";
+
+/// `57P03` — `cannot_connect_now`: server is under global resource pressure and
+/// cannot accept new requests (`SERVER_OVERLOAD`). Using `57P03` rather than
+/// `53300` (too_many_connections) because the condition is transient and the
+/// server may accept requests again shortly — clients should retry after backoff.
+pub const SERVER_OVERLOAD: &str = "57P03";
+
 // ── Class XX — Internal Error ────────────────────────────────────────────────
 
 /// `XX000` — `internal_error`
@@ -187,6 +210,9 @@ mod tests {
             DATABASE_DROPPED,
             INTERNAL_ERROR,
             CANNOT_DROP_DEFAULT_DATABASE,
+            QUOTA_OVERCOMMIT,
+            QUOTA_EXCEEDED,
+            SERVER_OVERLOAD,
         ];
         for code in &codes {
             assert_eq!(

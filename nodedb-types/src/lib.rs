@@ -10,6 +10,7 @@
 //! crate.
 
 pub mod config;
+pub mod quota;
 
 pub mod approx;
 pub mod array_cell;
@@ -83,6 +84,9 @@ pub use kv::{KV_DEFAULT_INLINE_THRESHOLD, KvConfig, KvTtlPolicy, is_valid_kv_key
 pub use lsn::Lsn;
 pub use multi_vector::{MultiVector, MultiVectorError, MultiVectorScoreMode};
 pub use namespace::Namespace;
+pub use quota::{
+    PriorityClass, PriorityClassParseError, QuotaRecord, QuotaSpec, QuotaValidationError,
+};
 pub use result::{QueryResult, SearchResult, SubGraph};
 pub use sparse_vector::{SparseVector, SparseVectorError};
 pub use surrogate::Surrogate;

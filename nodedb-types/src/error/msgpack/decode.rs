@@ -485,6 +485,18 @@ impl<'a> FromMessagePack<'a> for ErrorDetails {
                 let (depth, limit) = read2_u32(reader, field_count)?;
                 Ok(ErrorDetails::TenantGraphDepthExceeded { depth, limit })
             }
+            TAG_QUOTA_OVERCOMMIT => {
+                let (field,) = read1_str(reader, field_count)?;
+                Ok(ErrorDetails::QuotaOvercommit { field })
+            }
+            TAG_QUOTA_EXCEEDED => {
+                let (scope,) = read1_str(reader, field_count)?;
+                Ok(ErrorDetails::QuotaExceeded { scope })
+            }
+            TAG_SERVER_OVERLOAD => {
+                skip_fields(reader, field_count)?;
+                Ok(ErrorDetails::ServerOverload)
+            }
             _unknown => {
                 skip_fields(reader, field_count)?;
                 Ok(ErrorDetails::Internal {

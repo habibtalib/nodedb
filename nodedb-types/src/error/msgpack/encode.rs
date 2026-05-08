@@ -224,6 +224,9 @@ impl ToMessagePack for ErrorDetails {
             ErrorDetails::TenantGraphDepthExceeded { depth, limit } => {
                 write2(writer, TAG_TENANT_GRAPH_DEPTH_EXCEEDED, depth, limit)
             }
+            ErrorDetails::QuotaOvercommit { field } => write1(writer, TAG_QUOTA_OVERCOMMIT, field),
+            ErrorDetails::QuotaExceeded { scope } => write1(writer, TAG_QUOTA_EXCEEDED, scope),
+            ErrorDetails::ServerOverload => write_unit(writer, TAG_SERVER_OVERLOAD),
         }
     }
 }

@@ -172,6 +172,14 @@ pub enum ErrorDetails {
     #[serde(rename = "array")]
     Array { array: String },
 
+    // Quota
+    #[serde(rename = "quota_overcommit")]
+    QuotaOvercommit { field: String },
+    #[serde(rename = "quota_exceeded")]
+    QuotaExceeded { scope: String },
+    #[serde(rename = "server_overload")]
+    ServerOverload,
+
     // Bridge / Dispatch / Internal
     #[serde(rename = "bridge")]
     Bridge {
