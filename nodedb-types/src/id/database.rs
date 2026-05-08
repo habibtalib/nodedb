@@ -16,7 +16,31 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-/// Identifies a database. Every collection lives in exactly one database.
+/// Identifies a database within a NodeDB instance.
+///
+/// Every collection lives in exactly one database. Databases are catalog
+/// namespaces — the same collection name may appear in two different databases
+/// without conflict. Resolution order at session bind time:
+///
+/// 1. Explicit database name from the connection string or pgwire startup
+///    message (`database` parameter — set by `psql -d <name>`).
+/// 2. Per-user default database (`ALTER USER <name> SET DEFAULT DATABASE <db>`).
+/// 3. `DatabaseId::DEFAULT` — the built-in `default` database.
+///
+/// `DatabaseId(0)` is permanently reserved for the built-in `default` database
+/// and cannot be dropped. User-created databases are allocated by
+/// `DatabaseRegistry` starting at id `1024`.
+///
+/// # Access control
+///
+/// Database-level privileges are granted with:
+/// - `GRANT ALL ON DATABASE <name> TO <user>` — full access
+/// - `GRANT CREATE COLLECTION ON DATABASE <name> TO <user>` — DDL only
+/// - `GRANT SELECT ON DATABASE <name> TO <user>` — read-only
+///
+/// Session bind rejects connections to databases not in the user's
+/// `accessible_databases` set with `ACCESS_DENIED` (SQLSTATE 42501).
+/// Superusers bypass this check.
 #[derive(
     Debug,
     Clone,
@@ -45,6 +69,12 @@ impl DatabaseId {
 
     pub const fn as_u64(self) -> u64 {
         self.0
+    }
+}
+
+impl Default for DatabaseId {
+    fn default() -> Self {
+        Self::DEFAULT
     }
 }
 

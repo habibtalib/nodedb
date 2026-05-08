@@ -30,6 +30,11 @@ pub const NO_DATA: &str = "02000";
 /// `0A000` — `feature_not_supported`
 pub const FEATURE_NOT_SUPPORTED: &str = "0A000";
 
+/// `0A000` — Cannot drop the built-in `default` database, which is immutable.
+/// Aliased to `feature_not_supported` per the PostgreSQL convention for
+/// unsupported DDL operations on reserved objects.
+pub const CANNOT_DROP_DEFAULT_DATABASE: &str = "0A000";
+
 // ── Class 22 — Data Exception ────────────────────────────────────────────────
 
 /// `22003` — `numeric_value_out_of_range`
@@ -181,6 +186,7 @@ mod tests {
             CANNOT_CONNECT_NOW,
             DATABASE_DROPPED,
             INTERNAL_ERROR,
+            CANNOT_DROP_DEFAULT_DATABASE,
         ];
         for code in &codes {
             assert_eq!(
