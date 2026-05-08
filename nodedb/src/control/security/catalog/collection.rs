@@ -2,7 +2,7 @@
 
 //! Collection metadata records persisted in the system catalog.
 
-use nodedb_types::Hlc;
+use nodedb_types::{DatabaseId, Hlc};
 
 use super::collection_constraints::{
     BalancedConstraintDef, CheckConstraintDef, EventDefinition, FieldDefinition, LegalHold,
@@ -170,6 +170,13 @@ pub struct StoredCollection {
     /// billable source of truth.
     #[msgpack(default)]
     pub size_bytes_estimate: u64,
+    /// Database namespace this collection belongs to.
+    ///
+    /// Defaults to `DatabaseId::DEFAULT` on deserialization so catalog
+    /// entries written before this field was added continue to behave as
+    /// members of the built-in `default` database.
+    #[msgpack(default)]
+    pub database_id: DatabaseId,
 }
 
 impl StoredCollection {
@@ -216,6 +223,7 @@ impl StoredCollection {
             size_bytes_estimate: 0,
             primary: nodedb_types::PrimaryEngine::Document,
             vector_primary: None,
+            database_id: DatabaseId::DEFAULT,
         }
     }
 

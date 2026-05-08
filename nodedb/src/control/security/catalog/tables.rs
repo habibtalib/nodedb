@@ -229,6 +229,14 @@ pub(super) const ORG_MEMBERS: TableDefinition<&str, &[u8]> =
 /// Table: scope_name -> MessagePack-serialized scope definition.
 pub(super) const SCOPES: TableDefinition<&str, &[u8]> = TableDefinition::new("_system.scopes");
 
+/// Table: `"{database_id}:{user_id}:{privilege}"` -> empty value.
+///
+/// Stores explicit per-database grants created by `GRANT … ON DATABASE …`.
+/// The key encodes all three dimensions so range scans by `database_id`
+/// or `user_id` prefix work without secondary tables.
+pub(super) const DATABASE_GRANTS: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("_system.database_grants");
+
 /// Table: "{scope_name}:{grantee_type}:{grantee_id}" -> MessagePack-serialized scope grant.
 pub(super) const SCOPE_GRANTS: TableDefinition<&str, &[u8]> =
     TableDefinition::new("_system.scope_grants");

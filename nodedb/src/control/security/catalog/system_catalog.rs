@@ -265,6 +265,7 @@ mod tests {
             password_expires_at: 0,
             must_change_password: false,
             password_changed_at: 0,
+            default_database_id: 0,
         };
 
         catalog.put_user(&user).unwrap();
@@ -296,6 +297,7 @@ mod tests {
             password_expires_at: 0,
             must_change_password: false,
             password_changed_at: 0,
+            default_database_id: 0,
         };
 
         catalog.put_user(&user).unwrap();
@@ -344,6 +346,7 @@ mod tests {
                     password_expires_at: 0,
                     must_change_password: false,
                     password_changed_at: 0,
+                    default_database_id: 0,
                 })
                 .unwrap();
         }

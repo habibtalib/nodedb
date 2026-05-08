@@ -16,6 +16,7 @@ pub mod column_stats;
 pub mod consumer_groups;
 pub mod custom_types;
 pub mod database;
+pub mod database_grants;
 pub mod database_types;
 pub mod dependencies;
 pub mod function_types;
@@ -58,6 +59,7 @@ pub use collection_constraints::{
     MaterializedSumDef, PeriodLockDef, StateTransitionDef, TransitionCheckDef, TransitionRule,
 };
 pub use custom_types::{CompositeField, CustomTypeDef, StoredCustomType};
+pub use database_grants::DatabaseGrant;
 pub use database_types::{DatabaseDescriptor, DatabaseStatus, ParentCloneRef};
 pub use function_types::{
     FunctionLanguage, FunctionParam, FunctionSecurity, FunctionVolatility, StoredFunction,

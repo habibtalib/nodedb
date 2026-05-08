@@ -33,7 +33,6 @@
 //! error here — the compiler forces you to make a conscious
 //! decision about whether it needs a version stamp.
 
-use nodedb_types::DatabaseId;
 use nodedb_types::HlcClock;
 
 use crate::control::catalog_entry::CatalogEntry;
@@ -54,7 +53,7 @@ pub fn stamp(entry: CatalogEntry, clock: &HlcClock, catalog: &SystemCatalog) -> 
     match entry {
         CatalogEntry::PutCollection(mut stored) => {
             let prior = catalog
-                .get_collection(DatabaseId::DEFAULT, stored.tenant_id, &stored.name)
+                .get_collection(stored.database_id, stored.tenant_id, &stored.name)
                 .ok()
                 .flatten()
                 .map(|c| c.descriptor_version)
@@ -150,7 +149,11 @@ pub fn stamp(entry: CatalogEntry, clock: &HlcClock, catalog: &SystemCatalog) -> 
         | CatalogEntry::PutSynonymGroup(_)
         | CatalogEntry::DeleteSynonymGroup { .. }
         | CatalogEntry::PutCustomType(_)
-        | CatalogEntry::DeleteCustomType { .. }) => entry,
+        | CatalogEntry::DeleteCustomType { .. }
+        | CatalogEntry::PutDatabase(_)
+        | CatalogEntry::DeleteDatabase { .. }
+        | CatalogEntry::PutDatabaseGrant { .. }
+        | CatalogEntry::DeleteDatabaseGrant { .. }) => entry,
     }
 }
 
@@ -159,6 +162,7 @@ mod tests {
     use super::*;
     use crate::control::security::catalog::StoredCollection;
     use crate::control::security::credential::CredentialStore;
+    use nodedb_types::DatabaseId;
     use std::sync::Arc;
 
     fn make_catalog() -> (Arc<CredentialStore>, tempfile::TempDir) {

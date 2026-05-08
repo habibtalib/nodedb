@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use super::gateway_invalidation::invalidate_gateway_cache_for_entry;
 use super::{
-    api_key, change_stream, collection, custom_type, function, materialized_view, owner,
+    api_key, change_stream, collection, custom_type, database, function, materialized_view, owner,
     permission, procedure, rls, role, schedule, sequence, synonym_group, tenant, trigger, user,
 };
 use crate::control::catalog_entry::entry::CatalogEntry;
@@ -178,6 +178,26 @@ pub fn apply_post_apply_side_effects_sync(entry: &CatalogEntry, shared: &Arc<Sha
         }
         CatalogEntry::DeleteCustomType { tenant_id, name } => {
             custom_type::delete(*tenant_id, name.clone(), Arc::clone(shared));
+        }
+        CatalogEntry::PutDatabase(stored) => {
+            database::put((**stored).clone(), Arc::clone(shared));
+        }
+        CatalogEntry::DeleteDatabase { db_id } => {
+            database::delete(*db_id, Arc::clone(shared));
+        }
+        CatalogEntry::PutDatabaseGrant {
+            db_id,
+            user_id,
+            privilege,
+        } => {
+            database::put_grant(*db_id, *user_id, privilege.clone(), Arc::clone(shared));
+        }
+        CatalogEntry::DeleteDatabaseGrant {
+            db_id,
+            user_id,
+            privilege,
+        } => {
+            database::delete_grant(*db_id, *user_id, privilege.clone(), Arc::clone(shared));
         }
     }
 }

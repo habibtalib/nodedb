@@ -35,6 +35,11 @@ pub struct StoredUser {
     /// Defaults to `created_at` for users loaded from pre-T4-C records.
     #[msgpack(default)]
     pub password_changed_at: u64,
+    /// The database this user connects to by default when no database is
+    /// specified at connect time.  `0` means "use the server default"
+    /// (equivalent to `DatabaseId::DEFAULT`).
+    #[msgpack(default)]
+    pub default_database_id: u64,
 }
 
 /// Serializable API key record for redb storage.

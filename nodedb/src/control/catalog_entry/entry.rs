@@ -205,6 +205,34 @@ pub enum CatalogEntry {
         permission: String,
     },
 
+    // ── Database lifecycle ─────────────────────────────────────────
+    /// Upsert a database descriptor. Used by `CREATE DATABASE` and by
+    /// `ALTER DATABASE RENAME`, `SET QUOTA`, `MATERIALIZE`, `PROMOTE`.
+    /// Followers apply the full updated record verbatim.
+    PutDatabase(Box<crate::control::security::catalog::database_types::DatabaseDescriptor>),
+    /// Hard-delete a database descriptor and its reverse-lookup row from
+    /// `_system.databases` and `_system.databases_by_name`. Used by
+    /// `DROP DATABASE` after all collections have been cascaded. Does not
+    /// touch collection rows — those must be removed before proposing this.
+    DeleteDatabase {
+        /// Numeric database id.
+        db_id: u64,
+    },
+    /// Upsert a database-level permission grant.
+    /// Stored in `_system.database_grants`. Mirrors `PutPermission` for
+    /// collection-level grants but keyed by `(db_id, user_id, privilege)`.
+    PutDatabaseGrant {
+        db_id: u64,
+        user_id: u64,
+        privilege: String,
+    },
+    /// Delete a database-level permission grant.
+    DeleteDatabaseGrant {
+        db_id: u64,
+        user_id: u64,
+        privilege: String,
+    },
+
     // ── Object ownership ───────────────────────────────────────────
     /// Upsert an ownership record. Used by handlers whose object
     /// has no replicated parent variant (indexes, spatial indexes,
@@ -258,6 +286,10 @@ impl CatalogEntry {
             Self::DeletePermission { .. } => "delete_permission",
             Self::PutOwner(_) => "put_owner",
             Self::DeleteOwner { .. } => "delete_owner",
+            Self::PutDatabase(_) => "put_database",
+            Self::DeleteDatabase { .. } => "delete_database",
+            Self::PutDatabaseGrant { .. } => "put_database_grant",
+            Self::DeleteDatabaseGrant { .. } => "delete_database_grant",
             Self::PutSynonymGroup(_) => "put_synonym_group",
             Self::DeleteSynonymGroup { .. } => "delete_synonym_group",
             Self::PutCustomType(_) => "put_custom_type",

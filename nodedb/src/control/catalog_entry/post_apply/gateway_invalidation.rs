@@ -197,5 +197,20 @@ pub(crate) fn invalidate_gateway_cache_for_entry(entry: &CatalogEntry, shared: &
         CatalogEntry::DeleteCustomType { .. } => {
             // no-op: same as PutCustomType.
         }
+
+        // ── Database: descriptor and grants do not affect plan shape ──────────
+        CatalogEntry::PutDatabase(_) => {
+            // no-op: database descriptors are resolved at session bind, not
+            // baked into cached plans.
+        }
+        CatalogEntry::DeleteDatabase { .. } => {
+            // no-op: same as PutDatabase.
+        }
+        CatalogEntry::PutDatabaseGrant { .. } => {
+            // no-op: database grants are checked at session bind, not in plans.
+        }
+        CatalogEntry::DeleteDatabaseGrant { .. } => {
+            // no-op: same as PutDatabaseGrant.
+        }
     }
 }

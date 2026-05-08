@@ -20,6 +20,7 @@ pub mod api_key;
 pub mod change_stream;
 pub mod collection;
 pub mod custom_type;
+pub mod database;
 pub mod function;
 pub mod materialized_view;
 pub mod owner;
