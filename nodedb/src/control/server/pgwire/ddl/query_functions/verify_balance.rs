@@ -5,7 +5,6 @@
 //! Full integrity check: recomputes each materialized balance from source rows,
 //! compares to the stored balance, and reports discrepancies.
 
-use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use futures::stream;
@@ -17,7 +16,7 @@ use crate::bridge::envelope::PhysicalPlan;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::dispatch_utils;
 use crate::control::state::SharedState;
-use crate::types::{TraceId, VShardId};
+use crate::types::{DatabaseId, TraceId, VShardId};
 
 use super::super::super::types::{sqlstate_error, text_field};
 use super::helpers::clean_arg;
@@ -64,7 +63,7 @@ pub async fn verify_balance(
     };
 
     // Scan all target rows.
-    let target_vshard = VShardId::from_collection(&collection);
+    let target_vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
     let target_scan = PhysicalPlan::Document(crate::bridge::physical_plan::DocumentOp::Scan {
         collection: collection.clone(),
         limit: usize::MAX,
@@ -94,7 +93,8 @@ pub async fn verify_balance(
         .map_err(|e| sqlstate_error("22P02", &format!("invalid JSON in target scan: {e}")))?;
 
     // Scan all source rows.
-    let source_vshard = VShardId::from_collection(&mat_def.source_collection);
+    let source_vshard =
+        VShardId::from_collection_in_database(DatabaseId::DEFAULT, &mat_def.source_collection);
     let source_scan = PhysicalPlan::Document(crate::bridge::physical_plan::DocumentOp::Scan {
         collection: mat_def.source_collection.clone(),
         limit: usize::MAX,

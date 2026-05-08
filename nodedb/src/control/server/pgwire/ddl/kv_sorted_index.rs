@@ -20,7 +20,7 @@ use sonic_rs;
 use crate::bridge::physical_plan::{KvOp, PhysicalPlan};
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
-use crate::types::{TraceId, VShardId};
+use crate::types::{DatabaseId, TraceId, VShardId};
 
 /// Handle `CREATE SORTED INDEX name ON collection (col DIR, ...) KEY key_col [WINDOW ...]`
 pub async fn create_sorted_index(
@@ -67,7 +67,7 @@ pub async fn create_sorted_index(
     // Extract WINDOW clause (optional).
     let (window_type, window_ts_col, window_start, window_end) = parse_window_clause(&upper, sql);
 
-    let vshard = VShardId::from_collection(&collection);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
     let plan = PhysicalPlan::Kv(KvOp::RegisterSortedIndex {
         collection,
         index_name: index_name.clone(),
@@ -103,7 +103,7 @@ pub async fn drop_sorted_index(
     });
 
     // Drop doesn't target a specific collection, use default vShard.
-    let vshard = VShardId::from_collection(&index_name);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &index_name);
     dispatch_and_respond_tag(state, identity, vshard, plan, "DROP SORTED INDEX").await
 }
 
@@ -129,7 +129,7 @@ pub async fn select_rank(
         primary_key: key_value.into_bytes(),
     });
 
-    let vshard = VShardId::from_collection(&index_name);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &index_name);
     dispatch_and_respond_json(state, identity, vshard, plan, "rank").await
 }
 
@@ -160,7 +160,7 @@ pub async fn select_topk(
         k,
     });
 
-    let vshard = VShardId::from_collection(&index_name);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &index_name);
     dispatch_and_respond_rows(state, identity, vshard, plan).await
 }
 
@@ -188,7 +188,7 @@ pub async fn select_range(
         score_max,
     });
 
-    let vshard = VShardId::from_collection(&index_name);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &index_name);
     dispatch_and_respond_rows(state, identity, vshard, plan).await
 }
 
@@ -212,7 +212,7 @@ pub async fn select_sorted_count(
         index_name: index_name.clone(),
     });
 
-    let vshard = VShardId::from_collection(&index_name);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &index_name);
     dispatch_and_respond_json(state, identity, vshard, plan, "sorted_count").await
 }
 

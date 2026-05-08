@@ -88,7 +88,7 @@ impl TestStack {
         let resp = nodedb::control::server::dispatch_utils::dispatch_to_data_plane(
             &self.shared,
             TenantId::new(1),
-            VShardId::from_collection(collection),
+            VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection),
             plan,
             TraceId::ZERO,
         )
@@ -131,7 +131,8 @@ impl TestStack {
         self.wal
             .append_timeseries_batch(
                 TenantId::new(1),
-                VShardId::from_collection(collection),
+                VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection),
+                DatabaseId::DEFAULT,
                 &wal_payload,
             )
             .unwrap();
@@ -461,8 +462,13 @@ fn startup_replay_recovers_all_wal_data() {
             1_700_000_000_000_000_000i64 + batch as i64 * rows_per_batch as i64 * 1_000_000;
         let payload = ilp_payload(collection, rows_per_batch, start_ts);
         let wal_payload = zerompk::to_msgpack_vec(&(collection.to_string(), payload)).unwrap();
-        wal.append_timeseries_batch(TenantId::new(1), VShardId::new(0), &wal_payload)
-            .unwrap();
+        wal.append_timeseries_batch(
+            TenantId::new(1),
+            VShardId::new(0),
+            DatabaseId::DEFAULT,
+            &wal_payload,
+        )
+        .unwrap();
     }
     wal.sync().unwrap();
 
@@ -515,6 +521,7 @@ fn startup_replay_recovers_all_wal_data() {
                 request_id: RequestId::new(1),
                 tenant_id: TenantId::new(1),
                 vshard_id: VShardId::new(0),
+                database_id: nodedb::types::DatabaseId::DEFAULT,
                 plan: scan_plan,
                 deadline: std::time::Instant::now() + Duration::from_secs(10),
                 priority: Priority::Normal,

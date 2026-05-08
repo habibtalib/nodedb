@@ -177,6 +177,7 @@ mod tests {
         Request {
             request_id: RequestId::new(id),
             tenant_id: TenantId::new(1),
+            database_id: DatabaseId::DEFAULT,
             vshard_id: VShardId::new(0),
             plan,
             deadline: Instant::now() + Duration::from_secs(5),

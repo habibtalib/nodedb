@@ -16,7 +16,7 @@ use crate::bridge::envelope::{Priority, Request, Response, Status};
 use crate::control::array_sync::OriginApplyEngine;
 use crate::control::distributed_applier::{ProposeResult, ProposeTracker};
 use crate::control::state::SharedState;
-use crate::types::{ReadConsistency, TraceId};
+use crate::types::{DatabaseId, ReadConsistency, TraceId};
 
 /// Apply a committed `ArrayOp` entry on the local node.
 ///
@@ -169,6 +169,7 @@ pub(crate) async fn apply_array_op(
     let request = Request {
         request_id,
         tenant_id,
+        database_id: DatabaseId::DEFAULT,
         vshard_id: vshard,
         plan,
         deadline: std::time::Instant::now() + Duration::from_secs(30),
@@ -267,6 +268,7 @@ async fn ensure_array_open(
     let open_request = Request {
         request_id: open_request_id,
         tenant_id,
+        database_id: DatabaseId::DEFAULT,
         vshard_id: vshard,
         plan: open_plan,
         deadline: std::time::Instant::now() + Duration::from_secs(30),

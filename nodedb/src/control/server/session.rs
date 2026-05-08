@@ -12,7 +12,7 @@ use tracing::{debug, instrument, warn};
 use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
 use crate::bridge::physical_plan::{CrdtOp, DocumentOp, GraphOp, VectorOp};
 use crate::control::state::SharedState;
-use crate::types::{ReadConsistency, RequestId, TenantId, TraceId, VShardId};
+use crate::types::{DatabaseId, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
 use nodedb_types::vector_distance::DistanceMetric;
 
 /// Maximum frame size: 16 MiB.
@@ -76,6 +76,15 @@ pub struct Session {
     identity_version: u64,
     /// Kill signal from `SessionRegistry`.  Set after successful auth.
     kill_rx: Option<tokio::sync::watch::Receiver<bool>>,
+    /// Database bound to this session. Set once at first authenticated request;
+    /// immutable for the session lifetime (a `USE DATABASE` issues a session reset).
+    /// Resolution order: explicit (connection-string/handshake) > user default >
+    /// tenant default > `DatabaseId::DEFAULT`.
+    ///
+    /// The explicit-from-handshake path (Section E, 10_BOUNDARY protocol) and user-default path
+    /// (Section G, 10_BOUNDARY auth) are not yet wired; until then this always
+    /// resolves to `DatabaseId::DEFAULT`.
+    current_database: Option<DatabaseId>,
 }
 
 impl Session {
@@ -95,7 +104,32 @@ impl Session {
             session_id: uuid::Uuid::new_v4().to_string(),
             identity_version: 0,
             kill_rx: None,
+            current_database: None,
         }
+    }
+
+    /// Resolve the database for this session at the first authenticated request.
+    ///
+    /// Resolution order:
+    /// 1. Explicit database from connection-string or handshake (Section E, 10_BOUNDARY protocol).
+    /// 2. Per-user default database from `AuthenticatedIdentity.default_database`
+    ///    (Section G, 10_BOUNDARY auth, wires `ALTER USER … SET DEFAULT DATABASE`).
+    /// 3. Tenant default database (not yet stored; reserved for future use).
+    /// 4. `DatabaseId::DEFAULT` — the built-in `default` database.
+    fn resolve_database(
+        identity: &crate::control::security::identity::AuthenticatedIdentity,
+        explicit: Option<DatabaseId>,
+    ) -> DatabaseId {
+        if let Some(db) = explicit {
+            return db;
+        }
+        // Per-user default database (stub — always None until Section G, 10_BOUNDARY auth,
+        // wires `ALTER USER … SET DEFAULT DATABASE` into the credential store).
+        if let Some(db) = identity.default_database {
+            return db;
+        }
+        // Tenant default database: not yet stored; falls through to built-in default.
+        DatabaseId::DEFAULT
     }
 
     /// Create a session from a plain TCP stream.
@@ -391,6 +425,14 @@ impl Session {
         // Tenant from authenticated identity, not from client payload.
         let tenant_id = identity.tenant_id;
 
+        // Database: resolved once and bound for the session lifetime. Explicit
+        // override from the handshake is `None` until Section E (10_BOUNDARY protocol) wires the
+        // wire-protocol field; until then every session uses the resolution chain default.
+        if self.current_database.is_none() {
+            self.current_database = Some(Self::resolve_database(identity, None));
+        }
+        let database_id = self.current_database.unwrap_or(DatabaseId::DEFAULT);
+
         let collection = body["collection"].as_str().unwrap_or("default").to_string();
 
         // Determine vShard from collection + document_id for data locality.
@@ -568,6 +610,7 @@ impl Session {
         let request = Request {
             request_id,
             tenant_id,
+            database_id,
             vshard_id,
             plan,
             deadline: Instant::now()

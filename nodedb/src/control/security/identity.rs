@@ -33,6 +33,12 @@ pub struct AuthenticatedIdentity {
     pub roles: Vec<Role>,
     /// Whether this user is a superuser (bypasses all permission checks).
     pub is_superuser: bool,
+    /// Per-user default database. `None` means fall through to tenant default,
+    /// then `DatabaseId::DEFAULT`.
+    ///
+    /// Stub: always `None` until Section G (10_BOUNDARY auth) wires
+    /// `ALTER USER … SET DEFAULT DATABASE` into the credential store.
+    pub default_database: Option<nodedb_types::id::DatabaseId>,
 }
 
 impl AuthenticatedIdentity {
@@ -453,6 +459,7 @@ mod tests {
             auth_method: AuthMethod::Trust,
             roles,
             is_superuser: superuser,
+            default_database: None,
         }
     }
 

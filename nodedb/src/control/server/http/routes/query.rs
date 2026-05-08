@@ -120,6 +120,7 @@ pub async fn query(
                     let gw_ctx = QueryContext {
                         tenant_id: task.tenant_id,
                         trace_id,
+                        database_id: nodedb_types::id::DatabaseId::DEFAULT,
                     };
                     gw.execute(&gw_ctx, task.plan).await.map_err(|e| {
                         let (status, msg) = GatewayErrorMap::to_http(&e);
@@ -184,6 +185,7 @@ fn wal_append_if_write(
         &state.shared.wal,
         task.tenant_id,
         task.vshard_id,
+        task.database_id,
         &task.plan,
     )
     .map_err(|e| ApiError::Internal(format!("WAL append: {e}")))
@@ -320,6 +322,7 @@ pub async fn query_ndjson(
                 let gw_ctx = QueryContext {
                     tenant_id: task.tenant_id,
                     trace_id,
+                    database_id: nodedb_types::id::DatabaseId::DEFAULT,
                 };
                 gw.execute(&gw_ctx, task.plan).await
             }

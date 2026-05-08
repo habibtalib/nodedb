@@ -5,7 +5,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 // ── Re-export shared types from nodedb-types ──
-pub use nodedb_types::id::{DocumentId, TenantId, VShardId};
+pub use nodedb_types::id::{DatabaseId, DocumentId, TenantId, VShardId};
 
 /// Globally unique request identifier. Monotonic per connection, unique for >= 24h.
 #[derive(

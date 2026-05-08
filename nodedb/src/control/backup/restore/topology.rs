@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 
 use nodedb_cluster::routing::{VSHARD_COUNT, vshard_for_collection};
+use nodedb_types::id::DatabaseId;
 
 use crate::control::state::SharedState;
 use crate::types::TenantDataSnapshot;
@@ -61,8 +62,12 @@ pub(super) fn split_by_current_topology(
         all_owners.insert(state.node_id, TenantDataSnapshot::default());
     }
 
+    // Restore today operates on `DatabaseId::DEFAULT`; the snapshot/topology
+    // wire format gains a database_id alongside tenant_id when multi-database
+    // restore lands, at which point this binding moves up to a parameter.
+    let database_id = DatabaseId::DEFAULT;
     let route_collection = |coll: &str| -> RouteOutcome {
-        let v = vshard_for_collection(coll);
+        let v = vshard_for_collection(database_id, coll);
         match routing.leader_for_vshard(v) {
             Ok(leader) if leader != 0 => RouteOutcome::Routed(leader),
             _ => RouteOutcome::NoLeader,

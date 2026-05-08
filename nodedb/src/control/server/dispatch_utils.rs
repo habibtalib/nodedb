@@ -2,14 +2,13 @@
 
 //! Shared dispatch utilities used by both the pgwire and native endpoints.
 
-use nodedb_types::DatabaseId;
 use std::time::{Duration, Instant};
 
 use crate::bridge::envelope::Payload;
 use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Response};
 use crate::bridge::physical_plan::{DocumentOp, KvOp, TimeseriesOp};
 use crate::control::state::SharedState;
-use crate::types::{ReadConsistency, TenantId, TraceId, VShardId};
+use crate::types::{DatabaseId, ReadConsistency, TenantId, TraceId, VShardId};
 
 #[derive(Debug)]
 pub(crate) enum DispatchCollectError {
@@ -132,6 +131,7 @@ pub async fn dispatch_to_data_plane_with_source(
     let request = Request {
         request_id,
         tenant_id,
+        database_id: DatabaseId::DEFAULT,
         vshard_id,
         plan,
         deadline: Instant::now() + Duration::from_secs(shared.tuning.network.default_deadline_secs),

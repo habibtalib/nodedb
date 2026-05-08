@@ -192,6 +192,7 @@ mod tests {
                 auth_method: crate::control::security::identity::AuthMethod::ApiKey,
                 roles: vec![crate::control::security::identity::Role::ReadWrite],
                 is_superuser: false,
+                default_database: None,
             },
             "test".into(),
         );
@@ -216,6 +217,7 @@ mod tests {
                 auth_method: crate::control::security::identity::AuthMethod::ApiKey,
                 roles: vec![crate::control::security::identity::Role::Superuser],
                 is_superuser: true,
+                default_database: None,
             },
             "test".into(),
         );
@@ -240,6 +242,7 @@ mod tests {
                 auth_method: crate::control::security::identity::AuthMethod::ApiKey,
                 roles: vec![],
                 is_superuser: false,
+                default_database: None,
             },
             "test".into(),
         );

@@ -315,6 +315,7 @@ mod tests {
         envelope::Request {
             request_id: RequestId::new(1),
             tenant_id: TenantId::new(1),
+            database_id: DatabaseId::DEFAULT,
             vshard_id: VShardId::new(vshard),
             plan: PhysicalPlan::Document(DocumentOp::PointGet {
                 collection: "users".into(),

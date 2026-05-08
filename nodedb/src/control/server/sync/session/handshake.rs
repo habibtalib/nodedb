@@ -59,6 +59,7 @@ impl SyncSession {
                 auth_method: crate::control::security::identity::AuthMethod::Trust,
                 roles: vec![crate::control::security::identity::Role::ReadWrite],
                 is_superuser: false,
+                default_database: None,
             };
             self.tenant_id = Some(identity.tenant_id);
             self.username = Some(identity.username.clone());

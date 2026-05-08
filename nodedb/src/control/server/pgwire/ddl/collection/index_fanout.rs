@@ -22,7 +22,7 @@ use std::time::Duration;
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::DocumentOp;
 use crate::control::state::SharedState;
-use crate::types::{TenantId, TraceId};
+use crate::types::{DatabaseId, TenantId, TraceId};
 
 use crate::bridge::physical_plan::wire as plan_wire;
 use nodedb_cluster::rpc_codec::{ExecuteRequest, RaftRpc};
@@ -118,6 +118,7 @@ pub(super) async fn backfill_on_peers(
         let req = RaftRpc::ExecuteRequest(ExecuteRequest {
             plan_bytes,
             tenant_id: args.tenant_id.as_u64(),
+            database_id: DatabaseId::DEFAULT.as_u64(),
             deadline_remaining_ms: deadline_ms,
             trace_id: trace_id.0,
             descriptor_versions: Vec::new(),

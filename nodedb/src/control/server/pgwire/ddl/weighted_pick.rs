@@ -24,7 +24,7 @@ use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::engine::random::alias::AliasTable;
 use crate::engine::random::csprng::SeedableRng;
-use crate::types::{TraceId, VShardId};
+use crate::types::{DatabaseId, TraceId, VShardId};
 
 /// Handle `SELECT * FROM WEIGHTED_PICK('collection', weight => 'col', count => N, ...)`
 pub async fn weighted_pick(
@@ -84,7 +84,7 @@ pub async fn weighted_pick(
     }
 
     let tenant_id = identity.tenant_id;
-    let vshard = VShardId::from_collection(&collection);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
 
     // Step 1: Scan the collection to get all entries.
     let entries = scan_all_entries(state, tenant_id, vshard, &collection).await?;
@@ -166,7 +166,10 @@ pub async fn weighted_pick(
                 if let Err(e) = crate::control::server::dispatch_utils::dispatch_to_data_plane(
                     state,
                     tenant_id,
-                    VShardId::from_collection("_system_random_audit"),
+                    VShardId::from_collection_in_database(
+                        DatabaseId::DEFAULT,
+                        "_system_random_audit",
+                    ),
                     audit_plan,
                     TraceId::ZERO,
                 )

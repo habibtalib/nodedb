@@ -2,12 +2,12 @@
 
 //! Shared parsing and helpers for INSERT/UPSERT dispatch.
 
-use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use crate::types::DatabaseId;
 use crate::types::TraceId;
 
 use super::super::sql_parse::{parse_sql_value, split_values};
@@ -230,7 +230,11 @@ pub(super) async fn dispatch_plan(
     plan: crate::bridge::envelope::PhysicalPlan,
 ) -> Option<PgWireResult<Vec<Response>>> {
     if let Err(e) = crate::control::server::wal_dispatch::wal_append_if_write(
-        &state.wal, tenant_id, vshard_id, &plan,
+        &state.wal,
+        tenant_id,
+        vshard_id,
+        crate::types::DatabaseId::DEFAULT,
+        &plan,
     ) {
         return Some(Err(sqlstate_error("XX000", &e.to_string())));
     }
@@ -338,6 +342,7 @@ pub(super) async fn plan_and_dispatch(
             &state.wal,
             tenant_id,
             task.vshard_id,
+            task.database_id,
             &task.plan,
         )
         .map_err(|e| sqlstate_error_raw("XX000", &e.to_string()))?;

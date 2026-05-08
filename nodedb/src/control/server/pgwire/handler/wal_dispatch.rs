@@ -21,6 +21,7 @@ impl NodeDbPgHandler {
             &self.state.wal,
             tenant_id,
             vshard_id,
+            crate::types::DatabaseId::DEFAULT,
             plan,
         )
     }

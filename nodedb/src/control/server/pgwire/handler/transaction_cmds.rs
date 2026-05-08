@@ -109,7 +109,12 @@ impl NodeDbPgHandler {
                         })?;
                         self.state
                             .wal
-                            .append_transaction(tenant_id, vshard_id, &tx_payload)
+                            .append_transaction(
+                                tenant_id,
+                                vshard_id,
+                                crate::types::DatabaseId::DEFAULT,
+                                &tx_payload,
+                            )
                             .map_err(|e| {
                                 PgWireError::UserError(Box::new(ErrorInfo::new(
                                     "ERROR".to_owned(),
@@ -124,6 +129,7 @@ impl NodeDbPgHandler {
                     let batch_task = crate::control::planner::physical::PhysicalTask {
                         tenant_id,
                         vshard_id,
+                        database_id: crate::types::DatabaseId::DEFAULT,
                         plan: crate::bridge::envelope::PhysicalPlan::Meta(
                             crate::bridge::physical_plan::MetaOp::TransactionBatch { plans },
                         ),
@@ -239,6 +245,7 @@ impl NodeDbPgHandler {
                                 let batch_task = crate::control::planner::physical::PhysicalTask {
                                     tenant_id,
                                     vshard_id,
+                                    database_id: crate::types::DatabaseId::DEFAULT,
                                     plan: crate::bridge::envelope::PhysicalPlan::Meta(
                                         crate::bridge::physical_plan::MetaOp::TransactionBatch {
                                             plans,

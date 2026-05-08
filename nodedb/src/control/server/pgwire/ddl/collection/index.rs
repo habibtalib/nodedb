@@ -10,7 +10,6 @@
 //! ownership keys (`permissions.propose_owner("index", ...)`) continue
 //! to back SHOW INDEXES.
 
-use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use futures::stream;
@@ -21,6 +20,7 @@ use crate::control::security::audit::AuditEvent;
 use crate::control::security::catalog::{IndexBuildState, StoredIndex};
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use crate::types::DatabaseId;
 use crate::types::TraceId;
 
 use super::super::super::types::{sqlstate_error, text_field};
@@ -183,7 +183,8 @@ pub async fn create_index(
     // surface as a Data Plane error; we propagate as SQLSTATE 23505 and
     // leave the index in `Building` so a subsequent retry can DROP + try
     // with a wider data fix.
-    let vshard = crate::types::VShardId::from_collection(collection);
+    let vshard =
+        crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
     let backfill_plan = crate::bridge::envelope::PhysicalPlan::Document(
         crate::bridge::physical_plan::DocumentOp::BackfillIndex {
             collection: collection.to_string(),
@@ -343,7 +344,10 @@ pub async fn drop_index(
         // the same name. Best-effort — the Data Plane itself is the
         // authority, so a failure here is logged rather than propagated.
         if let Some(field) = dropped_field {
-            let vshard = crate::types::VShardId::from_collection(&coll.name);
+            let vshard = crate::types::VShardId::from_collection_in_database(
+                DatabaseId::DEFAULT,
+                &coll.name,
+            );
             let plan = crate::bridge::envelope::PhysicalPlan::Document(
                 crate::bridge::physical_plan::DocumentOp::DropIndex {
                     collection: coll.name.clone(),

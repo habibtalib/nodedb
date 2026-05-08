@@ -214,6 +214,7 @@ mod tests {
             auth_method: AuthMethod::Trust,
             roles,
             is_superuser: superuser,
+            default_database: None,
         }
     }
 

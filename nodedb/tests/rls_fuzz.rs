@@ -33,6 +33,7 @@ fn arb_auth_context() -> impl Strategy<Value = AuthContext> {
                 auth_method: AuthMethod::Trust,
                 roles: vec![Role::ReadWrite],
                 is_superuser: false,
+                default_database: None,
             };
             let mut ctx = AuthContext::from_identity(&identity, "fuzz".into());
             ctx.id = id;

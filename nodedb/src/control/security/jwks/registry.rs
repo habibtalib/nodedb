@@ -195,6 +195,7 @@ impl JwksRegistry {
             auth_method: AuthMethod::ApiKey,
             roles,
             is_superuser: claims.is_superuser,
+            default_database: None,
         })
     }
 

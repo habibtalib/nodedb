@@ -227,6 +227,7 @@ async fn dispatch_sql(
             &state.wal,
             tenant_id,
             task.vshard_id,
+            task.database_id,
             &task.plan,
         )
         .map_err(|e| sqlstate_error("58030", &format!("wal append: {e}")))?;

@@ -9,7 +9,7 @@ use crate::bridge::physical_plan::DocumentOp;
 use crate::bridge::physical_plan::document::merge_types::{
     MergeActionOp, MergeClauseKind as MergeClauseKindOp, MergeClauseOp,
 };
-use crate::types::{TenantId, VShardId};
+use crate::types::{DatabaseId, TenantId, VShardId};
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::filter::serialize_filters;
@@ -43,11 +43,12 @@ pub(in super::super) fn convert_merge(
         .map(|c| convert_clause(c, source_alias))
         .collect::<crate::Result<Vec<_>>>()?;
 
-    let vshard = VShardId::from_collection(target);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, target);
 
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: crate::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Document(DocumentOp::Merge {
             target_collection: target.into(),
             source_collection,

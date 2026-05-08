@@ -6,6 +6,7 @@ use pgwire::error::PgWireResult;
 use crate::bridge::physical_plan::DocumentOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use crate::types::DatabaseId;
 use crate::types::TraceId;
 
 pub(super) async fn dispatch(
@@ -244,7 +245,8 @@ pub(super) async fn dispatch(
                 let coll = args[0].to_lowercase();
                 let field = args[1].to_string();
                 let tenant_id = identity.tenant_id;
-                let vshard = crate::types::VShardId::from_collection(&coll);
+                let vshard =
+                    crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, &coll);
                 let plan =
                     crate::bridge::envelope::PhysicalPlan::Document(DocumentOp::EstimateCount {
                         collection: coll,

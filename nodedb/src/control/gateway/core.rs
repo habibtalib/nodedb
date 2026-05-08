@@ -18,7 +18,6 @@
 //! [`PlanCache`] keyed on `(sql_text_hash, placeholder_types_hash,
 //! DescriptorVersionSet)` before calling the planner.
 
-use nodedb_types::DatabaseId;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
@@ -28,7 +27,7 @@ use tracing::{Instrument, debug, info_span};
 use crate::Error;
 use crate::bridge::physical_plan::PhysicalPlan;
 use crate::control::state::SharedState;
-use crate::types::{TenantId, TraceId};
+use crate::types::{DatabaseId, TenantId, TraceId};
 
 use super::dispatcher::{default_deadline_ms, dispatch_route};
 use super::fuser::fuse_payloads;
@@ -42,6 +41,11 @@ use super::version_set::GatewayVersionSet;
 pub struct QueryContext {
     pub tenant_id: TenantId,
     pub trace_id: TraceId,
+    /// Database scope for the query. Used to route collections to vShards
+    /// (the database id is folded into the routing hash) and to scope
+    /// catalog lookups. Single-database deployments pass
+    /// [`DatabaseId::DEFAULT`].
+    pub database_id: DatabaseId,
 }
 
 /// The gateway: routes, dispatches, retries, and caches physical plans.
@@ -214,7 +218,7 @@ impl Gateway {
                 .as_ref()
                 .map(|rw| rw.read().unwrap_or_else(|p| p.into_inner()));
             let routing = routing_guard.as_deref();
-            route_plan(plan, self.shared.node_id, routing)
+            route_plan(plan, self.shared.node_id, routing, ctx.database_id)
             // routing_guard dropped here
         };
 
@@ -244,6 +248,7 @@ impl Gateway {
                 let plan = plan_for_retry.clone();
                 let shared = Arc::clone(&self.shared);
                 let tenant_id = ctx.tenant_id;
+                let database_id = ctx.database_id;
                 let trace_id = ctx.trace_id;
                 let version_set = version_set_for_route.clone();
                 async move {
@@ -286,6 +291,7 @@ impl Gateway {
                         route,
                         &shared,
                         tenant_id,
+                        database_id,
                         trace_id,
                         deadline_ms,
                         &version_set,

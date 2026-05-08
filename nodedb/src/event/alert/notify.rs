@@ -247,6 +247,7 @@ fn alert_identity(tenant_id: TenantId, owner: &str) -> AuthenticatedIdentity {
         auth_method: AuthMethod::Trust,
         roles: vec![Role::Superuser],
         is_superuser: true,
+        default_database: None,
     }
 }
 

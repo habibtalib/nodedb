@@ -20,7 +20,7 @@ use crate::control::promql::remote_proto::{
 };
 use crate::control::promql::{self, types::DEFAULT_LOOKBACK_MS};
 use crate::control::server::http::auth::{AppState, ResolvedIdentity};
-use crate::types::{TraceId, VShardId};
+use crate::types::{DatabaseId, TraceId, VShardId};
 
 /// POST `/obsv/api/v1/write` — Prometheus remote write endpoint.
 ///
@@ -72,7 +72,7 @@ pub async fn remote_write(
             continue;
         }
 
-        let vshard = VShardId::from_collection(&collection);
+        let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
         let plan = PhysicalPlan::Timeseries(TimeseriesOp::Ingest {
             collection: collection.clone(),
             payload: ilp_payload.into_bytes(),
@@ -88,6 +88,7 @@ pub async fn remote_write(
                 let gw_ctx = QueryContext {
                     tenant_id,
                     trace_id: TraceId::generate(),
+                    database_id: nodedb_types::id::DatabaseId::DEFAULT,
                 };
                 gw.execute(&gw_ctx, plan).await
             }

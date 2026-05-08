@@ -26,14 +26,14 @@ mod common;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use nodedb::types::VShardId;
+use nodedb::types::{DatabaseId, VShardId};
 
 /// Find two collection names whose vShard ids differ.
 fn two_distinct_vshard_collections() -> (String, String) {
     let mut first: Option<(String, u32)> = None;
     for i in 0u32..512 {
         let name = format!("calvin_e2e_{i}");
-        let vshard = VShardId::from_collection(&name).as_u32();
+        let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &name).as_u32();
         if let Some((ref fname, fv)) = first {
             if fv != vshard {
                 return (fname.clone(), name);

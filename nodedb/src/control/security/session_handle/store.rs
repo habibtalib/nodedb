@@ -282,6 +282,7 @@ mod tests {
             auth_method: AuthMethod::ApiKey,
             roles: vec![Role::ReadWrite],
             is_superuser: false,
+            default_database: None,
         };
         AuthContext::from_identity(&identity, generate_session_id())
     }

@@ -18,6 +18,7 @@
 //! In single-node mode (routing table = `None`), all plans route locally.
 
 use nodedb_cluster::routing::{RoutingTable, vshard_for_collection};
+use nodedb_types::id::DatabaseId;
 
 use crate::bridge::physical_plan::PhysicalPlan;
 
@@ -28,14 +29,18 @@ use super::version_set::touched_collections;
 ///
 /// Returns a `Vec<TaskRoute>` — usually one element; multiple elements only
 /// for broadcast scans (one route per vShard).
+///
+/// `database_id` scopes the routing hash so that the same collection name in
+/// two different databases resolves to independent vShards.
 pub fn route_plan(
     plan: PhysicalPlan,
     local_node_id: u64,
     routing: Option<&RoutingTable>,
+    database_id: DatabaseId,
 ) -> Vec<TaskRoute> {
     // In single-node mode every plan runs locally.
     let Some(routing) = routing else {
-        let vshard_id = primary_vshard(&plan);
+        let vshard_id = primary_vshard(&plan, database_id);
         return vec![TaskRoute {
             plan,
             decision: RouteDecision::Local,
@@ -47,7 +52,7 @@ pub fn route_plan(
         return route_broadcast(plan, local_node_id, routing);
     }
 
-    let vshard_id = primary_vshard(&plan);
+    let vshard_id = primary_vshard(&plan, database_id);
     let decision = resolve_decision(vshard_id, local_node_id, Some(routing), None);
 
     vec![TaskRoute {
@@ -142,11 +147,11 @@ fn route_broadcast(
 /// Determine the primary vShard for a plan by hashing the first collection name.
 ///
 /// Falls back to vShard 0 for plans that have no named collection (Meta ops).
-fn primary_vshard(plan: &PhysicalPlan) -> u32 {
+fn primary_vshard(plan: &PhysicalPlan, database_id: DatabaseId) -> u32 {
     touched_collections(plan)
         .into_iter()
         .next()
-        .map(|name| vshard_for_collection(&name))
+        .map(|name| vshard_for_collection(database_id, &name))
         .unwrap_or(0)
 }
 
@@ -173,7 +178,7 @@ mod tests {
             key: vec![],
             rls_filters: vec![],
         });
-        let routes = route_plan(plan, 1, Some(&table));
+        let routes = route_plan(plan, 1, Some(&table), DatabaseId::DEFAULT);
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].decision, RouteDecision::Local);
     }
@@ -187,7 +192,7 @@ mod tests {
             ttl_ms: 0,
             surrogate: nodedb_types::Surrogate::ZERO,
         });
-        let routes = route_plan(plan, 99, None);
+        let routes = route_plan(plan, 99, None, DatabaseId::DEFAULT);
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].decision, RouteDecision::Local);
     }
@@ -207,7 +212,7 @@ mod tests {
             key: vec![],
             rls_filters: vec![],
         });
-        let routes = route_plan(plan, 1, Some(&table));
+        let routes = route_plan(plan, 1, Some(&table), DatabaseId::DEFAULT);
         assert_eq!(routes.len(), 1);
         match &routes[0].decision {
             RouteDecision::Remote { node_id, .. } => assert_eq!(*node_id, 2),
@@ -232,7 +237,7 @@ mod tests {
             valid_at_ms: None,
             prefilter: None,
         });
-        let routes = route_plan(plan, 1, Some(&table));
+        let routes = route_plan(plan, 1, Some(&table), DatabaseId::DEFAULT);
         // Broadcast should produce VSHARD_COUNT routes.
         assert_eq!(routes.len(), nodedb_cluster::routing::VSHARD_COUNT as usize);
     }
@@ -241,7 +246,7 @@ mod tests {
     fn find_collection_for_vshard(target: u32) -> String {
         for i in 0u64.. {
             let name = format!("col_{i}");
-            if vshard_for_collection(&name) == target {
+            if vshard_for_collection(DatabaseId::DEFAULT, &name) == target {
                 return name;
             }
         }

@@ -2,7 +2,6 @@
 
 //! `CREATE ARRAY` / `DROP ARRAY` lowering to `PhysicalTask`.
 
-use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use nodedb_types::config::retention::BitemporalRetention;
@@ -21,7 +20,7 @@ use nodedb_sql::types_array::{
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::ArrayOp;
 use crate::control::array_catalog::ArrayCatalogEntry;
-use crate::types::{TenantId, VShardId};
+use crate::types::{DatabaseId, TenantId, VShardId};
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
@@ -150,10 +149,11 @@ pub(in super::super) fn convert_create_array(
     }
 
     // 4. Emit OpenArray so the Data Plane opens the engine side.
-    let vshard = VShardId::from_collection(name);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, name);
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: crate::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Array(ArrayOp::OpenArray {
             array_id: aid,
             schema_msgpack,
@@ -212,10 +212,11 @@ pub(in super::super) fn convert_drop_array(
     let Some(aid) = removed_array_id else {
         return Ok(Vec::new());
     };
-    let vshard = VShardId::from_collection(name);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, name);
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: crate::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Array(ArrayOp::DropArray { array_id: aid }),
         post_set_op: PostSetOp::None,
     }])

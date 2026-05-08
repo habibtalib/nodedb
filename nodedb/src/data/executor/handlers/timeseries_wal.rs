@@ -13,6 +13,7 @@ use crate::data::executor::task::{ExecutionTask, TaskState};
 use crate::engine::timeseries::columnar_memtable::{
     ColumnarMemtable, ColumnarMemtableConfig, ColumnarSchema,
 };
+use crate::types::DatabaseId;
 use crate::types::ReadConsistency;
 use nodedb_types::timeseries::MetricSample;
 
@@ -35,6 +36,7 @@ impl CoreLoop {
             request: Request {
                 request_id: crate::types::RequestId::new(0),
                 tenant_id,
+                database_id: DatabaseId::DEFAULT,
                 vshard_id,
                 plan,
                 deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
@@ -101,7 +103,7 @@ impl CoreLoop {
         };
         let task = Self::replay_task(
             tid,
-            crate::types::VShardId::from_collection(collection),
+            crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection),
             PhysicalPlan::Timeseries(TimeseriesOp::Ingest {
                 collection: collection.to_string(),
                 payload: payload.to_vec(),
@@ -140,7 +142,7 @@ impl CoreLoop {
     ) -> usize {
         let task = Self::replay_task(
             tid,
-            crate::types::VShardId::from_collection(collection),
+            crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection),
             PhysicalPlan::Columnar(ColumnarOp::Insert {
                 collection: collection.to_string(),
                 payload: payload.to_vec(),

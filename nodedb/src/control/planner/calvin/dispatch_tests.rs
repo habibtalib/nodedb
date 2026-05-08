@@ -15,6 +15,7 @@ fn doc_insert_task(vshard: u32) -> PhysicalTask {
     PhysicalTask {
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(vshard),
+        database_id: crate::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Document(DocumentOp::PointInsert {
             collection: format!("col_{vshard}"),
             document_id: "id1".to_owned(),
@@ -30,6 +31,7 @@ fn scan_task(vshard: u32) -> PhysicalTask {
     PhysicalTask {
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(vshard),
+        database_id: crate::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Document(DocumentOp::Scan {
             collection: format!("col_{vshard}"),
             filters: vec![],
@@ -52,6 +54,7 @@ fn bulk_update_task(vshard: u32) -> PhysicalTask {
     PhysicalTask {
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(vshard),
+        database_id: crate::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Document(DocumentOp::BulkUpdate {
             collection: format!("col_{vshard}"),
             filters: vec![],

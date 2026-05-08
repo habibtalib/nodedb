@@ -246,6 +246,7 @@ impl CredentialStore {
             auth_method: method,
             roles: record.roles,
             is_superuser: record.is_superuser,
+            default_database: None,
         })
     }
 }

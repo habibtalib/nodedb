@@ -14,7 +14,7 @@ use crate::bridge::physical_plan::PhysicalPlan;
 use crate::bridge::physical_plan::meta::MetaOp;
 use crate::bridge::physical_plan::{CrdtOp, DocumentOp, GraphOp, KvOp, TimeseriesOp, VectorOp};
 use crate::control::cluster::calvin::scheduler::lock_manager::{LockKey, TxnId};
-use crate::types::{ReadConsistency, VShardId};
+use crate::types::{DatabaseId, ReadConsistency, VShardId};
 
 impl Scheduler {
     fn local_calvin_plans(
@@ -72,7 +72,10 @@ impl Scheduler {
                 ) => collection.as_str(),
                 _ => return None,
             };
-            Some(VShardId::from_collection(collection))
+            Some(VShardId::from_collection_in_database(
+                DatabaseId::DEFAULT,
+                collection,
+            ))
         }
 
         let mut local = Vec::new();
@@ -161,6 +164,7 @@ impl Scheduler {
         let request = Request {
             request_id,
             tenant_id,
+            database_id: DatabaseId::DEFAULT,
             vshard_id,
             plan,
             deadline,
@@ -277,6 +281,7 @@ impl Scheduler {
         let request = Request {
             request_id,
             tenant_id,
+            database_id: DatabaseId::DEFAULT,
             vshard_id,
             plan,
             deadline,

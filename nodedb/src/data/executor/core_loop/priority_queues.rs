@@ -252,12 +252,13 @@ mod tests {
     use crate::bridge::physical_plan::meta::MetaOp;
     use crate::data::executor::task::ExecutionTask;
     use crate::event::EventSource;
-    use crate::types::{ReadConsistency, RequestId, TenantId, TraceId, VShardId};
+    use crate::types::{DatabaseId, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
 
     fn make_task(priority: Priority) -> ExecutionTask {
         ExecutionTask::new(Request {
             request_id: RequestId::new(1),
             tenant_id: TenantId::new(1),
+            database_id: DatabaseId::DEFAULT,
             vshard_id: VShardId::new(0),
             plan: PhysicalPlan::Meta(MetaOp::Compact),
             deadline: Instant::now() + Duration::from_secs(60),

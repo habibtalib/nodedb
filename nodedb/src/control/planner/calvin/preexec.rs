@@ -22,13 +22,13 @@ use nodedb_types::TenantId;
 use crate::bridge::physical_plan::{DocumentOp, PhysicalPlan};
 use crate::control::server::dispatch_utils::dispatch_to_data_plane;
 use crate::control::state::SharedState;
-use crate::types::{TraceId, VShardId};
+use crate::types::{DatabaseId, TraceId, VShardId};
 
 /// Dispatch a pre-execution scan for the given collection and serialized
 /// filter bytes. Returns the sorted list of matching surrogate u32 values.
 ///
 /// The scan is dispatched as a single-shard read to the vshard determined
-/// by `VShardId::from_collection(collection)`. This matches the same vshard
+/// by `VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection)`. This matches the same vshard
 /// routing used by the actual BulkUpdate/BulkDelete, so the comparison is
 /// consistent.
 ///
@@ -40,7 +40,7 @@ pub async fn run_preexec_scan(
     collection: &str,
     filter_bytes: Vec<u8>,
 ) -> crate::Result<Vec<u32>> {
-    let vshard_id = VShardId::from_collection(collection);
+    let vshard_id = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
 
     let scan_plan = PhysicalPlan::Document(DocumentOp::Scan {
         collection: collection.to_owned(),

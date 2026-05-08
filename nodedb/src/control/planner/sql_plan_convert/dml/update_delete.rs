@@ -5,7 +5,7 @@ use nodedb_types::Surrogate;
 
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::*;
-use crate::types::{TenantId, VShardId};
+use crate::types::{DatabaseId, TenantId, VShardId};
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
@@ -26,7 +26,7 @@ pub(in super::super) fn convert_update(
     tenant_id: TenantId,
     ctx: &ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
-    let vshard = VShardId::from_collection(collection);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
     let filter_bytes = serialize_filters(filters)?;
     let updates = assignments_to_update_values(assignments)?;
 
@@ -57,6 +57,7 @@ pub(in super::super) fn convert_update(
             tasks.push(PhysicalTask {
                 tenant_id,
                 vshard_id: vshard,
+                database_id: crate::types::DatabaseId::DEFAULT,
                 plan: PhysicalPlan::Kv(KvOp::FieldSet {
                     collection: collection.into(),
                     key: sql_value_to_bytes(key),
@@ -83,6 +84,7 @@ pub(in super::super) fn convert_update(
             tasks.push(PhysicalTask {
                 tenant_id,
                 vshard_id: vshard,
+                database_id: crate::types::DatabaseId::DEFAULT,
                 plan: PhysicalPlan::Document(DocumentOp::PointUpdate {
                     collection: collection.into(),
                     document_id: pk_string,
@@ -99,6 +101,7 @@ pub(in super::super) fn convert_update(
         Ok(vec![PhysicalTask {
             tenant_id,
             vshard_id: vshard,
+            database_id: crate::types::DatabaseId::DEFAULT,
             plan: PhysicalPlan::Document(DocumentOp::BulkUpdate {
                 collection: collection.into(),
                 filters: filter_bytes,
@@ -119,13 +122,14 @@ pub(in super::super) fn convert_delete(
     tenant_id: TenantId,
     ctx: &ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
-    let vshard = VShardId::from_collection(collection);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
 
     if matches!(engine, EngineType::KeyValue) && !target_keys.is_empty() {
         let keys: Vec<Vec<u8>> = target_keys.iter().map(sql_value_to_bytes).collect();
         return Ok(vec![PhysicalTask {
             tenant_id,
             vshard_id: vshard,
+            database_id: crate::types::DatabaseId::DEFAULT,
             plan: PhysicalPlan::Kv(KvOp::Delete {
                 collection: collection.into(),
                 keys,
@@ -149,6 +153,7 @@ pub(in super::super) fn convert_delete(
             tasks.push(PhysicalTask {
                 tenant_id,
                 vshard_id: vshard,
+                database_id: crate::types::DatabaseId::DEFAULT,
                 plan: PhysicalPlan::Document(DocumentOp::PointDelete {
                     collection: collection.into(),
                     document_id: pk_string,
@@ -165,6 +170,7 @@ pub(in super::super) fn convert_delete(
         Ok(vec![PhysicalTask {
             tenant_id,
             vshard_id: vshard,
+            database_id: crate::types::DatabaseId::DEFAULT,
             plan: PhysicalPlan::Document(DocumentOp::BulkDelete {
                 collection: collection.into(),
                 filters: filter_bytes,
@@ -215,11 +221,12 @@ pub(in super::super) fn convert_update_from(
 
     let updates = assignments_to_update_values_qualified(assignments)?;
     let target_filter_bytes = serialize_filters(target_filters)?;
-    let vshard = VShardId::from_collection(collection);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
 
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: crate::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Document(DocumentOp::UpdateFromJoin {
             target_collection: collection.into(),
             source_collection,

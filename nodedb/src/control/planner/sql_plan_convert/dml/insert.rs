@@ -6,7 +6,7 @@ use nodedb_types::Surrogate;
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::ColumnarInsertIntent;
 use crate::bridge::physical_plan::*;
-use crate::types::{TenantId, VShardId};
+use crate::types::{DatabaseId, TenantId, VShardId};
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
@@ -66,7 +66,7 @@ pub(in super::super) fn convert_insert(
     tenant_id: TenantId,
     ctx: &ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
-    let vshard = VShardId::from_collection(collection);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
     let mut tasks = Vec::new();
     let mut columnar_rows: Vec<&Vec<(String, SqlValue)>> = Vec::new();
 
@@ -119,6 +119,7 @@ pub(in super::super) fn convert_insert(
                 tasks.push(PhysicalTask {
                     tenant_id,
                     vshard_id: vshard,
+                    database_id: crate::types::DatabaseId::DEFAULT,
                     plan: PhysicalPlan::Document(DocumentOp::PointInsert {
                         collection: collection.into(),
                         document_id: doc_id,
@@ -150,6 +151,7 @@ pub(in super::super) fn convert_insert(
         tasks.push(PhysicalTask {
             tenant_id,
             vshard_id: vshard,
+            database_id: crate::types::DatabaseId::DEFAULT,
             plan: PhysicalPlan::Columnar(ColumnarOp::Insert {
                 collection: collection.into(),
                 payload,
@@ -174,7 +176,7 @@ pub(in super::super) fn convert_upsert(
     tenant_id: TenantId,
     ctx: &ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
-    let vshard = VShardId::from_collection(collection);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
     let mut tasks = Vec::new();
 
     let on_conflict_values = if on_conflict_updates.is_empty() {
@@ -199,6 +201,7 @@ pub(in super::super) fn convert_upsert(
                 tasks.push(PhysicalTask {
                     tenant_id,
                     vshard_id: vshard,
+                    database_id: crate::types::DatabaseId::DEFAULT,
                     plan: PhysicalPlan::Document(DocumentOp::Upsert {
                         collection: collection.into(),
                         document_id: doc_id,
@@ -228,6 +231,7 @@ pub(in super::super) fn convert_upsert(
         tasks.push(PhysicalTask {
             tenant_id,
             vshard_id: vshard,
+            database_id: crate::types::DatabaseId::DEFAULT,
             plan: PhysicalPlan::Columnar(ColumnarOp::Insert {
                 collection: collection.into(),
                 payload,

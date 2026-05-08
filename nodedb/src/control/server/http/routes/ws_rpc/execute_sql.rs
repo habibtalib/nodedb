@@ -32,6 +32,7 @@ pub async fn execute_sql(
                 let gw_ctx = QueryContext {
                     tenant_id: task.tenant_id,
                     trace_id,
+                    database_id: nodedb_types::id::DatabaseId::DEFAULT,
                 };
                 gw.execute(&gw_ctx, task.plan).await
             }

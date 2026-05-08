@@ -15,7 +15,7 @@ use crate::control::gateway::core::QueryContext;
 use crate::control::server::dispatch_utils;
 use crate::control::server::wal_dispatch;
 use crate::control::state::SharedState;
-use crate::types::{Lsn, RequestId, TraceId, VShardId};
+use crate::types::{DatabaseId, Lsn, RequestId, TraceId, VShardId};
 
 use super::session::RespSession;
 
@@ -36,6 +36,7 @@ pub(super) async fn dispatch_kv(
             let gw_ctx = QueryContext {
                 tenant_id: session.tenant_id,
                 trace_id: TraceId::generate(),
+                database_id: DatabaseId::DEFAULT,
             };
             gw.execute(&gw_ctx, plan)
                 .await
@@ -45,7 +46,8 @@ pub(super) async fn dispatch_kv(
                 .map(gateway_payloads_to_response)
         }
         None => {
-            let vshard = VShardId::from_collection(&session.collection);
+            let vshard =
+                VShardId::from_collection_in_database(DatabaseId::DEFAULT, &session.collection);
             dispatch_utils::dispatch_to_data_plane(
                 state,
                 session.tenant_id,
@@ -68,13 +70,20 @@ pub(super) async fn dispatch_kv_write(
     session: &RespSession,
     plan: PhysicalPlan,
 ) -> crate::Result<Response> {
-    let vshard = VShardId::from_collection(&session.collection);
-    wal_dispatch::wal_append_if_write(&state.wal, session.tenant_id, vshard, &plan)?;
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &session.collection);
+    wal_dispatch::wal_append_if_write(
+        &state.wal,
+        session.tenant_id,
+        vshard,
+        DatabaseId::DEFAULT,
+        &plan,
+    )?;
     match state.gateway.as_ref() {
         Some(gw) => {
             let gw_ctx = QueryContext {
                 tenant_id: session.tenant_id,
                 trace_id: TraceId::generate(),
+                database_id: DatabaseId::DEFAULT,
             };
             gw.execute(&gw_ctx, plan)
                 .await

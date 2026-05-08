@@ -13,17 +13,13 @@ use crate::control::surrogate::SurrogateRegistryHandle;
 
 pub fn apply_surrogate_bind(
     payload: &[u8],
+    database_id: DatabaseId,
     catalog: &SystemCatalog,
     registry: &SurrogateRegistryHandle,
 ) -> crate::Result<()> {
     let parsed = SurrogateBindPayload::from_bytes(payload).map_err(crate::Error::Wal)?;
     let surrogate = Surrogate::new(parsed.surrogate);
-    catalog.put_surrogate(
-        DatabaseId::DEFAULT,
-        &parsed.collection,
-        &parsed.pk_bytes,
-        surrogate,
-    )?;
+    catalog.put_surrogate(database_id, &parsed.collection, &parsed.pk_bytes, surrogate)?;
     let guard = registry.write().map_err(|_| crate::Error::Internal {
         detail: "surrogate registry lock poisoned during WAL replay".into(),
     })?;
@@ -58,7 +54,7 @@ mod tests {
         let payload = SurrogateBindPayload::new(7u32, "users", b"alice".to_vec())
             .to_bytes()
             .unwrap();
-        apply_surrogate_bind(&payload, &cat, &reg).unwrap();
+        apply_surrogate_bind(&payload, DatabaseId::DEFAULT, &cat, &reg).unwrap();
         assert_eq!(
             cat.get_surrogate_for_pk(DatabaseId::DEFAULT, "users", b"alice")
                 .unwrap(),
@@ -78,8 +74,8 @@ mod tests {
         let payload = SurrogateBindPayload::new(3u32, "users", b"bob".to_vec())
             .to_bytes()
             .unwrap();
-        apply_surrogate_bind(&payload, &cat, &reg).unwrap();
-        apply_surrogate_bind(&payload, &cat, &reg).unwrap();
+        apply_surrogate_bind(&payload, DatabaseId::DEFAULT, &cat, &reg).unwrap();
+        apply_surrogate_bind(&payload, DatabaseId::DEFAULT, &cat, &reg).unwrap();
         assert_eq!(
             cat.get_surrogate_for_pk(DatabaseId::DEFAULT, "users", b"bob")
                 .unwrap(),

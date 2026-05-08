@@ -6,7 +6,7 @@ use nodedb_array::types::ArrayId;
 
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::ArrayOp;
-use crate::types::{TenantId, VShardId};
+use crate::types::{DatabaseId, TenantId, VShardId};
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
@@ -26,10 +26,11 @@ pub(crate) fn convert_project(
         });
     }
     let aid = ArrayId::new(tenant_id, name);
-    let vshard = VShardId::from_collection(name);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, name);
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: crate::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Array(ArrayOp::Project {
             array_id: aid,
             attr_indices,

@@ -26,7 +26,6 @@
 //! regular users see only their own tenant. Enforced in-handler to
 //! avoid leaking cross-tenant names.
 
-use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use futures::stream;
@@ -36,7 +35,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::{AuthenticatedIdentity, Role};
 use crate::control::server::pgwire::types::{int8_field, text_field};
 use crate::control::state::SharedState;
-use crate::types::TraceId;
+use crate::types::{DatabaseId, TraceId};
 
 /// Row generator for `_system.dropped_collections`.
 pub async fn dropped_collections(
@@ -127,7 +126,7 @@ async fn query_collection_size(
 ) -> Option<u64> {
     use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
     use crate::bridge::physical_plan::MetaOp;
-    use crate::types::{ReadConsistency, TenantId, VShardId};
+    use crate::types::{DatabaseId, ReadConsistency, TenantId, VShardId};
 
     let request_id = state.next_request_id();
     let timeout = std::time::Duration::from_millis(500);
@@ -135,6 +134,7 @@ async fn query_collection_size(
     let request = Request {
         request_id,
         tenant_id: TenantId::new(tenant_id),
+        database_id: DatabaseId::DEFAULT,
         vshard_id: VShardId::new(0),
         plan: PhysicalPlan::Meta(MetaOp::QueryCollectionSize {
             tenant_id,

@@ -6,7 +6,7 @@ use nodedb_sql::types::{Projection, SqlPlan, SqlValue};
 
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::*;
-use crate::types::{TenantId, VShardId};
+use crate::types::{DatabaseId, TenantId, VShardId};
 
 use super::super::physical::{PhysicalTask, PostSetOp};
 use super::convert::{ConvertContext, convert_one};
@@ -33,7 +33,8 @@ pub(super) fn convert_constant_result(
     })?;
     Ok(vec![PhysicalTask {
         tenant_id,
-        vshard_id: VShardId::from_collection(""),
+        vshard_id: VShardId::from_collection_in_database(DatabaseId::DEFAULT, ""),
+        database_id: crate::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Meta(MetaOp::RawResponse { payload }),
         post_set_op: PostSetOp::None,
     }])
@@ -44,10 +45,11 @@ pub(super) fn convert_truncate(
     restart_identity: bool,
     tenant_id: TenantId,
 ) -> crate::Result<Vec<PhysicalTask>> {
-    let vshard = VShardId::from_collection(collection);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: crate::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Document(DocumentOp::Truncate {
             collection: collection.into(),
             restart_identity,
@@ -164,11 +166,12 @@ pub(super) fn convert_insert_select(
     }
 
     let filter_bytes = super::filter::serialize_filters(filters)?;
-    let vshard = VShardId::from_collection(target);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, target);
 
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: crate::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Document(DocumentOp::InsertSelect {
             target_collection: target.into(),
             source_collection: collection.clone(),

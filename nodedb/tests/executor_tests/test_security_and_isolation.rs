@@ -102,6 +102,7 @@ fn security_rls_policy_enforcement() {
             auth_method: AuthMethod::ApiKey,
             roles: vec![Role::ReadWrite],
             is_superuser: false,
+            default_database: None,
         };
         AuthContext::from_identity(&identity, "test".into())
     };

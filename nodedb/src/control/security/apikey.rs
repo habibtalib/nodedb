@@ -241,6 +241,7 @@ impl ApiKeyStore {
             auth_method: AuthMethod::ApiKey,
             roles,
             is_superuser,
+            default_database: None,
         }
     }
 

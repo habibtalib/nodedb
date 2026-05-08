@@ -123,6 +123,7 @@ pub(crate) fn resolve_trigger_identity(
                 auth_method: AuthMethod::Trust,
                 roles: vec![Role::TenantAdmin],
                 is_superuser: true,
+                default_database: None,
             }
         }
     }

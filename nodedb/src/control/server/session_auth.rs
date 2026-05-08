@@ -85,6 +85,7 @@ pub fn verify_api_key_identity(
         auth_method: AuthMethod::ApiKey,
         roles: user.roles,
         is_superuser: user.is_superuser,
+        default_database: None,
     };
 
     state.audit_record(
@@ -115,6 +116,7 @@ pub fn trust_identity(state: &SharedState, username: &str) -> AuthenticatedIdent
             auth_method: AuthMethod::Trust,
             roles: vec![Role::Superuser],
             is_superuser: true,
+            default_database: None,
         }
     }
 }

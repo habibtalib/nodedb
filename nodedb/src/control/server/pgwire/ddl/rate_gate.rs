@@ -23,7 +23,7 @@ use crate::bridge::envelope::{PhysicalPlan, Status};
 use crate::bridge::physical_plan::KvOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
-use crate::types::{TraceId, VShardId};
+use crate::types::{DatabaseId, TraceId, VShardId};
 
 /// Internal collection used for rate gate counters.
 const RATE_COLLECTION: &str = "_system_rate_gates";
@@ -62,7 +62,7 @@ pub async fn rate_check(
 
     let rate_key = format!("_rate:{gate_name}:{key}");
     let tenant_id = identity.tenant_id;
-    let vshard = VShardId::from_collection(RATE_COLLECTION);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, RATE_COLLECTION);
     let ttl_ms = window_secs * 1000;
 
     // Fixed-window semantics: TTL is set ONLY on the first call (new key).
@@ -168,7 +168,7 @@ pub async fn rate_remaining(
 
     let rate_key = format!("_rate:{gate_name}:{key}");
     let tenant_id = identity.tenant_id;
-    let vshard = VShardId::from_collection(RATE_COLLECTION);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, RATE_COLLECTION);
 
     // Read current counter value (non-destructive).
     let plan = PhysicalPlan::Kv(KvOp::Get {
@@ -228,7 +228,7 @@ pub async fn rate_reset(
 
     let rate_key = format!("_rate:{gate_name}:{key}");
     let tenant_id = identity.tenant_id;
-    let vshard = VShardId::from_collection(RATE_COLLECTION);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, RATE_COLLECTION);
 
     let plan = PhysicalPlan::Kv(KvOp::Delete {
         collection: RATE_COLLECTION.to_string(),

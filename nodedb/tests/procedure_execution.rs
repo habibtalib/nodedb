@@ -151,6 +151,7 @@ fn dummy_task(id: &str) -> nodedb::control::planner::physical::PhysicalTask {
     nodedb::control::planner::physical::PhysicalTask {
         tenant_id: nodedb::types::TenantId::new(1),
         vshard_id: nodedb::types::VShardId::new(0),
+        database_id: nodedb::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Document(DocumentOp::PointPut {
             collection: "test".into(),
             document_id: id.into(),

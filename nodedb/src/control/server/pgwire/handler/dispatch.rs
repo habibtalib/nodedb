@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use crate::bridge::envelope::{Priority, Request, Response};
 use crate::control::planner::physical::PhysicalTask;
-use crate::types::{Lsn, ReadConsistency, TraceId};
+use crate::types::{DatabaseId, Lsn, ReadConsistency, TraceId};
 use sonic_rs;
 
 use super::core::NodeDbPgHandler;
@@ -108,6 +108,7 @@ impl NodeDbPgHandler {
                 let inner_task = crate::control::planner::physical::PhysicalTask {
                     tenant_id: task.tenant_id,
                     vshard_id: task.vshard_id,
+                    database_id: task.database_id,
                     plan: inner_plan.as_ref().clone(),
                     post_set_op: crate::control::planner::physical::PostSetOp::None,
                 };
@@ -158,6 +159,7 @@ impl NodeDbPgHandler {
                 let join_task = crate::control::planner::physical::PhysicalTask {
                     tenant_id: task.tenant_id,
                     vshard_id: task.vshard_id,
+                    database_id: task.database_id,
                     plan: join_plan,
                     post_set_op: crate::control::planner::physical::PostSetOp::None,
                 };
@@ -380,6 +382,7 @@ impl NodeDbPgHandler {
         let request = Request {
             request_id,
             tenant_id,
+            database_id: DatabaseId::DEFAULT,
             vshard_id,
             plan,
             deadline: Instant::now()
@@ -417,11 +420,12 @@ impl NodeDbPgHandler {
         plan: &crate::bridge::envelope::PhysicalPlan,
     ) -> crate::Result<Vec<u8>> {
         let vshard_id = super::plan::extract_collection(plan)
-            .map(crate::types::VShardId::from_collection)
+            .map(|c| crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, c))
             .unwrap_or(fallback_vshard_id);
         let task = crate::control::planner::physical::PhysicalTask {
             tenant_id,
             vshard_id,
+            database_id: DatabaseId::DEFAULT,
             plan: plan.clone(),
             post_set_op: crate::control::planner::physical::PostSetOp::None,
         };

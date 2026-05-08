@@ -8,7 +8,7 @@ use nodedb_sql::types::{Filter, SqlPlan};
 
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::*;
-use crate::types::VShardId;
+use crate::types::{DatabaseId, VShardId};
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::aggregate::{
@@ -130,11 +130,12 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_join(
     let inline_left_bitmap = raw_left_bm.and_then(|h| bitmap_hint_to_plan(&h));
     let inline_right_bitmap = raw_right_bm.and_then(|h| bitmap_hint_to_plan(&h));
 
-    let vshard = VShardId::from_collection(&left_collection);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &left_collection);
 
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: crate::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Query(QueryOp::HashJoin {
             left_collection,
             right_collection,

@@ -381,6 +381,7 @@ mod tests {
             lsn,
             tenant_id,
             vshard_id,
+            0,
             payload.to_vec(),
             None,
             None,

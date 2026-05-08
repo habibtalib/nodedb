@@ -10,7 +10,6 @@
 //! Single-node mode is the degenerate case: routing table absent
 //! (or 1 node) → 1 section, origin = self.
 
-use nodedb_types::DatabaseId;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,7 +24,7 @@ use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::{MetaOp, wire as plan_wire};
 use crate::control::server::pgwire::ddl::sync_dispatch;
 use crate::control::state::SharedState;
-use crate::types::{TenantId, TraceId};
+use crate::types::{DatabaseId, TenantId, TraceId};
 
 /// Default per-node snapshot dispatch timeout.
 const NODE_SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -218,6 +217,7 @@ async fn snapshot_remote(
     let req = RaftRpc::ExecuteRequest(ExecuteRequest {
         plan_bytes,
         tenant_id,
+        database_id: DatabaseId::DEFAULT.as_u64(),
         deadline_remaining_ms: NODE_SNAPSHOT_TIMEOUT.as_millis() as u64,
         trace_id: TraceId::generate().0,
         descriptor_versions: Vec::new(),

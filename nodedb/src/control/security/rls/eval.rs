@@ -203,6 +203,7 @@ mod tests {
             auth_method: AuthMethod::ScramSha256,
             roles: vec![Role::ReadWrite],
             is_superuser: false,
+            default_database: None,
         };
         AuthContext::from_identity(&identity, "s_test".into())
     }

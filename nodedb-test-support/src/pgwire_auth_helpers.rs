@@ -35,6 +35,7 @@ pub fn superuser() -> AuthenticatedIdentity {
         auth_method: AuthMethod::Trust,
         roles: vec![Role::Superuser],
         is_superuser: true,
+        default_database: None,
     }
 }
 
@@ -47,6 +48,7 @@ pub fn readonly_user() -> AuthenticatedIdentity {
         auth_method: AuthMethod::Trust,
         roles: vec![Role::ReadOnly],
         is_superuser: false,
+        default_database: None,
     }
 }
 

@@ -17,6 +17,7 @@ use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::VectorOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use crate::types::DatabaseId;
 use crate::types::TraceId;
 
 use super::super::super::types::{sqlstate_error, text_field};
@@ -34,7 +35,8 @@ pub async fn handle_show_vector_index(
     // or:   SHOW VECTOR INDEX status ON <collection>
     let (collection, field_name) = parse_collection_column(sql, " ON ")?;
     let tenant_id = identity.tenant_id;
-    let vshard = crate::types::VShardId::from_collection(&collection);
+    let vshard =
+        crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
 
     let plan = PhysicalPlan::Vector(VectorOp::QueryStats {
         collection: collection.clone(),
@@ -118,7 +120,8 @@ pub async fn handle_alter_vector_index_seal(
 ) -> PgWireResult<Vec<Response>> {
     let (collection, field_name) = parse_collection_column(sql, " ON ")?;
     let tenant_id = identity.tenant_id;
-    let vshard = crate::types::VShardId::from_collection(&collection);
+    let vshard =
+        crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
 
     let plan = PhysicalPlan::Vector(VectorOp::Seal {
         collection,
@@ -146,7 +149,8 @@ pub async fn handle_alter_vector_index_compact(
 ) -> PgWireResult<Vec<Response>> {
     let (collection, field_name) = parse_collection_column(sql, " ON ")?;
     let tenant_id = identity.tenant_id;
-    let vshard = crate::types::VShardId::from_collection(&collection);
+    let vshard =
+        crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
 
     let plan = PhysicalPlan::Vector(VectorOp::CompactIndex {
         collection,
@@ -290,7 +294,8 @@ pub async fn handle_alter_vector_index_set(
     }
 
     let tenant_id = identity.tenant_id;
-    let vshard = crate::types::VShardId::from_collection(&collection);
+    let vshard =
+        crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
 
     // Quantization changes route through SetParams (updates stored IndexConfig
     // before the collection materializes). HNSW parameter changes route through

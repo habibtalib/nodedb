@@ -202,7 +202,8 @@ pub async fn insert_document(
     }
 
     // Dispatch VectorInsert for vector fields.
-    let vec_vshard = crate::types::VShardId::from_collection(&parsed.coll_name);
+    let vec_vshard =
+        crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, &parsed.coll_name);
     for (field_name, vector) in extract_vector_fields(&fields) {
         let dim = vector.len();
 

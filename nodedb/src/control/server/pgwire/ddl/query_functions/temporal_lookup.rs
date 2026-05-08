@@ -15,7 +15,7 @@ use crate::bridge::envelope::PhysicalPlan;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::dispatch_utils;
 use crate::control::state::SharedState;
-use crate::types::{TraceId, VShardId};
+use crate::types::{DatabaseId, TraceId, VShardId};
 
 use super::super::super::types::{sqlstate_error, text_field};
 use super::helpers::{clean_arg, extract_function_args};
@@ -41,7 +41,7 @@ pub async fn temporal_lookup(
     let time_column = clean_arg(args[4]);
 
     // Scan the table.
-    let vshard = VShardId::from_collection(&table);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &table);
     let scan_plan = PhysicalPlan::Document(crate::bridge::physical_plan::DocumentOp::Scan {
         collection: table.clone(),
         limit: usize::MAX,

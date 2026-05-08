@@ -212,6 +212,7 @@ mod tests {
         ExecutionTask::new(Request {
             request_id: RequestId::new(1),
             tenant_id: TenantId::new(1),
+            database_id: DatabaseId::DEFAULT,
             vshard_id: VShardId::new(0),
             plan: PhysicalPlan::Vector(VectorOp::Insert {
                 collection: "test".into(),
@@ -351,6 +352,7 @@ mod tests {
         let req = Request {
             request_id: RequestId::new(2),
             tenant_id: TenantId::new(1),
+            database_id: DatabaseId::DEFAULT,
             vshard_id: VShardId::new(0),
             plan: PhysicalPlan::Vector(VectorOp::Insert {
                 collection: "t".into(),
@@ -386,6 +388,7 @@ mod tests {
             let req = Request {
                 request_id: RequestId::new(i + 1),
                 tenant_id: TenantId::new(1),
+                database_id: DatabaseId::DEFAULT,
                 vshard_id: VShardId::new(0),
                 plan: PhysicalPlan::Vector(VectorOp::Insert {
                     collection: "t".into(),

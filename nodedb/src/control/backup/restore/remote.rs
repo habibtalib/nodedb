@@ -34,6 +34,7 @@ pub(super) async fn dispatch_remote(
     let req = RaftRpc::ExecuteRequest(ExecuteRequest {
         plan_bytes,
         tenant_id,
+        database_id: nodedb_types::id::DatabaseId::DEFAULT.as_u64(),
         deadline_remaining_ms: NODE_RESTORE_TIMEOUT.as_millis() as u64,
         trace_id: TraceId::generate().0,
         descriptor_versions: Vec::new(),

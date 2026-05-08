@@ -218,6 +218,7 @@ impl JwtValidator {
             auth_method: AuthMethod::ApiKey, // JWT is a bearer token variant.
             roles,
             is_superuser: claims.is_superuser,
+            default_database: None,
         })
     }
 

@@ -32,7 +32,7 @@ use crate::bridge::dispatch::Dispatcher;
 use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
 use crate::bridge::physical_plan::MetaOp;
 use crate::control::request_tracker::RequestTracker;
-use crate::types::{Lsn, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
+use crate::types::{DatabaseId, Lsn, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
 use crate::wal::WalManager;
 
 /// Monotonic counter for checkpoint request IDs.
@@ -91,6 +91,7 @@ pub async fn run_checkpoint_cycle(
             let request = Request {
                 request_id,
                 tenant_id: TenantId::new(0), // System-level checkpoint.
+                database_id: DatabaseId::DEFAULT,
                 vshard_id,
                 plan: PhysicalPlan::Meta(MetaOp::Checkpoint),
                 deadline: std::time::Instant::now() + timeout,
@@ -184,7 +185,12 @@ pub async fn run_checkpoint_cycle(
     let checkpoint_lsn = Lsn::new(global_lsn);
 
     // 4. Write checkpoint marker to WAL.
-    match wal.append_checkpoint(TenantId::new(0), VShardId::new(0), global_lsn) {
+    match wal.append_checkpoint(
+        TenantId::new(0),
+        VShardId::new(0),
+        DatabaseId::DEFAULT,
+        global_lsn,
+    ) {
         Ok(marker_lsn) => {
             debug!(
                 marker_lsn = marker_lsn.as_u64(),

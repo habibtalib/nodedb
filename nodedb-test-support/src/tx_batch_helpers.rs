@@ -43,6 +43,7 @@ pub fn make_request(plan: PhysicalPlan) -> Request {
     Request {
         request_id: RequestId::new(1),
         tenant_id: TenantId::new(1),
+        database_id: nodedb::types::DatabaseId::DEFAULT,
         vshard_id: VShardId::new(0),
         plan,
         deadline: Instant::now() + Duration::from_secs(5),

@@ -189,7 +189,7 @@ pub fn show_synonym_groups(
 
 /// Sentinel collection name used for routing synonym group MetaOp dispatches.
 ///
-/// The Data Plane uses `VShardId::from_collection` to route, which is fine
-/// here since synonym groups are global to the tenant (not collection-bound).
-/// Any stable name works; `_synonym_groups` is descriptive.
+/// Synonym groups are global to the tenant (not collection-bound).
+/// Routes via `VShardId::from_collection_in_database` on the default database;
+/// any stable name works and `_synonym_groups` is descriptive.
 const SYNONYM_SENTINEL_COLLECTION: &str = "_synonym_groups";

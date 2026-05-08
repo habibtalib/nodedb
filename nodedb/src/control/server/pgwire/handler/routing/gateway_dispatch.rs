@@ -96,6 +96,7 @@ impl NodeDbPgHandler {
         let gw_ctx = crate::control::gateway::core::QueryContext {
             tenant_id,
             trace_id: TraceId::generate(),
+            database_id: nodedb_types::id::DatabaseId::DEFAULT,
         };
 
         let mut responses: Vec<Response> = Vec::with_capacity(tasks.len());

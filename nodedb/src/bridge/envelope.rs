@@ -74,7 +74,7 @@ impl From<Arc<[u8]>> for Payload {
     }
 }
 use crate::event::types::EventSource;
-use crate::types::{Lsn, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
+use crate::types::{DatabaseId, Lsn, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
 
 /// Request envelope: Control Plane -> Data Plane.
 ///
@@ -86,6 +86,10 @@ pub struct Request {
 
     /// Tenant scope — all data access is tenant-scoped by construction.
     pub tenant_id: TenantId,
+
+    /// Database scope — identifies which catalog namespace this request targets.
+    /// `DatabaseId::DEFAULT` (0) is the built-in `default` database.
+    pub database_id: DatabaseId,
 
     /// Target virtual shard.
     pub vshard_id: VShardId,
@@ -330,6 +334,7 @@ mod tests {
         Request {
             request_id: RequestId::new(1),
             tenant_id: TenantId::new(1),
+            database_id: DatabaseId::DEFAULT,
             vshard_id: VShardId::new(0),
             plan: PhysicalPlan::Document(DocumentOp::PointGet {
                 collection: "users".into(),
@@ -400,6 +405,7 @@ mod tests {
         let req = Request {
             request_id: RequestId::new(99),
             tenant_id: TenantId::new(1),
+            database_id: DatabaseId::DEFAULT,
             vshard_id: VShardId::new(0),
             plan: PhysicalPlan::Meta(MetaOp::Cancel {
                 target_request_id: RequestId::new(42),

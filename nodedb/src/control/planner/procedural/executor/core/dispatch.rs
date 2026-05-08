@@ -77,6 +77,7 @@ impl<'a> StatementExecutor<'a> {
                     &self.state.wal,
                     task.tenant_id,
                     task.vshard_id,
+                    task.database_id,
                     &task.plan,
                 )?;
 
@@ -162,6 +163,7 @@ impl<'a> StatementExecutor<'a> {
                 &self.state.wal,
                 task.tenant_id,
                 task.vshard_id,
+                task.database_id,
                 &task.plan,
             )?;
         }

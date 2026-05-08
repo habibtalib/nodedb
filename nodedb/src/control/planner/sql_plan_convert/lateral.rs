@@ -50,6 +50,7 @@ pub(super) fn convert_lateral_top_k(
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: outer_vshard,
+        database_id: crate::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Query(QueryOp::LateralTopK {
             outer_plan: Box::new(outer_task.plan),
             outer_alias: outer_alias_str,
@@ -98,6 +99,7 @@ pub(super) fn convert_lateral_loop(
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: outer_vshard,
+        database_id: crate::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Query(QueryOp::LateralLoop {
             outer_plan: Box::new(outer_task.plan),
             outer_alias: outer_alias_str,

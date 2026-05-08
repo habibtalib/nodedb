@@ -44,6 +44,7 @@ pub fn explain_permission(
             auth_method: crate::control::security::identity::AuthMethod::Trust,
             roles: user.roles.clone(),
             is_superuser: user.is_superuser,
+            default_database: None,
         }
     } else {
         // Unknown user — use the requesting identity.
@@ -172,6 +173,7 @@ pub fn assert_visible(
         auth_method: crate::control::security::identity::AuthMethod::Trust,
         roles: vec![crate::control::security::identity::Role::ReadWrite],
         is_superuser: false,
+        default_database: None,
     };
     let auth_ctx = crate::control::server::session_auth::build_auth_context(&target_identity);
 

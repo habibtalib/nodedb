@@ -124,7 +124,12 @@ fn get_or_create_topic_buffer(
 /// Returns `None` in single-node mode.
 fn topic_home_node(state: &SharedState, topic_name: &str) -> Option<u64> {
     let routing_lock = state.cluster_routing.as_ref()?;
-    let vshard_id = nodedb_cluster::routing::vshard_for_collection(topic_name);
+    // Topics route under `DatabaseId::DEFAULT` today; when topics gain
+    // database scope, plumb it through here.
+    let vshard_id = nodedb_cluster::routing::vshard_for_collection(
+        nodedb_types::id::DatabaseId::DEFAULT,
+        topic_name,
+    );
     let routing = routing_lock.read().unwrap_or_else(|p| p.into_inner());
     routing.leader_for_vshard(vshard_id).ok()
 }
@@ -156,6 +161,7 @@ pub async fn publish_remote(
     let gw_ctx = crate::control::gateway::core::QueryContext {
         tenant_id: crate::types::TenantId::new(tenant_id),
         trace_id: nodedb_types::TraceId::generate(),
+        database_id: nodedb_types::id::DatabaseId::DEFAULT,
     };
 
     let query_ctx = crate::control::planner::context::QueryContext::for_state(state);

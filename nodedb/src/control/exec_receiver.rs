@@ -10,7 +10,6 @@
 //! Unlike the retired SQL-string forwarding path, this path skips planning
 //! entirely — the plan is already encoded by the sender.
 
-use nodedb_types::DatabaseId;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -22,6 +21,7 @@ use nodedb_cluster::rpc_codec::{ExecuteRequest, ExecuteResponse, TypedClusterErr
 use crate::bridge::envelope::{Priority, Request};
 use crate::bridge::physical_plan::wire as plan_wire;
 use crate::control::state::SharedState;
+use crate::types::DatabaseId;
 use crate::types::ReadConsistency;
 
 /// Numeric code for `TypedClusterError::Internal` when plan bytes fail to decode.
@@ -138,10 +138,12 @@ impl LocalPlanExecutor {
         // Build a Request, register a oneshot tracker, dispatch, and await the response.
         let request_id = self.state.next_request_id();
         let tenant_id = crate::types::TenantId::new(req.tenant_id);
+        let database_id = crate::types::DatabaseId::from(req.database_id);
 
         let request = Request {
             request_id,
             tenant_id,
+            database_id,
             // Use the first vshard_id from the plan — the sender already routed
             // this to the correct node. Use 0 as the default if the plan doesn't
             // embed vshard info directly; the Data Plane ignores it for local exec.

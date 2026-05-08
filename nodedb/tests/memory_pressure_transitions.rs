@@ -143,6 +143,7 @@ fn critical_check_engine_pressure_increments_metric() {
         request_id: RequestId::new(1),
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(0),
+        database_id: nodedb::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Vector(VectorOp::Insert {
             collection: "test".into(),
             vector: vec![0.1],
@@ -204,6 +205,7 @@ fn emergency_pressure_suspends_reads_and_increments_metric() {
         request_id: RequestId::new(2),
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(0),
+        database_id: nodedb::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Vector(VectorOp::Insert {
             collection: "test".into(),
             vector: vec![0.1],

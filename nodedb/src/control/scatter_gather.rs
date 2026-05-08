@@ -339,6 +339,7 @@ pub async fn coordinate_cross_shard_hop(
                 let gw_ctx = crate::control::gateway::core::QueryContext {
                     tenant_id: crate::types::TenantId::new(tenant_id_u64),
                     trace_id: TraceId::generate(),
+                    database_id: nodedb_types::id::DatabaseId::DEFAULT,
                 };
 
                 // Build a fresh QueryContext per traversal using cloned inputs
