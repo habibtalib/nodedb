@@ -25,6 +25,7 @@ fn make_auth(tenant_id: u64) -> AuthContext {
         roles: vec![Role::ReadWrite],
         is_superuser: false,
         default_database: None,
+        accessible_databases: AuthenticatedIdentity::default_database_set(false),
     };
     AuthContext::from_identity(&identity, "test".into())
 }

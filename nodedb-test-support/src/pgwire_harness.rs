@@ -9,6 +9,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use nodedb::bridge::dispatch::Dispatcher;
+
+/// Generate a short hex string suitable for unique test name suffixes.
+fn uuid_v4_hex() -> String {
+    let id = uuid::Uuid::new_v4();
+    let bytes = id.as_bytes();
+    // Use the first 8 bytes (16 hex chars) — enough entropy for test isolation.
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]
+    )
+}
 use nodedb::config::auth::AuthMode;
 use nodedb::control::server::pgwire::listener::PgListener;
 use nodedb::control::state::SharedState;
@@ -105,6 +116,12 @@ impl TestServer {
             nodedb::types::TenantId::new(1),
             vec![nodedb::control::security::identity::Role::Superuser],
         );
+        // Ensure the built-in `default` database (id 0) is present in the
+        // catalog so `USE DATABASE default` and `\c default` work in tests.
+        // Idempotent: no-op if the descriptor is already there.
+        if let Some(cat) = credentials.catalog() {
+            let _ = cat.bootstrap_default_database();
+        }
         let mut shared =
             SharedState::new_with_credentials(dispatcher, Arc::clone(&wal), credentials);
         // Inject a fixed test KEK so backup tests produce encrypted envelopes.
@@ -740,6 +757,32 @@ impl TestServer {
             let _ = connection.await;
         });
         Ok((client, handle))
+    }
+
+    /// Spawn a server and connect to a named database.
+    ///
+    /// The database is created inside the running server after startup. A
+    /// UUID suffix is appended to `name` to guarantee uniqueness across
+    /// parallel test runs (e.g. `emp_prod_<uuid>`). The returned name is
+    /// the full suffixed name so callers can reference it in subsequent
+    /// queries.
+    ///
+    /// Existing tests that do not call this method pin implicitly to the
+    /// built-in `default` database — no behavior change.
+    pub async fn with_database(name: &str) -> (Self, String) {
+        let server = Self::start().await;
+        let unique_name = format!("{}_{}", name, uuid_v4_hex());
+        server
+            .client
+            .simple_query(&format!("CREATE DATABASE {unique_name}"))
+            .await
+            .unwrap_or_else(|e| panic!("with_database: CREATE DATABASE {unique_name} failed: {e}"));
+        server
+            .client
+            .simple_query(&format!("USE DATABASE {unique_name}"))
+            .await
+            .unwrap_or_else(|e| panic!("with_database: USE DATABASE {unique_name} failed: {e}"));
+        (server, unique_name)
     }
 
     /// Execute a SQL statement expecting an error containing the given substring.

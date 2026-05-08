@@ -372,6 +372,7 @@ async fn credential_ghost_refuses_startup() {
             password_expires_at: 0,
             must_change_password: false,
             password_changed_at: 0,
+            default_database_id: 0,
         };
         cat.put_user(&stored_user).unwrap();
         // writer and catalog dropped here — redb file is unlocked.

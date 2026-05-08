@@ -103,6 +103,7 @@ fn security_rls_policy_enforcement() {
             roles: vec![Role::ReadWrite],
             is_superuser: false,
             default_database: None,
+            accessible_databases: AuthenticatedIdentity::default_database_set(false),
         };
         AuthContext::from_identity(&identity, "test".into())
     };

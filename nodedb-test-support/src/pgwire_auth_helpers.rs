@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use nodedb::bridge::dispatch::Dispatcher;
-use nodedb::control::security::identity::{AuthMethod, AuthenticatedIdentity, Role};
+use nodedb::control::security::identity::{AuthMethod, AuthenticatedIdentity, DatabaseSet, Role};
 use nodedb::control::server::pgwire::ddl;
 use nodedb::control::state::SharedState;
 use nodedb::types::TenantId;
@@ -36,6 +36,7 @@ pub fn superuser() -> AuthenticatedIdentity {
         roles: vec![Role::Superuser],
         is_superuser: true,
         default_database: None,
+        accessible_databases: DatabaseSet::All,
     }
 }
 
@@ -49,12 +50,15 @@ pub fn readonly_user() -> AuthenticatedIdentity {
         roles: vec![Role::ReadOnly],
         is_superuser: false,
         default_database: None,
+        accessible_databases: DatabaseSet::Some(smallvec::smallvec![
+            nodedb_types::id::DatabaseId::DEFAULT
+        ]),
     }
 }
 
 /// Run DDL, expect success.
 pub async fn ddl_ok(state: &SharedState, identity: &AuthenticatedIdentity, sql: &str) {
-    let result = ddl::dispatch(state, identity, sql).await;
+    let result = ddl::dispatch(state, identity, sql, nodedb_types::id::DatabaseId::DEFAULT).await;
     assert!(result.is_some(), "DDL not recognized: {sql}");
     result
         .unwrap()
@@ -63,7 +67,7 @@ pub async fn ddl_ok(state: &SharedState, identity: &AuthenticatedIdentity, sql: 
 
 /// Run DDL, expect error; return the error string for assertions.
 pub async fn ddl_err(state: &SharedState, identity: &AuthenticatedIdentity, sql: &str) -> String {
-    let result = ddl::dispatch(state, identity, sql).await;
+    let result = ddl::dispatch(state, identity, sql, nodedb_types::id::DatabaseId::DEFAULT).await;
     assert!(result.is_some(), "DDL not recognized: {sql}");
     let err = result.unwrap().unwrap_err();
     err.to_string()

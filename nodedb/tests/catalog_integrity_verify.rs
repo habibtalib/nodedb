@@ -163,5 +163,13 @@ fn classify(entry: &CatalogEntry) -> VariantClass {
         // Custom types are registry-only objects (no owner row required).
         CatalogEntry::PutCustomType(_) => VariantClass::Exempt,
         CatalogEntry::DeleteCustomType { .. } => VariantClass::Exempt,
+
+        // Database descriptors and grants are catalog-level objects with
+        // no per-object owner row — they are exempt from the parent-replicated
+        // ownership invariant.
+        CatalogEntry::PutDatabase(_) => VariantClass::Exempt,
+        CatalogEntry::DeleteDatabase { .. } => VariantClass::Exempt,
+        CatalogEntry::PutDatabaseGrant { .. } => VariantClass::Exempt,
+        CatalogEntry::DeleteDatabaseGrant { .. } => VariantClass::Exempt,
     }
 }
