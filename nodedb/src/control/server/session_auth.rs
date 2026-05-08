@@ -542,18 +542,64 @@ pub fn check_blacklist(
 ///
 /// Called after identity and blacklist checks, before query execution.
 /// Returns `Err(RateLimited)` if the request exceeds the rate limit.
+///
+/// Tenant and database QPS caps are read from the quota catalog when available.
+/// Check order: user → org → tenant → database.
 pub fn check_rate_limit(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     auth_ctx: &AuthContext,
     operation: &str,
+    database_id: nodedb_types::DatabaseId,
 ) -> crate::Result<crate::control::security::ratelimit::limiter::RateLimitResult> {
+    use crate::control::security::ratelimit::limiter::QuotaCheckParams;
+
     let plan_tier = auth_ctx.metadata.get("plan").map(|s| s.as_str());
+
+    // Resolve tenant and database QPS caps from the quota catalog if available.
+    let quota_params = state.credentials.catalog().as_ref().and_then(|catalog| {
+        let tenant_max_qps = catalog
+            .get_tenant_quota(database_id, identity.tenant_id)
+            .ok()
+            .flatten()
+            .and_then(|r| {
+                if r.max_qps > 0 {
+                    Some(r.max_qps as u64)
+                } else {
+                    None
+                }
+            });
+
+        let database_max_qps = catalog
+            .get_database_quota(database_id)
+            .ok()
+            .flatten()
+            .and_then(|r| {
+                if r.max_qps > 0 {
+                    Some(r.max_qps as u64)
+                } else {
+                    None
+                }
+            });
+
+        if tenant_max_qps.is_some() || database_max_qps.is_some() {
+            Some(QuotaCheckParams {
+                tenant_max_qps,
+                database_max_qps,
+                tenant_id: identity.tenant_id,
+                database_id,
+            })
+        } else {
+            None
+        }
+    });
+
     let result = state.rate_limiter.check(
         &identity.user_id.to_string(),
         &auth_ctx.org_ids,
         plan_tier,
         operation,
+        quota_params.as_ref(),
     );
 
     if !result.allowed {

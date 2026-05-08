@@ -1,17 +1,33 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-//! Hierarchical rate limiter: per-user → per-org → per-tenant.
+//! Hierarchical rate limiter: per-user → per-org → per-tenant → per-database.
 //!
 //! Each identity gets a token bucket. Requests consume tokens based on
 //! endpoint cost multipliers. When empty, requests are rejected with 429.
 //!
-//! Hierarchy: per-key → per-user → per-org → per-tenant.
+//! Hierarchy: per-key → per-user → per-org → per-tenant → per-database.
 //! A request is allowed only if ALL applicable buckets have tokens.
+//! Most-specific bucket that denies determines the error kind.
+//!
+//! ## Lock-poisoning policy
+//!
+//! The `RwLock`-guarded maps in this module hold owned `TokenBucket` values
+//! whose internal state is a small struct of atomics + a refill timestamp.
+//! Bucket mutations are individually consistent and do not span multiple
+//! map operations. A panic in an unrelated request handler therefore cannot
+//! corrupt the contents of these maps; only the `RwLock`'s poison flag is
+//! set. Recovering via `unwrap_or_else(|p| p.into_inner())` keeps the rate
+//! limiter live in the face of a one-off panic — the alternative (every
+//! subsequent request returning a poisoning error) would itself be a
+//! denial-of-service. Revisit if bucket mutation ever becomes a multi-step
+//! protocol that can leave a bucket half-updated.
 
 use std::collections::HashMap;
 use std::sync::RwLock;
 
 use tracing::debug;
+
+use nodedb_types::{DatabaseId, TenantId};
 
 use super::bucket::TokenBucket;
 use super::config::RateLimitConfig;
@@ -26,6 +42,21 @@ pub struct RateLimitResult {
     pub limit: u64,
     /// Seconds until reset (0 if allowed).
     pub retry_after_secs: u64,
+}
+
+/// Parameters for a scoped rate-limit check that includes tenant and
+/// database buckets in addition to the user/org hierarchy.
+///
+/// All fields are optional: set `None` to skip the corresponding bucket.
+pub struct QuotaCheckParams {
+    /// Tenant-scoped QPS cap (`tenant.quota.max_qps`). `0` or `None` = no cap.
+    pub tenant_max_qps: Option<u64>,
+    /// Database-scoped QPS cap (`database.quota.max_qps`). `0` or `None` = no cap.
+    pub database_max_qps: Option<u64>,
+    /// Tenant identifier (used as the bucket key when `tenant_max_qps` is set).
+    pub tenant_id: TenantId,
+    /// Database identifier (used as the bucket key when `database_max_qps` is set).
+    pub database_id: DatabaseId,
 }
 
 /// Result of a pre-authentication login rate-limit check.
@@ -138,12 +169,16 @@ impl RateLimiter {
     /// `org_ids` = user's org memberships (for org-level rate limiting).
     /// `plan_tier` = tier name from `$auth.metadata.plan` (e.g., "free", "pro").
     /// `operation` = endpoint name for cost multiplier lookup.
+    /// `quota` = optional tenant/database QPS caps; pass `None` to skip those buckets.
+    ///
+    /// Check order: user → org → tenant → database. First denial wins.
     pub fn check(
         &self,
         user_id: &str,
         org_ids: &[String],
         plan_tier: Option<&str>,
         operation: &str,
+        quota: Option<&QuotaCheckParams>,
     ) -> RateLimitResult {
         if !self.config.enabled {
             return RateLimitResult {
@@ -186,6 +221,38 @@ impl RateLimiter {
                     "rate limited (org bucket)"
                 );
                 return org_result;
+            }
+        }
+
+        // Check tenant-level bucket (if a cap is configured).
+        if let Some(q) = quota {
+            if q.tenant_max_qps.is_some_and(|v| v > 0) {
+                let tenant_qps = q.tenant_max_qps.unwrap_or(0);
+                let tenant_key = format!("tenant:{}", q.tenant_id.as_u64());
+                let tenant_result = self.check_bucket(&tenant_key, tenant_qps, tenant_qps, cost);
+                if !tenant_result.allowed {
+                    debug!(
+                        tenant_id = q.tenant_id.as_u64(),
+                        operation = %operation,
+                        "rate limited (tenant bucket)"
+                    );
+                    return tenant_result;
+                }
+            }
+
+            // Check database-level bucket (if a cap is configured).
+            if q.database_max_qps.is_some_and(|v| v > 0) {
+                let db_qps = q.database_max_qps.unwrap_or(0);
+                let db_key = format!("database:{}", q.database_id.as_u64());
+                let db_result = self.check_bucket(&db_key, db_qps, db_qps, cost);
+                if !db_result.allowed {
+                    debug!(
+                        database_id = q.database_id.as_u64(),
+                        operation = %operation,
+                        "rate limited (database bucket)"
+                    );
+                    return db_result;
+                }
             }
         }
 
@@ -361,7 +428,7 @@ mod tests {
     #[test]
     fn disabled_allows_all() {
         let limiter = RateLimiter::new(RateLimitConfig::default());
-        let result = limiter.check("u1", &[], None, "point_get");
+        let result = limiter.check("u1", &[], None, "point_get", None);
         assert!(result.allowed);
     }
 
@@ -371,11 +438,11 @@ mod tests {
 
         // Burst of 20, cost 1 each.
         for _ in 0..20 {
-            let r = limiter.check("u1", &[], None, "point_get");
+            let r = limiter.check("u1", &[], None, "point_get", None);
             assert!(r.allowed);
         }
         // 21st request should be rejected.
-        let r = limiter.check("u1", &[], None, "point_get");
+        let r = limiter.check("u1", &[], None, "point_get", None);
         assert!(!r.allowed);
         assert!(r.retry_after_secs > 0);
     }
@@ -385,10 +452,10 @@ mod tests {
         let limiter = RateLimiter::new(enabled_config());
 
         // vector_search costs 20 tokens. Burst is 20. First request OK.
-        let r = limiter.check("u1", &[], None, "vector_search");
+        let r = limiter.check("u1", &[], None, "vector_search", None);
         assert!(r.allowed);
         // Second should fail (20 tokens consumed, 0 remaining).
-        let r = limiter.check("u1", &[], None, "vector_search");
+        let r = limiter.check("u1", &[], None, "vector_search", None);
         assert!(!r.allowed);
     }
 
@@ -398,7 +465,7 @@ mod tests {
 
         // Pro tier: 5000 QPS, 10000 burst.
         for _ in 0..100 {
-            let r = limiter.check("u1", &[], Some("pro"), "point_get");
+            let r = limiter.check("u1", &[], Some("pro"), "point_get", None);
             assert!(r.allowed);
         }
     }
@@ -409,13 +476,13 @@ mod tests {
 
         // Exhaust u1's bucket.
         for _ in 0..20 {
-            limiter.check("u1", &[], None, "point_get");
+            limiter.check("u1", &[], None, "point_get", None);
         }
-        let r = limiter.check("u1", &[], None, "point_get");
+        let r = limiter.check("u1", &[], None, "point_get", None);
         assert!(!r.allowed);
 
         // u2 should still have tokens.
-        let r = limiter.check("u2", &[], None, "point_get");
+        let r = limiter.check("u2", &[], None, "point_get", None);
         assert!(r.allowed);
     }
 
@@ -577,5 +644,116 @@ mod tests {
             elapsed.as_millis() < 10,
             "check_login must be non-blocking; took {elapsed:?}"
         );
+    }
+
+    // ── Tenant and database bucket tests ────────────────────────────────────
+
+    fn db_id() -> DatabaseId {
+        DatabaseId::DEFAULT
+    }
+
+    fn t_id(n: u64) -> TenantId {
+        TenantId::new(n)
+    }
+
+    #[test]
+    fn database_cap_deny_while_tenant_has_headroom() {
+        let limiter = RateLimiter::new(enabled_config());
+
+        // Database cap: 5 (burst = 5). Tenant cap: 1000 (generous).
+        let quota = QuotaCheckParams {
+            tenant_max_qps: Some(1000),
+            database_max_qps: Some(5),
+            tenant_id: t_id(1),
+            database_id: db_id(),
+        };
+
+        // Consume the database bucket.
+        for _ in 0..5 {
+            let r = limiter.check("u1", &[], None, "point_get", Some(&quota));
+            assert!(r.allowed, "first 5 should be allowed under database cap");
+        }
+
+        // 6th request: database bucket exhausted even though tenant bucket is fine.
+        let r = limiter.check("u1", &[], None, "point_get", Some(&quota));
+        assert!(
+            !r.allowed,
+            "database bucket exhausted — request must be denied"
+        );
+    }
+
+    #[test]
+    fn tenant_cap_deny_while_database_has_headroom() {
+        let limiter = RateLimiter::new(enabled_config());
+
+        // Tenant cap: 3. Database cap: 1000 (generous).
+        let quota = QuotaCheckParams {
+            tenant_max_qps: Some(3),
+            database_max_qps: Some(1000),
+            tenant_id: t_id(2),
+            database_id: db_id(),
+        };
+
+        // Consume the tenant bucket.
+        for _ in 0..3 {
+            let r = limiter.check("u2", &[], None, "point_get", Some(&quota));
+            assert!(r.allowed, "first 3 should be allowed under tenant cap");
+        }
+
+        // 4th request: tenant bucket exhausted.
+        let r = limiter.check("u2", &[], None, "point_get", Some(&quota));
+        assert!(
+            !r.allowed,
+            "tenant bucket exhausted — request must be denied"
+        );
+    }
+
+    #[test]
+    fn when_both_would_deny_tenant_wins_over_database() {
+        // Both caps = 1.  The user bucket has burst 20, so it won't deny.
+        // The tenant bucket is checked before the database bucket, so
+        // whichever fires first is the tenant bucket.
+        let limiter = RateLimiter::new(enabled_config());
+
+        let quota = QuotaCheckParams {
+            tenant_max_qps: Some(1),
+            database_max_qps: Some(1),
+            tenant_id: t_id(3),
+            database_id: db_id(),
+        };
+
+        // First request — allowed, drains both caps.
+        let r = limiter.check("u3", &[], None, "point_get", Some(&quota));
+        assert!(r.allowed, "first request should be allowed");
+
+        // Second request — tenant bucket fires first (checked before database).
+        let r2 = limiter.check("u3", &[], None, "point_get", Some(&quota));
+        assert!(!r2.allowed, "second request must be denied");
+        // We can't directly observe *which* bucket denied without instrumenting
+        // the limiter further, but we can assert that a new quota with only a
+        // database cap (no tenant cap) is ALSO denied at this point — confirming
+        // the database bucket was also consumed.
+        let quota_db_only = QuotaCheckParams {
+            tenant_max_qps: None,
+            database_max_qps: Some(1),
+            tenant_id: t_id(3),
+            database_id: db_id(),
+        };
+        let r3 = limiter.check("u3", &[], None, "point_get", Some(&quota_db_only));
+        assert!(!r3.allowed, "database bucket should also be exhausted");
+    }
+
+    #[test]
+    fn no_quota_params_skips_tenant_and_database_buckets() {
+        let limiter = RateLimiter::new(enabled_config());
+        // With no quota params, only user/org buckets apply.
+        // Burst = 20, so 20 requests allowed.
+        for _ in 0..20 {
+            let r = limiter.check("u4", &[], None, "point_get", None);
+            assert!(r.allowed);
+        }
+        // 21st exceeds user burst (not tenant/db).
+        let r = limiter.check("u4", &[], None, "point_get", None);
+        assert!(!r.allowed);
     }
 }

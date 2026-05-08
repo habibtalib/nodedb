@@ -124,6 +124,7 @@ pub fn explain_permission(
         &org_ids,
         auth_ctx.metadata.get("plan").map(|s| s.as_str()),
         "point_get",
+        None,
     );
     steps.push(ExplainStep {
         check: "rate_limit".into(),
