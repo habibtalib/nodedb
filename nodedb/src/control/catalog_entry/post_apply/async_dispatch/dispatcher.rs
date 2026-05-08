@@ -103,7 +103,11 @@ pub fn spawn_post_apply_async_side_effects(
         | CatalogEntry::PutSynonymGroup(_)
         | CatalogEntry::DeleteSynonymGroup { .. }
         | CatalogEntry::PutCustomType(_)
-        | CatalogEntry::DeleteCustomType { .. } => {
+        | CatalogEntry::DeleteCustomType { .. }
+        | CatalogEntry::PutDatabase(_)
+        | CatalogEntry::DeleteDatabase { .. }
+        | CatalogEntry::PutDatabaseGrant { .. }
+        | CatalogEntry::DeleteDatabaseGrant { .. } => {
             let _ = shared;
             let _ = raft_index;
         }

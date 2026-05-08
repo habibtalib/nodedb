@@ -9,7 +9,7 @@ use crate::control::security::catalog::auth_types::object_type;
 use crate::control::security::catalog::{StoredCollection, SystemCatalog};
 
 pub fn put(stored: &StoredCollection, catalog: &SystemCatalog) {
-    if let Err(e) = catalog.put_collection(DatabaseId::DEFAULT, stored) {
+    if let Err(e) = catalog.put_collection(stored.database_id, stored) {
         warn!(
             collection = %stored.name,
             tenant = stored.tenant_id,
