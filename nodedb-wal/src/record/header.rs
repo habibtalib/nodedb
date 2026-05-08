@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-//! WAL record header: fixed 50-byte prefix + constants.
+//! WAL record header: fixed 54-byte prefix + constants.
 
 use crate::error::{Result, WalError};
 
@@ -31,7 +31,12 @@ pub const MAX_WAL_PAYLOAD_SIZE: usize = 64 * 1024 * 1024;
 ///
 /// Layout (all little-endian):
 ///   magic(4) | format_version(2) | record_type(4) | lsn(8) | tenant_id(8)
-///   | vshard_id(4) | payload_len(4) | reserved(16) | crc32c(4)
+///   | vshard_id(4) | payload_len(4) | database_id(8) | reserved(8) | crc32c(4)
+///
+/// `database_id` occupies bytes 34–41 (previously part of the 16-byte reserved
+/// field). `reserved` occupies bytes 42–49. Bytes 34–41 were zero-filled in
+/// prior records, so `database_id == 0` maps to `DatabaseId(0)` (the default
+/// database), preserving backward compatibility without a format-version bump.
 pub const HEADER_SIZE: usize = 54;
 
 /// Bit 14 in `record_type` signals the payload is AES-256-GCM encrypted.
@@ -53,9 +58,15 @@ pub struct RecordHeader {
     pub tenant_id: u64,
     pub vshard_id: u32,
     pub payload_len: u32,
+    /// Database scope for this record. Stored as a raw `u64`; callers convert
+    /// to/from `DatabaseId`. Pre-Tier-2 records had zeros here, so `0` maps to
+    /// `DatabaseId(0)` (the default database) — fully backward compatible.
+    ///
+    /// Occupies bytes 34–41 of the on-disk header (previously part of reserved).
+    pub database_id: u64,
     /// Reserved for future use; must be zero on write; ignored on read
-    /// (but covered by CRC32C).
-    pub reserved: [u8; 16],
+    /// (but covered by CRC32C). Occupies bytes 42–49.
+    pub reserved: [u8; 8],
     pub crc32c: u32,
 }
 
@@ -69,14 +80,15 @@ impl RecordHeader {
         buf[18..26].copy_from_slice(&self.tenant_id.to_le_bytes());
         buf[26..30].copy_from_slice(&self.vshard_id.to_le_bytes());
         buf[30..34].copy_from_slice(&self.payload_len.to_le_bytes());
-        buf[34..50].copy_from_slice(&self.reserved);
+        buf[34..42].copy_from_slice(&self.database_id.to_le_bytes());
+        buf[42..50].copy_from_slice(&self.reserved);
         buf[50..54].copy_from_slice(&self.crc32c.to_le_bytes());
         buf
     }
 
     pub fn from_bytes(buf: &[u8; HEADER_SIZE]) -> Self {
-        let mut reserved = [0u8; 16];
-        reserved.copy_from_slice(&buf[34..50]);
+        let mut reserved = [0u8; 8];
+        reserved.copy_from_slice(&buf[42..50]);
         Self {
             magic: u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]),
             format_version: u16::from_le_bytes([buf[4], buf[5]]),
@@ -89,6 +101,9 @@ impl RecordHeader {
             ]),
             vshard_id: u32::from_le_bytes([buf[26], buf[27], buf[28], buf[29]]),
             payload_len: u32::from_le_bytes([buf[30], buf[31], buf[32], buf[33]]),
+            database_id: u64::from_le_bytes([
+                buf[34], buf[35], buf[36], buf[37], buf[38], buf[39], buf[40], buf[41],
+            ]),
             reserved,
             crc32c: u32::from_le_bytes([buf[50], buf[51], buf[52], buf[53]]),
         }
@@ -141,7 +156,8 @@ mod tests {
             tenant_id: 7,
             vshard_id,
             payload_len: 100,
-            reserved: [0u8; 16],
+            database_id: 0,
+            reserved: [0u8; 8],
             crc32c: 0xDEAD_BEEF,
         }
     }
@@ -157,7 +173,8 @@ mod tests {
     fn header_golden_54_bytes_exact_offsets() {
         // magic at 0..4, format_version at 4..6, record_type at 6..10,
         // lsn at 10..18, tenant_id at 18..26, vshard_id at 26..30,
-        // payload_len at 30..34, reserved at 34..50, crc32c at 50..54.
+        // payload_len at 30..34, database_id at 34..42, reserved at 42..50,
+        // crc32c at 50..54.
         let header = RecordHeader {
             magic: WAL_MAGIC,
             format_version: WAL_FORMAT_VERSION,
@@ -166,7 +183,8 @@ mod tests {
             tenant_id: 0xDEAD_BEEF_CAFE_1234,
             vshard_id: 0xCAFE_BABE,
             payload_len: 256,
-            reserved: [0u8; 16],
+            database_id: 0xABCD_0000_1234_5678,
+            reserved: [0u8; 8],
             crc32c: 0x1234_5678,
         };
         let b = header.to_bytes();
@@ -179,16 +197,51 @@ mod tests {
         assert_eq!(&b[6..10], &1u32.to_le_bytes());
         // lsn
         assert_eq!(&b[10..18], &0x0102_0304_0506_0708u64.to_le_bytes());
-        // tenant_id (now u64, 8 bytes)
+        // tenant_id (u64, 8 bytes)
         assert_eq!(&b[18..26], &0xDEAD_BEEF_CAFE_1234u64.to_le_bytes());
         // vshard_id
         assert_eq!(&b[26..30], &0xCAFE_BABEu32.to_le_bytes());
         // payload_len
         assert_eq!(&b[30..34], &256u32.to_le_bytes());
+        // database_id
+        assert_eq!(&b[34..42], &0xABCD_0000_1234_5678u64.to_le_bytes());
         // reserved — all zero
-        assert_eq!(&b[34..50], &[0u8; 16]);
+        assert_eq!(&b[42..50], &[0u8; 8]);
         // crc32c
         assert_eq!(&b[50..54], &0x1234_5678u32.to_le_bytes());
+    }
+
+    #[test]
+    fn database_id_roundtrip() {
+        // Non-zero database_id survives to_bytes → from_bytes.
+        let header = RecordHeader {
+            magic: WAL_MAGIC,
+            format_version: WAL_FORMAT_VERSION,
+            record_type: 1,
+            lsn: 1,
+            tenant_id: 42,
+            vshard_id: 0,
+            payload_len: 0,
+            database_id: 7,
+            reserved: [0u8; 8],
+            crc32c: 0,
+        };
+        let bytes = header.to_bytes();
+        let decoded = RecordHeader::from_bytes(&bytes);
+        assert_eq!(decoded.database_id, 7);
+    }
+
+    #[test]
+    fn pre_tier2_zero_database_id_compat() {
+        // A record written before Tier 2 has zeros at bytes 34..42.
+        // from_bytes must decode that as database_id == 0 (the default database).
+        let mut raw = [0u8; HEADER_SIZE];
+        raw[0..4].copy_from_slice(&WAL_MAGIC.to_le_bytes());
+        raw[4..6].copy_from_slice(&WAL_FORMAT_VERSION.to_le_bytes());
+        raw[6..10].copy_from_slice(&1u32.to_le_bytes()); // record_type
+        // bytes 34..50 stay zero (pre-Tier-2 reserved field)
+        let decoded = RecordHeader::from_bytes(&raw);
+        assert_eq!(decoded.database_id, 0);
     }
 
     #[test]
@@ -203,7 +256,8 @@ mod tests {
             tenant_id: tid,
             vshard_id: 0,
             payload_len: 0,
-            reserved: [0u8; 16],
+            database_id: 0,
+            reserved: [0u8; 8],
             crc32c: 0,
         };
         let bytes = header.to_bytes();
