@@ -185,15 +185,16 @@ mod tests {
 
     #[test]
     fn parse_clone_database() {
+        use crate::ddl_ast::CloneAsOf;
         match ok("CLONE DATABASE new_db FROM source_db") {
             NodedbStatement::CloneDatabase {
                 new_name,
                 source_name,
-                as_of_ms,
+                as_of,
             } => {
                 assert_eq!(new_name, "new_db");
                 assert_eq!(source_name, "source_db");
-                assert_eq!(as_of_ms, None);
+                assert_eq!(as_of, CloneAsOf::Latest);
             }
             other => panic!("unexpected: {other:?}"),
         }

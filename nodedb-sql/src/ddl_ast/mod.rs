@@ -26,4 +26,4 @@ pub use graph_parse::{FusionParams, parse_search_using_fusion};
 pub use graph_types::{GraphDirection, GraphProperties};
 pub use nodedb_types::QuotaSpec;
 pub use parse::parse;
-pub use statement::{AlterDatabaseOperation, AlterTenantOperation, NodedbStatement};
+pub use statement::{AlterDatabaseOperation, AlterTenantOperation, CloneAsOf, NodedbStatement};

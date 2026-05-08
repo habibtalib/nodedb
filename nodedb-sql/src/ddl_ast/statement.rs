@@ -6,6 +6,22 @@ pub use super::alter_ops::{AlterCollectionOp, AlterRoleOp, AlterUserOp};
 pub use super::graph_types::{GraphDirection, GraphProperties};
 pub use nodedb_types::QuotaSpec;
 
+/// Temporal anchor for a `CLONE DATABASE` statement.
+///
+/// Every `match` on this enum must be exhaustive — no `_ =>` arms.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CloneAsOf {
+    /// Use the source database's current commit LSN at clone time.
+    /// Corresponds to the bare `CLONE DATABASE … FROM …` form or the
+    /// explicit `… AS OF SYSTEM TIME LATEST` form.
+    Latest,
+    /// Use the LSN corresponding to the given milliseconds-since-epoch
+    /// timestamp, resolved via the `LsnMsAnchor` mechanism.
+    ///
+    /// Corresponds to `… AS OF SYSTEM TIME <ms>`.
+    SystemTimeMs(i64),
+}
+
 /// Operations available on `ALTER DATABASE <name> <operation>`.
 ///
 /// Every variant must be matched exhaustively — no `_ =>` arms anywhere.
@@ -391,12 +407,12 @@ pub enum NodedbStatement {
         name: String,
     },
     /// `CLONE DATABASE <new> FROM <source> [AS OF SYSTEM TIME <ms> | LATEST]`
-    ///
-    /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the clone subsystem lands.
     CloneDatabase {
         new_name: String,
         source_name: String,
-        as_of_ms: Option<u64>,
+        /// The temporal anchor for this clone. `Latest` means "use the
+        /// source's current commit LSN at clone time".
+        as_of: CloneAsOf,
     },
     /// `MIRROR DATABASE <replica> FROM <source> [MODE = sync | async]`
     ///
