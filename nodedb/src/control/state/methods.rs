@@ -12,6 +12,33 @@ use crate::types::TenantId;
 use super::SharedState;
 
 impl SharedState {
+    /// Snapshot the configured global quota ceiling.
+    ///
+    /// Callers (notably `ALTER DATABASE … SET QUOTA`) pass the result to
+    /// `SystemCatalog::put_database_quota` so the sum-of-quotas check runs
+    /// against the live ceiling. A poisoned lock falls back to
+    /// `GlobalQuotaCeiling::default()` (all zeros = no enforcement) so a
+    /// poisoned lock never silently rejects valid quotas; the upstream poison
+    /// will surface elsewhere with a real diagnostic.
+    pub fn quota_ceiling_snapshot(&self) -> crate::control::security::catalog::GlobalQuotaCeiling {
+        match self.quota_ceiling.read() {
+            Ok(g) => g.clone(),
+            Err(p) => p.into_inner().clone(),
+        }
+    }
+
+    /// Replace the global quota ceiling. Called once at startup after the
+    /// server config is parsed; future `ALTER SYSTEM` paths may also call this.
+    pub fn set_quota_ceiling(
+        &self,
+        ceiling: crate::control::security::catalog::GlobalQuotaCeiling,
+    ) {
+        match self.quota_ceiling.write() {
+            Ok(mut g) => *g = ceiling,
+            Err(p) => *p.into_inner() = ceiling,
+        }
+    }
+
     /// Allocate the next unique request ID for this node.
     ///
     /// All callers that dispatch to the local Data Plane and register a waiter

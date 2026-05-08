@@ -17,6 +17,7 @@ pub mod consumer_groups;
 pub mod custom_types;
 pub mod database;
 pub mod database_grants;
+pub mod database_quotas;
 pub mod database_types;
 pub mod dependencies;
 pub mod function_types;
@@ -42,6 +43,7 @@ pub mod surrogate_pk;
 pub mod synonym_groups;
 pub mod system_catalog;
 pub mod tables;
+pub mod tenant_quotas;
 pub mod topics;
 pub mod trigger_types;
 pub mod triggers;
@@ -60,6 +62,7 @@ pub use collection_constraints::{
 };
 pub use custom_types::{CompositeField, CustomTypeDef, StoredCustomType};
 pub use database_grants::DatabaseGrant;
+pub use database_quotas::GlobalQuotaCeiling;
 pub use database_types::{DatabaseDescriptor, DatabaseStatus, ParentCloneRef};
 pub use function_types::{
     FunctionLanguage, FunctionParam, FunctionSecurity, FunctionVolatility, StoredFunction,

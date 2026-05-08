@@ -164,6 +164,9 @@ impl From<Error> for NodeDbError {
 
             // Client input
             Error::BadRequest { detail } => NodeDbError::bad_request(detail),
+            Error::QuotaOvercommit { field, detail } => {
+                NodeDbError::quota_overcommit(field, detail)
+            }
             Error::PlanError { detail } => NodeDbError::plan_error(detail),
             Error::RetryableSchemaChanged { descriptor } => {
                 NodeDbError::plan_error(format!("retryable schema change on {descriptor}"))

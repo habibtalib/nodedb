@@ -139,6 +139,11 @@ pub enum Error {
     #[error("bad request: {detail}")]
     BadRequest { detail: String },
 
+    /// The proposed quota allocation would push the sum past the configured
+    /// ceiling. The `field` names the over-budget dimension.
+    #[error("quota overcommit on field '{field}': {detail}")]
+    QuotaOvercommit { field: String, detail: String },
+
     #[error("query plan error: {detail}")]
     PlanError { detail: String },
 

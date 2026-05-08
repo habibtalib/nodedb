@@ -166,6 +166,12 @@ impl SystemCatalog {
             let _ = write_txn
                 .open_table(DATABASE_HWM)
                 .map_err(|e| catalog_err("init database_hwm table", e))?;
+            let _ = write_txn
+                .open_table(DATABASE_QUOTAS)
+                .map_err(|e| catalog_err("init database_quotas table", e))?;
+            let _ = write_txn
+                .open_table(TENANT_QUOTAS)
+                .map_err(|e| catalog_err("init tenant_quotas table", e))?;
         }
         write_txn
             .commit()

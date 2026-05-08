@@ -304,6 +304,9 @@ impl SharedState {
             raft_propose_leader_change_retries: AtomicU64::new(0),
             request_id_counter: AtomicU64::new(1),
             system_metrics: Some(Arc::new(crate::control::metrics::SystemMetrics::new())),
+            quota_ceiling: Arc::new(std::sync::RwLock::new(
+                crate::control::security::catalog::GlobalQuotaCeiling::default(),
+            )),
             retention_settings: Arc::new(std::sync::RwLock::new(
                 crate::config::server::RetentionSettings::default(),
             )),

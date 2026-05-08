@@ -255,6 +255,24 @@ async fn main() -> anyhow::Result<()> {
         &root_span,
     )?;
 
+    // Wire global quota ceiling from server config so `ALTER DATABASE SET QUOTA`
+    // can validate the sum-of-database-quotas against the cluster's physical
+    // resources. `memory_limit` and `max_connections` are the only dimensions
+    // the server config currently constrains; storage and QPS pass through as
+    // zero (= no ceiling) until [server.storage_limit] / [server.qps_limit]
+    // land. The ALTER handler treats zero on any dimension as "skip that check".
+    {
+        use nodedb::control::security::catalog::GlobalQuotaCeiling;
+        let mem_u64 = u64::try_from(config.server.memory_limit).unwrap_or(u64::MAX);
+        let conn_u64 = u64::try_from(config.server.max_connections).unwrap_or(u64::MAX);
+        shared.set_quota_ceiling(GlobalQuotaCeiling {
+            max_memory_bytes: mem_u64,
+            max_storage_bytes: 0,
+            max_qps: 0,
+            max_connections: conn_u64,
+        });
+    }
+
     // Apply login rate-limit capacities from cluster config (or defaults).
     {
         let (ip_cap, user_cap) = config

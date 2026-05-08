@@ -256,6 +256,14 @@ pub struct SharedState {
     pub request_id_counter: AtomicU64,
     /// System-wide metrics (Prometheus format).
     pub system_metrics: Option<Arc<crate::control::metrics::SystemMetrics>>,
+    /// Global per-cluster quota ceiling enforced when database quotas are
+    /// written. Populated at startup from `[server]` config (`memory_limit`,
+    /// `max_connections`); a zero on any dimension means "no ceiling for that
+    /// dimension". Read by `ALTER DATABASE … SET QUOTA` to validate that the
+    /// sum of all configured database quotas stays within the cluster's
+    /// physical resources. Wrapped in `RwLock` so a future `ALTER SYSTEM` path
+    /// can mutate it without restarting.
+    pub quota_ceiling: Arc<RwLock<crate::control::security::catalog::GlobalQuotaCeiling>>,
     /// Live retention settings. RwLock-wrapped for runtime ALTER SYSTEM mutation.
     pub retention_settings: Arc<std::sync::RwLock<crate::config::server::RetentionSettings>>,
     /// Memory governor for per-engine budget enforcement.

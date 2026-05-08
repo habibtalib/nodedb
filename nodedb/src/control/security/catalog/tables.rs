@@ -241,6 +241,23 @@ pub(super) const DATABASE_GRANTS: TableDefinition<&str, &[u8]> =
 pub(super) const SCOPE_GRANTS: TableDefinition<&str, &[u8]> =
     TableDefinition::new("_system.scope_grants");
 
+// ── Database and tenant quotas ────────────────────────────────────────
+
+/// Table: `database_id (u64)` -> MessagePack-serialized `QuotaRecord`.
+///
+/// Stores the explicit resource budget for each database. Absence means the
+/// database has no configured ceiling; enforcement falls back to global limits.
+pub(super) const DATABASE_QUOTAS: TableDefinition<u64, &[u8]> =
+    TableDefinition::new("_system.database_quotas");
+
+/// Table: `(database_id: u64, tenant_id: u64)` -> MessagePack-serialized `QuotaRecord`.
+///
+/// Stores the resource budget for a specific tenant within a specific database.
+/// The sum of all tenant quotas within a database must not exceed that database's
+/// quota; this invariant is checked at write time.
+pub(super) const TENANT_QUOTAS: TableDefinition<(u64, u64), &[u8]> =
+    TableDefinition::new("_system.tenant_quotas");
+
 // ── Vector model + checkpoints ────────────────────────────────────────
 
 /// Table: "{tenant_id}:{collection}:{column}" -> MessagePack-serialized VectorModelEntry.
