@@ -343,4 +343,6 @@ pub struct SharedState {
     pub backup_kek: Option<Arc<[u8; 32]>>,
     /// In-process quarantine registry for corrupt segments.
     pub quarantine_registry: Arc<crate::storage::quarantine::QuarantineRegistry>,
+    /// Per-database and per-tenant connection admission semaphores.
+    pub admission_registry: Arc<crate::control::server::admission::AdmissionRegistry>,
 }

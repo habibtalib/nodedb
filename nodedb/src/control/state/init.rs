@@ -345,6 +345,9 @@ impl SharedState {
             gateway: None,
             backup_kek: None,
             quarantine_registry: Arc::new(crate::storage::quarantine::QuarantineRegistry::new()),
+            admission_registry: Arc::new(
+                crate::control::server::admission::AdmissionRegistry::new(),
+            ),
             shutdown: Arc::clone(&shutdown),
             loop_registry: Arc::clone(&loop_registry),
             startup: Arc::clone(&startup_gate),

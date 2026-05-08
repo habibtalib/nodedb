@@ -391,6 +391,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Create shared connection semaphore — enforced across all listeners.
     let conn_semaphore = Arc::new(tokio::sync::Semaphore::new(config.server.max_connections));
+
+    // Per-database and per-tenant connection semaphore registry.
+    // Populated at runtime when ALTER DATABASE/TENANT SET QUOTA configures max_connections.
+    let admission_registry = Arc::new(nodedb::control::server::admission::AdmissionRegistry::new());
     info!(
         max_connections = config.server.max_connections,
         "connection limit configured"
@@ -481,14 +485,15 @@ async fn main() -> anyhow::Result<()> {
     // Run native listener on main task.
     let native_auth_mode = config.auth.mode.clone();
     listener
-        .run(
-            shared,
-            native_auth_mode,
-            native_tls,
+        .run(nodedb::control::server::listener::ListenerRunParams {
+            state: shared,
+            auth_mode: native_auth_mode,
+            tls_acceptor: native_tls,
             conn_semaphore,
-            Arc::clone(&startup_gate),
-            shutdown_bus.clone(),
-        )
+            startup_gate: Arc::clone(&startup_gate),
+            bus: shutdown_bus.clone(),
+            admission: admission_registry,
+        })
         .await?;
 
     info!("server shutting down");
