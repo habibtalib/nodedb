@@ -75,7 +75,12 @@ impl CoreLoop {
                 {
                     warn!(core = self.core_id, %doc_id, error = %e, "truncate: edge cascade failed");
                 }
-                self.doc_cache.invalidate(tid, collection, doc_id);
+                self.doc_cache.invalidate(
+                    task.request.database_id.as_u64(),
+                    tid,
+                    collection,
+                    doc_id,
+                );
                 truncated += 1;
             }
         }

@@ -184,7 +184,8 @@ impl CoreLoop {
         };
 
         // Doc cache: evict entries for this collection.
-        self.doc_cache.evict_collection(tenant_id, collection);
+        self.doc_cache
+            .evict_collection(task.request.database_id.as_u64(), tenant_id, collection);
 
         // ── Persistent on-disk unlinks (per-engine reclaim) ──────────────────
         //

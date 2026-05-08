@@ -31,7 +31,11 @@ mod convert_array_arms;
 /// `(tenant_id, collection, document_id)` — by embedding the database ID
 /// into the collection token, isolation between databases is automatic.
 pub fn db_qualified(database_id: crate::types::DatabaseId, collection: &str) -> String {
-    format!("{}/{}", database_id.as_u64(), collection)
+    if database_id == crate::types::DatabaseId::DEFAULT {
+        collection.to_string()
+    } else {
+        format!("{}/{}", database_id.as_u64(), collection)
+    }
 }
 
 /// Conversion context holding optional references needed during plan conversion.

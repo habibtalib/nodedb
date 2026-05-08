@@ -7,6 +7,7 @@ use tracing::debug;
 
 use crate::bridge::envelope::{ErrorCode, Response};
 use crate::data::executor::core_loop::CoreLoop;
+use crate::data::executor::handlers::point::apply_put::PointPutParams;
 use crate::data::executor::task::ExecutionTask;
 use crate::engine::document::store::surrogate_to_doc_id;
 use nodedb_types::Surrogate;
@@ -38,7 +39,17 @@ impl CoreLoop {
             }
         };
 
-        let prior = match self.apply_point_put(&txn, tid, collection, row_key, surrogate, value) {
+        let prior = match self.apply_point_put(
+            &txn,
+            PointPutParams {
+                database_id: task.request.database_id.as_u64(),
+                tid,
+                collection,
+                document_id: row_key,
+                surrogate,
+                value,
+            },
+        ) {
             Ok(p) => p,
             Err(e) => {
                 return self.response_error(

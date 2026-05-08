@@ -150,7 +150,12 @@ impl CoreLoop {
                 self.mark_node_deleted(tid, document_id);
 
                 // Invalidate document cache.
-                self.doc_cache.invalidate(tid, collection, row_key);
+                self.doc_cache.invalidate(
+                    task.request.database_id.as_u64(),
+                    tid,
+                    collection,
+                    row_key,
+                );
 
                 self.checkpoint_coordinator.mark_dirty("sparse", 1);
 

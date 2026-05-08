@@ -11,6 +11,16 @@ use tracing::warn;
 use crate::data::executor::core_loop::CoreLoop;
 use nodedb_types::Surrogate;
 
+/// Parameters for [`CoreLoop::apply_point_put`].
+pub(in crate::data::executor) struct PointPutParams<'a> {
+    pub database_id: u64,
+    pub tid: u64,
+    pub collection: &'a str,
+    pub document_id: &'a str,
+    pub surrogate: Surrogate,
+    pub value: &'a [u8],
+}
+
 impl CoreLoop {
     /// Apply a PointPut within an externally-owned WriteTransaction.
     ///
@@ -28,12 +38,16 @@ impl CoreLoop {
     pub(in crate::data::executor) fn apply_point_put(
         &mut self,
         txn: &WriteTransaction,
-        tid: u64,
-        collection: &str,
-        document_id: &str,
-        surrogate: Surrogate,
-        value: &[u8],
+        params: PointPutParams<'_>,
     ) -> crate::Result<Option<Vec<u8>>> {
+        let PointPutParams {
+            database_id,
+            tid,
+            collection,
+            document_id,
+            surrogate,
+            value,
+        } = params;
         // Evaluate generated columns before encoding.
         let config_key = (crate::types::TenantId::new(tid), collection.to_string());
         let value = if let Some(config) = self.doc_configs.get(&config_key)
@@ -149,7 +163,8 @@ impl CoreLoop {
                 .retain(|(t, rest), _| !(*t == tid_key && rest.starts_with(&coll_prefix)));
         }
 
-        self.doc_cache.put(tid, collection, document_id, &stored);
+        self.doc_cache
+            .put(database_id, tid, collection, document_id, &stored);
 
         // Secondary index extraction: if this collection has registered
         // index paths, extract values and write them into the INDEXES redb

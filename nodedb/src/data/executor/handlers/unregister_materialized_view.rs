@@ -54,7 +54,8 @@ impl CoreLoop {
         // Doc cache: an MV's rows can be cached the same way a
         // collection's are (the Control Plane surfaces `SELECT * FROM
         // <mv>` through the same path).
-        self.doc_cache.evict_collection(tenant_id, name);
+        self.doc_cache
+            .evict_collection(task.request.database_id.as_u64(), tenant_id, name);
 
         // Aggregate + chain-hash + doc-config caches are all keyed
         // `(tenant, collection_or_mv_name)` — same retain sweep.

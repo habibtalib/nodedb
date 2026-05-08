@@ -7,6 +7,7 @@ use tracing::debug;
 use crate::bridge::envelope::{ErrorCode, PhysicalPlan};
 use crate::bridge::physical_plan::DocumentOp;
 use crate::data::executor::core_loop::CoreLoop;
+use crate::data::executor::handlers::point::apply_put::PointPutParams;
 use crate::data::executor::task::ExecutionTask;
 
 impl CoreLoop {
@@ -89,17 +90,28 @@ impl CoreLoop {
                 unreachable!("batch only contains PointPut");
             };
             let tid = task.request.tenant_id.as_u64();
+            let db_id = task.request.database_id.as_u64();
             let row_key = crate::engine::document::store::surrogate_to_doc_id(*surrogate);
             results.push(
-                self.apply_point_put(&txn, tid, collection, &row_key, *surrogate, value)
-                    .map_err(|e| {
-                        self.response_error(
-                            task,
-                            ErrorCode::Internal {
-                                detail: e.to_string(),
-                            },
-                        )
-                    }),
+                self.apply_point_put(
+                    &txn,
+                    PointPutParams {
+                        database_id: db_id,
+                        tid,
+                        collection,
+                        document_id: &row_key,
+                        surrogate: *surrogate,
+                        value,
+                    },
+                )
+                .map_err(|e| {
+                    self.response_error(
+                        task,
+                        ErrorCode::Internal {
+                            detail: e.to_string(),
+                        },
+                    )
+                }),
             );
         }
 
