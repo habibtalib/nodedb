@@ -112,10 +112,15 @@ mod tests {
 
     #[test]
     fn parse_alter_database_set_quota() {
-        match ok("ALTER DATABASE mydb SET QUOTA 42") {
+        match ok("ALTER DATABASE mydb SET QUOTA (max_qps = 500)") {
             NodedbStatement::AlterDatabase { name, operation } => {
                 assert_eq!(name, "mydb");
-                assert_eq!(operation, AlterDatabaseOperation::SetQuota { quota_id: 42 });
+                match operation {
+                    AlterDatabaseOperation::SetQuota(spec) => {
+                        assert_eq!(spec.max_qps, Some(500));
+                    }
+                    other => panic!("expected SetQuota, got {other:?}"),
+                }
             }
             other => panic!("unexpected: {other:?}"),
         }

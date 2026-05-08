@@ -20,6 +20,7 @@ mod rls;
 mod schedule;
 mod sequence;
 mod synonym_group;
+mod tenant;
 mod trigger;
 mod user_auth;
 pub mod vector_primary;

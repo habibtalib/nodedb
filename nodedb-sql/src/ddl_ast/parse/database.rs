@@ -6,6 +6,8 @@
 //!   CLONE DATABASE, MIRROR DATABASE, MOVE TENANT,
 //!   BACKUP DATABASE, RESTORE DATABASE.
 
+use nodedb_types::{PriorityClass, QuotaSpec};
+
 use crate::ddl_ast::statement::{AlterDatabaseOperation, NodedbStatement};
 use crate::error::SqlError;
 
@@ -25,7 +27,7 @@ pub fn try_parse(
     match first.to_uppercase().as_str() {
         "CREATE" if second == "DATABASE" => Some(parse_create_database(parts, original)),
         "DROP" if second == "DATABASE" => Some(parse_drop_database(parts)),
-        "ALTER" if second == "DATABASE" => Some(parse_alter_database(parts)),
+        "ALTER" if second == "DATABASE" => Some(parse_alter_database(parts, original)),
         "USE" if second == "DATABASE" => Some(parse_use_database(parts)),
         "CLONE" if second == "DATABASE" => Some(parse_clone_database(parts, original)),
         "MIRROR" if second == "DATABASE" => Some(parse_mirror_database(parts)),
@@ -33,9 +35,21 @@ pub fn try_parse(
         "BACKUP" if second == "DATABASE" => Some(parse_backup_database(parts)),
         "RESTORE" if second == "DATABASE" => Some(parse_restore_database(parts)),
         "SHOW" if second == "DATABASES" && parts.len() == 2 => {
-            // "SHOW DATABASES" only. Other `SHOW DATABASE ...` shapes are
-            // intentionally unhandled and fall through to other parsers.
             Some(Ok(NodedbStatement::ShowDatabases))
+        }
+        // SHOW DATABASE QUOTA FOR <name>
+        "SHOW"
+            if second == "DATABASE"
+                && parts.get(2).map(|w| w.to_uppercase()).as_deref() == Some("QUOTA") =>
+        {
+            Some(parse_show_database_quota_or_usage(parts, false))
+        }
+        // SHOW DATABASE USAGE FOR <name>
+        "SHOW"
+            if second == "DATABASE"
+                && parts.get(2).map(|w| w.to_uppercase()).as_deref() == Some("USAGE") =>
+        {
+            Some(parse_show_database_quota_or_usage(parts, true))
         }
         _ => None,
     }
@@ -124,7 +138,7 @@ fn parse_drop_database(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
 
 // ── ALTER DATABASE ──────────────────────────────────────────────────────────
 
-fn parse_alter_database(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
+fn parse_alter_database(parts: &[&str], original: &str) -> Result<NodedbStatement, SqlError> {
     // ALTER DATABASE <name> { RENAME TO <new> | SET QUOTA (<id>) | SET DEFAULT |
     //                         MATERIALIZE | PROMOTE }
     let name = parts
@@ -167,13 +181,9 @@ fn parse_alter_database(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
             let target = parts.get(4).map(|w| w.to_uppercase()).unwrap_or_default();
             match target.as_str() {
                 "QUOTA" => {
-                    // SET QUOTA (<quota_id>)  or  SET QUOTA <quota_id>
-                    let raw = parts.get(5).copied().unwrap_or("0");
-                    let raw = raw.trim_matches(|c| c == '(' || c == ')');
-                    let quota_id = raw.parse::<u64>().map_err(|_| SqlError::Parse {
-                        detail: format!("ALTER DATABASE SET QUOTA: invalid quota id '{raw}'"),
-                    })?;
-                    AlterDatabaseOperation::SetQuota { quota_id }
+                    // SET QUOTA (field = value, ...)
+                    let spec = parse_quota_spec(original, "ALTER DATABASE SET QUOTA")?;
+                    AlterDatabaseOperation::SetQuota(spec)
                 }
                 "DEFAULT" => AlterDatabaseOperation::SetDefault,
                 other => {
@@ -410,6 +420,158 @@ fn parse_restore_database(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
     Ok(NodedbStatement::RestoreDatabase { name, uri })
 }
 
+// ── SHOW DATABASE QUOTA / USAGE ──────────────────────────────────────────────
+
+/// Parse `SHOW DATABASE QUOTA FOR <name>` or `SHOW DATABASE USAGE FOR <name>`.
+/// `is_usage = false` → quota, `is_usage = true` → usage.
+fn parse_show_database_quota_or_usage(
+    parts: &[&str],
+    is_usage: bool,
+) -> Result<NodedbStatement, SqlError> {
+    // SHOW DATABASE {QUOTA|USAGE} FOR <name>
+    // parts: [SHOW, DATABASE, QUOTA|USAGE, FOR, <name>]
+    let for_idx = parts
+        .iter()
+        .position(|w| w.eq_ignore_ascii_case("FOR"))
+        .ok_or_else(|| SqlError::Parse {
+            detail: "SHOW DATABASE QUOTA / USAGE requires FOR <name>".into(),
+        })?;
+    let name = parts
+        .get(for_idx + 1)
+        .copied()
+        .ok_or_else(|| SqlError::Parse {
+            detail: "SHOW DATABASE QUOTA / USAGE FOR requires a database name".into(),
+        })?
+        .trim_matches('"')
+        .to_string();
+
+    if is_usage {
+        Ok(NodedbStatement::ShowDatabaseUsage { name })
+    } else {
+        Ok(NodedbStatement::ShowDatabaseQuota { name })
+    }
+}
+
+// ── parse_quota_spec ─────────────────────────────────────────────────────────
+
+/// Parse a `(field = value, ...)` clause from a raw SQL string into a [`QuotaSpec`].
+///
+/// Finds the first `(` after the `QUOTA` keyword, reads key=value pairs until `)`,
+/// and rejects unknown keys or `=>` used instead of `=`.
+pub(crate) fn parse_quota_spec(sql: &str, context: &str) -> Result<QuotaSpec, SqlError> {
+    // Find the opening paren.
+    let paren_start = sql.find('(').ok_or_else(|| SqlError::Parse {
+        detail: format!("{context}: expected '(' before quota arguments"),
+    })?;
+    let after = &sql[paren_start + 1..];
+    let paren_end = after.find(')').ok_or_else(|| SqlError::Parse {
+        detail: format!("{context}: unterminated '(' in quota clause"),
+    })?;
+    let inner = &after[..paren_end];
+
+    let mut spec = QuotaSpec::default();
+
+    for pair in inner.split(',') {
+        let pair = pair.trim();
+        if pair.is_empty() {
+            continue;
+        }
+        // Reject `=>` (fat arrow used in vector kwargs) — this is `=` only.
+        if pair.contains("=>") {
+            return Err(SqlError::Parse {
+                detail: format!(
+                    "{context}: use '=' not '=>' for quota key-value pairs (near '{pair}')"
+                ),
+            });
+        }
+        let mut it = pair.splitn(2, '=');
+        let key = it.next().unwrap_or("").trim().to_lowercase();
+        let val = it
+            .next()
+            .ok_or_else(|| SqlError::Parse {
+                detail: format!("{context}: expected '=' in quota pair '{pair}'"),
+            })?
+            .trim()
+            .trim_matches('\'')
+            .trim_matches('"');
+
+        match key.as_str() {
+            "max_memory_bytes" => {
+                spec.max_memory_bytes = Some(val.parse::<u64>().map_err(|_| SqlError::Parse {
+                    detail: format!(
+                        "{context}: max_memory_bytes must be a non-negative integer, got '{val}'"
+                    ),
+                })?);
+            }
+            "max_storage_bytes" => {
+                spec.max_storage_bytes = Some(val.parse::<u64>().map_err(|_| SqlError::Parse {
+                    detail: format!(
+                        "{context}: max_storage_bytes must be a non-negative integer, got '{val}'"
+                    ),
+                })?);
+            }
+            "max_qps" => {
+                spec.max_qps = Some(val.parse::<u32>().map_err(|_| SqlError::Parse {
+                    detail: format!(
+                        "{context}: max_qps must be a non-negative integer, got '{val}'"
+                    ),
+                })?);
+            }
+            "max_connections" => {
+                spec.max_connections = Some(val.parse::<u32>().map_err(|_| SqlError::Parse {
+                    detail: format!(
+                        "{context}: max_connections must be a non-negative integer, got '{val}'"
+                    ),
+                })?);
+            }
+            "cache_weight" => {
+                let w = val.parse::<u32>().map_err(|_| SqlError::Parse {
+                    detail: format!(
+                        "{context}: cache_weight must be a positive integer, got '{val}'"
+                    ),
+                })?;
+                if w == 0 {
+                    return Err(SqlError::Parse {
+                        detail: format!(
+                            "{context}: cache_weight must be ≥ 1 (zero would mean \
+                             no doc-cache capacity at all)"
+                        ),
+                    });
+                }
+                spec.cache_weight = Some(w);
+            }
+            "priority_class" => {
+                let pc = val.parse::<PriorityClass>().map_err(|e| SqlError::Parse {
+                    detail: format!("{context}: invalid priority_class — {e}"),
+                })?;
+                spec.priority_class = Some(pc);
+            }
+            "maintenance_cpu_pct" => {
+                let pct = val.parse::<u8>().map_err(|_| SqlError::Parse {
+                    detail: format!("{context}: maintenance_cpu_pct must be 0–100, got '{val}'"),
+                })?;
+                if pct > 100 {
+                    return Err(SqlError::Parse {
+                        detail: format!("{context}: maintenance_cpu_pct must be ≤ 100, got {pct}"),
+                    });
+                }
+                spec.maintenance_cpu_pct = Some(pct);
+            }
+            other => {
+                return Err(SqlError::Parse {
+                    detail: format!(
+                        "{context}: unknown quota field '{other}'. \
+                         Valid fields: max_memory_bytes, max_storage_bytes, max_qps, \
+                         max_connections, cache_weight, priority_class, maintenance_cpu_pct"
+                    ),
+                });
+            }
+        }
+    }
+
+    Ok(spec)
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /// Extract `WITH (key=value, ...)` pairs from a raw SQL string.
@@ -555,14 +717,17 @@ mod tests {
 
     #[test]
     fn parse_alter_database_set_quota() {
-        let stmt = ok("ALTER DATABASE mydb SET QUOTA 42");
-        assert_eq!(
-            stmt,
+        let stmt = ok("ALTER DATABASE mydb SET QUOTA (max_memory_bytes = 1073741824)");
+        match stmt {
             NodedbStatement::AlterDatabase {
-                name: "mydb".into(),
-                operation: AlterDatabaseOperation::SetQuota { quota_id: 42 },
+                name,
+                operation: AlterDatabaseOperation::SetQuota(spec),
+            } => {
+                assert_eq!(name, "mydb");
+                assert_eq!(spec.max_memory_bytes, Some(1_073_741_824));
             }
-        );
+            other => panic!("expected AlterDatabase SetQuota, got {other:?}"),
+        }
     }
 
     #[test]
@@ -572,6 +737,38 @@ mod tests {
         let parts: Vec<&str> = sql.split_whitespace().collect();
         let stmt = try_parse(&upper, &parts, sql).unwrap().unwrap();
         assert_eq!(stmt, NodedbStatement::ShowDatabases);
+    }
+
+    #[test]
+    fn parse_alter_database_set_quota_cache_weight_zero_rejected() {
+        let sql = "ALTER DATABASE mydb SET QUOTA (cache_weight = 0)";
+        let upper = sql.to_uppercase();
+        let parts: Vec<&str> = sql.split_whitespace().collect();
+        let err = try_parse(&upper, &parts, sql).unwrap().unwrap_err();
+        match err {
+            SqlError::Parse { detail } => {
+                assert!(detail.contains("cache_weight"), "unexpected: {detail}");
+                assert!(detail.contains("≥ 1"), "unexpected: {detail}");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_alter_database_set_quota_maintenance_pct_over_100_rejected() {
+        let sql = "ALTER DATABASE mydb SET QUOTA (maintenance_cpu_pct = 150)";
+        let upper = sql.to_uppercase();
+        let parts: Vec<&str> = sql.split_whitespace().collect();
+        let err = try_parse(&upper, &parts, sql).unwrap().unwrap_err();
+        match err {
+            SqlError::Parse { detail } => {
+                assert!(
+                    detail.contains("maintenance_cpu_pct"),
+                    "unexpected: {detail}"
+                );
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 
     #[test]

@@ -5,7 +5,7 @@
 use super::{
     alert, backup, change_stream, cluster_admin, collection, conflict_policy, copy_from, copy_to,
     custom_type, database, index, maintenance, materialized_view, retention, rls, schedule,
-    sequence, synonym_group, trigger, user_auth,
+    sequence, synonym_group, tenant, trigger, user_auth,
 };
 use crate::ddl_ast::graph_parse;
 use crate::ddl_ast::statement::NodedbStatement;
@@ -83,6 +83,7 @@ pub fn parse(sql: &str) -> Option<Result<NodedbStatement, SqlError>> {
     try_family!(synonym_group::try_parse(&upper, &parts, trimmed));
     try_family!(custom_type::try_parse(&upper, &parts, trimmed));
     try_family!(database::try_parse(&upper, &parts, trimmed));
+    try_family!(tenant::try_parse(&upper, &parts, trimmed));
     None
 }
 

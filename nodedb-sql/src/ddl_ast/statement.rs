@@ -4,6 +4,7 @@
 
 pub use super::alter_ops::{AlterCollectionOp, AlterRoleOp, AlterUserOp};
 pub use super::graph_types::{GraphDirection, GraphProperties};
+pub use nodedb_types::QuotaSpec;
 
 /// Operations available on `ALTER DATABASE <name> <operation>`.
 ///
@@ -12,8 +13,12 @@ pub use super::graph_types::{GraphDirection, GraphProperties};
 pub enum AlterDatabaseOperation {
     /// `ALTER DATABASE <name> RENAME TO <new_name>`
     Rename { new_name: String },
-    /// `ALTER DATABASE <name> SET QUOTA (<quota_id>)`
-    SetQuota { quota_id: u64 },
+    /// `ALTER DATABASE <name> SET QUOTA (max_memory_bytes = ..., ...)`
+    ///
+    /// All fields in the spec are optional; absent fields leave the existing
+    /// quota value unchanged (merged at apply time with the stored record or
+    /// `QuotaRecord::DEFAULT`).
+    SetQuota(QuotaSpec),
     /// `ALTER DATABASE <name> SET DEFAULT` — marks this database as the
     /// per-user default for future sessions. Returns
     /// `FEATURE_NOT_YET_IMPLEMENTED` until the per-user default-database
@@ -27,6 +32,15 @@ pub enum AlterDatabaseOperation {
     /// `ALTER DATABASE <name> PROMOTE` — promotes a mirror to writable primary.
     /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the mirror subsystem lands.
     Promote,
+}
+
+/// Operations available on `ALTER TENANT <name> IN DATABASE <db> <operation>`.
+///
+/// Every variant must be matched exhaustively — no `_ =>` arms anywhere.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AlterTenantOperation {
+    /// `ALTER TENANT <name> IN DATABASE <db> SET QUOTA (...)`
+    SetQuota(QuotaSpec),
 }
 
 /// Typed representation of every NodeDB DDL statement.
@@ -346,6 +360,32 @@ pub enum NodedbStatement {
     },
     /// `SHOW DATABASES`
     ShowDatabases,
+    /// `SHOW DATABASE QUOTA FOR <name>` — quota limits for a named database.
+    ShowDatabaseQuota {
+        name: String,
+    },
+    /// `SHOW DATABASE USAGE FOR <name>` — runtime usage counters for a database.
+    ShowDatabaseUsage {
+        name: String,
+    },
+    /// `ALTER TENANT <name> IN DATABASE <db> <operation>`
+    ///
+    /// New SQL surface. Sets per-tenant resource budgets within a specific database.
+    AlterTenant {
+        name: String,
+        database: String,
+        operation: AlterTenantOperation,
+    },
+    /// `SHOW TENANT QUOTA FOR <name> IN DATABASE <db>`
+    ShowTenantQuotaInDatabase {
+        name: String,
+        database: String,
+    },
+    /// `SHOW TENANT USAGE FOR <name> IN DATABASE <db>`
+    ShowTenantUsageInDatabase {
+        name: String,
+        database: String,
+    },
     /// `USE DATABASE <name>` — session reset to a different database.
     UseDatabase {
         name: String,
