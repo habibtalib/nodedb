@@ -234,6 +234,7 @@ impl SharedState {
             array_merger_registry: std::sync::Arc::new(
                 crate::control::array_sync::MergerRegistry::new(),
             ),
+            database_registry: crate::control::database::DatabaseRegistry::new(),
             surrogate_registry: Arc::clone(&test_surrogate_registry),
             surrogate_assigner: Arc::clone(&test_surrogate_assigner),
             block_cache: crate::control::planner::procedural::executor::ProcedureBlockCache::new(

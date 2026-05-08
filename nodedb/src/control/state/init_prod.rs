@@ -117,6 +117,19 @@ impl SharedState {
         let mut audit_log = AuditLog::new(10_000);
         audit_log.set_next_seq(audit_start_seq);
 
+        // Bootstrap the database-id registry from the persisted hwm.
+        // On a fresh server this starts at USER_DB_START (1024); on restart
+        // it seeds from the persisted hwm so post-restart allocations cannot
+        // collide with pre-restart ones.
+        let database_registry = {
+            let hwm = if let Some(catalog) = credentials.catalog() {
+                catalog.get_database_hwm().unwrap_or(0)
+            } else {
+                0
+            };
+            crate::control::database::DatabaseRegistry::from_persisted_hwm(hwm)
+        };
+
         // Bootstrap the global surrogate registry from the persisted
         // hwm. On a fresh database this seeds `next = 1`; on restart
         // it seeds `next = persisted_hwm + 1` so post-restart
@@ -275,6 +288,7 @@ impl SharedState {
             array_merger_registry: std::sync::Arc::new(
                 crate::control::array_sync::MergerRegistry::new(),
             ),
+            database_registry,
             surrogate_registry: surrogate_registry_handle,
             surrogate_assigner,
             block_cache: crate::control::planner::procedural::executor::ProcedureBlockCache::new(

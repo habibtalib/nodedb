@@ -183,6 +183,10 @@ pub struct SharedState {
     pub array_subscriber_cursors: std::sync::Arc<crate::control::array_sync::SubscriberMap>,
     /// Cross-shard merger registry for HLC-ordered multi-shard delivery.
     pub array_merger_registry: std::sync::Arc<crate::control::array_sync::MergerRegistry>,
+    /// Database-id allocator. Threadsafe via internal atomics.
+    /// Authoritative allocation is proposed through Raft metadata group 0;
+    /// this counter is the local cache (mirrors `SurrogateAssigner` semantics).
+    pub database_registry: crate::control::database::DatabaseRegistry,
     /// Global surrogate registry for stable cross-engine PK ↔ Surrogate allocation.
     pub surrogate_registry: crate::control::surrogate::SurrogateRegistryHandle,
     /// CP-side surrogate assigner for INSERT/UPSERT paths.

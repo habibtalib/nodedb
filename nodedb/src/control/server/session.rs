@@ -380,6 +380,37 @@ impl Session {
                 &self.peer_addr.to_string(),
             )
             .await?;
+
+            // Optional `"database"` field in the auth payload — bind the session
+            // database at handshake time. If absent, falls back to the resolution
+            // chain (user-default → tenant-default → DatabaseId::DEFAULT) below.
+            let explicit_db = if let Some(db_name) = body["database"].as_str() {
+                if db_name.is_empty() {
+                    None
+                } else {
+                    // Validate the database name against the catalog.
+                    let resolved = if let Some(cat) = self.state.credentials.catalog().as_ref() {
+                        cat.get_database_id_by_name(db_name).ok().flatten()
+                    } else {
+                        None
+                    };
+                    match resolved {
+                        Some(db_id) => Some(db_id),
+                        None => {
+                            let msg = format!(
+                                r#"{{"status":"error","code":"DATABASE_NOT_FOUND","error":"database '{db_name}' does not exist"}}"#
+                            );
+                            return Ok(msg.into_bytes());
+                        }
+                    }
+                }
+            } else {
+                None
+            };
+
+            let resolved_db = Self::resolve_database(&identity, explicit_db);
+            self.current_database = Some(resolved_db);
+
             let warning_field = match &warning {
                 Some(w) => format!(r#","warning":"{}""#, w.replace('"', "'")),
                 None => String::new(),

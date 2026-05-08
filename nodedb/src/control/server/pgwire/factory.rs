@@ -198,6 +198,7 @@ impl PgWireServerHandlers for NodeDbPgHandlerFactory {
                 Arc::new(AuthStartup::Scram {
                     sasl: Box::new(sasl),
                     state: Arc::clone(&self.state),
+                    handler: self.handler.clone(),
                 })
             }
         }
@@ -212,7 +213,46 @@ enum AuthStartup {
     Scram {
         sasl: Box<pgwire::api::auth::sasl::SASLAuthStartupHandler<DefaultServerParameterProvider>>,
         state: Arc<SharedState>,
+        /// Handler reference so we can bind the startup `database` param to
+        /// the session store after SCRAM succeeds (mirrors the trust path).
+        handler: Arc<NodeDbPgHandler>,
     },
+}
+
+/// Resolve the pgwire `database` StartupMessage parameter to a `DatabaseId`
+/// and bind it to the session store for this connection.
+///
+/// The key `"database"` is set by clients via `dbname=` or `psql -d <name>`.
+/// An absent or empty value is silently ignored — the session will use the
+/// server default (DatabaseId::DEFAULT / `"default"`).
+/// An unrecognised name is also silently ignored here; the first DDL/DML
+/// statement will surface the missing-database error at query time, which
+/// matches PostgreSQL behaviour for `psql -d nonexistent` (it succeeds at
+/// connect; errors on the first query that requires the db).
+fn bind_startup_database<C: pgwire::api::ClientInfo>(
+    client: &C,
+    addr: &std::net::SocketAddr,
+    handler: &NodeDbPgHandler,
+) {
+    let db_name = match client.metadata().get("database") {
+        Some(n) if !n.is_empty() => n.clone(),
+        _ => return,
+    };
+
+    handler.sessions.ensure_session(*addr);
+
+    let db_id = if let Some(cat) = handler.state.credentials.catalog().as_ref() {
+        cat.get_database_id_by_name(&db_name).ok().flatten()
+    } else {
+        None
+    };
+
+    if let Some(id) = db_id {
+        handler.sessions.set_current_database(addr, id);
+    }
+    // If the name is not found we leave current_database unset (None).
+    // The first query that actually needs a database context will produce
+    // the appropriate DATABASE_NOT_FOUND error.
 }
 
 #[async_trait]
@@ -243,9 +283,21 @@ impl StartupHandler for AuthStartup {
                     &source,
                     &format!("trust auth: {username}"),
                 );
+
+                // Bind the `database` startup parameter to the session store.
+                // `psql -d <name>` sets this key in the pgwire StartupMessage;
+                // we resolve it once at handshake time so every query on this
+                // connection executes in the declared database context.
+                let addr = client.socket_addr();
+                bind_startup_database(client, &addr, handler);
+
                 Ok(())
             }
-            AuthStartup::Scram { sasl, state } => {
+            AuthStartup::Scram {
+                sasl,
+                state,
+                handler,
+            } => {
                 let was_in_auth = matches!(
                     client.state(),
                     pgwire::api::PgWireConnectionState::AuthenticationInProgress
@@ -268,7 +320,7 @@ impl StartupHandler for AuthStartup {
                                 pgwire::api::PgWireConnectionState::ReadyForQuery
                             ) =>
                     {
-                        // SCRAM succeeded — reset lockout counter.
+                        // SCRAM succeeded — reset lockout counter and bind database.
                         state.credentials.record_login_success(&username);
                         state.audit_record(
                             AuditEvent::AuthSuccess,
@@ -276,6 +328,9 @@ impl StartupHandler for AuthStartup {
                             &source,
                             &format!("SCRAM-SHA-256 auth: {username}"),
                         );
+                        // Bind the `database` startup parameter to the session.
+                        let addr = client.socket_addr();
+                        bind_startup_database(client, &addr, handler);
                     }
                     Err(_) if was_in_auth => {
                         // SCRAM failed — increment lockout counter.
