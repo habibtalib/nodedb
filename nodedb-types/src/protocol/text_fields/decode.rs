@@ -320,6 +320,9 @@ impl<'a> zerompk::FromMessagePack<'a> for TextFields {
                 FID_INDEX_TYPE => {
                     out.index_type = Some(reader.read_string()?.into_owned());
                 }
+                FID_DATABASE => {
+                    out.database = Some(reader.read_string()?.into_owned());
+                }
                 // Unknown field ID — skip value for forward compatibility.
                 _ => {
                     skip_msgpack_value(reader)?;
