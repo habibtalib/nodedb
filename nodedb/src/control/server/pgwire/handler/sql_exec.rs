@@ -337,6 +337,16 @@ impl NodeDbPgHandler {
             .get_current_database(addr)
             .unwrap_or(crate::types::DatabaseId::DEFAULT);
 
+        // Increment per-database QPS counter and per-database metrics registry.
+        if let Some(catalog) = self.state.credentials.catalog().as_ref()
+            && let Ok(Some(desc)) = catalog.get_database(database_id)
+        {
+            if let Some(ref m) = self.state.system_metrics {
+                m.record_database_query(&desc.name);
+            }
+            self.state.database_metrics.record_qps(&desc.name);
+        }
+
         if let Some(rewritten) =
             super::super::system_functions::rewrite_purge_collection(sql_trimmed, &upper)
             && let Some(result) =

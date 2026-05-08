@@ -110,6 +110,18 @@ pub fn handle_alter_database(
                 .put_database_quota(db_id, &record, &ceiling)
                 .map_err(|e| sqlstate_error("53400", &format!("{e}")))?;
 
+            // Push the new quota into live enforcement components.
+            state
+                .maintenance_budget
+                .set_cap(db_id, record.maintenance_cpu_pct);
+            if let Some(ref gov) = state.governor {
+                if record.max_memory_bytes > 0 {
+                    gov.set_database_budget(db_id, record.max_memory_bytes as usize);
+                } else {
+                    gov.clear_database_budget(db_id);
+                }
+            }
+
             state.audit_record(
                 crate::control::security::audit::AuditEvent::DdlChange,
                 None,

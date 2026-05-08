@@ -37,6 +37,9 @@ impl CoreLoop {
         plan: &PhysicalPlan,
     ) -> Response {
         let tid = task.request.tenant_id.as_u64();
+        // Record the tenant → database association so maintenance budget
+        // tracking can resolve per-database caps when iterating collections.
+        self.record_tenant_database(task.request.tenant_id, task.request.database_id);
         match plan {
             PhysicalPlan::Document(op) => self.dispatch_document(task, op),
             PhysicalPlan::Vector(op) => self.dispatch_vector(task, op),
