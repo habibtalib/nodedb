@@ -324,6 +324,7 @@ mod tests {
     use super::*;
 
     fn test_identity() -> AuthenticatedIdentity {
+        use crate::control::security::identity::DatabaseSet;
         AuthenticatedIdentity {
             user_id: 42,
             username: "alice".into(),
@@ -332,6 +333,9 @@ mod tests {
             roles: vec![Role::ReadWrite],
             is_superuser: false,
             default_database: None,
+            accessible_databases: DatabaseSet::Some(smallvec::smallvec![
+                nodedb_types::id::DatabaseId::DEFAULT
+            ]),
         }
     }
 

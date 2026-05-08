@@ -32,6 +32,8 @@ pub struct UserRecord {
     pub must_change_password: bool,
     /// Unix timestamp (seconds) when the password was last changed.
     pub password_changed_at: u64,
+    /// The database ID this user connects to by default. `0` means server default.
+    pub default_database_id: u64,
 }
 
 impl UserRecord {
@@ -52,6 +54,7 @@ impl UserRecord {
             password_expires_at: self.password_expires_at,
             must_change_password: self.must_change_password,
             password_changed_at: self.password_changed_at,
+            default_database_id: self.default_database_id,
         }
     }
 
@@ -61,7 +64,7 @@ impl UserRecord {
             .iter()
             .map(|r| r.parse().unwrap_or(Role::ReadOnly))
             .collect();
-        // password_changed_at defaults to created_at for pre-T4-C records
+        // password_changed_at defaults to created_at for pre-existing records
         // (where the field was absent and zerompk returns 0).
         let password_changed_at = if s.password_changed_at > 0 {
             s.password_changed_at
@@ -83,6 +86,7 @@ impl UserRecord {
             password_expires_at: s.password_expires_at,
             must_change_password: s.must_change_password,
             password_changed_at,
+            default_database_id: s.default_database_id,
             roles,
         }
     }

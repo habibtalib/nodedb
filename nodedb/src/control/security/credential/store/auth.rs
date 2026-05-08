@@ -239,14 +239,18 @@ impl CredentialStore {
 
     /// Build an `AuthenticatedIdentity` for a verified user.
     pub fn to_identity(&self, username: &str, method: AuthMethod) -> Option<AuthenticatedIdentity> {
-        self.get_user(username).map(|record| AuthenticatedIdentity {
-            user_id: record.user_id,
-            username: record.username,
-            tenant_id: record.tenant_id,
-            auth_method: method,
-            roles: record.roles,
-            is_superuser: record.is_superuser,
-            default_database: None,
+        self.get_user(username).map(|record| {
+            let is_su = record.is_superuser;
+            AuthenticatedIdentity {
+                user_id: record.user_id,
+                username: record.username,
+                tenant_id: record.tenant_id,
+                auth_method: method,
+                roles: record.roles,
+                is_superuser: is_su,
+                default_database: None,
+                accessible_databases: AuthenticatedIdentity::default_database_set(is_su),
+            }
         })
     }
 }

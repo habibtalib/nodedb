@@ -79,6 +79,7 @@ impl CredentialStore {
             password_expires_at: self.compute_expiry(),
             must_change_password: false,
             password_changed_at: now,
+            default_database_id: 0,
         })
     }
 
@@ -169,6 +170,31 @@ impl CredentialStore {
         let mut stored = existing.to_stored();
         drop(users);
         stored.password_expires_at = expires_at;
+        stored.updated_at = now_secs();
+        Ok(stored)
+    }
+
+    /// Build an updated `StoredUser` that sets `default_database_id`.
+    /// Used by `ALTER USER <name> SET DEFAULT DATABASE <db>`.
+    pub fn prepare_set_default_database(
+        &self,
+        username: &str,
+        database_id: u64,
+    ) -> crate::Result<StoredUser> {
+        let users = read_lock(&self.users)?;
+        let existing = users
+            .get(username)
+            .ok_or_else(|| crate::Error::BadRequest {
+                detail: format!("user '{username}' not found"),
+            })?;
+        if !existing.is_active {
+            return Err(crate::Error::BadRequest {
+                detail: format!("user '{username}' is inactive"),
+            });
+        }
+        let mut stored = existing.to_stored();
+        drop(users);
+        stored.default_database_id = database_id;
         stored.updated_at = now_secs();
         Ok(stored)
     }

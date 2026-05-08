@@ -196,6 +196,7 @@ impl JwksRegistry {
             roles,
             is_superuser: claims.is_superuser,
             default_database: None,
+            accessible_databases: AuthenticatedIdentity::default_database_set(claims.is_superuser),
         })
     }
 

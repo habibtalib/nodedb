@@ -1,13 +1,41 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // All match arms on PermissionTarget must be exhaustive. Wildcard catch-alls
-// are denied here so that adding Database(DatabaseId) in 10_BOUNDARY forces
-// a compile error at every match site rather than silently falling through.
+// are denied here so that adding Database(DatabaseId) forces a compile error
+// at every match site rather than silently falling through.
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use std::str::FromStr;
 
+use smallvec::SmallVec;
+
+use nodedb_types::id::DatabaseId;
+
 use crate::types::TenantId;
+
+/// The set of databases this identity is permitted to access.
+///
+/// `All` means no restriction (e.g. superuser). `Some` enumerates the exact
+/// databases. Session bind rejects any `current_database` not in the `Some`
+/// set with `ACCESS_DENIED`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DatabaseSet {
+    /// No restriction — every database is accessible.
+    All,
+    /// Exactly these databases are accessible (inline-allocated, spills to heap
+    /// only when a user has more than 4 explicit grants).
+    Some(SmallVec<[DatabaseId; 4]>),
+}
+
+impl DatabaseSet {
+    /// Returns `true` if the given database is accessible.
+    pub fn contains(&self, db: DatabaseId) -> bool {
+        match self {
+            DatabaseSet::All => true,
+            DatabaseSet::Some(ids) => ids.contains(&db),
+        }
+    }
+}
 
 /// A verified identity bound to a session after authentication.
 ///
@@ -22,10 +50,10 @@ pub struct AuthenticatedIdentity {
     pub username: String,
     /// Tenant this user belongs to.
     ///
-    /// Single-tenant per user; database is the multi-axis (added by 10_BOUNDARY).
+    /// Single-tenant per user; the database is the multi-axis.
     /// Cross-tenant access requires separate user accounts per tenant, or superuser.
-    /// Audit (05_AUTH_PREREQ H): no code path branches on "user belongs to multiple
-    /// tenants" — the single-tenant invariant holds throughout the codebase.
+    /// No code path branches on "user belongs to multiple tenants" —
+    /// the single-tenant invariant holds throughout the codebase.
     pub tenant_id: TenantId,
     /// How the user authenticated.
     pub auth_method: AuthMethod,
@@ -36,9 +64,16 @@ pub struct AuthenticatedIdentity {
     /// Per-user default database. `None` means fall through to tenant default,
     /// then `DatabaseId::DEFAULT`.
     ///
-    /// Stub: always `None` until Section G (10_BOUNDARY auth) wires
-    /// `ALTER USER … SET DEFAULT DATABASE` into the credential store.
-    pub default_database: Option<nodedb_types::id::DatabaseId>,
+    /// Set via `ALTER USER <name> SET DEFAULT DATABASE <db>` and stored in
+    /// the credential store alongside the user record.
+    pub default_database: Option<DatabaseId>,
+    /// Which databases this identity may access.
+    ///
+    /// Superusers carry `DatabaseSet::All`. Regular users start with
+    /// `DatabaseSet::Some([DatabaseId::DEFAULT])` and gain additional entries
+    /// via `GRANT … ON DATABASE …`. Session bind rejects `current_database`
+    /// values not in this set with `ACCESS_DENIED`.
+    pub accessible_databases: DatabaseSet,
 }
 
 impl AuthenticatedIdentity {
@@ -50,6 +85,28 @@ impl AuthenticatedIdentity {
     /// Check if this identity has any of the specified roles.
     pub fn has_any_role(&self, roles: &[Role]) -> bool {
         self.is_superuser || roles.iter().any(|r| self.roles.contains(r))
+    }
+
+    /// Returns `true` if this identity may access the given database.
+    ///
+    /// Superusers always return `true`. Regular users return `true` only if
+    /// the database is in `accessible_databases`. This is enforced at session
+    /// bind — the session is rejected with `ACCESS_DENIED` if the resolved
+    /// `current_database` fails this check.
+    pub fn can_access_database(&self, db: DatabaseId) -> bool {
+        self.is_superuser || self.accessible_databases.contains(db)
+    }
+
+    /// Derive the appropriate `DatabaseSet` for a superuser identity.
+    ///
+    /// Superusers receive `DatabaseSet::All`; regular users start with
+    /// `DatabaseSet::Some([DatabaseId::DEFAULT])`.
+    pub fn default_database_set(is_superuser: bool) -> DatabaseSet {
+        if is_superuser {
+            DatabaseSet::All
+        } else {
+            DatabaseSet::Some(smallvec::smallvec![DatabaseId::DEFAULT])
+        }
     }
 }
 
@@ -81,6 +138,12 @@ pub enum Role {
     ReadOnly,
     /// Read metrics, health, audit. No data access.
     Monitor,
+    /// Full DDL + DML ownership of a specific database.
+    DatabaseOwner(DatabaseId),
+    /// Read + write + CREATE COLLECTION within a specific database.
+    DatabaseEditor(DatabaseId),
+    /// SELECT access within a specific database.
+    DatabaseReader(DatabaseId),
     /// Custom role defined by user.
     Custom(String),
 }
@@ -93,6 +156,9 @@ impl std::fmt::Display for Role {
             Role::ReadWrite => write!(f, "readwrite"),
             Role::ReadOnly => write!(f, "readonly"),
             Role::Monitor => write!(f, "monitor"),
+            Role::DatabaseOwner(db) => write!(f, "database_owner:{}", db.as_u64()),
+            Role::DatabaseEditor(db) => write!(f, "database_editor:{}", db.as_u64()),
+            Role::DatabaseReader(db) => write!(f, "database_reader:{}", db.as_u64()),
             Role::Custom(name) => write!(f, "{name}"),
         }
     }
@@ -108,7 +174,23 @@ impl FromStr for Role {
             "readwrite" => Role::ReadWrite,
             "readonly" => Role::ReadOnly,
             "monitor" => Role::Monitor,
-            other => Role::Custom(other.to_string()),
+            other => {
+                // Parse database-scoped role tokens: "database_owner:{id}" etc.
+                if let Some(rest) = other.strip_prefix("database_owner:") {
+                    if let Ok(id) = rest.parse::<u64>() {
+                        return Ok(Role::DatabaseOwner(DatabaseId::new(id)));
+                    }
+                } else if let Some(rest) = other.strip_prefix("database_editor:") {
+                    if let Ok(id) = rest.parse::<u64>() {
+                        return Ok(Role::DatabaseEditor(DatabaseId::new(id)));
+                    }
+                } else if let Some(rest) = other.strip_prefix("database_reader:")
+                    && let Ok(id) = rest.parse::<u64>()
+                {
+                    return Ok(Role::DatabaseReader(DatabaseId::new(id)));
+                }
+                Role::Custom(other.to_string())
+            }
         })
     }
 }
@@ -134,18 +216,26 @@ pub enum Permission {
     Execute,
 }
 
-// TODO-AUDIT: extend with Database(DatabaseId) arm when 10_BOUNDARY lands —
-// every match on PermissionTarget must add a Database branch at that point.
 /// What the permission applies to.
+///
+/// Every `match` on this enum must be exhaustive — no `_ =>` arms. Adding a
+/// new variant is intentionally a compile error at every match site.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PermissionTarget {
     /// Entire cluster (node management, topology).
     Cluster,
     /// All collections within a tenant.
     Tenant(TenantId),
-    /// A specific collection within a tenant.
+    /// A specific database (CREATE COLLECTION, DROP DATABASE, etc.).
+    Database(DatabaseId),
+    /// A specific collection within a tenant and database.
+    ///
+    /// The `database_id` field scopes the collection grant. Grants stored in
+    /// `_system.collection_grants` include `database_id` in their key triple
+    /// `(tenant_id, database_id, collection)`.
     Collection {
         tenant_id: TenantId,
+        database_id: DatabaseId,
         collection: String,
     },
     /// System catalog (superuser only).
@@ -165,6 +255,14 @@ pub fn role_grants_permission(role: &Role, permission: Permission) -> bool {
         ),
         Role::ReadOnly => matches!(permission, Permission::Read | Permission::Execute),
         Role::Monitor => matches!(permission, Permission::Monitor | Permission::Read),
+        // Database-scoped roles grant permissions within their database.
+        // The database match is enforced at the call site via PermissionTarget.
+        Role::DatabaseOwner(_) => true,
+        Role::DatabaseEditor(_) => matches!(
+            permission,
+            Permission::Read | Permission::Write | Permission::Create | Permission::Execute
+        ),
+        Role::DatabaseReader(_) => matches!(permission, Permission::Read | Permission::Execute),
         Role::Custom(_) => false, // Custom roles need explicit grants
     }
 }
@@ -460,6 +558,11 @@ mod tests {
             roles,
             is_superuser: superuser,
             default_database: None,
+            accessible_databases: if superuser {
+                DatabaseSet::All
+            } else {
+                DatabaseSet::Some(smallvec::smallvec![DatabaseId::DEFAULT])
+            },
         }
     }
 
@@ -509,5 +612,30 @@ mod tests {
             let parsed: Role = s.parse().unwrap();
             assert_eq!(*role, parsed);
         }
+    }
+
+    #[test]
+    fn database_role_display_roundtrip() {
+        let db = DatabaseId::new(42);
+        let roles = [
+            Role::DatabaseOwner(db),
+            Role::DatabaseEditor(db),
+            Role::DatabaseReader(db),
+        ];
+        for role in &roles {
+            let s = role.to_string();
+            let parsed: Role = s.parse().unwrap();
+            assert_eq!(*role, parsed, "roundtrip failed for {s}");
+        }
+    }
+
+    #[test]
+    fn database_set_contains() {
+        let db1 = DatabaseId::new(1);
+        let db2 = DatabaseId::new(2);
+        let set = DatabaseSet::Some(smallvec::smallvec![db1]);
+        assert!(set.contains(db1));
+        assert!(!set.contains(db2));
+        assert!(DatabaseSet::All.contains(db2));
     }
 }

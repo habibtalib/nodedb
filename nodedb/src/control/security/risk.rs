@@ -193,6 +193,9 @@ mod tests {
                 roles: vec![crate::control::security::identity::Role::ReadWrite],
                 is_superuser: false,
                 default_database: None,
+                accessible_databases: crate::control::security::identity::DatabaseSet::Some(
+                    smallvec::smallvec![nodedb_types::id::DatabaseId::DEFAULT],
+                ),
             },
             "test".into(),
         );
@@ -218,6 +221,7 @@ mod tests {
                 roles: vec![crate::control::security::identity::Role::Superuser],
                 is_superuser: true,
                 default_database: None,
+                accessible_databases: crate::control::security::identity::DatabaseSet::All,
             },
             "test".into(),
         );
@@ -243,6 +247,9 @@ mod tests {
                 roles: vec![],
                 is_superuser: false,
                 default_database: None,
+                accessible_databases: crate::control::security::identity::DatabaseSet::Some(
+                    smallvec::smallvec![nodedb_types::id::DatabaseId::DEFAULT],
+                ),
             },
             "test".into(),
         );

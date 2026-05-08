@@ -242,6 +242,7 @@ impl ApiKeyStore {
             roles,
             is_superuser,
             default_database: None,
+            accessible_databases: AuthenticatedIdentity::default_database_set(is_superuser),
         }
     }
 

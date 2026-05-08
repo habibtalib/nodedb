@@ -341,6 +341,7 @@ impl CredentialStore {
                 password_expires_at: self.compute_expiry(),
                 must_change_password: false,
                 password_changed_at: now,
+                default_database_id: 0,
             };
             self.persist_user(&mut record)?;
             users.insert(username.to_string(), record);

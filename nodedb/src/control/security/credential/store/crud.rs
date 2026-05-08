@@ -52,6 +52,7 @@ impl CredentialStore {
             password_expires_at: self.compute_expiry(),
             must_change_password: false,
             password_changed_at: now,
+            default_database_id: 0,
         };
 
         // create_user: no open sessions to invalidate — no invalidation reason.
@@ -94,6 +95,7 @@ impl CredentialStore {
             password_expires_at: 0,
             must_change_password: false,
             password_changed_at: now,
+            default_database_id: 0,
         };
 
         // Service-account creation: no open sessions — no invalidation reason.
