@@ -8,9 +8,10 @@
 //! Supports both DDL commands (SHOW USERS, CREATE COLLECTION, etc.) and
 //! full SQL queries (SELECT, INSERT, UPDATE, DELETE) via DataFusion.
 
-use axum::extract::State;
+use axum::extract::{Query as QueryParams, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
+use serde::Deserialize;
 use sonic_rs;
 
 use crate::bridge::envelope::{PhysicalPlan, Status};
@@ -23,16 +24,71 @@ use super::super::auth::{ApiError, AppState, resolve_identity};
 use super::super::types::HttpQueryRequest;
 use super::super::types::HttpQueryResponse;
 
+/// Query string parameters for `/v1/query` and `/v1/query/stream`.
+///
+/// `?database=<name>` is the fallback when `X-NodeDB-Database` is absent.
+#[derive(Debug, Default, Deserialize)]
+pub struct DatabaseQueryParam {
+    pub database: Option<String>,
+}
+
+/// Resolve the active `DatabaseId` from an HTTP request.
+///
+/// Priority: `X-NodeDB-Database` header > `?database=` query param > DEFAULT.
+///
+/// When a name is supplied but does not resolve to an existing database,
+/// returns `ApiError::BadRequest` with SQLSTATE-style detail
+/// (`3D000 database '<name>' does not exist`). Silently falling back to
+/// DEFAULT would mask client mistakes and run queries against the wrong
+/// database; that is a correctness bug, not a usability convenience.
+fn resolve_database_id(
+    headers: &HeaderMap,
+    param: &DatabaseQueryParam,
+    state: &AppState,
+) -> Result<nodedb_types::DatabaseId, ApiError> {
+    let name = headers
+        .get("x-nodedb-database")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| param.database.clone().filter(|s| !s.is_empty()));
+
+    let Some(db_name) = name else {
+        return Ok(nodedb_types::DatabaseId::DEFAULT);
+    };
+
+    let catalog = state.shared.credentials.catalog();
+    let catalog = catalog
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("system catalog unavailable".to_string()))?;
+
+    match catalog.get_database_id_by_name(&db_name) {
+        Ok(Some(id)) => Ok(id),
+        Ok(None) => Err(ApiError::BadRequest(format!(
+            "3D000 database '{db_name}' does not exist"
+        ))),
+        Err(e) => Err(ApiError::Internal(format!(
+            "catalog lookup failed: {e}"
+        ))),
+    }
+}
+
 /// POST /v1/query — execute a SQL/DDL statement.
 ///
 /// Request body: `{ "sql": "..." }`
 /// Response: `{ "status": "ok", "rows": [...] }` or `{ "error": "..." }`
+///
+/// Database context (optional):
+/// - `X-NodeDB-Database: <name>` header (highest priority)
+/// - `?database=<name>` query parameter (fallback)
 pub async fn query(
     headers: HeaderMap,
+    QueryParams(db_param): QueryParams<DatabaseQueryParam>,
     State(state): State<AppState>,
     axum::Json(body): axum::Json<HttpQueryRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let identity = resolve_identity(&headers, &state, "http")?;
+    let database_id = resolve_database_id(&headers, &db_param, &state)?;
     let trace_id = crate::control::trace_context::extract_from_headers(&headers);
 
     let sql = body.sql.as_str();
@@ -120,7 +176,7 @@ pub async fn query(
                     let gw_ctx = QueryContext {
                         tenant_id: task.tenant_id,
                         trace_id,
-                        database_id: nodedb_types::id::DatabaseId::DEFAULT,
+                        database_id,
                     };
                     gw.execute(&gw_ctx, task.plan).await.map_err(|e| {
                         let (status, msg) = GatewayErrorMap::to_http(&e);
@@ -266,11 +322,16 @@ fn responses_to_json(responses: Vec<pgwire::api::results::Response>) -> Vec<serd
 pub async fn query_ndjson(
     State(state): State<AppState>,
     headers: HeaderMap,
+    QueryParams(db_param): QueryParams<DatabaseQueryParam>,
     axum::Json(body): axum::Json<crate::control::server::http::types::HttpQueryStreamRequest>,
 ) -> impl IntoResponse {
     use axum::response::Response;
 
     let identity = match resolve_identity(&headers, &state, "http") {
+        Ok(id) => id,
+        Err(e) => return e.into_response(),
+    };
+    let database_id = match resolve_database_id(&headers, &db_param, &state) {
         Ok(id) => id,
         Err(e) => return e.into_response(),
     };
@@ -322,7 +383,7 @@ pub async fn query_ndjson(
                 let gw_ctx = QueryContext {
                     tenant_id: task.tenant_id,
                     trace_id,
-                    database_id: nodedb_types::id::DatabaseId::DEFAULT,
+                    database_id,
                 };
                 gw.execute(&gw_ctx, task.plan).await
             }
