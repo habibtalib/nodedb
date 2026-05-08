@@ -10,15 +10,13 @@ pub(super) fn collection_exists(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     name: &str,
+    database_id: DatabaseId,
 ) -> bool {
     let Some(catalog) = state.credentials.catalog() else {
         return false;
     };
     let tid = identity.tenant_id.as_u64();
-    matches!(
-        catalog.get_collection(DatabaseId::DEFAULT, tid, name),
-        Ok(Some(_))
-    )
+    matches!(catalog.get_collection(database_id, tid, name), Ok(Some(_)))
 }
 
 pub(super) fn trigger_exists(

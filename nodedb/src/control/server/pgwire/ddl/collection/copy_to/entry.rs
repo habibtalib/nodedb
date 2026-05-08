@@ -117,7 +117,11 @@ async fn execute_and_collect(
 ) -> PgWireResult<Vec<serde_json::Value>> {
     let query_ctx = crate::control::planner::context::QueryContext::for_state(state);
     let tasks = query_ctx
-        .plan_sql(select_sql, identity.tenant_id)
+        .plan_sql(
+            select_sql,
+            identity.tenant_id,
+            crate::types::DatabaseId::DEFAULT,
+        )
         .await
         .map_err(|e| sqlstate_error("42601", &format!("COPY TO: query planning failed: {e}")))?;
 

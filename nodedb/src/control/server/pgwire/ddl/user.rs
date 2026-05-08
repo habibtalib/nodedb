@@ -264,6 +264,47 @@ pub fn alter_user(
             );
             Ok(vec![Response::Execution(Tag::new("ALTER USER"))])
         }
+
+        AlterUserOp::SetDefaultDatabase { db_name } => {
+            // Users can set their own default database; admin may set for others.
+            if !can_alter {
+                return Err(sqlstate_error(
+                    "42501",
+                    "permission denied: can only alter your own user, or be superuser/tenant_admin",
+                ));
+            }
+            if db_name.is_empty() {
+                return Err(sqlstate_error(
+                    "42601",
+                    "syntax: ALTER USER <name> SET DEFAULT DATABASE <db_name>",
+                ));
+            }
+            // Resolve the database name to an ID via the system catalog.
+            let catalog = state
+                .credentials
+                .catalog()
+                .as_ref()
+                .ok_or_else(|| sqlstate_error("XX000", "system catalog unavailable"))?;
+            let db_id = catalog
+                .get_database_id_by_name(db_name)
+                .map_err(|e| sqlstate_error("XX000", &format!("catalog lookup: {e}")))?
+                .ok_or_else(|| {
+                    sqlstate_error("42704", &format!("database '{db_name}' does not exist"))
+                })?;
+            let stored = state
+                .credentials
+                .prepare_set_default_database(username, db_id.as_u64())
+                .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
+            propose_and_install(state, stored, None)?;
+
+            state.audit_record(
+                AuditEvent::PrivilegeChange,
+                Some(identity.tenant_id),
+                &identity.username,
+                &format!("set default database '{db_name}' for user '{username}'"),
+            );
+            Ok(vec![Response::Execution(Tag::new("ALTER USER"))])
+        }
     }
 }
 

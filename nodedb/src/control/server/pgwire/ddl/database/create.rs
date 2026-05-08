@@ -10,6 +10,8 @@
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
+use crate::control::catalog_entry::entry::CatalogEntry;
+use crate::control::metadata_proposer::propose_catalog_entry;
 use crate::control::security::catalog::database_types::{DatabaseDescriptor, DatabaseStatus};
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
@@ -60,9 +62,7 @@ pub fn handle_create_database(
 
     let opts = parse_create_options(options)?;
 
-    let catalog = state
-        .credentials
-        .catalog();
+    let catalog = state.credentials.catalog();
     let catalog = catalog
         .as_ref()
         .ok_or_else(|| sqlstate_error("XX000", "system catalog unavailable"))?;
@@ -106,9 +106,22 @@ pub fn handle_create_database(
         parent_clone: None,
     };
 
-    catalog
-        .put_database(&descriptor)
-        .map_err(|e| sqlstate_error("XX000", &format!("catalog write failed: {e}")))?;
+    // Propose through metadata Raft group 0 so all replicas apply the
+    // descriptor atomically. In single-node mode `propose_catalog_entry`
+    // returns Ok(0) immediately and falls through to the direct write below.
+    let proposed = propose_catalog_entry(
+        state,
+        &CatalogEntry::PutDatabase(Box::new(descriptor.clone())),
+    )
+    .map_err(|e| sqlstate_error("XX000", &format!("catalog propose failed: {e}")))?;
+
+    // Direct write for single-node mode (proposed == 0) or as a fallback
+    // when the cluster is in mixed-version compat mode.
+    if proposed == 0 {
+        catalog
+            .put_database(&descriptor)
+            .map_err(|e| sqlstate_error("XX000", &format!("catalog write failed: {e}")))?;
+    }
 
     // Flush the allocator hwm on the periodic threshold so restarts
     // pick up the correct next-id boundary.
@@ -117,6 +130,16 @@ pub fn handle_create_database(
         if let Err(e) = catalog.put_database_hwm(hwm) {
             tracing::warn!("database hwm flush failed: {e}");
         }
+    }
+
+    // Register per-database metric series so the names appear in Prometheus
+    // output immediately after creation. Tenants, memory, and storage start
+    // at zero and are updated by their respective subsystems.
+    if let Some(m) = &state.system_metrics {
+        m.set_database_collections(name, 0);
+        m.set_database_tenants(name, 0);
+        m.set_database_memory_bytes(name, 0);
+        m.set_database_storage_bytes(name, 0);
     }
 
     state.audit_record(

@@ -19,6 +19,8 @@ use nodedb_sql::ddl_ast::AlterDatabaseOperation;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
+use crate::control::catalog_entry::entry::CatalogEntry;
+use crate::control::metadata_proposer::propose_catalog_entry;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
@@ -69,9 +71,16 @@ pub fn handle_alter_database(
                 }
             }
             descriptor.name = new_name.clone();
-            catalog
-                .put_database(&descriptor)
-                .map_err(|e| sqlstate_error("XX000", &format!("catalog write failed: {e}")))?;
+            let proposed = propose_catalog_entry(
+                state,
+                &CatalogEntry::PutDatabase(Box::new(descriptor.clone())),
+            )
+            .map_err(|e| sqlstate_error("XX000", &format!("catalog propose failed: {e}")))?;
+            if proposed == 0 {
+                catalog
+                    .put_database(&descriptor)
+                    .map_err(|e| sqlstate_error("XX000", &format!("catalog write failed: {e}")))?;
+            }
 
             state.audit_record(
                 crate::control::security::audit::AuditEvent::DdlChange,
@@ -83,9 +92,16 @@ pub fn handle_alter_database(
 
         AlterDatabaseOperation::SetQuota { quota_id } => {
             descriptor.quota_ref = *quota_id;
-            catalog
-                .put_database(&descriptor)
-                .map_err(|e| sqlstate_error("XX000", &format!("catalog write failed: {e}")))?;
+            let proposed = propose_catalog_entry(
+                state,
+                &CatalogEntry::PutDatabase(Box::new(descriptor.clone())),
+            )
+            .map_err(|e| sqlstate_error("XX000", &format!("catalog propose failed: {e}")))?;
+            if proposed == 0 {
+                catalog
+                    .put_database(&descriptor)
+                    .map_err(|e| sqlstate_error("XX000", &format!("catalog write failed: {e}")))?;
+            }
 
             state.audit_record(
                 crate::control::security::audit::AuditEvent::DdlChange,

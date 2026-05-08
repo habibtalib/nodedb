@@ -16,4 +16,4 @@ mod csv_import;
 mod entry;
 mod json_import;
 
-pub use entry::copy_from_file;
+pub use entry::{copy_from_file, CopyFromOptions};

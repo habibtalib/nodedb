@@ -21,6 +21,7 @@ use crate::control::server::pgwire::types::sqlstate_error;
 pub async fn insert_document(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
+    database_id: DatabaseId,
     sql: &str,
 ) -> Option<PgWireResult<Vec<Response>>> {
     let parsed = match parse_write_statement(state, identity, sql, "INSERT INTO ")? {
@@ -63,7 +64,7 @@ pub async fn insert_document(
     let mut fields = fields;
     if let Some(catalog) = state.credentials.catalog()
         && let Ok(Some(coll_def)) =
-            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &parsed.coll_name)
+            catalog.get_collection(database_id, tenant_id.as_u64(), &parsed.coll_name)
     {
         for field_def in &coll_def.field_defs {
             if let Some(ref seq_name) = field_def.sequence_name
@@ -100,7 +101,7 @@ pub async fn insert_document(
     // Enforce type guards and CHECK constraints (after BEFORE trigger + sequence injection).
     if let Some(catalog) = state.credentials.catalog()
         && let Ok(Some(coll_def)) =
-            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &parsed.coll_name)
+            catalog.get_collection(database_id, tenant_id.as_u64(), &parsed.coll_name)
     {
         // Inject DEFAULT/VALUE + validate type guards (combined).
         if !coll_def.type_guards.is_empty()
@@ -138,7 +139,7 @@ pub async fn insert_document(
     // Plane sees only TEXT.
     if let Some(catalog) = state.credentials.catalog()
         && let Ok(Some(coll_def)) =
-            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &parsed.coll_name)
+            catalog.get_collection(database_id, tenant_id.as_u64(), &parsed.coll_name)
     {
         for (field_name, type_name) in &coll_def.fields {
             if let Some(value) = fields.get(field_name.as_str()) {
@@ -160,7 +161,7 @@ pub async fn insert_document(
     // Build SQL from fields and route through nodedb-sql → sql_plan_convert.
     // This ensures all engine-type routing goes through the shared EngineRules.
     let insert_sql = fields_to_insert_sql(&parsed.coll_name, &fields);
-    if let Err(e) = plan_and_dispatch(state, identity, tenant_id, &insert_sql).await {
+    if let Err(e) = plan_and_dispatch(state, identity, tenant_id, database_id, &insert_sql).await {
         return Some(Err(e));
     }
 
@@ -171,7 +172,7 @@ pub async fn insert_document(
         .is_none_or(|ct| ct.is_schemaless())
         && let Some(catalog) = state.credentials.catalog()
         && let Ok(Some(mut coll)) =
-            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &parsed.coll_name)
+            catalog.get_collection(database_id, tenant_id.as_u64(), &parsed.coll_name)
     {
         let mut changed = false;
         for (name, val) in &fields {
@@ -190,7 +191,7 @@ pub async fn insert_document(
             }
         }
         if changed {
-            let _ = catalog.put_collection(DatabaseId::DEFAULT, &coll);
+            let _ = catalog.put_collection(database_id, &coll);
         }
     }
 
@@ -203,7 +204,7 @@ pub async fn insert_document(
 
     // Dispatch VectorInsert for vector fields.
     let vec_vshard =
-        crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, &parsed.coll_name);
+        crate::types::VShardId::from_collection_in_database(database_id, &parsed.coll_name);
     for (field_name, vector) in extract_vector_fields(&fields) {
         let dim = vector.len();
 

@@ -13,6 +13,9 @@ use crate::control::server::pgwire::ddl::alert::{CreateAlertRequest, create_aler
 use crate::control::server::pgwire::ddl::change_stream::alter_change_stream;
 use crate::control::server::pgwire::ddl::cluster::alter_raft_group;
 use crate::control::server::pgwire::ddl::consumer_group::create_consumer_group;
+use crate::control::server::pgwire::ddl::grant::database_permission::{
+    grant_database, revoke_database,
+};
 use crate::control::server::pgwire::ddl::grant::permission::{grant_permission, revoke_permission};
 use crate::control::server::pgwire::ddl::grant::role::{grant_role, revoke_role};
 use crate::control::server::pgwire::ddl::inspect::show_permissions;
@@ -102,6 +105,14 @@ pub(super) fn try_dispatch_sync(
             grantee,
         )),
 
+        NodedbStatement::GrantDatabasePermission {
+            permission,
+            db_name,
+            grantee,
+        } => Some(grant_database(
+            state, identity, permission, db_name, grantee,
+        )),
+
         NodedbStatement::RevokePermission {
             permission,
             target_type,
@@ -114,6 +125,14 @@ pub(super) fn try_dispatch_sync(
             target_type,
             target_name,
             grantee,
+        )),
+
+        NodedbStatement::RevokeDatabasePermission {
+            permission,
+            db_name,
+            grantee,
+        } => Some(revoke_database(
+            state, identity, permission, db_name, grantee,
         )),
 
         NodedbStatement::AlterSchedule {

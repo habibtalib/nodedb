@@ -14,6 +14,7 @@ use nodedb_sql::ddl_ast::NodedbStatement;
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use crate::types::DatabaseId;
 
 use async_ops::try_dispatch_async;
 use guards::try_dispatch_guards;
@@ -26,12 +27,13 @@ pub(super) async fn try_dispatch(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     stmt: &NodedbStatement,
+    database_id: DatabaseId,
 ) -> Option<PgWireResult<Vec<Response>>> {
-    if let Some(result) = try_dispatch_guards(state, identity, stmt) {
+    if let Some(result) = try_dispatch_guards(state, identity, stmt, database_id) {
         return Some(result);
     }
     if let Some(result) = try_dispatch_sync(state, identity, stmt) {
         return Some(result);
     }
-    try_dispatch_async(state, identity, stmt).await
+    try_dispatch_async(state, identity, stmt, database_id).await
 }

@@ -23,6 +23,7 @@ pub(super) async fn import_ndjson(
     tenant_id: nodedb_types::TenantId,
     collection: &str,
     path: &str,
+    database_id: nodedb_types::DatabaseId,
 ) -> PgWireResult<usize> {
     let bytes = tokio::fs::read(path)
         .await
@@ -53,7 +54,7 @@ pub(super) async fn import_ndjson(
     // Insert phase: issue all INSERTs.
     for (line_no, fields) in &parsed {
         let sql = fields_to_insert_sql(collection, fields);
-        plan_and_dispatch(state, identity, tenant_id, &sql)
+        plan_and_dispatch(state, identity, tenant_id, database_id, &sql)
             .await
             .map_err(|e| wrap_row_error(e, *line_no, "NDJSON"))?;
     }
@@ -71,6 +72,7 @@ pub(super) async fn import_json_array(
     tenant_id: nodedb_types::TenantId,
     collection: &str,
     path: &str,
+    database_id: nodedb_types::DatabaseId,
 ) -> PgWireResult<usize> {
     let bytes = tokio::fs::read(path)
         .await
@@ -105,7 +107,7 @@ pub(super) async fn import_json_array(
     for (idx, fields) in parsed.iter().enumerate() {
         let line_no = idx + 1;
         let sql = fields_to_insert_sql(collection, fields);
-        plan_and_dispatch(state, identity, tenant_id, &sql)
+        plan_and_dispatch(state, identity, tenant_id, database_id, &sql)
             .await
             .map_err(|e| wrap_row_error(e, line_no, "JSON array"))?;
     }

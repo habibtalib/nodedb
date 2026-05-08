@@ -25,6 +25,7 @@ pub fn create_timeseries(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     parts: &[&str],
+    database_id: nodedb_types::DatabaseId,
 ) -> PgWireResult<Vec<Response>> {
     if parts.len() < 3 {
         return Err(sqlstate_error(
@@ -94,11 +95,12 @@ pub fn create_timeseries(
         size_bytes_estimate: 0,
         primary: nodedb_types::PrimaryEngine::Columnar,
         vector_primary: None,
+        database_id,
     };
 
     if let Some(catalog) = state.credentials.catalog() {
         catalog
-            .put_collection(DatabaseId::DEFAULT, &coll)
+            .put_collection(database_id, &coll)
             .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     }
 

@@ -35,6 +35,7 @@ pub fn create_collection(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     req: &super::request::CreateCollectionRequest<'_>,
+    database_id: DatabaseId,
 ) -> PgWireResult<Vec<Response>> {
     let super::request::CreateCollectionRequest {
         name,
@@ -61,8 +62,7 @@ pub fn create_collection(
 
     // Check if collection already exists.
     if let Some(catalog) = state.credentials.catalog()
-        && let Ok(Some(existing)) =
-            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), name)
+        && let Ok(Some(existing)) = catalog.get_collection(database_id, tenant_id.as_u64(), name)
         && existing.is_active
     {
         return Err(sqlstate_error(
@@ -206,6 +206,7 @@ pub fn create_collection(
         size_bytes_estimate: 0,
         primary,
         vector_primary,
+        database_id,
     };
 
     let entry = crate::control::catalog_entry::CatalogEntry::PutCollection(Box::new(coll.clone()));
@@ -215,7 +216,7 @@ pub fn create_collection(
         && let Some(catalog) = state.credentials.catalog()
     {
         catalog
-            .put_collection(DatabaseId::DEFAULT, &coll)
+            .put_collection(database_id, &coll)
             .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     }
 

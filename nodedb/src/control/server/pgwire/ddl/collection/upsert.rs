@@ -21,6 +21,7 @@ use super::insert_parse::{
 pub async fn upsert_document(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
+    database_id: DatabaseId,
     sql: &str,
 ) -> Option<PgWireResult<Vec<Response>>> {
     let parsed = match parse_write_statement(state, identity, sql, "UPSERT INTO ")? {
@@ -61,7 +62,7 @@ pub async fn upsert_document(
     // Enforce type guards and CHECK constraints (after BEFORE trigger).
     if let Some(catalog) = state.credentials.catalog()
         && let Ok(Some(coll_def)) =
-            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &parsed.coll_name)
+            catalog.get_collection(database_id, tenant_id.as_u64(), &parsed.coll_name)
     {
         // Inject DEFAULT/VALUE + validate type guards (combined).
         if !coll_def.type_guards.is_empty()
@@ -96,7 +97,7 @@ pub async fn upsert_document(
     // Validate enum-typed columns against the custom type registry.
     if let Some(catalog) = state.credentials.catalog()
         && let Ok(Some(coll_def)) =
-            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &parsed.coll_name)
+            catalog.get_collection(database_id, tenant_id.as_u64(), &parsed.coll_name)
     {
         for (field_name, type_name) in &coll_def.fields {
             if let Some(value) = fields.get(field_name.as_str()) {
@@ -148,7 +149,8 @@ pub async fn upsert_document(
     // Build SQL and route through nodedb-sql → EngineRules → sql_plan_convert.
     let upsert_sql = super::insert_parse::fields_to_upsert_sql(&parsed.coll_name, &fields);
     if let Err(e) =
-        super::insert_parse::plan_and_dispatch(state, identity, tenant_id, &upsert_sql).await
+        super::insert_parse::plan_and_dispatch(state, identity, tenant_id, database_id, &upsert_sql)
+            .await
     {
         return Some(Err(e));
     }

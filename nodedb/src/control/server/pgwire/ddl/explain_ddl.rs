@@ -37,14 +37,21 @@ pub fn explain_permission(
 
     // Build a synthetic identity for the target user.
     let target_identity = if let Some(user) = state.credentials.get_user(user_id_str) {
-        crate::control::security::identity::AuthenticatedIdentity {
-            user_id: user.user_id,
-            username: user.username.clone(),
-            tenant_id: user.tenant_id,
-            auth_method: crate::control::security::identity::AuthMethod::Trust,
-            roles: user.roles.clone(),
-            is_superuser: user.is_superuser,
-            default_database: None,
+        {
+            let is_su = user.is_superuser;
+            crate::control::security::identity::AuthenticatedIdentity {
+                user_id: user.user_id,
+                username: user.username.clone(),
+                tenant_id: user.tenant_id,
+                auth_method: crate::control::security::identity::AuthMethod::Trust,
+                roles: user.roles.clone(),
+                is_superuser: is_su,
+                default_database: None,
+                accessible_databases:
+                    crate::control::security::identity::AuthenticatedIdentity::default_database_set(
+                        is_su,
+                    ),
+            }
         }
     } else {
         // Unknown user — use the requesting identity.
@@ -174,6 +181,9 @@ pub fn assert_visible(
         roles: vec![crate::control::security::identity::Role::ReadWrite],
         is_superuser: false,
         default_database: None,
+        accessible_databases: crate::control::security::identity::DatabaseSet::Some(
+            smallvec::smallvec![nodedb_types::id::DatabaseId::DEFAULT],
+        ),
     };
     let auth_ctx = crate::control::server::session_auth::build_auth_context(&target_identity);
 

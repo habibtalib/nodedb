@@ -45,9 +45,22 @@ pub fn handle_use_database(
         .map_err(|e| sqlstate_error("XX000", &format!("catalog lookup failed: {e}")))?
         .ok_or_else(|| sqlstate_error("3D000", &format!("database '{name}' does not exist")))?;
 
-    // Access check: per-user `accessible_databases` enforcement is owned by
-    // the user-management subsystem and is not yet wired here. Until it
-    // lands, any authenticated user may switch to any existing database.
+    // Enforce `accessible_databases`: reject the switch if the identity does
+    // not have access to the target database. Superusers bypass this check.
+    if !identity.can_access_database(db_id) {
+        use crate::control::security::audit::{ArcAuditEmitter, AuditEmitContext, AuditEmitter};
+        let emitter = ArcAuditEmitter(std::sync::Arc::clone(&state.audit));
+        emitter.emit(
+            crate::control::security::audit::AuditEvent::PermissionDenied,
+            &identity.username,
+            &format!("USE DATABASE access denied: {name}"),
+            AuditEmitContext::new(None, &identity.user_id.to_string(), &identity.username),
+        );
+        return Err(sqlstate_error(
+            "42501",
+            &format!("permission denied for database '{name}'"),
+        ));
+    }
 
     // Session reset: abort open transaction, invalidate prepared statements.
     sessions.reset_for_database_switch(addr, db_id);

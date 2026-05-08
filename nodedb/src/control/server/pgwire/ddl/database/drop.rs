@@ -9,9 +9,12 @@
 //! mutation, so the catalog never observes a half-dropped database.
 
 use nodedb_types::DatabaseId;
+use nodedb_types::error::sqlstate;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
+use crate::control::catalog_entry::entry::CatalogEntry;
+use crate::control::metadata_proposer::propose_catalog_entry;
 use crate::control::security::catalog::{StoredCollection, SystemCatalog};
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
@@ -37,7 +40,7 @@ pub fn handle_drop_database(
     // `default` is immutable — cannot be dropped.
     if name.eq_ignore_ascii_case("default") {
         return Err(sqlstate_error(
-            "0A000",
+            sqlstate::CANNOT_DROP_DEFAULT_DATABASE,
             "cannot drop the built-in 'default' database",
         ));
     }
@@ -66,7 +69,7 @@ pub fn handle_drop_database(
     // Guard: `default` identity check by id (rename resilience).
     if db_id == DatabaseId::DEFAULT {
         return Err(sqlstate_error(
-            "0A000",
+            sqlstate::CANNOT_DROP_DEFAULT_DATABASE,
             "cannot drop the built-in 'default' database",
         ));
     }
@@ -91,9 +94,33 @@ pub fn handle_drop_database(
         drop_all_collections_in_database(catalog, db_id, &collections)?;
     }
 
-    catalog
-        .delete_database(db_id)
-        .map_err(|e| sqlstate_error("XX000", &format!("catalog delete failed: {e}")))?;
+    // Propose the delete through Raft; fall back to direct write in single-node mode.
+    let proposed = propose_catalog_entry(
+        state,
+        &CatalogEntry::DeleteDatabase {
+            db_id: db_id.as_u64(),
+        },
+    )
+    .map_err(|e| sqlstate_error("XX000", &format!("catalog propose failed: {e}")))?;
+
+    if proposed == 0 {
+        catalog
+            .delete_database(db_id)
+            .map_err(|e| sqlstate_error("XX000", &format!("catalog delete failed: {e}")))?;
+    }
+
+    // Remove per-database metrics entries on drop.
+    if let Some(m) = &state.system_metrics {
+        if let Ok(mut map) = m.database_collections_by_name.write() {
+            map.remove(name);
+        }
+        if let Ok(mut map) = m.database_queries_by_name.write() {
+            map.remove(name);
+        }
+        if let Ok(mut map) = m.database_errors_by_name.write() {
+            map.remove(name);
+        }
+    }
 
     state.audit_record(
         crate::control::security::audit::AuditEvent::DdlChange,

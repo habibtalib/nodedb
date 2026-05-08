@@ -13,6 +13,7 @@ use crate::control::server::pgwire::ddl::collection::{
     CreateCollectionRequest, CreateIndexRequest, copy_from_file, copy_to_file, create_collection,
     create_index, create_table, dispatch_register_by_name,
 };
+use crate::control::server::pgwire::ddl::collection::copy_from::CopyFromOptions;
 use crate::control::server::pgwire::ddl::conflict_policy::show_conflict_policy;
 use crate::control::server::pgwire::ddl::continuous_agg::{
     CreateContinuousAggregateRequest, create_continuous_aggregate,
@@ -28,6 +29,7 @@ use crate::control::server::pgwire::ddl::synonym_group::{
 };
 use crate::control::server::pgwire::ddl::trigger::create_trigger;
 use crate::control::state::SharedState;
+use crate::types::DatabaseId;
 
 use super::alter::dispatch_alter_collection;
 
@@ -37,6 +39,7 @@ pub(super) async fn try_dispatch_async(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     stmt: &NodedbStatement,
+    database_id: DatabaseId,
 ) -> Option<PgWireResult<Vec<Response>>> {
     match stmt {
         NodedbStatement::CreateTrigger {
@@ -195,9 +198,10 @@ pub(super) async fn try_dispatch_async(
                     flags,
                     balanced_raw: balanced_raw.as_deref(),
                 },
+                database_id,
             );
             let result = match result {
-                Ok(resp) => dispatch_register_by_name(state, identity, name)
+                Ok(resp) => dispatch_register_by_name(state, identity, name, database_id)
                     .await
                     .map(|()| resp)
                     .map_err(|e| {
@@ -231,10 +235,11 @@ pub(super) async fn try_dispatch_async(
                     flags,
                     balanced_raw: balanced_raw.as_deref(),
                 },
+                database_id,
             )
             .await;
             let result = match result {
-                Ok(resp) => dispatch_register_by_name(state, identity, name)
+                Ok(resp) => dispatch_register_by_name(state, identity, name, database_id)
                     .await
                     .map(|()| resp)
                     .map_err(|e| {
@@ -308,9 +313,12 @@ pub(super) async fn try_dispatch_async(
                 identity,
                 collection,
                 path,
-                format.as_ref(),
-                *delimiter,
-                *header,
+                CopyFromOptions {
+                    format: format.as_ref(),
+                    delimiter: *delimiter,
+                    header: *header,
+                },
+                database_id,
             )
             .await,
         ),

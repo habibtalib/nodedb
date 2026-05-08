@@ -13,6 +13,13 @@ use crate::control::state::SharedState;
 
 use super::entry::wrap_row_error;
 
+/// CSV-specific parsing options.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct CsvOptions {
+    pub(super) delimiter: char,
+    pub(super) has_header: bool,
+}
+
 /// Import from a CSV file (header row → column names; each subsequent row → INSERT).
 pub(super) async fn import_csv(
     state: &SharedState,
@@ -20,9 +27,10 @@ pub(super) async fn import_csv(
     tenant_id: nodedb_types::TenantId,
     collection: &str,
     path: &str,
-    delimiter: char,
-    has_header: bool,
+    opts: CsvOptions,
+    database_id: nodedb_types::DatabaseId,
 ) -> PgWireResult<usize> {
+    let CsvOptions { delimiter, has_header } = opts;
     let bytes = tokio::fs::read(path)
         .await
         .map_err(|e| sqlstate_error("58030", &format!("COPY: cannot read '{path}': {e}")))?;
@@ -99,7 +107,7 @@ pub(super) async fn import_csv(
     // Insert phase.
     for (ln, fields) in &parsed {
         let sql = fields_to_insert_sql(collection, fields);
-        plan_and_dispatch(state, identity, tenant_id, &sql)
+        plan_and_dispatch(state, identity, tenant_id, database_id, &sql)
             .await
             .map_err(|e| wrap_row_error(e, *ln, "CSV"))?;
     }

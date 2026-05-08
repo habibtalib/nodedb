@@ -330,11 +330,12 @@ pub(super) async fn plan_and_dispatch(
     state: &SharedState,
     _identity: &crate::control::security::identity::AuthenticatedIdentity,
     tenant_id: nodedb_types::TenantId,
+    database_id: crate::types::DatabaseId,
     sql: &str,
 ) -> PgWireResult<()> {
     let query_ctx = crate::control::planner::context::QueryContext::for_state(state);
     let tasks = query_ctx
-        .plan_sql(sql, tenant_id)
+        .plan_sql(sql, tenant_id, database_id)
         .await
         .map_err(|e| sqlstate_error_raw("XX000", &e.to_string()))?;
     for task in tasks {
