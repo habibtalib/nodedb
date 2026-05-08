@@ -212,5 +212,9 @@ pub(crate) fn invalidate_gateway_cache_for_entry(entry: &CatalogEntry, shared: &
         CatalogEntry::DeleteDatabaseGrant { .. } => {
             // no-op: same as PutDatabaseGrant.
         }
+        CatalogEntry::CloneDatabase { .. } => {
+            // no-op: the new database has no cached plans yet; the source
+            // database's plans are unaffected by the clone operation.
+        }
     }
 }

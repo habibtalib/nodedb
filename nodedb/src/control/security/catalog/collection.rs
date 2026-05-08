@@ -2,7 +2,7 @@
 
 //! Collection metadata records persisted in the system catalog.
 
-use nodedb_types::{DatabaseId, Hlc};
+use nodedb_types::{CloneOrigin, CloneStatus, DatabaseId, Hlc};
 
 use super::collection_constraints::{
     BalancedConstraintDef, CheckConstraintDef, EventDefinition, FieldDefinition, LegalHold,
@@ -177,6 +177,21 @@ pub struct StoredCollection {
     /// members of the built-in `default` database.
     #[msgpack(default)]
     pub database_id: DatabaseId,
+
+    /// Present when this collection is a copy-on-write clone of a source
+    /// collection in another database.  `None` for non-cloned collections.
+    ///
+    /// The read planner consults this field to decide whether source
+    /// delegation is needed; `cloned_from = None` short-circuits the
+    /// lookup with zero overhead.
+    #[msgpack(default)]
+    pub cloned_from: Option<CloneOrigin>,
+
+    /// Materialization state of this clone.  Defaults to `Shadowed` on
+    /// deserialization, which is safe: an existing non-clone collection
+    /// will have `cloned_from = None` so `clone_status` is never consulted.
+    #[msgpack(default)]
+    pub clone_status: CloneStatus,
 }
 
 impl StoredCollection {
@@ -224,6 +239,8 @@ impl StoredCollection {
             primary: nodedb_types::PrimaryEngine::Document,
             vector_primary: None,
             database_id: DatabaseId::DEFAULT,
+            cloned_from: None,
+            clone_status: CloneStatus::default(),
         }
     }
 

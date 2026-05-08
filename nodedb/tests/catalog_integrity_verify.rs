@@ -171,5 +171,7 @@ fn classify(entry: &CatalogEntry) -> VariantClass {
         CatalogEntry::DeleteDatabase { .. } => VariantClass::Exempt,
         CatalogEntry::PutDatabaseGrant { .. } => VariantClass::Exempt,
         CatalogEntry::DeleteDatabaseGrant { .. } => VariantClass::Exempt,
+        // Clone creates a new database descriptor; no per-object owner row needed.
+        CatalogEntry::CloneDatabase { .. } => VariantClass::Exempt,
     }
 }

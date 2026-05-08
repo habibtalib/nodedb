@@ -199,5 +199,13 @@ pub fn apply_post_apply_side_effects_sync(entry: &CatalogEntry, shared: &Arc<Sha
         } => {
             database::delete_grant(*db_id, *user_id, privilege.clone(), Arc::clone(shared));
         }
+        CatalogEntry::CloneDatabase {
+            target_descriptor, ..
+        } => {
+            // Sync side effect: register the target database in the in-memory
+            // database registry so subsequent DDL within the same session can
+            // resolve it by name without waiting for a read-round-trip to redb.
+            database::put((**target_descriptor).clone(), Arc::clone(shared));
+        }
     }
 }

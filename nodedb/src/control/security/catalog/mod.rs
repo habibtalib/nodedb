@@ -9,6 +9,7 @@ pub mod blacklist;
 pub mod change_streams;
 pub mod checkpoint;
 pub mod checkpoints;
+pub mod clone_catalog;
 pub mod collection;
 pub mod collection_constraints;
 pub mod collections;

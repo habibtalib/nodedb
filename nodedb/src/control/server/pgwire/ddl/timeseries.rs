@@ -96,6 +96,8 @@ pub fn create_timeseries(
         primary: nodedb_types::PrimaryEngine::Columnar,
         vector_primary: None,
         database_id,
+        cloned_from: None,
+        clone_status: nodedb_types::CloneStatus::default(),
     };
 
     if let Some(catalog) = state.credentials.catalog() {

@@ -215,5 +215,8 @@ pub(super) fn describe_entry(e: &catalog_entry::CatalogEntry) -> (String, u64, S
             0,
             String::new(),
         ),
+        E::CloneDatabase {
+            target_descriptor, ..
+        } => (target_descriptor.name.clone(), 0, String::new()),
     }
 }

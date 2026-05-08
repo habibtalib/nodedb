@@ -153,7 +153,8 @@ pub fn stamp(entry: CatalogEntry, clock: &HlcClock, catalog: &SystemCatalog) -> 
         | CatalogEntry::PutDatabase(_)
         | CatalogEntry::DeleteDatabase { .. }
         | CatalogEntry::PutDatabaseGrant { .. }
-        | CatalogEntry::DeleteDatabaseGrant { .. }) => entry,
+        | CatalogEntry::DeleteDatabaseGrant { .. }
+        | CatalogEntry::CloneDatabase { .. }) => entry,
     }
 }
 

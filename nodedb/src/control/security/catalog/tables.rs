@@ -258,6 +258,37 @@ pub(super) const DATABASE_QUOTAS: TableDefinition<u64, &[u8]> =
 pub(super) const TENANT_QUOTAS: TableDefinition<(u64, u64), &[u8]> =
     TableDefinition::new("_system.tenant_quotas");
 
+// ── Clone CoW tables ─────────────────────────────────────────────────
+
+/// Table: `(target_collection_key: &str, source_surrogate: u32)` → `target_surrogate: u32`.
+///
+/// Records copy-up events: when a row that originally existed only in the source
+/// is written to in the target clone (UPDATE or DELETE on a source-only row),
+/// the source surrogate is mapped to the fresh target surrogate allocated at
+/// copy-up time.  The `target_collection_key` is the
+/// `"{database_id}:{tenant_id}:{collection_name}"` compound form.
+pub(super) const CLONE_COPYUPS: TableDefinition<(&str, u32), u32> =
+    TableDefinition::new("_system.clone_copyups");
+
+/// Table: `(target_collection_key: &str, source_surrogate: u32)` → `()`.
+///
+/// Records tombstone events: when a row that existed only in the source is
+/// deleted from the clone, the source surrogate is recorded here.  The read
+/// planner checks this table before falling back to source storage so that
+/// deleted rows are invisible even though they still exist in the source.
+pub(super) const CLONE_TOMBSTONES: TableDefinition<(&str, u32), ()> =
+    TableDefinition::new("_system.clone_tombstones");
+
+/// Table: `source_database_id (u64)` → MessagePack-serialized `Vec<u64>` (child DatabaseIds).
+///
+/// Tracks the lineage tree: for each database that is the source of one or more
+/// clones, this table stores the list of child database ids.  Used at DROP
+/// DATABASE time to detect orphan dependency violations and by the depth-check
+/// at CLONE DATABASE time (walk upward through parent_clone links counting
+/// hops).
+pub(super) const CLONE_LINEAGE: TableDefinition<u64, &[u8]> =
+    TableDefinition::new("_system.clone_lineage");
+
 // ── Vector model + checkpoints ────────────────────────────────────────
 
 /// Table: "{tenant_id}:{collection}:{column}" -> MessagePack-serialized VectorModelEntry.

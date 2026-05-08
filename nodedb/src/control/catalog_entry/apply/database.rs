@@ -47,6 +47,34 @@ pub fn put_grant(db_id: u64, user_id: u64, privilege: &str, catalog: &SystemCata
     }
 }
 
+/// Apply a `CloneDatabase` entry — write the target descriptor and update
+/// the clone lineage table, atomically from the catalog's perspective.
+pub fn clone_apply(
+    target_descriptor: &DatabaseDescriptor,
+    source_db_id: u64,
+    catalog: &SystemCatalog,
+) {
+    if let Err(e) = catalog.put_database(target_descriptor) {
+        warn!(
+            target_db_id = target_descriptor.id.as_u64(),
+            name = %target_descriptor.name,
+            error = %e,
+            "catalog_entry: clone_database put_database failed"
+        );
+        return;
+    }
+    let source = DatabaseId::new(source_db_id);
+    let child = target_descriptor.id;
+    if let Err(e) = catalog.add_clone_child(source, child) {
+        warn!(
+            source_db_id,
+            child_db_id = child.as_u64(),
+            error = %e,
+            "catalog_entry: clone_database add_clone_child failed"
+        );
+    }
+}
+
 /// Apply a `DeleteDatabaseGrant` entry.
 pub fn delete_grant(db_id: u64, user_id: u64, privilege: &str, catalog: &SystemCatalog) {
     let db = DatabaseId::new(db_id);

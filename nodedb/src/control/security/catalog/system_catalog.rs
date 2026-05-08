@@ -172,6 +172,15 @@ impl SystemCatalog {
             let _ = write_txn
                 .open_table(TENANT_QUOTAS)
                 .map_err(|e| catalog_err("init tenant_quotas table", e))?;
+            let _ = write_txn
+                .open_table(CLONE_COPYUPS)
+                .map_err(|e| catalog_err("init clone_copyups table", e))?;
+            let _ = write_txn
+                .open_table(CLONE_TOMBSTONES)
+                .map_err(|e| catalog_err("init clone_tombstones table", e))?;
+            let _ = write_txn
+                .open_table(CLONE_LINEAGE)
+                .map_err(|e| catalog_err("init clone_lineage table", e))?;
         }
         write_txn
             .commit()

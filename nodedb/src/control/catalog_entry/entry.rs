@@ -247,6 +247,27 @@ pub enum CatalogEntry {
         tenant_id: u64,
         object_name: String,
     },
+
+    // ── Clone lifecycle ────────────────────────────────────────────
+    /// Atomically record a new CoW clone database.
+    ///
+    /// On apply this entry does three things as a single unit:
+    /// 1. Writes the target `DatabaseDescriptor` (with `status = Cloning`
+    ///    and `parent_clone` populated) into `_system.databases`.
+    /// 2. Upserts `clone_lineage`: adds `target_db_id` to the children
+    ///    list of `source_db_id`.
+    ///
+    /// The handler builds this entry after resolving `as_of_lsn` and
+    /// allocating `target_db_id` so that the Raft proposal is a complete,
+    /// self-contained mutation that any follower can replay without
+    /// external lookups.
+    CloneDatabase {
+        /// The descriptor for the newly created target database.
+        target_descriptor:
+            Box<crate::control::security::catalog::database_types::DatabaseDescriptor>,
+        /// Numeric id of the source database (for lineage update).
+        source_db_id: u64,
+    },
 }
 
 impl CatalogEntry {
@@ -294,6 +315,7 @@ impl CatalogEntry {
             Self::DeleteSynonymGroup { .. } => "delete_synonym_group",
             Self::PutCustomType(_) => "put_custom_type",
             Self::DeleteCustomType { .. } => "delete_custom_type",
+            Self::CloneDatabase { .. } => "clone_database",
         }
     }
 }

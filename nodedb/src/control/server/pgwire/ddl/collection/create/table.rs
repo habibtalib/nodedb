@@ -210,6 +210,8 @@ pub async fn create_table(
         primary,
         vector_primary,
         database_id,
+        cloned_from: None,
+        clone_status: nodedb_types::CloneStatus::default(),
     };
 
     let entry = crate::control::catalog_entry::CatalogEntry::PutCollection(Box::new(coll.clone()));

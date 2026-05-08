@@ -9,7 +9,7 @@ use nodedb_sql::ddl_ast::NodedbStatement;
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::ddl::database::{
-    handle_alter_database, handle_create_database, handle_drop_database,
+    handle_alter_database, handle_clone_database, handle_create_database, handle_drop_database,
     handle_show_database_quota, handle_show_database_usage, handle_show_databases,
 };
 use crate::control::server::pgwire::ddl::tenant::{
@@ -90,12 +90,22 @@ pub(super) fn try_dispatch_database(
             &format!("USE DATABASE {name}: reached router after expected intercept"),
         ))),
 
-        // Stub variants — return FEATURE_NOT_YET_IMPLEMENTED (0A000) until the
-        // distributed clone / mirror / backup subsystems land.
-        NodedbStatement::CloneDatabase { .. } => Some(Err(sqlstate_error(
-            "0A000",
-            "CLONE DATABASE is not yet implemented",
-        ))),
+        NodedbStatement::CloneDatabase {
+            new_name,
+            source_name,
+            as_of,
+        } => {
+            use crate::control::server::pgwire::ddl::database::clone::CloneDatabaseParams;
+            Some(handle_clone_database(
+                state,
+                identity,
+                CloneDatabaseParams {
+                    new_name,
+                    source_name,
+                    as_of,
+                },
+            ))
+        }
 
         NodedbStatement::MirrorDatabase { .. } => Some(Err(sqlstate_error(
             "0A000",

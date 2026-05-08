@@ -154,5 +154,9 @@ fn apply_to_inner(entry: &CatalogEntry, catalog: &SystemCatalog) {
             user_id,
             privilege,
         } => database::delete_grant(*db_id, *user_id, privilege, catalog),
+        CatalogEntry::CloneDatabase {
+            target_descriptor,
+            source_db_id,
+        } => database::clone_apply(target_descriptor, *source_db_id, catalog),
     }
 }
