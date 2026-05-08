@@ -19,6 +19,7 @@ pub struct SharedStateComponents {
     pub governor: Arc<nodedb_mem::MemoryGovernor>,
     pub system_metrics: Arc<crate::control::metrics::SystemMetrics>,
     pub array_catalog: ArrayCatalogHandle,
+    pub maintenance_budget: Arc<crate::control::maintenance::MaintenanceBudgetTracker>,
 }
 
 /// Wire all optional subsystems into SharedState after `SharedState::open`.
@@ -39,6 +40,7 @@ pub fn wire_state(
         governor,
         system_metrics,
         array_catalog,
+        maintenance_budget,
     } = components;
     // Install startup gate.
     if let Some(state) = Arc::get_mut(shared) {
@@ -158,6 +160,12 @@ pub fn wire_state(
     // Wire memory governor.
     if let Some(state) = Arc::get_mut(shared) {
         state.governor = Some(Arc::clone(&governor));
+    }
+
+    // Wire maintenance budget tracker (shared with Data Plane cores so
+    // ALTER DATABASE SET QUOTA updates live caps immediately).
+    if let Some(state) = Arc::get_mut(shared) {
+        state.maintenance_budget = Arc::clone(&maintenance_budget);
     }
 
     // Load and wire backup KEK.

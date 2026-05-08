@@ -186,6 +186,11 @@ async fn main() -> anyhow::Result<()> {
     let quarantine_registry =
         std::sync::Arc::new(nodedb::storage::quarantine::QuarantineRegistry::new());
 
+    // Create once and share with both Data Plane cores and SharedState so
+    // ALTER DATABASE SET QUOTA updates live caps immediately for all cores.
+    let maintenance_budget =
+        Arc::new(nodedb::control::maintenance::MaintenanceBudgetTracker::new());
+
     let _core_handles = bootstrap::data_plane::spawn_data_plane_cores(
         &config,
         data_sides,
@@ -200,6 +205,7 @@ async fn main() -> anyhow::Result<()> {
             array_catalog: Arc::clone(&array_catalog),
             quarantine_registry: Arc::clone(&quarantine_registry),
             system_metrics: Arc::clone(&system_metrics),
+            maintenance_budget: Arc::clone(&maintenance_budget),
         },
     )?;
 
@@ -251,6 +257,7 @@ async fn main() -> anyhow::Result<()> {
             governor: Arc::clone(&governor),
             system_metrics: Arc::clone(&system_metrics),
             array_catalog: Arc::clone(&array_catalog),
+            maintenance_budget: Arc::clone(&maintenance_budget),
         },
         &root_span,
     )?;

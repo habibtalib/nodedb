@@ -179,6 +179,7 @@ pub fn spawn_core(
     hlc: Arc<nodedb_types::OrdinalClock>,
     array_catalog: crate::control::array_catalog::ArrayCatalogHandle,
     quarantine_registry: Arc<crate::storage::quarantine::QuarantineRegistry>,
+    maintenance_budget: Arc<crate::control::maintenance::MaintenanceBudgetTracker>,
 ) -> std::io::Result<(JoinHandle<()>, EventFdNotifier)> {
     let data_dir = data_dir.to_path_buf();
 
@@ -208,6 +209,7 @@ pub fn spawn_core(
 
             // 2b. Apply memory governor.
             core.set_governor(governor);
+            core.set_maintenance_budget(maintenance_budget);
 
             // 2b. Apply metrics reference.
             if let Some(m) = system_metrics {

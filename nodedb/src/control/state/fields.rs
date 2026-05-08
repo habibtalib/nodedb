@@ -256,6 +256,8 @@ pub struct SharedState {
     pub request_id_counter: AtomicU64,
     /// System-wide metrics (Prometheus format).
     pub system_metrics: Option<Arc<crate::control::metrics::SystemMetrics>>,
+    /// Per-database quota usage counters for Prometheus scraping.
+    pub database_metrics: Arc<crate::control::metrics::DatabaseMetricsRegistry>,
     /// Global per-cluster quota ceiling enforced when database quotas are
     /// written. Populated at startup from `[server]` config (`memory_limit`,
     /// `max_connections`); a zero on any dimension means "no ceiling for that
@@ -268,6 +270,12 @@ pub struct SharedState {
     pub retention_settings: Arc<std::sync::RwLock<crate::config::server::RetentionSettings>>,
     /// Memory governor for per-engine budget enforcement.
     pub governor: Option<Arc<nodedb_mem::MemoryGovernor>>,
+    /// Per-database maintenance CPU budget tracker.
+    ///
+    /// Shared with every Data Plane `CoreLoop` so all maintenance tasks
+    /// on all cores draw from the same per-database window. Populated with
+    /// caps from `ALTER DATABASE … SET QUOTA (maintenance_cpu_pct = N)`.
+    pub maintenance_budget: Arc<crate::control::maintenance::MaintenanceBudgetTracker>,
     /// Fork detection: tracks `lite_id → last_seen_epoch`.
     pub epoch_tracker: Mutex<std::collections::HashMap<String, u64>>,
     /// Timeseries partition registries.

@@ -18,6 +18,7 @@ pub mod exec_receiver;
 pub mod gateway;
 pub mod lease;
 pub mod lock_utils;
+pub mod maintenance;
 pub mod metadata_proposer;
 pub mod metrics;
 pub mod notify_bus;

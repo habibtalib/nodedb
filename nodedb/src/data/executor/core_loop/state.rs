@@ -20,7 +20,7 @@ use crate::engine::vector::collection::VectorCollection;
 use crate::engine::vector::sparse::SparseInvertedIndex;
 use crate::types::{Lsn, TenantId};
 use nodedb_graph::ShardedCsrIndex;
-use nodedb_types::OrdinalClock;
+use nodedb_types::{DatabaseId, OrdinalClock};
 
 use super::priority_queues::PriorityQueues;
 
@@ -309,6 +309,21 @@ pub struct CoreLoop {
 
     /// Memory governor for per-engine budget enforcement.
     pub(in crate::data::executor) governor: Option<Arc<nodedb_mem::MemoryGovernor>>,
+
+    /// Shared per-database maintenance CPU budget tracker.
+    ///
+    /// Used by all maintenance sites (`run_compaction` and friends) to gate
+    /// per-database background work against the quota's `maintenance_cpu_pct`.
+    /// Set by `set_maintenance_budget` after core spawn.
+    pub(in crate::data::executor) maintenance_budget:
+        Option<Arc<crate::control::maintenance::MaintenanceBudgetTracker>>,
+
+    /// Mapping from `TenantId` to the `DatabaseId` that owns the tenant.
+    ///
+    /// Populated lazily as requests arrive (sourced from `task.request.database_id`).
+    /// Used by the maintenance budget tracker to look up per-database caps when
+    /// iterating collections keyed by `TenantId`.
+    pub(in crate::data::executor) tenant_database_map: HashMap<TenantId, DatabaseId>,
 
     /// Current SPSC drain batch size, adjusted by memory pressure.
     ///

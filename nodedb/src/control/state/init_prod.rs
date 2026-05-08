@@ -399,6 +399,7 @@ impl SharedState {
             // Use the pre-created Arc so the CdcRouter (above) and this
             // metrics endpoint share the same SystemMetrics registry.
             system_metrics: Some(Arc::clone(&system_metrics)),
+            database_metrics: Arc::new(crate::control::metrics::DatabaseMetricsRegistry::new()),
             quota_ceiling: Arc::new(std::sync::RwLock::new(
                 crate::control::security::catalog::GlobalQuotaCeiling::default(),
             )),
@@ -406,6 +407,9 @@ impl SharedState {
                 crate::config::server::RetentionSettings::default(),
             )),
             governor: None,
+            maintenance_budget: Arc::new(
+                crate::control::maintenance::MaintenanceBudgetTracker::new(),
+            ),
             epoch_tracker: Mutex::new(std::collections::HashMap::new()),
             ts_partition_registries: Some(Mutex::new(std::collections::HashMap::new())),
             cold_storage: None,
