@@ -25,4 +25,4 @@ pub use collection_type::build_collection_type;
 pub use graph_parse::{FusionParams, parse_search_using_fusion};
 pub use graph_types::{GraphDirection, GraphProperties};
 pub use parse::parse;
-pub use statement::NodedbStatement;
+pub use statement::{AlterDatabaseOperation, NodedbStatement};

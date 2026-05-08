@@ -5,6 +5,30 @@
 pub use super::alter_ops::{AlterCollectionOp, AlterRoleOp, AlterUserOp};
 pub use super::graph_types::{GraphDirection, GraphProperties};
 
+/// Operations available on `ALTER DATABASE <name> <operation>`.
+///
+/// Every variant must be matched exhaustively — no `_ =>` arms anywhere.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AlterDatabaseOperation {
+    /// `ALTER DATABASE <name> RENAME TO <new_name>`
+    Rename { new_name: String },
+    /// `ALTER DATABASE <name> SET QUOTA (<quota_id>)`
+    SetQuota { quota_id: u64 },
+    /// `ALTER DATABASE <name> SET DEFAULT` — marks this database as the
+    /// per-user default for future sessions. Returns
+    /// `FEATURE_NOT_YET_IMPLEMENTED` until the per-user default-database
+    /// binding lands; the canonical path is
+    /// `ALTER USER <name> SET DEFAULT DATABASE <db>`.
+    SetDefault,
+    /// `ALTER DATABASE <name> MATERIALIZE` — triggers background materialization
+    /// of a cloned database. Returns `FEATURE_NOT_YET_IMPLEMENTED` until the
+    /// clone/mirror subsystem lands.
+    Materialize,
+    /// `ALTER DATABASE <name> PROMOTE` — promotes a mirror to writable primary.
+    /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the mirror subsystem lands.
+    Promote,
+}
+
 /// Typed representation of every NodeDB DDL statement.
 ///
 /// Handlers receive a fully-parsed variant instead of raw `&[&str]`
@@ -295,6 +319,75 @@ pub enum NodedbStatement {
         if_exists: bool,
     },
     ShowContinuousAggregates,
+
+    // ── Database lifecycle ───────────────────────────────────────
+    /// `CREATE DATABASE [IF NOT EXISTS] <name> [WITH (...)]`
+    CreateDatabase {
+        name: String,
+        if_not_exists: bool,
+        /// Key-value pairs from `WITH (...)`, if present.
+        options: Vec<(String, String)>,
+    },
+    /// `DROP DATABASE [IF EXISTS] <name> [CASCADE | FORCE]`
+    ///
+    /// `FORCE` and `CASCADE` are accepted as synonyms by the parser and both
+    /// set `cascade = true`. PostgreSQL's `WITH (FORCE)` extension also
+    /// terminates active sessions; that is a separate concern handled by the
+    /// session registry at drop time and does not require a distinct AST flag.
+    DropDatabase {
+        name: String,
+        if_exists: bool,
+        cascade: bool,
+    },
+    /// `ALTER DATABASE <name> <operation>`
+    AlterDatabase {
+        name: String,
+        operation: AlterDatabaseOperation,
+    },
+    /// `SHOW DATABASES`
+    ShowDatabases,
+    /// `USE DATABASE <name>` — session reset to a different database.
+    UseDatabase {
+        name: String,
+    },
+    /// `CLONE DATABASE <new> FROM <source> [AS OF SYSTEM TIME <ms> | LATEST]`
+    ///
+    /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the clone subsystem lands.
+    CloneDatabase {
+        new_name: String,
+        source_name: String,
+        as_of_ms: Option<u64>,
+    },
+    /// `MIRROR DATABASE <replica> FROM <source> [MODE = sync | async]`
+    ///
+    /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the mirror subsystem lands.
+    MirrorDatabase {
+        replica_name: String,
+        source_name: String,
+        mode: String,
+    },
+    /// `MOVE TENANT <tenant> FROM <db_a> TO <db_b>`
+    ///
+    /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the tenant-move subsystem lands.
+    MoveTenant {
+        tenant_name: String,
+        from_db: String,
+        to_db: String,
+    },
+    /// `BACKUP DATABASE <name> TO <uri>`
+    ///
+    /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the backup subsystem lands.
+    BackupDatabase {
+        name: String,
+        uri: String,
+    },
+    /// `RESTORE DATABASE <name> FROM <uri>`
+    ///
+    /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the restore subsystem lands.
+    RestoreDatabase {
+        name: String,
+        uri: String,
+    },
 
     // ── Backup / restore ─────────────────────────────────────────
     BackupTenant {
