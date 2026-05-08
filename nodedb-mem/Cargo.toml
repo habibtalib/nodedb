@@ -18,6 +18,7 @@ tracing = { workspace = true }
 tikv-jemallocator = { workspace = true }
 tikv-jemalloc-ctl = { workspace = true }
 libc = { workspace = true }
+nodedb-types = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

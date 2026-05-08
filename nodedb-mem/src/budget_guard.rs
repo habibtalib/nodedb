@@ -25,7 +25,7 @@
 use std::sync::Arc;
 
 use crate::engine::EngineId;
-use crate::error::Result;
+use crate::error::{MemError, Result};
 use crate::governor::MemoryGovernor;
 
 /// RAII guard that holds a byte reservation from the [`MemoryGovernor`].
@@ -81,7 +81,29 @@ impl MemoryGovernor {
     /// if the reservation would exceed any configured limit.  Returns
     /// [`MemError::UnknownEngine`] if `engine` is not registered.
     pub fn reserve(self: &Arc<Self>, engine: EngineId, bytes: usize) -> Result<BudgetGuard> {
-        self.try_reserve(engine, bytes)?;
+        let budget = self.budget(engine).ok_or(MemError::UnknownEngine(engine))?;
+
+        // Global ceiling check.
+        let total_allocated = self.total_allocated();
+        let ceiling = self.global_ceiling();
+        if total_allocated + bytes > ceiling {
+            return Err(MemError::GlobalCeilingExceeded {
+                allocated: total_allocated,
+                ceiling,
+                requested: bytes,
+            });
+        }
+
+        // Per-engine check.
+        if !budget.try_reserve(bytes) {
+            return Err(MemError::BudgetExhausted {
+                engine,
+                requested: bytes,
+                available: budget.available(),
+                limit: budget.limit(),
+            });
+        }
+
         Ok(BudgetGuard::new(Arc::clone(self), engine, bytes))
     }
 }

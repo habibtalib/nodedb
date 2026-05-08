@@ -4389,6 +4389,7 @@ version = "0.1.1"
 dependencies = [
  "fluxbench",
  "libc",
+ "nodedb-types",
  "tempfile",
  "thiserror 2.0.18",
  "tikv-jemalloc-ctl",
