@@ -17,6 +17,7 @@ pub mod continuous_agg;
 pub mod convert;
 pub mod crdt_ops;
 pub mod custom_type;
+pub mod database;
 pub mod dsl;
 pub mod emergency_ddl;
 pub mod explain_ddl;

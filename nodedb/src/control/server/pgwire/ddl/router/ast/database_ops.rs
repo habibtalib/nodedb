@@ -1,0 +1,93 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Dispatch arms for database DDL statement variants.
+
+use pgwire::api::results::Response;
+use pgwire::error::PgWireResult;
+
+use nodedb_sql::ddl_ast::NodedbStatement;
+
+use crate::control::security::identity::AuthenticatedIdentity;
+use crate::control::server::pgwire::ddl::database::{
+    handle_alter_database, handle_create_database, handle_drop_database, handle_show_databases,
+};
+use crate::control::state::SharedState;
+
+use super::super::super::super::types::sqlstate_error;
+
+/// Try to dispatch a database DDL statement that does NOT require session-store
+/// access (i.e. everything except `USE DATABASE`).
+///
+/// `USE DATABASE` requires the per-handler `SessionStore` and `SocketAddr`
+/// and is intercepted in `execute_single_sql` before the DDL router runs.
+///
+/// Returns `Some(result)` if handled, `None` to fall through.
+pub(super) fn try_dispatch_database(
+    state: &SharedState,
+    identity: &AuthenticatedIdentity,
+    stmt: &NodedbStatement,
+) -> Option<PgWireResult<Vec<Response>>> {
+    match stmt {
+        NodedbStatement::CreateDatabase {
+            name,
+            if_not_exists,
+            options,
+        } => Some(handle_create_database(
+            state,
+            identity,
+            name,
+            *if_not_exists,
+            options,
+        )),
+
+        NodedbStatement::DropDatabase {
+            name,
+            if_exists,
+            cascade,
+        } => Some(handle_drop_database(
+            state, identity, name, *if_exists, *cascade,
+        )),
+
+        NodedbStatement::AlterDatabase { name, operation } => {
+            Some(handle_alter_database(state, identity, name, operation))
+        }
+
+        NodedbStatement::ShowDatabases => Some(handle_show_databases(state, identity)),
+
+        // UseDatabase is handled before the DDL router in execute_single_sql;
+        // if it reaches here, something went wrong in the call chain.
+        NodedbStatement::UseDatabase { name } => Some(Err(sqlstate_error(
+            "XX000",
+            &format!("USE DATABASE {name}: reached router after expected intercept"),
+        ))),
+
+        // Stub variants — return FEATURE_NOT_YET_IMPLEMENTED (0A000) until the
+        // distributed clone / mirror / backup subsystems land.
+        NodedbStatement::CloneDatabase { .. } => Some(Err(sqlstate_error(
+            "0A000",
+            "CLONE DATABASE is not yet implemented",
+        ))),
+
+        NodedbStatement::MirrorDatabase { .. } => Some(Err(sqlstate_error(
+            "0A000",
+            "MIRROR DATABASE is not yet implemented",
+        ))),
+
+        NodedbStatement::MoveTenant { .. } => Some(Err(sqlstate_error(
+            "0A000",
+            "MOVE TENANT is not yet implemented",
+        ))),
+
+        NodedbStatement::BackupDatabase { .. } => Some(Err(sqlstate_error(
+            "0A000",
+            "BACKUP DATABASE is not yet implemented",
+        ))),
+
+        NodedbStatement::RestoreDatabase { .. } => Some(Err(sqlstate_error(
+            "0A000",
+            "RESTORE DATABASE is not yet implemented",
+        ))),
+
+        _ => None,
+    }
+}

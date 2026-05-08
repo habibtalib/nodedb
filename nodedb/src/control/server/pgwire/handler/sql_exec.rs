@@ -305,6 +305,22 @@ impl NodeDbPgHandler {
                 .await;
         }
 
+        // ── USE DATABASE — session reset ──────────────────────────────
+        // Intercepted before the DDL router because it requires access to both
+        // `self.sessions` and `addr` for the per-connection state reset.
+
+        if upper.starts_with("USE DATABASE ") {
+            let parts: Vec<&str> = sql_trimmed.split_whitespace().collect();
+            let name = parts.get(2).copied().unwrap_or("").trim_matches('"');
+            return super::super::ddl::database::use_database::handle_use_database(
+                &self.state,
+                identity,
+                &self.sessions,
+                addr,
+                name,
+            );
+        }
+
         // ── DDL / Temp tables ─────────────────────────────────────────
 
         if upper.starts_with("CREATE TEMPORARY TABLE ") || upper.starts_with("CREATE TEMP TABLE ") {

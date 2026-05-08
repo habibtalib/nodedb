@@ -25,6 +25,8 @@ use crate::control::server::pgwire::ddl::trigger::alter_trigger;
 use crate::control::server::pgwire::ddl::user::{alter_user, create_user};
 use crate::control::state::SharedState;
 
+use super::database_ops::try_dispatch_database;
+
 /// Try to dispatch synchronous (non-async) DDL statement variants.
 /// Returns `Some(result)` if handled, `None` to fall through.
 pub(super) fn try_dispatch_sync(
@@ -32,6 +34,11 @@ pub(super) fn try_dispatch_sync(
     identity: &AuthenticatedIdentity,
     stmt: &NodedbStatement,
 ) -> Option<PgWireResult<Vec<Response>>> {
+    // Database DDL (all synchronous — catalog reads/writes only).
+    if let Some(result) = try_dispatch_database(state, identity, stmt) {
+        return Some(result);
+    }
+
     match stmt {
         NodedbStatement::GrantRole { role, username } => {
             Some(grant_role(state, identity, role, username))

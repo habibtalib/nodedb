@@ -52,7 +52,7 @@ pub struct DatabaseDescriptor {
     /// WAL LSN at which this database was created (or 0 for the
     /// bootstrapped `default` database).
     pub created_at_lsn: u64,
-    /// Quota reference id — links to the quota hierarchy (tier 20).
+    /// Quota reference id — links to the quota hierarchy.
     /// `0` means "no explicit quota; inherits global default".
     #[msgpack(default)]
     pub quota_ref: u64,
@@ -63,8 +63,8 @@ pub struct DatabaseDescriptor {
     pub parent_clone: Option<ParentCloneRef>,
 }
 
-/// Reference to a clone's origin (populated by tier 30 — stored here
-/// from tier 10 so the schema is forward-compatible).
+/// Reference to a clone's origin. Populated by the clone subsystem; stored
+/// on the descriptor from day one so the schema stays forward-compatible.
 #[derive(
     Debug,
     Clone,
