@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use nodedb_array::sync::hlc::Hlc;
 use nodedb_array::sync::op::ArrayOp;
-use nodedb_cluster::array_routing::{vshard_for_array_coord, vshard_from_collection};
+use nodedb_cluster::array_routing::{array_vshard_for_name, vshard_for_array_coord};
 use nodedb_types::sync::wire::array::{ArrayRejectMsg, ArrayRejectReason};
 use tracing::{error, warn};
 
@@ -189,7 +189,7 @@ impl OriginArrayInbound {
                 array = %op.header.array,
                 "array_inbound: schema unavailable; routing by name only"
             );
-            return VShardId::new(vshard_from_collection(&op.header.array));
+            return VShardId::new(array_vshard_for_name(&op.header.array));
         };
 
         let coord_u64: Vec<u64> = op

@@ -49,7 +49,7 @@ use nodedb_types::sync::wire::array::{
 };
 use tracing::warn;
 
-use nodedb_cluster::array_routing::vshard_from_collection;
+use nodedb_cluster::array_routing::array_vshard_for_name;
 
 use crate::control::state::SharedState;
 use crate::control::wal_replication::{ReplicatedEntry, ReplicatedWrite};
@@ -236,7 +236,7 @@ impl OriginArrayInbound {
             return Ok(InboundOutcome::SchemaImported);
         }
 
-        let vshard_id = VShardId::new(vshard_from_collection(&msg.array));
+        let vshard_id = VShardId::new(array_vshard_for_name(&msg.array));
         let write = ReplicatedWrite::ArraySchema {
             array: msg.array.clone(),
             snapshot_payload: msg.snapshot_payload.clone(),

@@ -35,7 +35,7 @@ pub(crate) async fn apply_array_op(
     use crate::types::{TenantId, VShardId};
     use nodedb_array::sync::op_codec;
     use nodedb_array::types::coord::value::CoordValue;
-    use nodedb_cluster::array_routing::{vshard_for_array_coord, vshard_from_collection};
+    use nodedb_cluster::array_routing::{array_vshard_for_name, vshard_for_array_coord};
 
     let op = match op_codec::decode_op(op_bytes) {
         Ok(op) => op,
@@ -85,7 +85,7 @@ pub(crate) async fn apply_array_op(
             &extents,
         ))
     } else {
-        VShardId::new(vshard_from_collection(&op.header.array))
+        VShardId::new(array_vshard_for_name(&op.header.array))
     };
 
     // Build Data Plane plan.
