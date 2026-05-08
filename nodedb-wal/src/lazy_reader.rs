@@ -214,10 +214,10 @@ mod tests {
 
         {
             let mut w = WalWriter::open_without_direct_io(&path).unwrap();
-            w.append(RecordType::Put as u32, 1, 0, b"hello").unwrap();
-            w.append(RecordType::VectorPut as u32, 1, 0, b"vector-data")
+            w.append(RecordType::Put as u32, 1, 0, 0, b"hello").unwrap();
+            w.append(RecordType::VectorPut as u32, 1, 0, 0, b"vector-data")
                 .unwrap();
-            w.append(RecordType::Put as u32, 2, 1, b"world").unwrap();
+            w.append(RecordType::Put as u32, 2, 1, 0, b"world").unwrap();
             w.sync().unwrap();
         }
 
@@ -241,13 +241,13 @@ mod tests {
         {
             let mut w = WalWriter::open_without_direct_io(&path).unwrap();
             // 3 big TS records, 1 small vector record.
-            w.append(RecordType::TimeseriesBatch as u32, 1, 0, &[0u8; 10000])
+            w.append(RecordType::TimeseriesBatch as u32, 1, 0, 0, &[0u8; 10000])
                 .unwrap();
-            w.append(RecordType::TimeseriesBatch as u32, 1, 0, &[0u8; 10000])
+            w.append(RecordType::TimeseriesBatch as u32, 1, 0, 0, &[0u8; 10000])
                 .unwrap();
-            w.append(RecordType::VectorPut as u32, 1, 0, b"small-vec")
+            w.append(RecordType::VectorPut as u32, 1, 0, 0, b"small-vec")
                 .unwrap();
-            w.append(RecordType::TimeseriesBatch as u32, 1, 0, &[0u8; 10000])
+            w.append(RecordType::TimeseriesBatch as u32, 1, 0, 0, &[0u8; 10000])
                 .unwrap();
             w.sync().unwrap();
         }
@@ -281,8 +281,8 @@ mod tests {
 
         {
             let mut w = WalWriter::open_without_direct_io(&path).unwrap();
-            w.append(RecordType::Put as u32, 1, 0, b"a").unwrap();
-            w.append(RecordType::Put as u32, 1, 0, b"b").unwrap();
+            w.append(RecordType::Put as u32, 1, 0, 0, b"a").unwrap();
+            w.append(RecordType::Put as u32, 1, 0, 0, b"b").unwrap();
             w.sync().unwrap();
         }
 

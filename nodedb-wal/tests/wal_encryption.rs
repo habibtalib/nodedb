@@ -37,7 +37,8 @@ fn wal_encryption_restart_roundtrip() {
         wal.set_encryption_ring(ring).unwrap();
 
         for payload in &payloads {
-            wal.append(RecordType::Put as u32, 1, 0, payload).unwrap();
+            wal.append(RecordType::Put as u32, 1, 0, 0, payload)
+                .unwrap();
         }
         wal.sync().unwrap();
         // WAL drops here — simulates process exit.

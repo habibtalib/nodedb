@@ -226,13 +226,13 @@ mod tests {
         {
             let mut writer = WalWriter::open_without_direct_io(&path).unwrap();
             writer
-                .append(RecordType::Put as u32, 1, 0, b"first")
+                .append(RecordType::Put as u32, 1, 0, 0, b"first")
                 .unwrap();
             writer
-                .append(RecordType::Put as u32, 2, 1, b"second")
+                .append(RecordType::Put as u32, 2, 1, 0, b"second")
                 .unwrap();
             writer
-                .append(RecordType::Delete as u32, 1, 0, b"third")
+                .append(RecordType::Delete as u32, 1, 0, 0, b"third")
                 .unwrap();
             writer.sync().unwrap();
         }
@@ -281,7 +281,7 @@ mod tests {
         {
             let mut writer = WalWriter::open_without_direct_io(&path).unwrap();
             writer
-                .append(RecordType::Put as u32, 1, 0, b"good-record")
+                .append(RecordType::Put as u32, 1, 0, 0, b"good-record")
                 .unwrap();
             writer.sync().unwrap();
         }
@@ -321,10 +321,12 @@ mod tests {
         {
             let mut writer = WalWriter::open_without_direct_io(&path).unwrap();
             for _ in 0..SKIP_COUNT {
-                writer.append(UNKNOWN_OPTIONAL, 1, 0, b"skip-me").unwrap();
+                writer
+                    .append(UNKNOWN_OPTIONAL, 1, 0, 0, b"skip-me")
+                    .unwrap();
             }
             writer
-                .append(RecordType::Put as u32, 1, 0, b"keep-me")
+                .append(RecordType::Put as u32, 1, 0, 0, b"keep-me")
                 .unwrap();
             writer.sync().unwrap();
         }

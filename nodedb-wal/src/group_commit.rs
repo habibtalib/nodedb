@@ -40,6 +40,8 @@ pub struct PendingWrite {
     pub tenant_id: u64,
     /// Virtual shard ID.
     pub vshard_id: u32,
+    /// Database identifier (raw u64). Zero maps to the default database.
+    pub database_id: u64,
     /// Payload bytes.
     pub payload: Vec<u8>,
 }
@@ -151,7 +153,13 @@ impl GroupCommitter {
         let mut last_lsn = 0;
 
         for w in &batch {
-            last_lsn = wal.append(w.record_type, w.tenant_id, w.vshard_id, &w.payload)?;
+            last_lsn = wal.append(
+                w.record_type,
+                w.tenant_id,
+                w.vshard_id,
+                w.database_id,
+                &w.payload,
+            )?;
         }
 
         let sync_result = wal.sync();
@@ -214,6 +222,7 @@ mod tests {
                     record_type: RecordType::Put as u32,
                     tenant_id: 1,
                     vshard_id: 0,
+                    database_id: 0,
                     payload: b"hello".to_vec(),
                 },
             )
@@ -257,6 +266,7 @@ mod tests {
                             record_type: RecordType::Put as u32,
                             tenant_id: 1,
                             vshard_id: 0,
+                            database_id: 0,
                             payload: payload.into_bytes(),
                         },
                     )

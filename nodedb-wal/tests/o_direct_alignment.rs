@@ -41,7 +41,7 @@ fn uring_file_offset_advances_by_padded_size_after_sub_page_batch() {
     };
 
     writer
-        .append(RecordType::Put as u32, 1, 0, b"small")
+        .append(RecordType::Put as u32, 1, 0, 0, b"small")
         .unwrap();
     writer.submit_and_sync().unwrap();
 
@@ -74,14 +74,14 @@ fn uring_two_sub_page_batches_both_succeed_under_o_direct() {
     };
 
     writer
-        .append(RecordType::Put as u32, 1, 0, b"first-batch")
+        .append(RecordType::Put as u32, 1, 0, 0, b"first-batch")
         .unwrap();
     writer.submit_and_sync().unwrap();
 
     // Second batch: with the offset bug, this submission lands on an
     // unaligned offset and the io_uring CQE returns -EINVAL.
     writer
-        .append(RecordType::Put as u32, 1, 0, b"second-batch")
+        .append(RecordType::Put as u32, 1, 0, 0, b"second-batch")
         .expect("append must not fail");
     writer
         .submit_and_sync()
@@ -102,7 +102,13 @@ fn uring_many_sub_page_batches_remain_aligned() {
 
     for i in 0..16u32 {
         writer
-            .append(RecordType::Put as u32, 1, 0, format!("rec-{i}").as_bytes())
+            .append(
+                RecordType::Put as u32,
+                1,
+                0,
+                0,
+                format!("rec-{i}").as_bytes(),
+            )
             .unwrap();
         writer
             .submit_and_sync()
@@ -132,6 +138,7 @@ fn dwb_direct_mode_write_and_recover() {
             RecordType::Put as u32,
             lsn,
             1,
+            0,
             0,
             format!("direct-{lsn}").into_bytes(),
             None,

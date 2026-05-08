@@ -264,11 +264,15 @@ impl WalWriter {
     ///
     /// The record is written to the in-memory buffer. Call `sync()` to
     /// flush to disk and make the write durable.
+    ///
+    /// `database_id` is stored in header bytes 34-41. Pass `0` for the
+    /// default database (backward-compatible with pre-existing records).
     pub fn append(
         &mut self,
         record_type: u32,
         tenant_id: u64,
         vshard_id: u32,
+        database_id: u64,
         payload: &[u8],
     ) -> Result<u64> {
         if self.sealed {
@@ -282,6 +286,7 @@ impl WalWriter {
             lsn,
             tenant_id,
             vshard_id,
+            database_id,
             payload.to_vec(),
             self.encryption_ring.as_ref().map(|r| r.current()),
             preamble_bytes.as_ref(),
@@ -432,7 +437,7 @@ mod tests {
 
         let mut writer = WalWriter::open_without_direct_io(&path).unwrap();
         let lsn = writer
-            .append(RecordType::Put as u32, 1, 0, b"hello")
+            .append(RecordType::Put as u32, 1, 0, 0, b"hello")
             .unwrap();
         assert_eq!(lsn, 1);
 
@@ -448,13 +453,13 @@ mod tests {
         let mut writer = WalWriter::open_without_direct_io(&path).unwrap();
 
         let lsn1 = writer
-            .append(RecordType::Put as u32, 1, 0, b"first")
+            .append(RecordType::Put as u32, 1, 0, 0, b"first")
             .unwrap();
         let lsn2 = writer
-            .append(RecordType::Put as u32, 1, 0, b"second")
+            .append(RecordType::Put as u32, 1, 0, 0, b"second")
             .unwrap();
         let lsn3 = writer
-            .append(RecordType::Put as u32, 1, 0, b"third")
+            .append(RecordType::Put as u32, 1, 0, 0, b"third")
             .unwrap();
 
         assert_eq!(lsn1, 1);
@@ -471,7 +476,7 @@ mod tests {
         writer.seal().unwrap();
 
         assert!(matches!(
-            writer.append(RecordType::Put as u32, 1, 0, b"rejected"),
+            writer.append(RecordType::Put as u32, 1, 0, 0, b"rejected"),
             Err(WalError::Sealed)
         ));
     }

@@ -142,11 +142,15 @@ impl UringWriter {
     /// Append a record to the in-memory buffer. Returns the assigned LSN.
     ///
     /// The record is NOT durable until `submit_and_sync()` is called.
+    ///
+    /// `database_id` is stored in header bytes 34-41. Pass `0` for the
+    /// default database (backward-compatible with pre-existing records).
     pub fn append(
         &mut self,
         record_type: u32,
         tenant_id: u64,
         vshard_id: u32,
+        database_id: u64,
         payload: &[u8],
     ) -> Result<u64> {
         if self.sealed {
@@ -160,6 +164,7 @@ impl UringWriter {
             lsn,
             tenant_id,
             vshard_id,
+            database_id,
             payload.to_vec(),
             self.encryption_key.as_ref(),
             preamble_bytes.as_ref(),
@@ -319,10 +324,10 @@ mod tests {
         {
             let mut writer = UringWriter::open_without_direct_io(&path).unwrap();
             writer
-                .append(RecordType::Put as u32, 1, 0, b"hello-uring")
+                .append(RecordType::Put as u32, 1, 0, 0, b"hello-uring")
                 .unwrap();
             writer
-                .append(RecordType::Put as u32, 2, 1, b"world-uring")
+                .append(RecordType::Put as u32, 2, 1, 0, b"world-uring")
                 .unwrap();
             writer.submit_and_sync().unwrap();
         }
@@ -349,7 +354,7 @@ mod tests {
             for i in 0..1000u32 {
                 let payload = format!("record-{i}");
                 writer
-                    .append(RecordType::Put as u32, 1, 0, payload.as_bytes())
+                    .append(RecordType::Put as u32, 1, 0, 0, payload.as_bytes())
                     .unwrap();
             }
             writer.submit_and_sync().unwrap();
@@ -372,10 +377,10 @@ mod tests {
         {
             let mut writer = UringWriter::open_without_direct_io(&path).unwrap();
             writer
-                .append(RecordType::Put as u32, 1, 0, b"first")
+                .append(RecordType::Put as u32, 1, 0, 0, b"first")
                 .unwrap();
             writer
-                .append(RecordType::Put as u32, 1, 0, b"second")
+                .append(RecordType::Put as u32, 1, 0, 0, b"second")
                 .unwrap();
             writer.submit_and_sync().unwrap();
         }
@@ -384,7 +389,7 @@ mod tests {
             let mut writer = UringWriter::open_without_direct_io(&path).unwrap();
             assert_eq!(writer.next_lsn(), 3);
             let lsn = writer
-                .append(RecordType::Put as u32, 1, 0, b"third")
+                .append(RecordType::Put as u32, 1, 0, 0, b"third")
                 .unwrap();
             assert_eq!(lsn, 3);
             writer.submit_and_sync().unwrap();

@@ -25,7 +25,7 @@ fn append_record(
     payload: &[u8],
 ) -> u64 {
     writer
-        .append(record_type as u32, tenant_id, 0, payload)
+        .append(record_type as u32, tenant_id, 0, 0, payload)
         .unwrap()
 }
 

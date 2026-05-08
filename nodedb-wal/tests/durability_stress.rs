@@ -46,7 +46,7 @@ fn write_wal(path: &std::path::Path, writer_id: usize) -> Vec<u64> {
         payload[8..12].copy_from_slice(&i.to_le_bytes()); // redundant sentinel
 
         let lsn = writer
-            .append(RecordType::Put as u32, 1, 0, &payload)
+            .append(RecordType::Put as u32, 1, 0, 0, &payload)
             .unwrap();
 
         // Sync every 500 records, and once at the very end.
