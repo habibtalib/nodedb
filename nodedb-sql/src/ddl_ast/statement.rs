@@ -469,10 +469,22 @@ pub enum NodedbStatement {
         target_name: String,
         grantee: String,
     },
+    /// `GRANT <privilege> ON DATABASE <name> TO <user>`
+    GrantDatabasePermission {
+        permission: String,
+        db_name: String,
+        grantee: String,
+    },
     RevokePermission {
         permission: String,
         target_type: String,
         target_name: String,
+        grantee: String,
+    },
+    /// `REVOKE <privilege> ON DATABASE <name> FROM <user>`
+    RevokeDatabasePermission {
+        permission: String,
+        db_name: String,
         grantee: String,
     },
     ShowPermissions {

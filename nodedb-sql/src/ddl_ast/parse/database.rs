@@ -150,9 +150,7 @@ fn parse_alter_database(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
             let to_kw = parts.get(4).map(|w| w.to_uppercase()).unwrap_or_default();
             if to_kw != "TO" {
                 return Err(SqlError::Parse {
-                    detail: format!(
-                        "ALTER DATABASE RENAME requires keyword 'TO', got '{to_kw}'"
-                    ),
+                    detail: format!("ALTER DATABASE RENAME requires keyword 'TO', got '{to_kw}'"),
                 });
             }
             let new_name = parts

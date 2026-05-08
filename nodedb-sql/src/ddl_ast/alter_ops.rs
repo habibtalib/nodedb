@@ -103,6 +103,8 @@ pub enum AlterUserOp {
     PasswordExpiresAt { iso8601: String },
     /// `PASSWORD EXPIRES IN <n> DAYS`
     PasswordExpiresInDays { days: u32 },
+    /// `SET DEFAULT DATABASE <db_name>`
+    SetDefaultDatabase { db_name: String },
 }
 
 /// Typed sub-operation for `ALTER ROLE <name> ...`.

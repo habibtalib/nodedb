@@ -9,7 +9,7 @@ mod conflict_policy;
 mod copy_from;
 mod copy_to;
 mod custom_type;
-mod database;
+pub mod database;
 mod dispatch;
 mod helpers;
 mod index;

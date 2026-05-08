@@ -8,7 +8,7 @@ pub enum SqlError {
     #[error("parse error: {detail}")]
     Parse { detail: String },
 
-    #[error("unknown table: {name}")]
+    #[error("table not found: {name}")]
     UnknownTable { name: String },
 
     #[error("unknown column '{column}' in table '{table}'")]
