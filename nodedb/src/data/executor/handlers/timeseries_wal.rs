@@ -91,7 +91,16 @@ impl CoreLoop {
             if sample_count > 0
                 && let Some(ref gov) = self.governor
             {
-                let _ = gov.try_reserve(nodedb_mem::EngineId::Timeseries, sample_count * 24);
+                // Best-effort reservation; token held for the scope of this
+                // replay call then released when dropped.
+                let _mem_token = gov
+                    .try_reserve(
+                        DatabaseId::DEFAULT,
+                        tid,
+                        nodedb_mem::EngineId::Timeseries,
+                        sample_count * 24,
+                    )
+                    .ok();
             }
             return sample_count;
         }

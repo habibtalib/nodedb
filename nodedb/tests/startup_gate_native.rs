@@ -90,14 +90,15 @@ async fn native_status_returns_ok_after_gateway_enable() {
     let bus_native = shutdown_bus.clone();
     tokio::spawn(async move {
         let _ = native_listener
-            .run(
-                shared_native,
-                AuthMode::Trust,
-                None,
-                Arc::new(tokio::sync::Semaphore::new(128)),
-                gate_for_listener,
-                bus_native,
-            )
+            .run(nodedb::control::server::listener::ListenerRunParams {
+                state: shared_native,
+                auth_mode: AuthMode::Trust,
+                tls_acceptor: None,
+                conn_semaphore: Arc::new(tokio::sync::Semaphore::new(128)),
+                startup_gate: gate_for_listener,
+                bus: bus_native,
+                admission: Arc::new(nodedb::control::server::admission::AdmissionRegistry::new()),
+            })
             .await;
     });
 

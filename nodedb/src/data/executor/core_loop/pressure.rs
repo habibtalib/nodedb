@@ -203,7 +203,11 @@ mod tests {
         .unwrap();
         let fill = (budget_bytes as u64 * utilization_percent as u64 / 100) as usize;
         if fill > 0 {
-            let _ = gov.try_reserve(engine, fill);
+            // Intentionally leak the token so the engine budget stays allocated
+            // for the lifetime of the test governor. Test-only pattern.
+            if let Ok(tok) = gov.try_reserve(DatabaseId::DEFAULT, TenantId::new(1), engine, fill) {
+                std::mem::forget(tok);
+            }
         }
         Arc::new(gov)
     }

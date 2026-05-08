@@ -12,8 +12,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use super::core::SpillCore;
 use crate::data::executor::handlers::columnar_agg_support::{AggAccum, GroupKey};
+use crate::types::{DatabaseId, TenantId};
+
+use super::core::SpillCore;
 
 /// Spill-to-disk manager for the columnar GROUP BY HashMap path.
 pub(in crate::data::executor::handlers) struct ColumnarGroupBySpiller {
@@ -22,6 +24,10 @@ pub(in crate::data::executor::handlers) struct ColumnarGroupBySpiller {
     cap: usize,
     governor: Option<Arc<nodedb_mem::MemoryGovernor>>,
     feed_counter: u64,
+    /// Database this spiller is executing on behalf of.
+    db: DatabaseId,
+    /// Tenant this spiller is executing on behalf of.
+    tenant: TenantId,
 }
 
 impl ColumnarGroupBySpiller {
@@ -29,6 +35,8 @@ impl ColumnarGroupBySpiller {
         spill_dir: PathBuf,
         cap: usize,
         governor: Option<Arc<nodedb_mem::MemoryGovernor>>,
+        db: DatabaseId,
+        tenant: TenantId,
     ) -> crate::Result<Self> {
         Ok(Self {
             core: SpillCore::new(spill_dir)?,
@@ -36,6 +44,8 @@ impl ColumnarGroupBySpiller {
             cap: cap.max(1),
             governor,
             feed_counter: 0,
+            db,
+            tenant,
         })
     }
 
@@ -52,7 +62,12 @@ impl ColumnarGroupBySpiller {
             let estimated_growth = std::mem::size_of::<AggAccum>() * num_aggs * 10_000;
             if let Some(ref gov) = self.governor
                 && gov
-                    .try_reserve(nodedb_mem::EngineId::Query, estimated_growth)
+                    .try_reserve(
+                        self.db,
+                        self.tenant,
+                        nodedb_mem::EngineId::Query,
+                        estimated_growth,
+                    )
                     .is_err()
             {
                 self.spill_current_run()?;

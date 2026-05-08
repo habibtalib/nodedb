@@ -15,6 +15,7 @@ use std::sync::Arc;
 use nodedb::control::metrics::SystemMetrics;
 use nodedb::data::executor::core_loop::CoreLoop;
 use nodedb_mem::{EngineId, GovernorConfig, MemoryGovernor};
+use nodedb_types::{DatabaseId, TenantId};
 
 /// Baseline SPSC read depth, sourced from the `CoreLoop` public accessor so
 /// the test does not hard-code the value.
@@ -41,7 +42,7 @@ fn make_governor_at(engine: EngineId, utilization_percent: u8) -> Arc<MemoryGove
     .unwrap();
     let fill = (budget_bytes as u64 * utilization_percent as u64 / 100) as usize;
     if fill > 0 {
-        let _ = gov.try_reserve(engine, fill);
+        let _ = gov.try_reserve(DatabaseId::DEFAULT, TenantId::new(1), engine, fill);
     }
     Arc::new(gov)
 }

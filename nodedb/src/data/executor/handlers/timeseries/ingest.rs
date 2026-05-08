@@ -171,10 +171,15 @@ impl CoreLoop {
 
         // Pre-flush: flush BEFORE ingesting if memtable is at the soft limit
         // OR if the timeseries engine budget is exhausted (governor pressure).
-        let governor_pressure = self
-            .governor
-            .as_ref()
-            .is_some_and(|g| g.try_reserve(nodedb_mem::EngineId::Timeseries, 0).is_err());
+        let governor_pressure = self.governor.as_ref().is_some_and(|g| {
+            g.try_reserve(
+                task.request.database_id,
+                tid,
+                nodedb_mem::EngineId::Timeseries,
+                0,
+            )
+            .is_err()
+        });
         if let Some(mt) = self.columnar_memtables.get(&key)
             && (mt.memory_bytes() >= 64 * 1024 * 1024 || governor_pressure)
         {
@@ -190,10 +195,18 @@ impl CoreLoop {
             );
         };
         // Reserve memory budget for this batch (~24 bytes per ILP line estimate).
+        // The token is held for the scope below where the batch is written to
+        // the memtable, then dropped (releasing the reservation) once done.
         let batch_estimate = lines.len() * 24;
-        if let Some(ref gov) = self.governor {
-            let _ = gov.try_reserve(nodedb_mem::EngineId::Timeseries, batch_estimate);
-        }
+        let _mem_token = self.governor.as_ref().and_then(|gov| {
+            gov.try_reserve(
+                task.request.database_id,
+                tid,
+                nodedb_mem::EngineId::Timeseries,
+                batch_estimate,
+            )
+            .ok()
+        });
 
         let stamps = if bitemporal {
             Some(ilp_ingest::BitempStamps { system_ms: now_ms })
