@@ -5,6 +5,7 @@ pub mod clone;
 pub mod create;
 pub mod drop;
 pub mod materialize;
+pub mod mirror;
 pub mod show;
 pub mod show_lineage;
 pub mod show_quota;
@@ -16,6 +17,10 @@ pub use clone::handle_clone_database;
 pub use create::handle_create_database;
 pub use drop::handle_drop_database;
 pub use materialize::handle_alter_database_materialize;
+pub use mirror::{
+    MirrorDdlKind, MirrorReadOutcome, apply_mirror_ddl_entry, check_mirror_read_consistency,
+    handle_mirror_database, handle_promote_database, handle_show_database_mirror_status,
+};
 pub use show::handle_show_databases;
 pub use show_lineage::handle_show_database_lineage;
 pub use show_quota::handle_show_database_quota;

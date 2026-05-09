@@ -10,8 +10,8 @@ use nodedb_sql::ddl_ast::NodedbStatement;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::ddl::database::{
     handle_alter_database, handle_clone_database, handle_create_database, handle_drop_database,
-    handle_show_database_lineage, handle_show_database_quota, handle_show_database_usage,
-    handle_show_databases,
+    handle_mirror_database, handle_show_database_lineage, handle_show_database_mirror_status,
+    handle_show_database_quota, handle_show_database_usage, handle_show_databases,
 };
 use crate::control::server::pgwire::ddl::tenant::{
     handle_alter_tenant_quota, handle_show_tenant_quota_in_database,
@@ -112,10 +112,23 @@ pub(super) fn try_dispatch_database(
             ))
         }
 
-        NodedbStatement::MirrorDatabase { .. } => Some(Err(sqlstate_error(
-            "0A000",
-            "MIRROR DATABASE is not yet implemented",
-        ))),
+        NodedbStatement::MirrorDatabase {
+            local_name,
+            source_cluster,
+            source_database,
+            mode,
+        } => Some(handle_mirror_database(
+            state,
+            identity,
+            local_name,
+            source_cluster,
+            source_database,
+            *mode,
+        )),
+
+        NodedbStatement::ShowDatabaseMirrorStatus { name } => Some(
+            handle_show_database_mirror_status(state, identity, name.as_deref()),
+        ),
 
         NodedbStatement::MoveTenant { .. } => {
             // Async — handled in try_dispatch_async (async_ops.rs).

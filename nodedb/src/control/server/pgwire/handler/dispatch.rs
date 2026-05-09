@@ -49,6 +49,47 @@ impl NodeDbPgHandler {
             });
         }
 
+        // Mirror enforcement:
+        // - Writes are rejected on non-promoted mirrors (MIRROR_READ_ONLY).
+        // - Reads are gated by the session's ReadConsistency level:
+        //     Strong        → STALE_READ_NOT_LEADER (mirrors are never the source leader)
+        //     BoundedStaleness(d) → serve locally if lag ≤ d, else STALE_READ_NOT_LEADER
+        //     Eventual      → serve locally unconditionally
+        // The catalog lookup is skipped for the default database (id=0) to keep the
+        // hot path allocation-free in the single-database case.
+        if task.database_id.as_u64() != 0
+            && let Some(catalog) = self.state.credentials.catalog()
+            && let Ok(Some(descriptor)) = catalog.get_database(task.database_id)
+            && let Some(origin) = descriptor.mirror_origin.as_ref()
+            && !matches!(origin.status, nodedb_types::MirrorStatus::Promoted)
+        {
+            if matches!(perm, Permission::Write | Permission::Admin) {
+                return Err(crate::Error::MirrorReadOnly {
+                    database: descriptor.name.clone(),
+                });
+            }
+
+            use crate::control::server::pgwire::ddl::database::{
+                MirrorReadOutcome, check_mirror_read_consistency,
+            };
+            // Consistency defaults to Strong: mirrors are not the source leader,
+            // so reads are rejected unless the session has explicitly opted into
+            // BoundedStaleness or Eventual.
+            let outcome = check_mirror_read_consistency(
+                catalog,
+                task.database_id,
+                origin,
+                ReadConsistency::Strong,
+            );
+            if let MirrorReadOutcome::Reject { message, .. } = outcome {
+                return Err(crate::Error::StaleReadNotLeader {
+                    database: descriptor.name.clone(),
+                    source_cluster: origin.source_cluster.clone(),
+                    detail: message,
+                });
+            }
+        }
+
         if matches!(
             task.plan,
             crate::bridge::envelope::PhysicalPlan::Document(

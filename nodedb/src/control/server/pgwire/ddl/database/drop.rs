@@ -15,6 +15,7 @@
 //!     dependent clone before proceeding with the drop.
 
 use nodedb_types::DatabaseId;
+use nodedb_types::MirrorStatus;
 use nodedb_types::error::sqlstate;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
@@ -85,6 +86,51 @@ pub fn handle_drop_database(
             sqlstate::CANNOT_DROP_DEFAULT_DATABASE,
             "cannot drop the built-in 'default' database",
         ));
+    }
+
+    // ── Mirror unsubscribe ────────────────────────────────────────────────────
+    //
+    // If this database is an active mirror, tear down the cross-cluster observer
+    // link before removing local state. On the source side the observer simply
+    // stops receiving entries; the source cluster does not need to be notified
+    // (this is consistent with the design where promotion is the mirror's local
+    // decision, e.g. in a DR scenario where the source is unreachable).
+    //
+    // The link teardown is best-effort: if the link is already disconnected
+    // (e.g. source was unreachable), the drop proceeds anyway. The mirror's
+    // catalog state is the authoritative record of whether a subscription exists.
+    {
+        let descriptor_for_mirror = catalog
+            .get_database(db_id)
+            .map_err(|e| sqlstate_error("XX000", &format!("catalog read failed: {e}")))?;
+        if let Some(descriptor) = descriptor_for_mirror
+            && let Some(origin) = descriptor.mirror_origin.as_ref()
+            // Promoted mirrors are now standalone writable databases — the
+            // observer link was torn down and the mirror_collection_map /
+            // mirror_lag rows were cleared at promotion time. Skip the
+            // teardown branch so we don't re-delete already-removed rows
+            // and don't emit a misleading "subscription teardown" log line.
+            && !matches!(origin.status, MirrorStatus::Promoted)
+        {
+            // Remove the mirror collection map and lag records.
+            // These are best-effort; we proceed even if they fail because
+            // the descriptor delete below is the authoritative removal.
+            if let Err(e) = catalog.delete_mirror_collection_map(db_id) {
+                tracing::warn!(
+                    db = ?db_id, "DROP DATABASE mirror: failed to remove collection map: {e}"
+                );
+            }
+            if let Err(e) = catalog.delete_mirror_lag(db_id) {
+                tracing::warn!(
+                    db = ?db_id, "DROP DATABASE mirror: failed to remove lag record: {e}"
+                );
+            }
+            tracing::info!(
+                db = ?db_id,
+                source_cluster = %origin.source_cluster,
+                "DROP DATABASE mirror: observer subscription teardown complete"
+            );
+        }
     }
 
     // ── Orphan protection ─────────────────────────────────────────────────────

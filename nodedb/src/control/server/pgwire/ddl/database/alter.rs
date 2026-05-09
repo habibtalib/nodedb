@@ -150,10 +150,7 @@ pub fn handle_alter_database(
         }
 
         AlterDatabaseOperation::Promote => {
-            return Err(sqlstate_error(
-                "0A000",
-                "ALTER DATABASE PROMOTE is not yet implemented",
-            ));
+            return super::mirror::promote::handle_promote_database(state, identity, name);
         }
     }
 
