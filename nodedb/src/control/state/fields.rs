@@ -353,4 +353,11 @@ pub struct SharedState {
     pub quarantine_registry: Arc<crate::storage::quarantine::QuarantineRegistry>,
     /// Per-database and per-tenant connection admission semaphores.
     pub admission_registry: Arc<crate::control::server::admission::AdmissionRegistry>,
+    /// LSN ↔ wall-clock millisecond interpolation map.
+    ///
+    /// Populated from WAL anchor records (`RecordType::LsnMsAnchor`) as they
+    /// are replayed or emitted.  Used by the clone CoW resolver to convert
+    /// `AS OF SYSTEM TIME <ms>` values to LSN for source-delegation clamping.
+    /// Wrapped in `Mutex` because the Control Plane is `Send + Sync`.
+    pub lsn_ms_map: Arc<Mutex<nodedb_types::temporal::LsnMsMap>>,
 }

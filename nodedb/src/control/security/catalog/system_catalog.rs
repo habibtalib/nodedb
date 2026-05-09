@@ -179,6 +179,9 @@ impl SystemCatalog {
                 .open_table(CLONE_TOMBSTONES)
                 .map_err(|e| catalog_err("init clone_tombstones table", e))?;
             let _ = write_txn
+                .open_table(CLONE_KV_TOMBSTONES)
+                .map_err(|e| catalog_err("init clone_kv_tombstones table", e))?;
+            let _ = write_txn
                 .open_table(CLONE_LINEAGE)
                 .map_err(|e| catalog_err("init clone_lineage table", e))?;
         }

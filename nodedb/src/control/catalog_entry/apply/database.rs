@@ -47,8 +47,10 @@ pub fn put_grant(db_id: u64, user_id: u64, privilege: &str, catalog: &SystemCata
     }
 }
 
-/// Apply a `CloneDatabase` entry — write the target descriptor and update
-/// the clone lineage table, atomically from the catalog's perspective.
+/// Apply a `CloneDatabase` entry — write the target descriptor, update the
+/// clone lineage table, and stamp every source collection into the target
+/// database with `cloned_from` set so the SQL planner can resolve queries
+/// against the clone without a source-side lookup at plan time.
 pub fn clone_apply(
     target_descriptor: &DatabaseDescriptor,
     source_db_id: u64,
@@ -72,6 +74,64 @@ pub fn clone_apply(
             error = %e,
             "catalog_entry: clone_database add_clone_child failed"
         );
+    }
+
+    // Determine the as_of and clone_created_at LSN values from the target
+    // descriptor's parent_clone reference.
+    let (as_of_lsn, clone_created_at) = match &target_descriptor.parent_clone {
+        Some(pc) => (
+            nodedb_types::Lsn::new(pc.as_of_lsn),
+            nodedb_types::Lsn::new(target_descriptor.created_at_lsn),
+        ),
+        None => {
+            // No parent clone ref — nothing to stamp. Descriptor was written
+            // above; non-clone databases are complete.
+            return;
+        }
+    };
+
+    // Enumerate every active collection in the source database and write a
+    // shadow descriptor into the target database so the SQL planner can
+    // resolve collection names without knowing about clone indirection.
+    //
+    // Each shadow collection carries `cloned_from` pointing back to the
+    // source, so the read/write planner applies CoW delegation at dispatch
+    // time. The engines never see this field.
+    //
+    // We enumerate all tenants visible in the source by walking every
+    // collection row under the source database_id. The tenant_id is encoded
+    // in the inner key prefix, so we collect it from the row itself.
+    let source_colls = match catalog.load_all_collections(source) {
+        Ok(cs) => cs,
+        Err(e) => {
+            warn!(
+                source_db_id,
+                error = %e,
+                "catalog_entry: clone_database: failed to enumerate source collections"
+            );
+            return;
+        }
+    };
+
+    for mut coll in source_colls.into_iter().filter(|c| c.is_active) {
+        coll.database_id = child;
+        coll.cloned_from = Some(nodedb_types::CloneOrigin {
+            source_database: source,
+            source_collection: coll.name.clone(),
+            as_of_lsn,
+            clone_created_at,
+        });
+        coll.clone_status = nodedb_types::CloneStatus::Shadowed;
+        // Reset versioning so the new clone descriptor starts fresh.
+        coll.descriptor_version = 0;
+        if let Err(e) = catalog.put_collection(child, &coll) {
+            warn!(
+                target_db_id = child.as_u64(),
+                collection = %coll.name,
+                error = %e,
+                "catalog_entry: clone_database: failed to stamp shadow collection"
+            );
+        }
     }
 }
 

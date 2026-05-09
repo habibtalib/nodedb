@@ -15,7 +15,9 @@
 use nodedb_types::DatabaseId;
 use redb::ReadableTable;
 
-use super::types::{CLONE_COPYUPS, CLONE_LINEAGE, CLONE_TOMBSTONES, SystemCatalog, catalog_err};
+use super::types::{
+    CLONE_COPYUPS, CLONE_KV_TOMBSTONES, CLONE_LINEAGE, CLONE_TOMBSTONES, SystemCatalog, catalog_err,
+};
 
 impl SystemCatalog {
     // ── clone_copyups ─────────────────────────────────────────────────────────
@@ -174,6 +176,35 @@ impl SystemCatalog {
         Ok(exists)
     }
 
+    /// Return the set of all tombstoned source surrogates for a collection.
+    ///
+    /// Used by the clone read path to filter source rows before merging them
+    /// into the target result set.  Returns an empty set when the collection
+    /// has no tombstones (common case).
+    pub fn list_clone_tombstones(
+        &self,
+        target_collection_key: &str,
+    ) -> crate::Result<std::collections::HashSet<u32>> {
+        let txn = self
+            .db
+            .begin_read()
+            .map_err(|e| catalog_err("clone_tombstones list begin_read", e))?;
+        let table = txn
+            .open_table(CLONE_TOMBSTONES)
+            .map_err(|e| catalog_err("open clone_tombstones list", e))?;
+        let mut set = std::collections::HashSet::new();
+        for row in table
+            .iter()
+            .map_err(|e| catalog_err("iter clone_tombstones list", e))?
+        {
+            let (k, _) = row.map_err(|e| catalog_err("iter clone_tombstones list row", e))?;
+            if k.value().0 == target_collection_key {
+                set.insert(k.value().1);
+            }
+        }
+        Ok(set)
+    }
+
     /// Delete all tombstone records for a specific `target_collection_key`
     /// (used during post-materialization reap).
     pub fn delete_all_clone_tombstones_for_collection(
@@ -212,6 +243,59 @@ impl SystemCatalog {
         txn.commit()
             .map_err(|e| catalog_err("clone_tombstones reap commit", e))?;
         Ok(removed)
+    }
+
+    // ── clone_kv_tombstones ───────────────────────────────────────────────────
+
+    /// Record a KV tombstone: `kv_key` was deleted from the KV clone collection.
+    /// Future reads will exclude source rows with this key from results.
+    pub fn put_kv_clone_tombstone(
+        &self,
+        target_collection_key: &str,
+        kv_key: &str,
+    ) -> crate::Result<()> {
+        let txn = self
+            .db
+            .begin_write()
+            .map_err(|e| catalog_err("clone_kv_tombstones begin_write", e))?;
+        {
+            let mut table = txn
+                .open_table(CLONE_KV_TOMBSTONES)
+                .map_err(|e| catalog_err("open clone_kv_tombstones", e))?;
+            table
+                .insert((target_collection_key, kv_key), ())
+                .map_err(|e| catalog_err("insert clone_kv_tombstones", e))?;
+        }
+        txn.commit()
+            .map_err(|e| catalog_err("clone_kv_tombstones commit", e))
+    }
+
+    /// Return the set of all KV tombstoned keys for a clone collection.
+    ///
+    /// Used by the clone read path to filter source KV scan results before
+    /// merging them into the target result set.
+    pub fn list_kv_clone_tombstones(
+        &self,
+        target_collection_key: &str,
+    ) -> crate::Result<std::collections::HashSet<String>> {
+        let txn = self
+            .db
+            .begin_read()
+            .map_err(|e| catalog_err("clone_kv_tombstones list begin_read", e))?;
+        let table = txn
+            .open_table(CLONE_KV_TOMBSTONES)
+            .map_err(|e| catalog_err("open clone_kv_tombstones list", e))?;
+        let mut set = std::collections::HashSet::new();
+        for row in table
+            .iter()
+            .map_err(|e| catalog_err("iter clone_kv_tombstones list", e))?
+        {
+            let (k, _) = row.map_err(|e| catalog_err("iter clone_kv_tombstones row", e))?;
+            if k.value().0 == target_collection_key {
+                set.insert(k.value().1.to_owned());
+            }
+        }
+        Ok(set)
     }
 
     // ── clone_lineage ─────────────────────────────────────────────────────────

@@ -279,6 +279,15 @@ pub(super) const CLONE_COPYUPS: TableDefinition<(&str, u32), u32> =
 pub(super) const CLONE_TOMBSTONES: TableDefinition<(&str, u32), ()> =
     TableDefinition::new("_system.clone_tombstones");
 
+/// Table: `(target_collection_key: &str, kv_key: &str)` → `()`.
+///
+/// Records KV-engine tombstone events: when a KV row that exists only in the
+/// source is deleted from the clone, the raw KV key string is recorded here.
+/// The read path filters source KV scan results against this set so that
+/// deleted rows remain invisible from clone queries.
+pub(super) const CLONE_KV_TOMBSTONES: TableDefinition<(&str, &str), ()> =
+    TableDefinition::new("_system.clone_kv_tombstones");
+
 /// Table: `source_database_id (u64)` → MessagePack-serialized `Vec<u64>` (child DatabaseIds).
 ///
 /// Tracks the lineage tree: for each database that is the source of one or more

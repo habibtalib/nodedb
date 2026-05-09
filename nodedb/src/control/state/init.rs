@@ -352,6 +352,7 @@ impl SharedState {
             admission_registry: Arc::new(
                 crate::control::server::admission::AdmissionRegistry::new(),
             ),
+            lsn_ms_map: Arc::new(Mutex::new(nodedb_types::temporal::LsnMsMap::new())),
             shutdown: Arc::clone(&shutdown),
             loop_registry: Arc::clone(&loop_registry),
             startup: Arc::clone(&startup_gate),
