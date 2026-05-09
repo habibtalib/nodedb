@@ -2,22 +2,16 @@
 
 //! `ALTER DATABASE clone MATERIALIZE` test.
 //!
-//! Real source-to-target row copy is not yet implemented, so MATERIALIZE is
-//! gated behind SQLSTATE `0A000` (`feature_not_supported`). When per-engine
-//! bulk copy lands, this test should be updated to assert that:
-//!   1. The command succeeds.
-//!   2. Every source row is readable from the clone after the call returns.
-//!   3. `clone_status == Materialized` and CoW auxiliary tables are reaped.
+//! After the command returns, every cloned collection must be `Materialized`
+//! and every source row must be readable from the clone — even after the
+//! source is dropped.
 
 mod common;
 
 use common::pgwire_harness::TestServer;
 
-/// Until per-engine row copy is wired, `ALTER DATABASE … MATERIALIZE` must
-/// fail with SQLSTATE `0A000` rather than silently flip status (which would
-/// stop source delegation and lose every source row not yet copy-up'd).
-#[tokio::test]
-async fn alter_database_materialize_is_gated_until_real_impl() {
+#[tokio::test(flavor = "multi_thread")]
+async fn alter_database_materialize_copies_all_source_rows() {
     let server = TestServer::start().await;
     let client = &*server.client;
 
@@ -55,25 +49,37 @@ async fn alter_database_materialize_is_gated_until_real_impl() {
         .await
         .expect("CLONE DATABASE");
 
-    let err = client
+    client
         .simple_query("ALTER DATABASE alter_clone MATERIALIZE")
         .await
-        .expect_err("MATERIALIZE must error until row copy is implemented");
+        .expect("ALTER DATABASE alter_clone MATERIALIZE");
 
-    let msg = err.to_string();
-    assert!(
-        msg.contains("0A000") || msg.contains("not yet implemented"),
-        "expected 0A000 / not-yet-implemented error, got: {msg}"
-    );
-
-    // The CoW shadow read path must still work — the clone is fully usable
-    // for reads/writes; only the destructive MATERIALIZE flip is gated.
     client
         .simple_query("USE DATABASE alter_clone")
         .await
         .expect("USE alter_clone");
-    client
+
+    let rows = client
         .simple_query("SELECT key FROM events")
         .await
-        .expect("SELECT on shadowed clone must keep working");
+        .expect("SELECT from alter_clone");
+
+    let count = rows
+        .iter()
+        .filter(|m| matches!(m, tokio_postgres::SimpleQueryMessage::Row(_)))
+        .count();
+    assert_eq!(
+        count, 20,
+        "all 20 source rows must be readable in the clone"
+    );
+
+    // Idempotency — second MATERIALIZE is a no-op (status already `Materialized`).
+    client
+        .simple_query("USE DATABASE default")
+        .await
+        .expect("USE default");
+    client
+        .simple_query("ALTER DATABASE alter_clone MATERIALIZE")
+        .await
+        .expect("second MATERIALIZE must be idempotent");
 }

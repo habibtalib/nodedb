@@ -1,20 +1,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-//! Materializer kill-and-resume test.
+//! Materializer success-and-idempotency test.
 //!
-//! Until per-engine row copy lands, MATERIALIZE returns SQLSTATE `0A000` and
-//! the clone status remains `Shadowed`. The kill-and-resume property to
-//! verify pre-impl is therefore: an aborted MATERIALIZE leaves the clone in
-//! a usable shadowed state — no half-flip, no data loss. After per-engine
-//! copy lands this test should be replaced with a real seed-clone-materialize-
-//! verify-rows-after-restart scenario.
+//! Seeds 100 rows into a source KV collection, clones it, materializes,
+//! and verifies every source row is readable in the clone. A second
+//! MATERIALIZE must be a no-op (status already `Materialized`).
 
 mod common;
 
 use common::pgwire_harness::TestServer;
 
-#[tokio::test]
-async fn materialize_attempt_leaves_clone_in_shadowed_state() {
+#[tokio::test(flavor = "multi_thread")]
+async fn materializer_completes_and_rows_are_readable() {
     let server = TestServer::start().await;
     let client = &*server.client;
 
@@ -53,17 +50,11 @@ async fn materialize_attempt_leaves_clone_in_shadowed_state() {
         .await
         .expect("CLONE DATABASE");
 
-    let err = client
+    client
         .simple_query("ALTER DATABASE mat_clone MATERIALIZE")
         .await
-        .expect_err("MATERIALIZE must error until row copy is implemented");
-    assert!(
-        err.to_string().contains("0A000") || err.to_string().contains("not yet implemented"),
-        "expected 0A000 / not-yet-implemented error, got: {err}"
-    );
+        .expect("ALTER DATABASE mat_clone MATERIALIZE");
 
-    // After the gated error, the clone must still be readable through the
-    // CoW shadow read path — source delegation must NOT have been disabled.
     client
         .simple_query("USE DATABASE mat_clone")
         .await
@@ -74,37 +65,21 @@ async fn materialize_attempt_leaves_clone_in_shadowed_state() {
         .await
         .expect("SELECT from mat_clone");
 
-    let data_rows: Vec<_> = rows
+    let count = rows
         .iter()
-        .filter_map(|m| {
-            if let tokio_postgres::SimpleQueryMessage::Row(r) = m {
-                Some(r.get("key").unwrap_or("").to_string())
-            } else {
-                None
-            }
-        })
-        .collect();
-
+        .filter(|m| matches!(m, tokio_postgres::SimpleQueryMessage::Row(_)))
+        .count();
     assert_eq!(
-        data_rows.len(),
-        100,
-        "shadowed clone must still serve all 100 source rows after a gated \
-         MATERIALIZE attempt; got {}",
-        data_rows.len()
+        count, 100,
+        "all 100 source rows must be readable post-materialize"
     );
 
-    // A second MATERIALIZE attempt must produce the same gated error
-    // (idempotent failure mode).
     client
         .simple_query("USE DATABASE default")
         .await
         .expect("USE default");
-    let err2 = client
+    client
         .simple_query("ALTER DATABASE mat_clone MATERIALIZE")
         .await
-        .expect_err("second MATERIALIZE must also be gated");
-    assert!(
-        err2.to_string().contains("0A000") || err2.to_string().contains("not yet implemented"),
-        "expected 0A000 / not-yet-implemented error on retry, got: {err2}"
-    );
+        .expect("second MATERIALIZE must be idempotent");
 }

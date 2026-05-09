@@ -2,23 +2,16 @@
 
 //! `DROP DATABASE source FORCE` orphan-protection test.
 //!
-//! With dependent clones present, FORCE must materialize them before
-//! dropping the source. Until per-engine row copy lands, materialization is
-//! gated, so FORCE itself is gated and surfaces SQLSTATE `0A000`
-//! (`feature_not_supported`). The source database must remain intact when
-//! the drop is rejected — half-dropping a source whose dependents cannot be
-//! materialized would orphan them.
-//!
-//! When per-engine row copy is implemented, this test should be updated to
-//! assert that FORCE succeeds, the source is gone, and every source row is
-//! readable from the clone.
+//! With dependent clones present, FORCE must materialize them first and
+//! then drop the source. The clone must remain readable with all source
+//! rows visible after the source is gone.
 
 mod common;
 
 use common::pgwire_harness::TestServer;
 
-#[tokio::test]
-async fn drop_source_force_is_gated_when_clones_need_materialization() {
+#[tokio::test(flavor = "multi_thread")]
+async fn drop_source_force_materializes_clone_and_drops_source() {
     let server = TestServer::start().await;
     let client = &*server.client;
 
@@ -56,24 +49,30 @@ async fn drop_source_force_is_gated_when_clones_need_materialization() {
         .await
         .expect("CLONE DATABASE");
 
-    // FORCE must reject because materialization can't yet run.
-    let err = client
+    client
         .simple_query("DROP DATABASE force_src FORCE")
         .await
-        .expect_err("DROP FORCE must error until materialization is implemented");
-    let msg = err.to_string();
+        .expect("DROP DATABASE force_src FORCE should succeed");
+
+    // Source is gone.
+    let res = client.simple_query("USE DATABASE force_src").await;
     assert!(
-        msg.contains("0A000") || msg.contains("not yet implemented"),
-        "expected 0A000 / not-yet-implemented error, got: {msg}"
+        res.is_err(),
+        "source database must be gone after FORCE drop"
     );
 
-    // Source must still be intact — no half-drop on materialization failure.
+    // Clone is intact, every source row is readable.
     client
-        .simple_query("USE DATABASE force_src")
+        .simple_query("USE DATABASE force_clone")
         .await
-        .expect("force_src must still exist after gated FORCE drop");
-    client
+        .expect("force_clone must be accessible after source drop");
+    let rows = client
         .simple_query("SELECT key FROM records")
         .await
-        .expect("force_src.records must still be queryable");
+        .expect("SELECT on force_clone.records");
+    let count = rows
+        .iter()
+        .filter(|m| matches!(m, tokio_postgres::SimpleQueryMessage::Row(_)))
+        .count();
+    assert_eq!(count, 2, "both rows must survive in the materialized clone");
 }
