@@ -36,6 +36,7 @@ pub mod json_msgpack;
 pub mod kv;
 pub mod kv_parsing;
 pub mod lsn;
+pub mod mirror;
 pub mod multi_vector;
 pub mod namespace;
 pub mod protocol;
@@ -84,6 +85,7 @@ pub use json_msgpack::{
 };
 pub use kv::{KV_DEFAULT_INLINE_THRESHOLD, KvConfig, KvTtlPolicy, is_valid_kv_key_type};
 pub use lsn::Lsn;
+pub use mirror::{MirrorLagRecord, MirrorMode, MirrorOrigin, MirrorStatus};
 pub use multi_vector::{MultiVector, MultiVectorError, MultiVectorScoreMode};
 pub use namespace::Namespace;
 pub use quota::{

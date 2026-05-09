@@ -72,6 +72,16 @@ impl ErrorCode {
     /// A bitemporal `AS OF` query timestamp predates the clone's creation LSN.
     pub const CLONE_PREDATES_QUERY_TIME: Self = Self(1503);
 
+    // Mirror (1700–1799)
+
+    /// Write attempted on a mirror database that has not yet been promoted.
+    pub const MIRROR_READ_ONLY: Self = Self(1700);
+    /// Strong consistency read requested on a mirror; mirrors cannot serve
+    /// strong reads. The client should retry against the source cluster.
+    pub const STALE_READ_NOT_LEADER: Self = Self(1701);
+    /// Operation requires the mirror to be promoted, but it has not been.
+    pub const MIRROR_NOT_PROMOTED: Self = Self(1702);
+
     // Move Tenant (1600–1699)
 
     /// `MOVE TENANT` drain phase timed out; source left unchanged.

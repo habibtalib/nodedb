@@ -190,6 +190,21 @@ pub enum ErrorDetails {
     #[serde(rename = "clone_predates_query_time")]
     ClonePredatesQueryTime { as_of_lsn: u64, created_at_lsn: u64 },
 
+    // Mirror DDL
+    /// Write attempted on a mirror database that has not been promoted.
+    #[serde(rename = "mirror_read_only")]
+    MirrorReadOnly { database: String },
+    /// Strong read requested on a mirror; the client should contact the source.
+    #[serde(rename = "stale_read_not_leader")]
+    StaleReadNotLeader {
+        database: String,
+        /// Hint: source cluster endpoint the client should redirect to.
+        source_cluster: String,
+    },
+    /// Operation requires the database to be a promoted mirror.
+    #[serde(rename = "mirror_not_promoted")]
+    MirrorNotPromoted { database: String },
+
     // Move Tenant DDL
     #[serde(rename = "move_tenant_drain_timeout")]
     MoveTenantDrainTimeout { tenant: String, source_db: String },

@@ -133,3 +133,6 @@ pub(super) const TAG_MOVE_TENANT_PREFLIGHT_FAILED: u16 = 60;
 pub(super) const TAG_MOVE_TENANT_SNAPSHOT_FAILED: u16 = 61;
 pub(super) const TAG_MOVE_TENANT_CUTOVER_FAILED: u16 = 62;
 pub(super) const TAG_MOVE_TENANT_ALREADY_AT_TARGET: u16 = 63;
+pub(super) const TAG_MIRROR_READ_ONLY: u16 = 64;
+pub(super) const TAG_STALE_READ_NOT_LEADER: u16 = 65;
+pub(super) const TAG_MIRROR_NOT_PROMOTED: u16 = 66;

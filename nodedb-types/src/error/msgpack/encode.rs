@@ -266,6 +266,16 @@ impl ToMessagePack for ErrorDetails {
             ErrorDetails::MoveTenantAlreadyAtTarget { tenant, target_db } => {
                 write2(writer, TAG_MOVE_TENANT_ALREADY_AT_TARGET, tenant, target_db)
             }
+            ErrorDetails::MirrorReadOnly { database } => {
+                write1(writer, TAG_MIRROR_READ_ONLY, database)
+            }
+            ErrorDetails::StaleReadNotLeader {
+                database,
+                source_cluster,
+            } => write2(writer, TAG_STALE_READ_NOT_LEADER, database, source_cluster),
+            ErrorDetails::MirrorNotPromoted { database } => {
+                write1(writer, TAG_MIRROR_NOT_PROMOTED, database)
+            }
         }
     }
 }
