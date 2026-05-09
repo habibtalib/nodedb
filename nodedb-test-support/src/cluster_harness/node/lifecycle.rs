@@ -35,7 +35,6 @@ use nodedb::config::auth::AuthMode;
 use nodedb::config::server::ClusterSettings;
 use nodedb::control::server::pgwire::listener::PgListener;
 use nodedb::control::state::SharedState;
-use nodedb::data::executor::core_loop::CoreLoop;
 use nodedb::event::{EventPlane, create_event_bus};
 use nodedb::wal::WalManager;
 use nodedb_types::config::tuning::ClusterTransportTuning;
@@ -156,45 +155,21 @@ impl TestClusterNode {
             return Err("SharedState already cloned before cluster wire-up".into());
         }
 
-        // Start Data Plane core.
+        // Start Data Plane core via the shared core-loop runner.
         let data_side = data_sides.into_iter().next().expect("data side");
         let event_producer = event_producers.into_iter().next().expect("event producer");
-        let core_dir = data_dir_path.clone();
-        let core_metrics = shared.system_metrics.clone();
-        let core_array_catalog = shared.array_catalog.clone();
         let (core_stop_tx, core_stop_rx) = std::sync::mpsc::channel::<()>();
-        let core_handle = tokio::task::spawn_blocking(move || {
-            let mut core = CoreLoop::open_with_array_catalog(
-                0,
-                data_side.request_rx,
-                data_side.response_tx,
-                &core_dir,
-                std::sync::Arc::new(nodedb_types::OrdinalClock::new()),
-                core_array_catalog,
-            )
-            .expect("core open");
-            core.set_event_producer(event_producer);
-            if let Some(m) = core_metrics {
-                core.set_metrics(m);
-            }
-            // Continue ticking only while the channel is Empty.
-            // `Ok(())` means we got an explicit stop signal;
-            // `Disconnected` means the sender was dropped (e.g. the
-            // owning `TestClusterNode` was dropped mid-panic). In
-            // both cases we must exit — `spawn_blocking` threads
-            // cannot be aborted, so a loop that continued on
-            // `Disconnected` would block tokio runtime shutdown
-            // indefinitely and force nextest to kill the test
-            // process at `slow-timeout` (~2 minutes of wasted CI
-            // time per flaky cluster test).
-            while matches!(
-                core_stop_rx.try_recv(),
-                Err(std::sync::mpsc::TryRecvError::Empty)
-            ) {
-                core.tick();
-                std::thread::sleep(Duration::from_millis(1));
-            }
-        });
+        let core_handle =
+            crate::core_loop_runner::spawn_core_loop(crate::core_loop_runner::CoreLoopSpawn {
+                idx: 0,
+                data_side,
+                core_dir: data_dir_path.clone(),
+                core_array_catalog: shared.array_catalog.clone(),
+                event_producer,
+                core_metrics: shared.system_metrics.clone(),
+                replay: None,
+                stop_rx: core_stop_rx,
+            });
 
         // Response poller (Data Plane → control plane routing).
         let shared_poller = Arc::clone(&shared);

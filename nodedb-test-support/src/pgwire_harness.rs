@@ -23,7 +23,6 @@ fn uuid_v4_hex() -> String {
 use nodedb::config::auth::AuthMode;
 use nodedb::control::server::pgwire::listener::PgListener;
 use nodedb::control::state::SharedState;
-use nodedb::data::executor::core_loop::CoreLoop;
 use nodedb::event::{EventPlane, create_event_bus};
 use nodedb::types::TenantId;
 use nodedb::wal::WalManager;
@@ -140,28 +139,18 @@ impl TestServer {
         for (idx, (data_side, event_producer)) in
             data_sides.into_iter().zip(event_producers).enumerate()
         {
-            let core_dir = dir.path().to_path_buf();
-            let core_array_catalog = shared.array_catalog.clone();
             let (core_stop_tx, core_stop_rx) = std::sync::mpsc::channel::<()>();
-            let core_handle = tokio::task::spawn_blocking(move || {
-                let mut core = CoreLoop::open_with_array_catalog(
+            let core_handle =
+                crate::core_loop_runner::spawn_core_loop(crate::core_loop_runner::CoreLoopSpawn {
                     idx,
-                    data_side.request_rx,
-                    data_side.response_tx,
-                    &core_dir,
-                    std::sync::Arc::new(nodedb_types::OrdinalClock::new()),
-                    core_array_catalog,
-                )
-                .unwrap();
-                core.set_event_producer(event_producer);
-                while matches!(
-                    core_stop_rx.try_recv(),
-                    Err(std::sync::mpsc::TryRecvError::Empty)
-                ) {
-                    core.tick();
-                    std::thread::sleep(Duration::from_millis(1));
-                }
-            });
+                    data_side,
+                    core_dir: dir.path().to_path_buf(),
+                    core_array_catalog: shared.array_catalog.clone(),
+                    event_producer,
+                    core_metrics: None,
+                    replay: None,
+                    stop_rx: core_stop_rx,
+                });
             core_stop_txs.push(core_stop_tx);
             core_handles.push(core_handle);
         }
@@ -417,36 +406,22 @@ impl TestServer {
         for (idx, (data_side, event_producer)) in
             data_sides.into_iter().zip(event_producers).enumerate()
         {
-            let core_dir = dir_path.to_path_buf();
-            let core_array_catalog = shared.array_catalog.clone();
-            let core_wal_records = Arc::clone(&wal_records);
-            let core_tombstones = replay_tombstones.clone();
             let (core_stop_tx, core_stop_rx) = std::sync::mpsc::channel::<()>();
-            let core_handle = tokio::task::spawn_blocking(move || {
-                let mut core = CoreLoop::open_with_array_catalog(
-                    idx,
-                    data_side.request_rx,
-                    data_side.response_tx,
-                    &core_dir,
-                    std::sync::Arc::new(nodedb_types::OrdinalClock::new()),
-                    core_array_catalog,
-                )
-                .unwrap();
-                core.set_event_producer(event_producer);
-                if !core_wal_records.is_empty() {
-                    core.replay_vector_wal(&core_wal_records, 1, &core_tombstones);
-                    core.replay_kv_wal(&core_wal_records, 1, &core_tombstones);
-                    core.replay_timeseries_wal(&core_wal_records, 1, &core_tombstones);
-                    core.replay_array_wal(&core_wal_records, 1, &core_tombstones);
-                }
-                while matches!(
-                    core_stop_rx.try_recv(),
-                    Err(std::sync::mpsc::TryRecvError::Empty)
-                ) {
-                    core.tick();
-                    std::thread::sleep(Duration::from_millis(1));
-                }
+            let replay = (!wal_records.is_empty()).then(|| crate::core_loop_runner::WalReplay {
+                records: Arc::clone(&wal_records),
+                tombstones: replay_tombstones.clone(),
             });
+            let core_handle =
+                crate::core_loop_runner::spawn_core_loop(crate::core_loop_runner::CoreLoopSpawn {
+                    idx,
+                    data_side,
+                    core_dir: dir_path.to_path_buf(),
+                    core_array_catalog: shared.array_catalog.clone(),
+                    event_producer,
+                    core_metrics: None,
+                    replay,
+                    stop_rx: core_stop_rx,
+                });
             core_stop_txs.push(core_stop_tx);
             core_handles.push(core_handle);
         }
@@ -582,28 +557,18 @@ impl TestServer {
         for (idx, (data_side, event_producer)) in
             data_sides.into_iter().zip(event_producers).enumerate()
         {
-            let core_dir = dir.path().to_path_buf();
-            let core_array_catalog = shared.array_catalog.clone();
             let (core_stop_tx, core_stop_rx) = std::sync::mpsc::channel::<()>();
-            let core_handle = tokio::task::spawn_blocking(move || {
-                let mut core = CoreLoop::open_with_array_catalog(
+            let core_handle =
+                crate::core_loop_runner::spawn_core_loop(crate::core_loop_runner::CoreLoopSpawn {
                     idx,
-                    data_side.request_rx,
-                    data_side.response_tx,
-                    &core_dir,
-                    std::sync::Arc::new(nodedb_types::OrdinalClock::new()),
-                    core_array_catalog,
-                )
-                .unwrap();
-                core.set_event_producer(event_producer);
-                while matches!(
-                    core_stop_rx.try_recv(),
-                    Err(std::sync::mpsc::TryRecvError::Empty)
-                ) {
-                    core.tick();
-                    std::thread::sleep(Duration::from_millis(1));
-                }
-            });
+                    data_side,
+                    core_dir: dir.path().to_path_buf(),
+                    core_array_catalog: shared.array_catalog.clone(),
+                    event_producer,
+                    core_metrics: None,
+                    replay: None,
+                    stop_rx: core_stop_rx,
+                });
             core_stop_txs.push(core_stop_tx);
             core_handles.push(core_handle);
         }
