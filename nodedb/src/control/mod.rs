@@ -22,6 +22,7 @@ pub mod lock_utils;
 pub mod maintenance;
 pub mod metadata_proposer;
 pub mod metrics;
+pub mod mirror;
 pub mod notify_bus;
 pub mod otel;
 pub mod planner;

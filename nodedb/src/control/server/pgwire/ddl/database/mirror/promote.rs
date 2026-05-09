@@ -14,6 +14,16 @@
 //! - `mirror_origin` is retained for historical lineage.
 //! - The database accepts writes normally; the source observer link is torn down.
 //!
+//! Link teardown happens BEFORE the catalog mutation so there is no window
+//! where the database is Promoted but the link is still live. If teardown
+//! fails (e.g. the source is unreachable), we log and continue — the
+//! operator's intent to stop following the source must succeed regardless
+//! of the source's availability.
+//!
+//! Restart recovery: on server start, databases with `MirrorStatus::Promoted`
+//! in their catalog descriptor are treated as normal writable databases.
+//! The bootstrap loop skips them; they do NOT attempt to reconnect.
+//!
 //! Privilege gate: Superuser required (matches MIRROR DATABASE privilege level).
 
 use nodedb_types::MirrorStatus;
@@ -75,6 +85,18 @@ pub fn handle_promote_database(
             &format!("database '{name}' is not a mirror database"),
         ));
     }
+
+    // Tear down the cross-cluster observer link BEFORE the descriptor
+    // mutation lands. This ensures there is no window where the database
+    // is Promoted (writes accepted) but the observer is still streaming
+    // entries from the source.
+    //
+    // If the teardown fails — e.g. the source is unreachable and the link
+    // was never established, or it already dropped due to a disconnect —
+    // we log and continue. The operator's intent is to stop following; the
+    // link will be garbage-collected when the Arc reference count reaches
+    // zero. The database must become writable regardless.
+    state.mirror_link_registry.teardown_link(db_id);
 
     // Flip status to Promoted in the mirror_origin record and set
     // the database status to Active so writes are accepted.

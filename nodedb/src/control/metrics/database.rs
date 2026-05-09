@@ -34,6 +34,9 @@ pub struct DatabaseCounters {
     pub wal_commit_latency_p99_us: AtomicU64,
     /// Cumulative maintenance CPU-seconds consumed by this database.
     pub maintenance_cpu_seconds_total: AtomicU64,
+    /// Mirror replication lag in milliseconds (`now_ms - last_apply_ms`).
+    /// Zero for non-mirror databases or a promoted mirror.
+    pub mirror_lag_ms: AtomicU64,
 }
 
 /// Registry of per-database atomic counter handles.
@@ -114,6 +117,17 @@ impl DatabaseMetricsRegistry {
         self.get_or_create(db_name)
             .wal_commit_latency_p99_us
             .store(us, Ordering::Relaxed);
+    }
+
+    /// Set the mirror replication lag in milliseconds for `db_name`.
+    ///
+    /// Computed as `now_ms - last_apply_ms` using wall-clock time. The
+    /// bounded-staleness read rejection path uses the same wall-clock basis,
+    /// so the metric and the rejection gate are always consistent.
+    pub fn set_mirror_lag_ms(&self, db_name: &str, lag_ms: u64) {
+        self.get_or_create(db_name)
+            .mirror_lag_ms
+            .store(lag_ms, Ordering::Relaxed);
     }
 
     /// Add `secs` fractional CPU-seconds to the maintenance counter for `db_name`.
@@ -219,6 +233,12 @@ impl DatabaseMetricsRegistry {
             "nodedb_database_maintenance_cpu_us_total",
             "Cumulative maintenance CPU microseconds consumed per database",
             maintenance_cpu_seconds_total
+        );
+        emit_gauge!(
+            "nodedb_database_mirror_lag_ms",
+            "Mirror replication lag in milliseconds (wall-clock now minus last apply timestamp); \
+             zero for non-mirror or promoted databases",
+            mirror_lag_ms
         );
     }
 }

@@ -183,6 +183,14 @@ pub struct SharedState {
     pub array_subscriber_cursors: std::sync::Arc<crate::control::array_sync::SubscriberMap>,
     /// Cross-shard merger registry for HLC-ordered multi-shard delivery.
     pub array_merger_registry: std::sync::Arc<crate::control::array_sync::MergerRegistry>,
+    /// Registry of active cross-cluster observer links for mirror databases.
+    ///
+    /// Each mirror database that is actively following a source cluster has
+    /// one entry here. The registry is consulted by `ALTER DATABASE PROMOTE`
+    /// to tear down the source link before the catalog mutation lands. Entries
+    /// are added when a mirror is created or resumes after a restart and
+    /// removed on promotion or `DROP DATABASE`.
+    pub mirror_link_registry: Arc<crate::control::mirror::MirrorLinkRegistry>,
     /// Database-id allocator. Threadsafe via internal atomics.
     /// Authoritative allocation is proposed through Raft metadata group 0;
     /// this counter is the local cache (mirrors `SurrogateAssigner` semantics).
