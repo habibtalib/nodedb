@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+mod columnar;
+mod dispatch;
+mod document;
+mod kv;
+mod reaper;
+
 pub mod progress;
 pub mod walker;
 
