@@ -29,6 +29,7 @@ fn default_ts_config() -> ColumnarMemtableConfig {
 impl CoreLoop {
     fn replay_task(
         tenant_id: crate::types::TenantId,
+        database_id: DatabaseId,
         vshard_id: crate::types::VShardId,
         plan: PhysicalPlan,
     ) -> ExecutionTask {
@@ -36,7 +37,7 @@ impl CoreLoop {
             request: Request {
                 request_id: crate::types::RequestId::new(0),
                 tenant_id,
-                database_id: DatabaseId::DEFAULT,
+                database_id,
                 vshard_id,
                 plan,
                 deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
@@ -65,6 +66,7 @@ impl CoreLoop {
     fn replay_timeseries_payload(
         &mut self,
         tid: crate::types::TenantId,
+        db_id: DatabaseId,
         collection: &str,
         payload: &[u8],
         record_lsn: u64,
@@ -95,7 +97,7 @@ impl CoreLoop {
                 // replay call then released when dropped.
                 let _mem_token = gov
                     .try_reserve(
-                        DatabaseId::DEFAULT,
+                        db_id,
                         tid,
                         nodedb_mem::EngineId::Timeseries,
                         sample_count * 24,
@@ -112,7 +114,8 @@ impl CoreLoop {
         };
         let task = Self::replay_task(
             tid,
-            crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection),
+            db_id,
+            crate::types::VShardId::from_collection_in_database(db_id, collection),
             PhysicalPlan::Timeseries(TimeseriesOp::Ingest {
                 collection: collection.to_string(),
                 payload: payload.to_vec(),
@@ -146,12 +149,14 @@ impl CoreLoop {
     fn replay_columnar_payload(
         &mut self,
         tid: crate::types::TenantId,
+        db_id: DatabaseId,
         collection: &str,
         payload: &[u8],
     ) -> usize {
         let task = Self::replay_task(
             tid,
-            crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection),
+            db_id,
+            crate::types::VShardId::from_collection_in_database(db_id, collection),
             PhysicalPlan::Columnar(ColumnarOp::Insert {
                 collection: collection.to_string(),
                 payload: payload.to_vec(),
@@ -238,6 +243,7 @@ impl CoreLoop {
 
             let tenant_id = record.header.tenant_id;
             let tid_id = crate::types::TenantId::new(tenant_id);
+            let db_id = DatabaseId::new(record.header.database_id);
             let collection = raw_collection.as_str();
             let key = (tid_id, raw_collection.clone());
 
@@ -272,9 +278,11 @@ impl CoreLoop {
             }
 
             let accepted = match kind.as_deref() {
-                Some("columnar") => self.replay_columnar_payload(tid_id, collection, &payload),
+                Some("columnar") => {
+                    self.replay_columnar_payload(tid_id, db_id, collection, &payload)
+                }
                 Some("timeseries") | None => {
-                    self.replay_timeseries_payload(tid_id, collection, &payload, record_lsn)
+                    self.replay_timeseries_payload(tid_id, db_id, collection, &payload, record_lsn)
                 }
                 Some(other) => {
                     tracing::warn!(
