@@ -260,15 +260,43 @@ pub(super) fn build_vector_primary_insert_plan(
 /// UPSERT, and `INSERT ... ON CONFLICT (key) DO UPDATE` — the three paths
 /// differ only in `intent` and `on_conflict_updates`, never in how entries
 /// are extracted from the row exprs.
+///
+/// `pk_col` is the schema-defined primary-key column name from
+/// `CollectionInfo::primary_key`.  When supplied, that column is used as
+/// the KV key regardless of whether it is named `"key"`.  Falls back to
+/// the literal name `"key"` when `pk_col` is `None` (legacy / generic
+/// KV collections that use the built-in key/value column convention).
 pub(super) fn build_kv_insert_plan(
     table_name: String,
     columns: &[String],
     rows_ast: &[Vec<ast::Expr>],
     intent: KvInsertIntent,
     on_conflict_updates: Vec<(String, SqlExpr)>,
+    pk_col: Option<&str>,
 ) -> Result<Vec<SqlPlan>> {
-    let key_idx = columns.iter().position(|c| c == "key");
+    let key_col_name = pk_col.unwrap_or("key");
+    let key_idx = columns.iter().position(|c| c == key_col_name);
     let ttl_idx = columns.iter().position(|c| c == "ttl");
+    // When using a named primary-key column (e.g. `k STRING PRIMARY KEY`), we
+    // store the key bytes in the KV key slot AND also keep the column in the
+    // value map.  This allows scan filters on the primary-key column (e.g.
+    // `WHERE k = 'x'`) and projection (e.g. `SELECT k FROM ...`) to work
+    // without teaching the KV scan handler to inspect the raw key bytes.
+    // The only column we exclude from the value map is the built-in `"key"`
+    // sentinel (used by raw key/value KV collections) and `"ttl"`.
+    let exclude_from_value: std::collections::HashSet<usize> = {
+        let mut s = std::collections::HashSet::new();
+        // Exclude the raw "key" sentinel column (not a named PK column).
+        if key_col_name == "key"
+            && let Some(idx) = key_idx
+        {
+            s.insert(idx);
+        }
+        if let Some(idx) = ttl_idx {
+            s.insert(idx);
+        }
+        s
+    };
     let mut entries = Vec::with_capacity(rows_ast.len());
     let mut ttl_secs: u64 = 0;
     for row_exprs in rows_ast {
@@ -286,7 +314,7 @@ pub(super) fn build_kv_insert_plan(
         let value_cols: Vec<(String, SqlValue)> = columns
             .iter()
             .enumerate()
-            .filter(|(i, _)| Some(*i) != key_idx && Some(*i) != ttl_idx)
+            .filter(|(i, _)| !exclude_from_value.contains(i))
             .map(|(i, col)| {
                 let val = expr_to_sql_value(&row_exprs[i])?;
                 Ok((col.clone(), val))

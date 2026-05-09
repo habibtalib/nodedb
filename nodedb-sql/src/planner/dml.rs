@@ -124,7 +124,14 @@ pub fn plan_insert(ins: &ast::Insert, catalog: &dyn SqlCatalog) -> Result<Vec<Sq
         } else {
             KvInsertIntent::Insert
         };
-        return build_kv_insert_plan(table_name, &columns, rows_ast, intent, Vec::new());
+        return build_kv_insert_plan(
+            table_name,
+            &columns,
+            rows_ast,
+            intent,
+            Vec::new(),
+            info.primary_key.as_deref(),
+        );
     }
 
     // Vector-primary collection: bypass document encoding.
@@ -193,6 +200,7 @@ pub fn plan_upsert(ins: &ast::Insert, catalog: &dyn SqlCatalog) -> Result<Vec<Sq
             rows_ast,
             KvInsertIntent::Put,
             Vec::new(),
+            info.primary_key.as_deref(),
         );
     }
 
@@ -257,6 +265,7 @@ fn plan_upsert_with_on_conflict(
             rows_ast,
             KvInsertIntent::Put,
             on_conflict_updates,
+            info.primary_key.as_deref(),
         );
     }
 
