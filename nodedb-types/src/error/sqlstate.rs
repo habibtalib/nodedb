@@ -192,6 +192,14 @@ pub const CLONE_DEPENDENCY: &str = "55006";
 /// specific clone.
 pub const CLONE_PREDATES_QUERY_TIME: &str = "22023";
 
+/// `55P03` — NodeDB extension: a strong or bounded-staleness read was requested
+/// on a mirror database that cannot satisfy the requested consistency level.
+///
+/// Uses Class 55 "Object Not In Prerequisite State" because the mirror is a
+/// valid database but is not in the state (Raft leader) required to serve the
+/// requested consistency level. The client should redirect to the source cluster.
+pub const STALE_READ_NOT_LEADER: &str = "55P03";
+
 // ── Move Tenant DDL (Class 55 / 57) ─────────────────────────────────────────
 
 /// `57014` — `query_canceled`: drain phase timed out; client should re-try after
@@ -266,6 +274,7 @@ mod tests {
             CANNOT_CLONE_MIRROR,
             CLONE_DEPENDENCY,
             CLONE_PREDATES_QUERY_TIME,
+            STALE_READ_NOT_LEADER,
         ];
         for code in &codes {
             assert_eq!(

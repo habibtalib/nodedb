@@ -262,6 +262,12 @@ impl From<Error> for NodeDbError {
                     "role inheritance depth {depth} exceeds the maximum allowed depth of {limit}"
                 ))
             }
+            Error::MirrorReadOnly { database } => NodeDbError::mirror_read_only(database),
+            Error::StaleReadNotLeader {
+                database,
+                source_cluster,
+                ..
+            } => NodeDbError::stale_read_not_leader(database, source_cluster),
         }
     }
 }

@@ -330,6 +330,27 @@ pub enum Error {
          changing across retries. Consider rephrasing as a static-key UPDATE if possible."
     )]
     OllpExhausted { retries: u8 },
+
+    /// A write was attempted on a mirror database that has not yet been promoted.
+    ///
+    /// Mirrors are read-only replicas of a source database. All writes are rejected
+    /// until the mirror is promoted via `ALTER DATABASE <name> PROMOTE`.
+    #[error("database '{database}' is a read-only mirror; promote it before writing")]
+    MirrorReadOnly { database: String },
+
+    /// A strong-consistency read was attempted on a mirror database.
+    ///
+    /// Mirrors cannot serve strong reads because they are not the Raft leader
+    /// for the source's commit log. The client should redirect to the source cluster.
+    #[error(
+        "database '{database}' is a mirror; redirect strong reads to source cluster '{source_cluster}'"
+    )]
+    StaleReadNotLeader {
+        database: String,
+        source_cluster: String,
+        /// Human-readable detail including actual lag if available.
+        detail: String,
+    },
 }
 
 /// Result alias for NodeDB operations.
