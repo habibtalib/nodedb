@@ -1,58 +1,46 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-//! Background materializer walker.
+//! Clone materializer walker.
 //!
-//! For each cloned collection in `Shadowed | Materializing { .. }` state, the
-//! walker is responsible for copying source rows into target storage so the
-//! clone becomes self-contained, then flipping `clone_status` to
-//! `Materialized` (which terminates source delegation in `clone::resolver`).
+//! For every cloned collection in `Shadowed | Materializing { .. }` state,
+//! routes to the per-engine row-copy implementation, which copies source
+//! rows into target storage and then flips `clone_status` to `Materialized`
+//! via the reaper.
 //!
-//! ## Current status — gated
+//! ## Engine support matrix
 //!
-//! Real source-to-target row copy is not yet implemented. Per-engine bulk-copy
-//! plans need to be added (KV, Document, Columnar, Timeseries) and dispatched
-//! through the SPSC bridge from this control-plane walker. Until that lands,
-//! flipping a clone to `Materialized` would silently delete every source row
-//! that was never copy-up'd into the target — a data-loss bug.
+//! - **KV** — implemented.
+//! - **Document** — implemented.
+//! - **Columnar / Timeseries / Spatial** — implemented (all three share the
+//!   same columnar materializer path via `ColumnarOp::MaterializeScan`).
 //!
-//! To prevent that, this module **refuses** to advance any clone past
-//! `Shadowed | Materializing` and returns a typed
-//! [`crate::Error::BadRequest`] tagged with SQLSTATE `0A000`
-//! (`feature_not_supported`) when called for a database that has materializable
-//! collections. The CoW shadow read/write path (`clone::resolver`,
-//! `clone_write_dispatch`) keeps working unchanged — only the destructive
-//! status flip is gated.
+//! ## Sync wrapper
 //!
-//! Background sweep (`run_scheduled_sweep`) treats the gating error as a
-//! no-op and logs at `info` level so it does not spam the logs each tick.
-//!
-//! Once the real implementation lands, this module will:
-//!   1. Walk the source surrogate range chunk-by-chunk.
-//!   2. For each surrogate that has neither a copyup nor a tombstone, dispatch
-//!      a per-engine bulk insert into target with the same surrogate.
-//!   3. Persist `progress_lsn` after each chunk via Raft so a restart resumes.
-//!   4. Once the full source range is copied, call the reaper to flip status
-//!      and clear `cloned_from`.
+//! The public API is sync because it is invoked from `spawn_blocking` on
+//! both the DDL hot path and the maintenance scheduler. Internally we call
+//! [`tokio::runtime::Handle::block_on`] so the per-engine async helpers can
+//! use the SPSC bridge.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use nodedb_types::{CloneStatus, DatabaseId};
+use nodedb_types::{CloneStatus, CollectionType, DatabaseId};
 
 use crate::control::maintenance::wrapper::{MaintenanceOutcome, with_budget};
-use crate::control::security::catalog::SystemCatalog;
+use crate::control::security::catalog::{StoredCollection, SystemCatalog};
 use crate::control::state::SharedState;
 
+use super::columnar::materialize_columnar_collection;
+use super::document::materialize_document_collection;
+use super::kv::materialize_kv_collection;
 use super::progress::CloneMaterializerHandle;
 
 /// Result of a single `materialize_database` call.
 #[derive(Debug)]
 pub enum MaterializeOutcome {
-    /// No clone collections needed materialization (database had no live clones,
-    /// or all clones were already `Materialized`).
+    /// Every clone collection in the database is `Materialized`.
     AllComplete,
-    /// `n` collections still need materialization but the gating implementation
-    /// could not advance any of them. The caller decides whether this is fatal
-    /// (DDL handlers) or a logged no-op (background sweep).
+    /// `n` collections still need work and the caller should reschedule.
     Incomplete { collections_remaining: usize },
     /// The maintenance budget was exhausted before any work could be done.
     BudgetDeferred,
@@ -60,24 +48,23 @@ pub enum MaterializeOutcome {
     Cancelled,
 }
 
-/// Parameters for a single materialization sweep of one database.
+/// Parameters for one materialization sweep over a database.
 pub struct MaterializeParams<'a> {
     pub db_id: DatabaseId,
     pub state: &'a SharedState,
     pub catalog: &'a SystemCatalog,
-    /// Cooperative cancellation flag; set to `true` by the shutdown handler.
+    /// Cooperative cancellation flag set by the shutdown handler.
     pub cancel: &'a AtomicBool,
-    /// Optional completion handle; if `Some`, `notify_collection_done()` is
-    /// called for each collection that transitions to `Materialized`.
+    /// Optional completion handle; `notify_collection_done()` is called for
+    /// each collection that finishes.
     pub handle: Option<&'a CloneMaterializerHandle>,
-    /// Estimated seconds this sweep will consume (passed to `with_budget`).
+    /// Estimated seconds passed to `with_budget`. Set high (or 0.0) on the
+    /// blocking DDL paths so the budget check always passes; the background
+    /// sweep uses a realistic estimate.
     pub estimated_secs: f64,
 }
 
-/// Perform one materialization sweep for all clone collections in `db_id`.
-///
-/// Called by the maintenance scheduler on each tick and by the synchronous
-/// blocking wrapper. See module-level docs for the gating contract.
+/// Drive one materialization sweep for `db_id`.
 pub fn materialize_database(params: MaterializeParams<'_>) -> crate::Result<MaterializeOutcome> {
     if params.cancel.load(Ordering::Relaxed) {
         return Ok(MaterializeOutcome::Cancelled);
@@ -96,16 +83,92 @@ pub fn materialize_database(params: MaterializeParams<'_>) -> crate::Result<Mate
     }
 }
 
-/// Inner implementation, runs inside the maintenance budget window.
+/// Inner sweep, runs inside the budget window.
 fn do_materialize_database(params: &MaterializeParams<'_>) -> crate::Result<MaterializeOutcome> {
     if params.cancel.load(Ordering::Relaxed) {
         return Ok(MaterializeOutcome::Cancelled);
     }
 
-    // Load all collections in the database and filter to those needing work.
-    let all_colls = params.catalog.load_all_collections(params.db_id)?;
+    let pending = pending_clone_collections(params.catalog, params.db_id)?;
 
-    let to_materialize: Vec<_> = all_colls
+    if let Some(h) = params.handle {
+        h.notify_start(pending.len());
+    }
+
+    if pending.is_empty() {
+        return Ok(MaterializeOutcome::AllComplete);
+    }
+
+    // Freeze every distinct source database referenced by the pending
+    // collections for the duration of this sweep.  This prevents concurrent
+    // user writes from leaking into the KV materializer copy path (KV has no
+    // MVCC).  Guards are held until `_freeze_guards` drops at end of scope.
+    let source_db_ids: HashSet<DatabaseId> = pending
+        .iter()
+        .filter_map(|c| c.cloned_from.as_ref().map(|o| o.source_database))
+        .collect();
+    let _freeze_guards: Vec<crate::control::clone::FreezeGuard> = source_db_ids
+        .iter()
+        .map(|db_id| params.state.materialize_freeze.freeze(*db_id))
+        .collect();
+
+    let runtime_handle = tokio::runtime::Handle::try_current().map_err(|_| {
+        // Materializer must run inside a Tokio runtime so SPSC dispatch
+        // futures can drive. The DDL hot path runs sync handlers on runtime
+        // worker threads; the background sweep runs sync handlers on
+        // `spawn_blocking` threads. Both share the runtime.
+        crate::Error::Dispatch {
+            detail: "clone materializer requires a Tokio runtime context".into(),
+        }
+    })?;
+
+    let mut remaining = 0usize;
+    for coll in &pending {
+        if params.cancel.load(Ordering::Relaxed) {
+            return Ok(MaterializeOutcome::Cancelled);
+        }
+        match materialize_one(&runtime_handle, params, coll) {
+            Ok(()) => {
+                if let Some(h) = params.handle {
+                    h.notify_collection_done();
+                }
+            }
+            Err(e) => {
+                // A per-collection failure does not abort the whole sweep —
+                // surface it after the loop so partial progress is not lost.
+                tracing::warn!(
+                    db_id = params.db_id.as_u64(),
+                    collection = %coll.name,
+                    error = %e,
+                    "clone materialize: per-collection error",
+                );
+                remaining += 1;
+                // For unsupported-engine errors, propagate immediately so
+                // DDL handlers can map to `0A000`. Other errors continue so
+                // the surviving collections still progress.
+                if matches!(&e, crate::Error::BadRequest { .. }) {
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    if remaining == 0 {
+        Ok(MaterializeOutcome::AllComplete)
+    } else {
+        Ok(MaterializeOutcome::Incomplete {
+            collections_remaining: remaining,
+        })
+    }
+}
+
+/// Load all clone collections in `db_id` that still need materialization.
+fn pending_clone_collections(
+    catalog: &SystemCatalog,
+    db_id: DatabaseId,
+) -> crate::Result<Vec<StoredCollection>> {
+    let all = catalog.load_all_collections(db_id)?;
+    Ok(all
         .into_iter()
         .filter(|c| {
             c.cloned_from.is_some()
@@ -114,35 +177,56 @@ fn do_materialize_database(params: &MaterializeParams<'_>) -> crate::Result<Mate
                     CloneStatus::Shadowed | CloneStatus::Materializing { .. }
                 )
         })
-        .collect();
-
-    let pending = to_materialize.len();
-
-    if let Some(h) = params.handle {
-        h.notify_start(pending);
-    }
-
-    if pending == 0 {
-        // Nothing to do; either there are no clones or every clone is already
-        // `Materialized`. Both are success cases.
-        return Ok(MaterializeOutcome::AllComplete);
-    }
-
-    // Real source-to-target row copy is not yet implemented (see module docs).
-    // Refuse to advance status; the caller decides how to surface this.
-    Ok(MaterializeOutcome::Incomplete {
-        collections_remaining: pending,
-    })
+        .collect())
 }
 
-/// Drive materialization of `db_id` to completion synchronously.
+/// Route one collection to its per-engine materializer.
 ///
-/// Returns `Err(Error::BadRequest)` (mapped to SQLSTATE `0A000`
-/// `feature_not_supported` by DDL handlers) if any clone collections still
-/// need real source-to-target row copy and that path is not yet implemented.
+/// The per-engine implementations are async (they dispatch through the SPSC
+/// bridge). We bridge sync↔async with [`tokio::task::block_in_place`] so the
+/// runtime worker stays usable while we drive the future on this thread. This
+/// requires a multi-threaded runtime — the production server uses
+/// `#[tokio::main]` (multi-thread by default) and tests must annotate with
+/// `#[tokio::test(flavor = "multi_thread")]`.
+fn materialize_one(
+    runtime: &tokio::runtime::Handle,
+    params: &MaterializeParams<'_>,
+    coll: &StoredCollection,
+) -> crate::Result<()> {
+    match &coll.collection_type {
+        CollectionType::KeyValue(_) => tokio::task::block_in_place(|| {
+            runtime.block_on(materialize_kv_collection(
+                params.state,
+                params.catalog,
+                params.db_id,
+                coll,
+            ))
+        }),
+        CollectionType::Document(_) => tokio::task::block_in_place(|| {
+            runtime.block_on(materialize_document_collection(
+                params.state,
+                params.catalog,
+                params.db_id,
+                coll,
+            ))
+        }),
+        CollectionType::Columnar(_) => tokio::task::block_in_place(|| {
+            runtime.block_on(materialize_columnar_collection(
+                params.state,
+                params.catalog,
+                params.db_id,
+                coll,
+            ))
+        }),
+    }
+}
+
+/// Drive materialization to completion synchronously.
 ///
-/// Safe to call from sync DDL handlers that already run on a blocking thread
-/// (pgwire handlers call via `spawn_blocking`).
+/// Used by `ALTER DATABASE … MATERIALIZE` and `DROP DATABASE … FORCE`. Returns
+/// `Err(Error::BadRequest)` for unsupported engines (mapped to SQLSTATE
+/// `0A000` by the DDL handlers); returns `Ok(())` on success or after the
+/// budget defers.
 pub fn force_materialize_blocking(
     db_id: DatabaseId,
     state: &SharedState,
@@ -150,7 +234,6 @@ pub fn force_materialize_blocking(
     handle: Option<&CloneMaterializerHandle>,
 ) -> crate::Result<()> {
     let cancel = AtomicBool::new(false);
-    // estimated_secs=0.0 always passes the budget check (consumed + 0.0 <= cap).
     let params = MaterializeParams {
         db_id,
         state,
@@ -164,12 +247,11 @@ pub fn force_materialize_blocking(
         MaterializeOutcome::AllComplete => Ok(()),
         MaterializeOutcome::Incomplete {
             collections_remaining,
-        } => Err(crate::Error::BadRequest {
+        } => Err(crate::Error::Storage {
+            engine: "clone_materializer".into(),
             detail: format!(
-                "clone materialization is not yet implemented: {collections_remaining} \
-                 collection(s) in database {} still require source-to-target row copy. \
-                 The CoW shadow read/write path remains functional; only MATERIALIZE \
-                 and DROP DATABASE FORCE are gated until per-engine bulk copy lands.",
+                "{collections_remaining} collection(s) in database {} did not \
+                 finish materializing; check logs for per-collection errors",
                 db_id.as_u64()
             ),
         }),
@@ -179,10 +261,6 @@ pub fn force_materialize_blocking(
 }
 
 /// Entry point called by the maintenance scheduler on each tick.
-///
-/// Iterates over all known databases and sweeps each that has pending clone
-/// collections. Logs and skips databases where materialization is gated so
-/// the sweep does not spam errors every tick.
 pub fn run_scheduled_sweep(
     state: &SharedState,
     catalog: &SystemCatalog,
@@ -208,19 +286,25 @@ pub fn run_scheduled_sweep(
             estimated_secs: 5.0,
         };
 
-        match materialize_database(params)? {
-            MaterializeOutcome::AllComplete => {}
-            MaterializeOutcome::Incomplete {
+        match materialize_database(params) {
+            Ok(MaterializeOutcome::AllComplete) => {}
+            Ok(MaterializeOutcome::Incomplete {
                 collections_remaining,
-            } => {
+            }) => {
                 tracing::info!(
                     db_id = db_id.as_u64(),
                     collections_remaining,
-                    "clone sweep skipped: per-engine row copy not yet implemented",
+                    "clone sweep partial: per-collection errors logged separately",
                 );
             }
-            MaterializeOutcome::BudgetDeferred => {}
-            MaterializeOutcome::Cancelled => break,
+            Ok(MaterializeOutcome::BudgetDeferred) => {}
+            Ok(MaterializeOutcome::Cancelled) => break,
+            Err(crate::Error::BadRequest { detail }) => {
+                // Unsupported engine — log once and move on so the sweep
+                // does not spam every tick.
+                tracing::info!(db_id = db_id.as_u64(), %detail, "clone sweep skipped");
+            }
+            Err(e) => return Err(e),
         }
     }
 
