@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Integration tests for the mirror database subsystem.
+
+#[path = "mirror/helpers.rs"]
+#[allow(dead_code)]
+mod helpers;
+#[path = "mirror/test_clone_from_mirror_rejected.rs"]
+mod test_clone_from_mirror_rejected;
+#[path = "mirror/test_eventual_read_serves_local.rs"]
+mod test_eventual_read_serves_local;
+#[path = "mirror/test_full_lifecycle.rs"]
+mod test_full_lifecycle;
+#[path = "mirror/test_lag_transitions.rs"]
+mod test_lag_transitions;
+#[path = "mirror/test_no_writes_accepted_fuzz.rs"]
+mod test_no_writes_accepted_fuzz;
+#[path = "mirror/test_promotion_durability.rs"]
+mod test_promotion_durability;
+#[path = "mirror/test_restart_resume.rs"]
+mod test_restart_resume;
+#[path = "mirror/test_simulated_latency.rs"]
+mod test_simulated_latency;
+#[path = "mirror/test_strong_read_rejected.rs"]
+mod test_strong_read_rejected;
