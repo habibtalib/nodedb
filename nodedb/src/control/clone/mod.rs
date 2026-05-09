@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Copy-on-write clone resolver for the Control Plane.
+//!
+//! Intercepts read and write plans that target cloned databases and applies
+//! the CoW resolution algorithm so storage engines never see `cloned_from`.
+
+pub mod copyup;
+pub mod lsn_resolve;
+pub mod metadata;
+pub mod resolver;
+pub mod tombstone;
+
+pub use copyup::{KvCopyUpParams, perform_clone_copyup, perform_kv_clone_copyup};
+pub use lsn_resolve::wall_ms_to_lsn;
+pub use metadata::ClonePredicatesNote;
+pub use resolver::{CloneReadParams, resolve_read};
+pub use tombstone::{KvTombstoneParams, perform_clone_tombstone, perform_kv_clone_tombstone};

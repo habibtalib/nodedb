@@ -8,6 +8,7 @@ pub mod cascade;
 pub mod catalog_entry;
 pub mod change_stream;
 pub mod checkpoint_manager;
+pub mod clone;
 pub mod cluster;
 pub mod cold_tier;
 pub mod custom_type;

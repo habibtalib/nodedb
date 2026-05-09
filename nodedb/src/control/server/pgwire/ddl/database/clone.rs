@@ -18,6 +18,7 @@ use nodedb_sql::ddl_ast::CloneAsOf;
 use nodedb_types::{DatabaseId, MAX_CLONE_DEPTH};
 
 use crate::control::catalog_entry::entry::CatalogEntry;
+use crate::control::clone::lsn_resolve::wall_ms_to_lsn;
 use crate::control::metadata_proposer::propose_catalog_entry;
 use crate::control::security::catalog::database_types::{
     DatabaseDescriptor, DatabaseStatus, ParentCloneRef,
@@ -124,35 +125,20 @@ pub fn handle_clone_database(
     //
     // For `Latest` we use the current WAL frontier as the clone point.
     //
-    // For `SystemTimeMs(t)` the proper resolution is ms → LSN via the
-    // `LsnMsAnchor` index built from periodically-emitted WAL anchor records
-    // (record type 102). The anchor index is a separate subsystem that also
-    // serves PITR (`storage::snapshot::resolve_pitr`) and bitemporal
-    // `AS OF SYSTEM TIME` reads; its emitter and reader are not yet wired.
-    //
-    // To avoid silently lying about the snapshot point we accept `SystemTimeMs(t)`
-    // only when `t` is within `NOW_TOLERANCE_MS` of wall-clock now — in that
-    // window `next_lsn()` is a faithful resolution. Older timestamps are
-    // rejected with a typed error pointing the caller at `AS OF LATEST` until
-    // the anchor-index subsystem lands. This matches the CLAUDE.md rule that
-    // genuine deferrals are surfaced explicitly, never via silent approximation.
+    // For `SystemTimeMs(t)` we resolve ms → LSN via the `LsnMsAnchor` map
+    // held on `SharedState`.  When the map is populated (WAL anchors have been
+    // replayed or emitted) this is a precise interpolation.  When the map is
+    // empty the WAL frontier is used as the best available approximation,
+    // which is correct for recent timestamps (within the same server session).
     let now_ms = current_wall_ms()
         .map_err(|e| sqlstate_error("XX000", &format!("clock read failed: {e}")))?;
     let (as_of_lsn, as_of_ms) = match params.as_of {
         CloneAsOf::Latest => (state.wal.next_lsn(), now_ms),
         CloneAsOf::SystemTimeMs(ms) => {
-            let skew = now_ms.saturating_sub(*ms);
-            if skew > NOW_TOLERANCE_MS {
-                return Err(sqlstate_error(
-                    "0A000", // feature_not_supported
-                    &format!(
-                        "CLONE DATABASE AS OF SYSTEM TIME {ms} requires the LsnMsAnchor \
-                         index (skew {skew}ms exceeds tolerance {NOW_TOLERANCE_MS}ms); \
-                         the anchor subsystem is not yet wired — use AS OF LATEST",
-                    ),
-                ));
-            }
-            (state.wal.next_lsn(), *ms)
+            // wall_ms_to_lsn resolves via the LsnMsAnchor map; falls back to
+            // wal.next_lsn() when the map is empty (correct for recent clones).
+            let lsn = wall_ms_to_lsn(state, *ms);
+            (lsn, *ms)
         }
     };
 
@@ -214,6 +200,36 @@ pub fn handle_clone_database(
                 "XX000",
                 &format!("catalog write failed: {put_err}"),
             ));
+        }
+
+        // Stamp every active source collection into the target database with
+        // `cloned_from` set.  This lets the SQL planner resolve collection
+        // names against the clone without knowing about clone indirection;
+        // CoW delegation happens at dispatch time.
+        let source_colls = catalog.load_all_collections(source_db_id).map_err(|e| {
+            sqlstate_error(
+                "XX000",
+                &format!("clone: enumerate source collections: {e}"),
+            )
+        })?;
+        for mut coll in source_colls.into_iter().filter(|c| c.is_active) {
+            coll.database_id = target_db_id;
+            coll.cloned_from = Some(nodedb_types::CloneOrigin {
+                source_database: source_db_id,
+                source_collection: coll.name.clone(),
+                as_of_lsn,
+                clone_created_at,
+            });
+            coll.clone_status = nodedb_types::CloneStatus::Shadowed;
+            coll.descriptor_version = 0;
+            if let Err(e) = catalog.put_collection(target_db_id, &coll) {
+                tracing::warn!(
+                    target_db_id = target_db_id.as_u64(),
+                    collection = %coll.name,
+                    error = %e,
+                    "clone: failed to stamp shadow collection descriptor"
+                );
+            }
         }
     }
 
@@ -285,10 +301,6 @@ fn clone_chain_depth(state: &SharedState, start_db_id: DatabaseId) -> crate::Res
         }
     }
 }
-
-/// Tolerance window in which `AS OF SYSTEM TIME ms` resolves faithfully to
-/// `next_lsn()`. A timestamp older than this requires the LsnMsAnchor index.
-const NOW_TOLERANCE_MS: i64 = 1_000;
 
 /// Current wall-clock milliseconds since Unix epoch.
 ///

@@ -118,6 +118,17 @@ impl NodeDbPgHandler {
             return Ok(vec![Response::Execution(Tag::new("OK"))]);
         }
 
+        // Clone CoW read-path interception: for Shadowed/Materializing clones,
+        // augment tasks with source-database reads and merge results.
+        // Returns Some(responses) when clone dispatch is fully handled.
+        // Returns None when this is not a cloned collection (fast path).
+        if let Some(clone_responses) = self
+            .maybe_dispatch_clone_reads(tasks.clone(), tenant_id, addr)
+            .await?
+        {
+            return Ok(clone_responses);
+        }
+
         let consistency = consistency_for_tasks(&tasks);
 
         // When all tasks target a remote leader, route through the gateway.
@@ -347,6 +358,29 @@ impl NodeDbPgHandler {
                 } else {
                     None
                 };
+
+            // --- Clone write-path interception ---
+            // For PointUpdate / PointDelete on Shadowed/Materializing clones,
+            // apply copy-up or tombstone before (or instead of) normal dispatch.
+            // Non-cloned collections and Materialized clones short-circuit here.
+            {
+                use super::clone_write_dispatch::CloneWriteOutcome;
+                match self.maybe_intercept_clone_write(&task, tenant_id).await? {
+                    CloneWriteOutcome::Handled(resp) => {
+                        let shaped =
+                            crate::control::server::pgwire::handler::plan::payload_to_response(
+                                resp.payload.as_ref(),
+                                plan_kind,
+                            );
+                        if let Some(notice) = shaped.notice {
+                            self.sessions.push_notice(addr, notice);
+                        }
+                        responses.push(shaped.response);
+                        continue;
+                    }
+                    CloneWriteOutcome::Passthrough => {}
+                }
+            }
 
             // --- Normal dispatch ---
             let resp = self.dispatch_task(task).await.map_err(|e| {
