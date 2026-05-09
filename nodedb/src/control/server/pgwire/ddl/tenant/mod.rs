@@ -16,6 +16,7 @@ pub mod alter;
 pub mod alter_quota;
 pub mod create;
 pub mod drop;
+pub mod move_tenant;
 pub mod purge;
 pub mod show;
 pub mod show_in_database;
@@ -24,6 +25,7 @@ pub use alter::alter_tenant;
 pub use alter_quota::handle_alter_tenant_quota;
 pub use create::create_tenant;
 pub use drop::drop_tenant;
+pub use move_tenant::handle_move_tenant;
 pub use purge::purge_tenant;
 pub use show::{show_tenant_quota, show_tenant_usage};
 pub use show_in_database::{

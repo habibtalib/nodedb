@@ -248,6 +248,26 @@ pub enum CatalogEntry {
         object_name: String,
     },
 
+    // ── Move Tenant lifecycle ──────────────────────────────────────
+    /// Atomically move a tenant's collections from one database to another.
+    ///
+    /// This is the single Raft proposal that makes the cutover phase of
+    /// `MOVE TENANT` atomic. On apply it:
+    /// 1. Writes each `StoredCollection` in `collections` to `target_db_id`.
+    /// 2. Deletes each collection from `source_db_id`.
+    ///
+    /// The handler builds this entry after snapshot succeeds; the Raft
+    /// proposal is a complete, self-contained mutation that any follower
+    /// can replay without external lookups.
+    MoveTenantCutover {
+        tenant_id: u64,
+        source_db_id: u64,
+        target_db_id: u64,
+        /// The tenant's collections serialized at their source state.
+        /// Each will be re-keyed to `target_db_id` on apply.
+        collections: Vec<StoredCollection>,
+    },
+
     // ── Clone lifecycle ────────────────────────────────────────────
     /// Atomically record a new CoW clone database.
     ///
@@ -315,6 +335,7 @@ impl CatalogEntry {
             Self::DeleteSynonymGroup { .. } => "delete_synonym_group",
             Self::PutCustomType(_) => "put_custom_type",
             Self::DeleteCustomType { .. } => "delete_custom_type",
+            Self::MoveTenantCutover { .. } => "move_tenant_cutover",
             Self::CloneDatabase { .. } => "clone_database",
         }
     }

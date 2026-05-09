@@ -7,6 +7,7 @@
 pub mod calvin;
 pub mod convert;
 pub mod crdt;
+pub mod move_tenant;
 pub mod reindex;
 mod reindex_apply;
 pub mod snapshot;

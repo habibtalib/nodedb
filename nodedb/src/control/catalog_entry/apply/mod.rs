@@ -158,5 +158,17 @@ fn apply_to_inner(entry: &CatalogEntry, catalog: &SystemCatalog) {
             target_descriptor,
             source_db_id,
         } => database::clone_apply(target_descriptor, *source_db_id, catalog),
+        CatalogEntry::MoveTenantCutover {
+            tenant_id,
+            source_db_id,
+            target_db_id,
+            collections,
+        } => tenant::move_cutover(
+            *tenant_id,
+            *source_db_id,
+            *target_db_id,
+            collections,
+            catalog,
+        ),
     }
 }

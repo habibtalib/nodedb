@@ -192,9 +192,13 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_point_get(
                 Some(a) => match a.lookup(collection, &pk_bytes)? {
                     Some(s) => s,
                     None => {
-                        // Row not bound — return zero tasks; the
-                        // dispatcher emits an empty result set.
-                        return Ok(Vec::new());
+                        // No surrogate bound in the target database yet.
+                        // Emit a sentinel task so the clone CoW resolver can
+                        // intercept and fetch the row from the source database.
+                        // For non-clone databases the Data Plane looks up
+                        // the sentinel key, finds nothing, and returns empty
+                        // — identical behaviour to the zero-tasks path.
+                        nodedb_types::Surrogate::ZERO
                     }
                 },
                 None => nodedb_types::Surrogate::ZERO,

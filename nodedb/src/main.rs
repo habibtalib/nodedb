@@ -301,6 +301,12 @@ async fn main() -> anyhow::Result<()> {
     // Replay surrogate WAL records into the in-memory registry.
     bootstrap::credentials::replay_surrogate_wal(&shared, &wal_records);
 
+    // Recover any in-progress MOVE TENANT operations from the journal.
+    // This runs synchronously before accepting connections so that
+    // in-flight tenant moves are resolved before any client can issue
+    // new ones against the same tenant.
+    nodedb::control::server::pgwire::ddl::tenant::move_tenant::recovery::recover_all(&shared).await;
+
     // Bootstrap superuser credential (or warn about trust mode).
     bootstrap::credentials::bootstrap_superuser(&shared, &config)?;
 

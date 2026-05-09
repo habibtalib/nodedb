@@ -108,7 +108,8 @@ pub fn spawn_post_apply_async_side_effects(
         | CatalogEntry::DeleteDatabase { .. }
         | CatalogEntry::PutDatabaseGrant { .. }
         | CatalogEntry::DeleteDatabaseGrant { .. }
-        | CatalogEntry::CloneDatabase { .. } => {
+        | CatalogEntry::CloneDatabase { .. }
+        | CatalogEntry::MoveTenantCutover { .. } => {
             let _ = shared;
             let _ = raft_index;
         }

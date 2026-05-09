@@ -378,4 +378,19 @@ pub enum MetaOp {
     ///
     /// Called after the Control Plane has already removed it from the catalog.
     DeleteSynonymGroup { tenant_id: u64, name: String },
+
+    /// Re-key all documents and secondary indexes for a collection from
+    /// `old_collection` (db-qualified source name) to `new_collection`
+    /// (db-qualified target name) in the local Data Plane sparse engine.
+    ///
+    /// Called after `MoveTenantCutover` applies so that physical data is
+    /// accessible under the new database context.  Both `old_collection` and
+    /// `new_collection` are the `db_qualified` strings used as the logical
+    /// collection identifier in the sparse store
+    /// (e.g. `"2/orders"` for database 2, collection `orders`).
+    RenameCollection {
+        tenant_id: u64,
+        old_collection: String,
+        new_collection: String,
+    },
 }

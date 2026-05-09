@@ -27,6 +27,7 @@ use crate::control::server::pgwire::ddl::schedule::{CreateScheduleRequest, creat
 use crate::control::server::pgwire::ddl::synonym_group::{
     create_synonym_group, drop_synonym_group, show_synonym_groups,
 };
+use crate::control::server::pgwire::ddl::tenant::handle_move_tenant;
 use crate::control::server::pgwire::ddl::trigger::create_trigger;
 use crate::control::state::SharedState;
 use crate::types::DatabaseId;
@@ -341,6 +342,12 @@ pub(super) async fn try_dispatch_async(
             )
             .await,
         ),
+
+        NodedbStatement::MoveTenant {
+            tenant_name,
+            from_db,
+            to_db,
+        } => Some(handle_move_tenant(state, identity, tenant_name, from_db, to_db).await),
 
         _ => None,
     }

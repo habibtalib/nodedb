@@ -173,5 +173,7 @@ fn classify(entry: &CatalogEntry) -> VariantClass {
         CatalogEntry::DeleteDatabaseGrant { .. } => VariantClass::Exempt,
         // Clone creates a new database descriptor; no per-object owner row needed.
         CatalogEntry::CloneDatabase { .. } => VariantClass::Exempt,
+        // Move tenant cutover re-keys collections; no ownership object is created.
+        CatalogEntry::MoveTenantCutover { .. } => VariantClass::Exempt,
     }
 }

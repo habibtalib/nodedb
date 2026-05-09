@@ -218,5 +218,6 @@ pub(super) fn describe_entry(e: &catalog_entry::CatalogEntry) -> (String, u64, S
         E::CloneDatabase {
             target_descriptor, ..
         } => (target_descriptor.name.clone(), 0, String::new()),
+        E::MoveTenantCutover { tenant_id, .. } => (format!("tenant:{tenant_id}"), 0, String::new()),
     }
 }

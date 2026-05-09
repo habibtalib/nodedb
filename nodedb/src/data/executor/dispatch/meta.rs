@@ -192,6 +192,12 @@ impl CoreLoop {
             MetaOp::DeleteSynonymGroup { tenant_id, name } => {
                 self.execute_delete_synonym_group(task, *tenant_id, name)
             }
+
+            MetaOp::RenameCollection {
+                tenant_id,
+                old_collection,
+                new_collection,
+            } => self.execute_rename_collection(task, *tenant_id, old_collection, new_collection),
         }
     }
 }

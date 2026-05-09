@@ -4,6 +4,7 @@ pub mod engine;
 pub mod engine_atomic;
 mod engine_helpers;
 mod engine_index;
+mod engine_rename;
 pub mod engine_sorted;
 mod engine_stats;
 mod engine_write;

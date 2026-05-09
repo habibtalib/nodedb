@@ -207,5 +207,19 @@ pub fn apply_post_apply_side_effects_sync(entry: &CatalogEntry, shared: &Arc<Sha
             // resolve it by name without waiting for a read-round-trip to redb.
             database::put((**target_descriptor).clone(), Arc::clone(shared));
         }
+        CatalogEntry::MoveTenantCutover {
+            tenant_id,
+            source_db_id,
+            target_db_id,
+            collections,
+        } => {
+            tenant::move_cutover_sync(
+                *tenant_id,
+                *source_db_id,
+                *target_db_id,
+                collections,
+                Arc::clone(shared),
+            );
+        }
     }
 }

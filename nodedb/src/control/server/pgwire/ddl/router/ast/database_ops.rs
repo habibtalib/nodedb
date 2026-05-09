@@ -117,10 +117,10 @@ pub(super) fn try_dispatch_database(
             "MIRROR DATABASE is not yet implemented",
         ))),
 
-        NodedbStatement::MoveTenant { .. } => Some(Err(sqlstate_error(
-            "0A000",
-            "MOVE TENANT is not yet implemented",
-        ))),
+        NodedbStatement::MoveTenant { .. } => {
+            // Async — handled in try_dispatch_async (async_ops.rs).
+            None
+        }
 
         NodedbStatement::BackupDatabase { .. } => Some(Err(sqlstate_error(
             "0A000",

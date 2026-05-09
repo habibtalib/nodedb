@@ -28,6 +28,7 @@ pub mod lockout;
 pub mod materialized_view;
 pub mod materialized_views;
 pub mod metadata;
+pub mod move_tenant_journal;
 pub mod orgs;
 pub mod procedure_types;
 pub mod procedures;

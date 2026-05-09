@@ -216,5 +216,12 @@ pub(crate) fn invalidate_gateway_cache_for_entry(entry: &CatalogEntry, shared: &
             // no-op: the new database has no cached plans yet; the source
             // database's plans are unaffected by the clone operation.
         }
+        CatalogEntry::MoveTenantCutover { collections, .. } => {
+            // Invalidate cached plans for each collection that moved databases.
+            // This forces re-planning on the next query touching those collections.
+            for coll in collections.iter() {
+                inv.invalidate(&coll.name, coll.descriptor_version.max(1));
+            }
+        }
     }
 }

@@ -184,6 +184,11 @@ impl SystemCatalog {
             let _ = write_txn
                 .open_table(CLONE_LINEAGE)
                 .map_err(|e| catalog_err("init clone_lineage table", e))?;
+            let _ = write_txn
+                .open_table(
+                    crate::control::server::pgwire::ddl::tenant::move_tenant::journal::MOVE_TENANT_JOURNAL,
+                )
+                .map_err(|e| catalog_err("init move_tenant_journal table", e))?;
         }
         write_txn
             .commit()
