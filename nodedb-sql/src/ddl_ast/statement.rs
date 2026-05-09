@@ -384,6 +384,12 @@ pub enum NodedbStatement {
     ShowDatabaseUsage {
         name: String,
     },
+    /// `SHOW DATABASE LINEAGE FOR <name>` — walks the parent clone chain from
+    /// `<name>` up to the root, returning one row per ancestor with
+    /// `(database_id, name, as_of_lsn, clone_created_at_lsn)`.
+    ShowDatabaseLineage {
+        name: String,
+    },
     /// `ALTER TENANT <name> IN DATABASE <db> <operation>`
     ///
     /// New SQL surface. Sets per-tenant resource budgets within a specific database.

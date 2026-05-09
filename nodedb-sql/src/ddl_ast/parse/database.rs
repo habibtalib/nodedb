@@ -51,6 +51,13 @@ pub fn try_parse(
         {
             Some(parse_show_database_quota_or_usage(parts, true))
         }
+        // SHOW DATABASE LINEAGE FOR <name>
+        "SHOW"
+            if second == "DATABASE"
+                && parts.get(2).map(|w| w.to_uppercase()).as_deref() == Some("LINEAGE") =>
+        {
+            Some(parse_show_database_lineage(parts))
+        }
         _ => None,
     }
 }
@@ -589,6 +596,28 @@ pub(crate) fn parse_quota_spec(sql: &str, context: &str) -> Result<QuotaSpec, Sq
     Ok(spec)
 }
 
+// ── SHOW DATABASE LINEAGE ────────────────────────────────────────────────────
+
+fn parse_show_database_lineage(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
+    // SHOW DATABASE LINEAGE FOR <name>
+    // parts: [SHOW, DATABASE, LINEAGE, FOR, <name>]
+    let for_idx = parts
+        .iter()
+        .position(|w| w.eq_ignore_ascii_case("FOR"))
+        .ok_or_else(|| SqlError::Parse {
+            detail: "SHOW DATABASE LINEAGE requires FOR <name>".into(),
+        })?;
+    let name = parts
+        .get(for_idx + 1)
+        .copied()
+        .ok_or_else(|| SqlError::Parse {
+            detail: "SHOW DATABASE LINEAGE FOR requires a database name".into(),
+        })?
+        .trim_matches('"')
+        .to_string();
+    Ok(NodedbStatement::ShowDatabaseLineage { name })
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /// Extract `WITH (key=value, ...)` pairs from a raw SQL string.
@@ -836,5 +865,30 @@ mod tests {
                 as_of: CloneAsOf::Latest,
             }
         );
+    }
+
+    #[test]
+    fn parse_show_database_lineage() {
+        let stmt = ok("SHOW DATABASE LINEAGE FOR mydb");
+        assert_eq!(
+            stmt,
+            NodedbStatement::ShowDatabaseLineage {
+                name: "mydb".into()
+            }
+        );
+    }
+
+    #[test]
+    fn parse_show_database_lineage_missing_name_errors() {
+        let sql = "SHOW DATABASE LINEAGE FOR";
+        let upper = sql.to_uppercase();
+        let parts: Vec<&str> = sql.split_whitespace().collect();
+        let err = try_parse(&upper, &parts, sql).unwrap().unwrap_err();
+        match err {
+            SqlError::Parse { detail } => {
+                assert!(detail.contains("requires a database name"), "{detail}");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 }
