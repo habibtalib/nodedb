@@ -34,6 +34,21 @@ impl NodeDbPgHandler {
     }
 
     async fn dispatch_task_inner(&self, task: PhysicalTask) -> crate::Result<Response> {
+        // Reject user writes against a source database that is currently
+        // frozen by a clone materializer sweep.  Reads and DDL pass through
+        // unchanged.  The materializer uses `dispatch_local` (a free function
+        // in `clone_materializer/dispatch.rs`) and is never routed through
+        // this method, so there is no risk of blocking the materializer itself.
+        use crate::control::security::identity::{Permission, required_permission};
+        let perm = required_permission(&task.plan);
+        if matches!(perm, Permission::Write | Permission::Admin)
+            && self.state.materialize_freeze.is_frozen(task.database_id)
+        {
+            return Err(crate::Error::SourceFrozen {
+                database_id: task.database_id,
+            });
+        }
+
         if matches!(
             task.plan,
             crate::bridge::envelope::PhysicalPlan::Document(
@@ -371,6 +386,24 @@ impl NodeDbPgHandler {
     /// entire transaction has been written as a single `RecordType::Transaction`
     /// WAL record. Skipping per-task WAL avoids double-writing.
     pub(super) async fn dispatch_task_no_wal(&self, task: PhysicalTask) -> crate::Result<Response> {
+        // Same materialize-freeze gate as `dispatch_task_inner`. Without this,
+        // a transaction that began before the freeze could COMMIT writes
+        // *during* the freeze window — the materializer would already be
+        // mid-scan, so those committed rows would either leak into target
+        // (if scan hadn't reached them) or stay only in source (if past).
+        // Both outcomes break the as-of contract; reject with
+        // `SourceFrozen` so the client retries the COMMIT after the freeze
+        // releases. Pre-freeze transactions remain consistent because their
+        // staged tasks are buffered in the session, not yet visible to source.
+        use crate::control::security::identity::{Permission, required_permission};
+        let perm = required_permission(&task.plan);
+        if matches!(perm, Permission::Write | Permission::Admin)
+            && self.state.materialize_freeze.is_frozen(task.database_id)
+        {
+            return Err(crate::Error::SourceFrozen {
+                database_id: task.database_id,
+            });
+        }
         self.submit_to_data_plane(task.tenant_id, task.vshard_id, task.database_id, task.plan)
             .await
     }

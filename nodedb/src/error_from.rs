@@ -98,6 +98,10 @@ impl From<Error> for NodeDbError {
                 collection,
                 document_id,
             } => NodeDbError::write_conflict(collection, document_id),
+            Error::SourceFrozen { database_id } => NodeDbError::write_conflict(
+                format!("database:{database_id}"),
+                "source database is frozen for clone materialization; retry shortly".to_owned(),
+            ),
             Error::RejectedPrevalidation { constraint, reason } => {
                 NodeDbError::prevalidation_rejected(constraint, reason)
             }

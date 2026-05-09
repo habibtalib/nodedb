@@ -360,4 +360,10 @@ pub struct SharedState {
     /// `AS OF SYSTEM TIME <ms>` values to LSN for source-delegation clamping.
     /// Wrapped in `Mutex` because the Control Plane is `Send + Sync`.
     pub lsn_ms_map: Arc<Mutex<nodedb_types::temporal::LsnMsMap>>,
+    /// Set of database ids temporarily frozen against new user writes because
+    /// a clone materializer is reading from them as the source.  Populated by
+    /// `clone_materializer::walker` for the duration of one sweep over a
+    /// dependent clone; concurrent materializers on different clones of the
+    /// same source nest correctly via an internal reference count.
+    pub materialize_freeze: Arc<crate::control::clone::MaterializeFreezeRegistry>,
 }

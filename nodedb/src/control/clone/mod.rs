@@ -7,12 +7,14 @@
 
 pub mod copyup;
 pub mod lsn_resolve;
+pub mod materialize_freeze;
 pub mod metadata;
 pub mod resolver;
 pub mod tombstone;
 
 pub use copyup::{KvCopyUpParams, perform_clone_copyup, perform_kv_clone_copyup};
 pub use lsn_resolve::wall_ms_to_lsn;
+pub use materialize_freeze::{FreezeGuard, MaterializeFreezeRegistry};
 pub use metadata::ClonePredicatesNote;
 pub use resolver::{CloneReadParams, resolve_read};
 pub use tombstone::{KvTombstoneParams, perform_clone_tombstone, perform_kv_clone_tombstone};

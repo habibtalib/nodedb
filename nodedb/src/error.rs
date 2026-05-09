@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use crate::types::{RequestId, TenantId, VShardId};
+use crate::types::{DatabaseId, RequestId, TenantId, VShardId};
 
 /// Internal error classes for NodeDB Origin.
 ///
@@ -134,6 +134,13 @@ pub enum Error {
 
     #[error("query fan-out exceeded: {shards_touched} shards > limit {limit}")]
     FanOutExceeded { shards_touched: u16, limit: u16 },
+
+    /// Database is temporarily frozen because a clone materializer is reading
+    /// from it as the source.  The write must be retried after the materializer
+    /// sweep completes.  Maps to SQLSTATE `40001` (serialization_failure) so
+    /// clients that already handle write conflicts will retry automatically.
+    #[error("database {database_id} is frozen for clone materialization; retry shortly")]
+    SourceFrozen { database_id: DatabaseId },
 
     // --- Client input errors ---
     #[error("bad request: {detail}")]
