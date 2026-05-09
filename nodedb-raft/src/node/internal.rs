@@ -16,10 +16,11 @@ use super::core::RaftNode;
 
 impl<S: LogStorage> RaftNode<S> {
     pub(super) fn start_election(&mut self) {
-        // Learners never stand for election — defensive check in case
-        // `tick()` is bypassed (e.g., tests forcing a deadline).
-        if self.role == NodeRole::Learner {
-            return;
+        // Learners and observers never stand for election — defensive check
+        // in case `tick()` is bypassed (e.g., tests forcing a deadline).
+        match self.role {
+            NodeRole::Learner | NodeRole::Observer => return,
+            NodeRole::Follower | NodeRole::Candidate | NodeRole::Leader => {}
         }
 
         self.hard_state.current_term += 1;
@@ -60,15 +61,20 @@ impl<S: LogStorage> RaftNode<S> {
         }
     }
 
-    /// Step down to follower (or keep learner role if we were a learner).
+    /// Step down to follower (or keep learner/observer role if the node is one).
     ///
-    /// Learners that receive an `AppendEntries` with a higher term update
-    /// their term but do not transition to `Follower` — they stay
-    /// `Learner` so the tick loop continues to skip election timeouts.
+    /// Learners and observers that receive an `AppendEntries` with a higher
+    /// term update their term but do not transition to `Follower` — they stay
+    /// in their non-election role so the tick loop continues to skip timeouts.
     pub(super) fn become_follower(&mut self, term: u64) {
         let was_leader = self.role == NodeRole::Leader;
-        if self.role != NodeRole::Learner {
-            self.role = NodeRole::Follower;
+        match self.role {
+            NodeRole::Learner | NodeRole::Observer => {
+                // Preserve the non-election role.
+            }
+            NodeRole::Follower | NodeRole::Candidate | NodeRole::Leader => {
+                self.role = NodeRole::Follower;
+            }
         }
         self.hard_state.current_term = term;
         self.hard_state.voted_for = 0;
@@ -91,11 +97,16 @@ impl<S: LogStorage> RaftNode<S> {
         self.role = NodeRole::Leader;
         self.leader_id = self.config.node_id;
 
-        // Leader tracks both voter peers and learner peers for replication.
-        // Only voters count toward the commit quorum (see
-        // `try_advance_commit_index`), but learners still need to receive
-        // entries so they can eventually catch up.
-        let mut ls = LeaderState::new(&self.config.peers, self.log.last_index());
+        // Leader tracks voter peers, learner peers, and observer peers for
+        // replication. Only voters count toward the commit quorum (see
+        // `try_advance_commit_index`). Learners still receive entries so they
+        // can catch up for promotion. Observers receive entries and ack
+        // advisorily but are never counted in quorum.
+        let mut ls = LeaderState::new(
+            &self.config.peers,
+            &self.config.observers,
+            self.log.last_index(),
+        );
         for &learner in &self.config.learners {
             ls.add_peer(learner, self.log.last_index());
         }
@@ -127,17 +138,25 @@ impl<S: LogStorage> RaftNode<S> {
         self.replicate_to_all();
     }
 
-    /// Send `AppendEntries` to every tracked peer (voters + learners).
+    /// Send `AppendEntries` to every tracked peer (voters + learners + observers).
+    ///
+    /// Observers are skipped when their advisory send queue is full — source
+    /// commits are never gated on observer apply pace.
     pub(super) fn replicate_to_all(&mut self) {
-        let all: Vec<u64> = self
+        let voters_and_learners: Vec<u64> = self
             .config
             .peers
             .iter()
             .chain(self.config.learners.iter())
             .copied()
             .collect();
-        for peer in all {
+        for peer in voters_and_learners {
             self.send_append_entries(peer);
+        }
+
+        let observers: Vec<u64> = self.config.observers.clone();
+        for observer in observers {
+            self.send_append_entries_to_observer(observer);
         }
     }
 
@@ -198,6 +217,102 @@ impl<S: LogStorage> RaftNode<S> {
                 group_id: self.config.group_id,
             },
         ));
+    }
+
+    /// Send `AppendEntries` to an observer peer.
+    ///
+    /// If the observer's advisory send queue is full (backpressure threshold
+    /// reached), the send is skipped. The observer will fall behind and recover
+    /// via snapshot when it reconnects. Source commits are never delayed.
+    pub(super) fn send_append_entries_to_observer(&mut self, observer: u64) {
+        let can_receive = match &self.leader_state {
+            Some(ls) => ls.observer_can_receive(observer),
+            None => return,
+        };
+        if !can_receive {
+            debug!(
+                node = self.config.node_id,
+                group = self.config.group_id,
+                observer,
+                "observer send queue full; skipping (advisory backpressure)"
+            );
+            return;
+        }
+
+        let leader = match &self.leader_state {
+            Some(ls) => ls,
+            None => return,
+        };
+
+        let obs_state = match leader
+            .observer_states
+            .iter()
+            .find(|(id, _)| *id == observer)
+        {
+            Some((_, s)) => s.clone(),
+            None => return,
+        };
+
+        let next_index = obs_state.next_index;
+        let prev_log_index = next_index.saturating_sub(1);
+
+        let prev_log_term = match self.log.term_at(prev_log_index) {
+            Some(term) => term,
+            None => {
+                debug!(
+                    node = self.config.node_id,
+                    group = self.config.group_id,
+                    observer,
+                    next_index,
+                    snapshot_index = self.log.snapshot_index(),
+                    "observer needs snapshot (log compacted)"
+                );
+                self.ready.snapshots_needed.push(observer);
+                return;
+            }
+        };
+
+        let entries = if next_index <= self.log.last_index() {
+            match self.log.entries_range(next_index, self.log.last_index()) {
+                Ok(slice) => slice.to_vec(),
+                Err(crate::error::RaftError::LogCompacted { .. }) => {
+                    debug!(
+                        node = self.config.node_id,
+                        group = self.config.group_id,
+                        observer,
+                        next_index,
+                        "observer needs snapshot (entries compacted)"
+                    );
+                    self.ready.snapshots_needed.push(observer);
+                    return;
+                }
+                Err(_) => vec![],
+            }
+        } else {
+            vec![]
+        };
+
+        let entry_count = entries.len() as u32;
+
+        self.ready.messages.push((
+            observer,
+            crate::message::AppendEntriesRequest {
+                term: self.hard_state.current_term,
+                leader_id: self.config.node_id,
+                prev_log_index,
+                prev_log_term,
+                entries,
+                leader_commit: self.volatile.commit_index,
+                group_id: self.config.group_id,
+            },
+        ));
+
+        // Increment pending count for advisory backpressure tracking.
+        if let Some(ls) = self.leader_state.as_mut()
+            && let Some(state) = ls.observer_state_mut(observer)
+        {
+            state.pending_count = state.pending_count.saturating_add(entry_count.max(1));
+        }
     }
 
     /// Try to advance `commit_index` based on the voter quorum only.
