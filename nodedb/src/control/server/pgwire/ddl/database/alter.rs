@@ -146,10 +146,7 @@ pub fn handle_alter_database(
         }
 
         AlterDatabaseOperation::Materialize => {
-            return Err(sqlstate_error(
-                "0A000",
-                "ALTER DATABASE MATERIALIZE is not yet implemented",
-            ));
+            return super::materialize::handle_alter_database_materialize(state, identity, name);
         }
 
         AlterDatabaseOperation::Promote => {

@@ -2,11 +2,17 @@
 
 //! Handler for `DROP [IF EXISTS] DATABASE <name> [CASCADE | FORCE]`.
 //!
-//! Rejects non-CASCADE drops when the database has collections. The built-in
-//! `default` database (`DatabaseId(0)`) cannot be dropped. With `CASCADE`,
-//! all collections in the database are dropped before removing the descriptor;
-//! a single collection delete failure aborts the cascade with no descriptor
-//! mutation, so the catalog never observes a half-dropped database.
+//! Rejects non-CASCADE drops when the database has collections.
+//! The built-in `default` database (`DatabaseId(0)`) cannot be dropped.
+//! With `CASCADE`, all collections in the database are dropped before removing
+//! the descriptor; a single collection delete failure aborts the cascade with no
+//! descriptor mutation, so the catalog never observes a half-dropped database.
+//!
+//! Orphan protection: before any state change, the handler queries the clone
+//! lineage table.  If dependent clones exist:
+//!   - Without `cascade`/`force`: returns `CLONE_DEPENDENCY` with dependent ids.
+//!   - With `cascade` (`FORCE`): blocks on full materialization of every
+//!     dependent clone before proceeding with the drop.
 
 use nodedb_types::DatabaseId;
 use nodedb_types::error::sqlstate;
@@ -14,6 +20,9 @@ use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
 use crate::control::catalog_entry::entry::CatalogEntry;
+use crate::control::maintenance::clone_materializer::{
+    CloneMaterializerHandle, force_materialize_blocking,
+};
 use crate::control::metadata_proposer::propose_catalog_entry;
 use crate::control::security::catalog::{StoredCollection, SystemCatalog};
 use crate::control::security::identity::AuthenticatedIdentity;
@@ -23,11 +32,15 @@ use super::super::super::types::{require_admin, sqlstate_error};
 
 /// Handle `DROP [IF EXISTS] DATABASE <name> [CASCADE | FORCE]`.
 ///
-/// `FORCE` and `CASCADE` are synonyms at the parser level — both arrive here
-/// as `cascade = true`. Distinct PG-style FORCE semantics (active-session
-/// termination) are out of scope; the per-database session registry that
-/// would back that semantic does not yet exist, so adding a separate `force`
-/// flag would be unused state, not a feature.
+/// `CASCADE` and `FORCE` are conflated into a single `cascade = true` flag at
+/// the parser level: both drop child collections AND attempt to materialize
+/// dependent clones before completing the drop (orphan protection). Distinct
+/// PG-style `FORCE` semantics (terminating active sessions on the database)
+/// are out of scope.
+///
+/// When dependent clones exist and the per-engine row-copy materializer is
+/// not yet implemented, `force_materialize_blocking` returns `BadRequest`
+/// which this handler surfaces as SQLSTATE `0A000` (`feature_not_supported`).
 pub fn handle_drop_database(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
@@ -74,7 +87,63 @@ pub fn handle_drop_database(
         ));
     }
 
-    // Load collections once and reuse for both the count guard and the cascade.
+    // ── Orphan protection ─────────────────────────────────────────────────────
+    //
+    // Check whether any live clones depend on this database as their source.
+    // If dependents exist and `cascade` is false, reject immediately.
+    // If dependents exist and `cascade` is true, block-materialize each one
+    // before proceeding.
+    let dependent_ids = catalog
+        .get_clone_children(db_id)
+        .map_err(|e| sqlstate_error("XX000", &format!("lineage check failed: {e}")))?;
+
+    if !dependent_ids.is_empty() {
+        if !cascade {
+            let id_list: Vec<String> = dependent_ids
+                .iter()
+                .map(|id| id.as_u64().to_string())
+                .collect();
+            return Err(sqlstate_error(
+                sqlstate::CLONE_DEPENDENCY,
+                &format!(
+                    "database '{}' cannot be dropped: {} clone(s) depend on it \
+                     (database ids: {}); use FORCE or CASCADE to materialize them first",
+                    name,
+                    dependent_ids.len(),
+                    id_list.join(", ")
+                ),
+            ));
+        }
+
+        // FORCE path: block-materialize each dependent clone so it is no longer
+        // backed by this source, then proceed with the drop.
+        //
+        // Crash safety: if the server dies mid-force-drop, the dependents
+        // retain their `Materializing { .. }` status and finish on restart.
+        // The original DROP command is retried by the caller, which will
+        // succeed once the dependents are fully materialized.
+        for dep_id in &dependent_ids {
+            let handle = CloneMaterializerHandle::new(*dep_id);
+            // Blocking materialization on this thread (pgwire DDL handlers
+            // execute on a blocking thread pool).
+            force_materialize_blocking(*dep_id, state, catalog, Some(&handle)).map_err(
+                |e| match e {
+                    // Gated until per-engine row copy lands — surface `0A000`
+                    // (`feature_not_supported`) so clients know not to retry.
+                    crate::Error::BadRequest { detail } => sqlstate_error("0A000", &detail),
+                    other => sqlstate_error(
+                        "XX000",
+                        &format!(
+                            "force materialization of dependent clone {} failed: {other}",
+                            dep_id.as_u64()
+                        ),
+                    ),
+                },
+            )?;
+        }
+    }
+
+    // ── Cascade: drop all collections ────────────────────────────────────────
     let collections = catalog
         .load_all_collections(db_id)
         .map_err(|e| sqlstate_error("XX000", &format!("catalog scan failed: {e}")))?;

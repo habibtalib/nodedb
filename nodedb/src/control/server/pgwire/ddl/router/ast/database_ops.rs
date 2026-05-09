@@ -10,7 +10,8 @@ use nodedb_sql::ddl_ast::NodedbStatement;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::ddl::database::{
     handle_alter_database, handle_clone_database, handle_create_database, handle_drop_database,
-    handle_show_database_quota, handle_show_database_usage, handle_show_databases,
+    handle_show_database_lineage, handle_show_database_quota, handle_show_database_usage,
+    handle_show_databases,
 };
 use crate::control::server::pgwire::ddl::tenant::{
     handle_alter_tenant_quota, handle_show_tenant_quota_in_database,
@@ -65,6 +66,10 @@ pub(super) fn try_dispatch_database(
 
         NodedbStatement::ShowDatabaseUsage { name } => {
             Some(handle_show_database_usage(state, identity, name))
+        }
+
+        NodedbStatement::ShowDatabaseLineage { name } => {
+            Some(handle_show_database_lineage(state, identity, name))
         }
 
         NodedbStatement::AlterTenant {

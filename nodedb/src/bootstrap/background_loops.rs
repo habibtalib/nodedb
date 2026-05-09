@@ -149,6 +149,61 @@ pub fn spawn_background_loops(
         60,
     );
 
+    // Background clone materializer sweep.
+    // Automatically progresses cloned collections from Shadowed → Materialized
+    // without requiring explicit DDL.  The foreground ALTER DATABASE MATERIALIZE
+    // and DROP DATABASE FORCE paths bypass this loop and call the blocking
+    // materializer directly.
+    {
+        let shared_sweep = Arc::clone(shared);
+        let sweep_ms = std::env::var("NODEDB_CLONE_SWEEP_INTERVAL_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(30_000);
+        let sweep_interval = Duration::from_millis(sweep_ms);
+        crate::control::shutdown::spawn_loop(
+            &shared.loop_registry,
+            &shared.shutdown,
+            "clone_materializer_sweep",
+            move |mut shutdown| async move {
+                let mut tick = tokio::time::interval(sweep_interval);
+                loop {
+                    tokio::select! {
+                        _ = shutdown.wait_cancelled() => break,
+                        _ = tick.tick() => {}
+                    }
+                    if shutdown.is_cancelled() {
+                        break;
+                    }
+                    let state_for_sweep = Arc::clone(&shared_sweep);
+                    let result = tokio::task::spawn_blocking(move || {
+                        let Some(catalog) = state_for_sweep.credentials.catalog() else {
+                            return;
+                        };
+                        let cancel = std::sync::atomic::AtomicBool::new(false);
+                        if let Err(e) =
+                            crate::control::maintenance::clone_materializer::run_scheduled_sweep(
+                                &state_for_sweep,
+                                catalog,
+                                &cancel,
+                            )
+                        {
+                            tracing::warn!(error = %e, "clone materializer sweep error");
+                        }
+                    })
+                    .await;
+                    if let Err(e) = result {
+                        tracing::warn!(error = %e, "clone materializer sweep task panicked");
+                    }
+                }
+            },
+        );
+        info!(
+            interval_ms = sweep_ms,
+            "clone materializer background sweep running"
+        );
+    }
+
     // Cold tier task (if configured).
     if let Some(ref cold_settings) = config.cold_storage {
         let shared_cold = Arc::clone(shared);
