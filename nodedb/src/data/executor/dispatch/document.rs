@@ -353,6 +353,20 @@ impl CoreLoop {
                 *case_insensitive,
                 predicate.as_deref(),
             ),
+
+            DocumentOp::MaterializeScan {
+                collection,
+                cursor,
+                count,
+                system_as_of_ms,
+            } => self.execute_document_materialize_scan(
+                task,
+                tid,
+                collection,
+                cursor,
+                *count,
+                *system_as_of_ms,
+            ),
         }
     }
 }

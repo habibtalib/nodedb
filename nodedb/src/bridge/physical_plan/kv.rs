@@ -301,4 +301,18 @@ pub enum KvOp {
         index_name: String,
         primary_key: Vec<u8>,
     },
+
+    /// Cursor-paginated raw scan for the clone materializer.
+    ///
+    /// Unlike `Scan`, this returns raw `(key, value)` byte pairs **plus** the
+    /// next-cursor in a single payload, so the materializer can drive the
+    /// scan to completion in O(N / count) round-trips. The response payload
+    /// is msgpack-encoded as a 2-element array:
+    ///   `[ next_cursor: bytes, entries: [[key: bytes, value: bytes], ...] ]`
+    /// `next_cursor` is empty when the scan is complete.
+    MaterializeScan {
+        collection: String,
+        cursor: Vec<u8>,
+        count: usize,
+    },
 }

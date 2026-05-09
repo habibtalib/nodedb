@@ -282,7 +282,8 @@ pub fn required_permission(plan: &crate::bridge::envelope::PhysicalPlan) -> Perm
             | DocumentOp::Scan { .. }
             | DocumentOp::IndexLookup { .. }
             | DocumentOp::IndexedFetch { .. }
-            | DocumentOp::EstimateCount { .. },
+            | DocumentOp::EstimateCount { .. }
+            | DocumentOp::MaterializeScan { .. },
         ) => Permission::Read,
 
         PhysicalPlan::Vector(
@@ -339,7 +340,9 @@ pub fn required_permission(plan: &crate::bridge::envelope::PhysicalPlan) -> Perm
 
         PhysicalPlan::Spatial(SpatialOp::Scan { .. }) => Permission::Read,
 
-        PhysicalPlan::Columnar(ColumnarOp::Scan { .. }) => Permission::Read,
+        PhysicalPlan::Columnar(ColumnarOp::Scan { .. } | ColumnarOp::MaterializeScan { .. }) => {
+            Permission::Read
+        }
 
         PhysicalPlan::Timeseries(TimeseriesOp::Scan { .. }) => Permission::Read,
 
@@ -450,6 +453,7 @@ pub fn required_permission(plan: &crate::bridge::envelope::PhysicalPlan) -> Perm
             KvOp::Get { .. }
             | KvOp::GetTtl { .. }
             | KvOp::Scan { .. }
+            | KvOp::MaterializeScan { .. }
             | KvOp::BatchGet { .. }
             | KvOp::FieldGet { .. }
             | KvOp::SortedIndexRank { .. }

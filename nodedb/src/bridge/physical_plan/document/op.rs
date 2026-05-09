@@ -361,4 +361,24 @@ pub enum DocumentOp {
         #[msgpack(default)]
         returning: Option<ReturningSpec>,
     },
+
+    /// Cursor-paginated raw scan for the clone materializer.
+    ///
+    /// Returns raw `(document_id, surrogate, value_bytes)` triples plus
+    /// next-cursor in one payload so the materializer can drive the scan to
+    /// completion in O(N / count) round-trips.  The response payload is
+    /// msgpack-encoded as a 2-element array:
+    ///   `[ next_cursor: bin,
+    ///      entries: [[document_id: str, surrogate: u32, value_bytes: bin], ...] ]`
+    /// `next_cursor` is empty when the scan is complete.
+    ///
+    /// Honors `system_as_of_ms` so the materializer reads the source collection
+    /// as-of the clone's `as_of_lsn`. For non-bitemporal collections the field
+    /// is ignored and current state is scanned.
+    MaterializeScan {
+        collection: String,
+        cursor: Vec<u8>,
+        count: usize,
+        system_as_of_ms: Option<i64>,
+    },
 }

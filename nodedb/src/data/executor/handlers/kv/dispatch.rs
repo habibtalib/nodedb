@@ -228,6 +228,11 @@ impl CoreLoop {
                 item_key,
                 dest_key,
             ),
+            KvOp::MaterializeScan {
+                collection,
+                cursor,
+                count,
+            } => self.execute_kv_materialize_scan(task, tid, collection, cursor, *count),
         }
     }
 }

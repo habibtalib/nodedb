@@ -192,7 +192,8 @@ fn classify_document_op(op: &DocumentOp) -> Option<DmlWriteInfo> {
         | DocumentOp::IndexedFetch { .. }
         | DocumentOp::DropIndex { .. }
         | DocumentOp::BackfillIndex { .. }
-        | DocumentOp::EstimateCount { .. } => None,
+        | DocumentOp::EstimateCount { .. }
+        | DocumentOp::MaterializeScan { .. } => None,
     }
 }
 

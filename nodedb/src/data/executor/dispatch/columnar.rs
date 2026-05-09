@@ -79,6 +79,19 @@ impl CoreLoop {
                 }
                 self.execute_columnar_delete(task, collection, filters)
             }
+
+            ColumnarOp::MaterializeScan {
+                collection,
+                cursor,
+                count,
+                system_as_of_ms,
+            } => self.execute_columnar_materialize_scan(
+                task,
+                collection,
+                cursor,
+                *count,
+                *system_as_of_ms,
+            ),
         }
     }
 }

@@ -139,4 +139,16 @@ pub enum ColumnarOp {
         /// Serialized `Vec<ScanFilter>` (MessagePack).
         filters: Vec<u8>,
     },
+
+    /// Cursor-paginated raw scan for the clone materializer.
+    ///
+    /// Returns `(surrogate, row_value_bytes)` pairs plus next-cursor in one
+    /// payload. Honors `system_as_of_ms` so the materializer reads source
+    /// as-of the clone's `as_of_lsn` for bitemporal collections.
+    MaterializeScan {
+        collection: String,
+        cursor: Vec<u8>,
+        count: usize,
+        system_as_of_ms: Option<i64>,
+    },
 }
