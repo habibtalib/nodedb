@@ -104,6 +104,7 @@ pub fn handle_create_database(
         created_at_lsn,
         quota_ref: opts.quota_id,
         parent_clone: None,
+        mirror_origin: None,
     };
 
     // Propose through metadata Raft group 0 so all replicas apply the

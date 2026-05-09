@@ -2,7 +2,7 @@
 
 //! Types stored in the `_system.databases` catalog table.
 
-use nodedb_types::DatabaseId;
+use nodedb_types::{DatabaseId, MirrorOrigin};
 
 /// Lifecycle status of a database.
 ///
@@ -61,6 +61,12 @@ pub struct DatabaseDescriptor {
     /// `None` for non-clones.
     #[msgpack(default)]
     pub parent_clone: Option<ParentCloneRef>,
+    /// For mirror databases: the source cluster/database and replication state.
+    /// `None` for non-mirrors and post-promotion mirrors where the lineage
+    /// record was cleared. Post-promotion databases retain this field as a
+    /// historical record of their origin; `status` will be `Promoted`.
+    #[msgpack(default)]
+    pub mirror_origin: Option<MirrorOrigin>,
 }
 
 /// Reference to a clone's origin. Populated by the clone subsystem; stored
@@ -92,6 +98,7 @@ impl DatabaseDescriptor {
             created_at_lsn: 0,
             quota_ref: 0,
             parent_clone: None,
+            mirror_origin: None,
         }
     }
 }

@@ -159,6 +159,7 @@ pub fn handle_clone_database(
             as_of_lsn: as_of_lsn.as_u64(),
             as_of_ms: as_of_ms as u64,
         }),
+        mirror_origin: None,
     };
 
     // ── Propose via Raft ──────────────────────────────────────────────────────
