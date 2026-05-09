@@ -333,6 +333,8 @@ impl NodeDbPgHandler {
             return Ok(CloneWriteOutcome::Passthrough);
         };
 
+        let kv_key_str = String::from_utf8_lossy(&kv_key).into_owned();
+
         perform_kv_clone_copyup(KvCopyUpParams {
             state: &Arc::clone(&self.state),
             tenant_id,
@@ -343,6 +345,17 @@ impl NodeDbPgHandler {
         })
         .await
         .map_err(|e| write_err(&format!("clone kv copyup: {e}")))?;
+
+        // Tombstone the source key so future clone reads do not merge in the
+        // now-superseded source row.  The copy-up wrote the row to the target
+        // and the FieldSet will overwrite it; the source copy must be hidden.
+        perform_kv_clone_tombstone(KvTombstoneParams {
+            state: &self.state,
+            target_db_id: db_id,
+            target_collection: coll_name,
+            kv_key: kv_key_str,
+        })
+        .map_err(|e| write_err(&format!("clone kv tombstone after copyup: {e}")))?;
 
         // Fall through: let the original FieldSet dispatch to the target.
         Ok(CloneWriteOutcome::Passthrough)

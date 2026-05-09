@@ -162,8 +162,16 @@ impl NodeDbPgHandler {
                 };
 
                 // Dispatch source tasks, filter tombstoned rows, merge into target responses.
-                // Source tasks are 1:1 with target tasks (same index in their respective slices).
+                //
+                // For a single-level clone there is one source task per target task.
+                // For a multi-level clone chain the resolver emits one source task per
+                // ancestor level per original target task, so source_tasks.len() may be
+                // a multiple of target_tasks.len().  All source tasks that correspond to
+                // the same original query task (index = source_idx % target_tasks.len())
+                // must be merged into the same target response slot.
+                let target_count = target_tasks.len().max(1);
                 for (source_idx, source_task) in source_tasks.iter().enumerate() {
+                    let response_idx = source_idx % target_count;
                     let source_resp =
                         self.dispatch_task(source_task.clone()).await.map_err(|e| {
                             let (severity, code, message) = error_to_sqlstate(&e);
@@ -222,10 +230,12 @@ impl NodeDbPgHandler {
                     };
 
                     // Merge source rows into the corresponding target response.
-                    if source_idx < responses.len() {
+                    // `response_idx` maps multi-level ancestor tasks back to the
+                    // original query-task slot they serve.
+                    if response_idx < responses.len() {
                         // Normalize target payload to array shape for uniform merge.
                         let target_payload = wrap_single_map_as_array(
-                            responses[source_idx].payload.as_ref().to_vec(),
+                            responses[response_idx].payload.as_ref().to_vec(),
                         );
                         let merged = merge_msgpack_arrays(&target_payload, &source_payload)
                             .map_err(|e| {
@@ -236,9 +246,9 @@ impl NodeDbPgHandler {
                                     message,
                                 )))
                             })?;
-                        responses[source_idx] = crate::bridge::envelope::Response {
+                        responses[response_idx] = crate::bridge::envelope::Response {
                             payload: merged.into(),
-                            ..responses[source_idx].clone()
+                            ..responses[response_idx].clone()
                         };
                     } else {
                         // More source tasks than target tasks — append standalone.

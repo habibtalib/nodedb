@@ -147,7 +147,7 @@ impl NodeDbPgHandler {
             return self.handle_fetch(addr, sql_trimmed, &upper);
         }
 
-        if upper.starts_with("MOVE ") {
+        if upper.starts_with("MOVE ") && !upper.starts_with("MOVE TENANT ") {
             return self.handle_move(addr, &upper);
         }
 
