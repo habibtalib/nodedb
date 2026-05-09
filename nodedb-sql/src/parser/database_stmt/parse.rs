@@ -202,15 +202,18 @@ mod tests {
 
     #[test]
     fn parse_mirror_database() {
-        match ok("MIRROR DATABASE replica FROM source") {
+        use crate::ddl_ast::MirrorMode;
+        match ok("MIRROR DATABASE replica FROM prod-us.source") {
             NodedbStatement::MirrorDatabase {
-                replica_name,
-                source_name,
+                local_name,
+                source_cluster,
+                source_database,
                 mode,
             } => {
-                assert_eq!(replica_name, "replica");
-                assert_eq!(source_name, "source");
-                assert_eq!(mode, "async");
+                assert_eq!(local_name, "replica");
+                assert_eq!(source_cluster, "prod-us");
+                assert_eq!(source_database, "source");
+                assert_eq!(mode, MirrorMode::Async);
             }
             other => panic!("unexpected: {other:?}"),
         }

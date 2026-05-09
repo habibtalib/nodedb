@@ -420,13 +420,35 @@ pub enum NodedbStatement {
         /// source's current commit LSN at clone time".
         as_of: CloneAsOf,
     },
-    /// `MIRROR DATABASE <replica> FROM <source> [MODE = sync | async]`
+    /// `MIRROR DATABASE <local_name> FROM <source_cluster>.<source_database> [MODE = sync | async]`
     ///
-    /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the mirror subsystem lands.
+    /// Creates a continuously-updated read-only replica of `source_database` in
+    /// `source_cluster`. The local database is initialized with
+    /// `MirrorStatus::Bootstrapping` and transitions to `Following` once the
+    /// initial snapshot transfer completes.
+    ///
+    /// Every match on this variant must be exhaustive — no `_ =>` arms.
     MirrorDatabase {
-        replica_name: String,
-        source_name: String,
-        mode: String,
+        /// Name of the new local mirror database.
+        local_name: String,
+        /// Cluster identifier of the source cluster.
+        source_cluster: String,
+        /// Name of the database in the source cluster to mirror.
+        source_database: String,
+        /// Replication mode: `Sync` means the source waits for mirror ack;
+        /// `Async` (default) means the mirror trails the source.
+        mode: nodedb_types::MirrorMode,
+    },
+    /// `SHOW DATABASE MIRROR STATUS [FOR <name>]`
+    ///
+    /// Returns one row per mirror database (or one row if `FOR <name>` is given):
+    /// `name`, `source_cluster`, `source_database`, `mode`, `status`,
+    /// `last_applied_lsn`, `last_apply_ms`.
+    ///
+    /// Every match on this variant must be exhaustive — no `_ =>` arms.
+    ShowDatabaseMirrorStatus {
+        /// Filter to a specific mirror by name, or `None` to show all mirrors.
+        name: Option<String>,
     },
     /// `MOVE TENANT <tenant> FROM <db_a> TO <db_b>`
     ///
