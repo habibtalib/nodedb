@@ -274,6 +274,63 @@ pub fn read_str(buf: &[u8], offset: usize) -> Option<&str> {
     str::from_utf8(bytes).ok()
 }
 
+/// Read a string slice at `*off`, advancing `*off` past it. Zero-copy.
+/// Returns `None` for non-string types, invalid UTF-8, or truncated input.
+pub fn read_str_advance<'a>(buf: &'a [u8], off: &mut usize) -> Option<&'a str> {
+    let (start, len) = str_bounds(buf, *off)?;
+    let bytes = buf.get(start..start + len)?;
+    let s = str::from_utf8(bytes).ok()?;
+    *off = start + len;
+    Some(s)
+}
+
+/// Read a `bin` value at `*off`, advancing `*off` past it. Zero-copy —
+/// the returned slice borrows from `buf`. Returns `None` for non-bin tags
+/// or truncated input.
+pub fn read_bin_advance<'a>(buf: &'a [u8], off: &mut usize) -> Option<&'a [u8]> {
+    let tag = get(buf, *off)?;
+    let (len, header) = match tag {
+        BIN8 => (get(buf, *off + 1)? as usize, 2),
+        BIN16 => (read_u16_be(buf, *off + 1)? as usize, 3),
+        BIN32 => (read_u32_be(buf, *off + 1)? as usize, 5),
+        _ => return None,
+    };
+    let start = *off + header;
+    let end = start + len;
+    let data = buf.get(start..end)?;
+    *off = end;
+    Some(data)
+}
+
+/// Read an unsigned integer that fits in a `u32` at `*off`, advancing `*off`
+/// past it. Accepts positive fixint, uint8, uint16, uint32. Returns `None`
+/// for negative, signed-typed, oversized (uint64), or non-integer values.
+pub fn read_u32_advance(buf: &[u8], off: &mut usize) -> Option<u32> {
+    let tag = get(buf, *off)?;
+    match tag {
+        0x00..=0x7f => {
+            *off += 1;
+            Some(tag as u32)
+        }
+        UINT8 => {
+            let v = get(buf, *off + 1)? as u32;
+            *off += 2;
+            Some(v)
+        }
+        UINT16 => {
+            let v = read_u16_be(buf, *off + 1)? as u32;
+            *off += 3;
+            Some(v)
+        }
+        UINT32 => {
+            let v = read_u32_be(buf, *off + 1)?;
+            *off += 5;
+            Some(v)
+        }
+        _ => None,
+    }
+}
+
 /// Return `(data_start, byte_len)` for the string at `offset` without
 /// validating UTF-8. Used internally for key comparison.
 pub(crate) fn str_bounds(buf: &[u8], offset: usize) -> Option<(usize, usize)> {
@@ -968,6 +1025,107 @@ mod tests {
         assert_eq!(map_header(&buf, way_out), None);
         assert_eq!(array_header(&buf, way_out), None);
         assert_eq!(read_value(&buf, way_out), None);
+    }
+
+    #[test]
+    fn read_bin_advance_all_widths() {
+        // bin8: 0xc4, len=3
+        let mut off = 0;
+        let buf = [BIN8, 3, 0xde, 0xad, 0xbe, 0xff];
+        assert_eq!(
+            read_bin_advance(&buf, &mut off),
+            Some(&[0xde, 0xad, 0xbe][..])
+        );
+        assert_eq!(off, 5);
+
+        // bin16: 0xc5, big-endian len=4
+        let mut off = 0;
+        let buf = [BIN16, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04];
+        assert_eq!(
+            read_bin_advance(&buf, &mut off),
+            Some(&[0x01, 0x02, 0x03, 0x04][..])
+        );
+        assert_eq!(off, 7);
+
+        // bin32: 0xc6, big-endian len=2
+        let mut off = 0;
+        let buf = [BIN32, 0x00, 0x00, 0x00, 0x02, 0xaa, 0xbb];
+        assert_eq!(read_bin_advance(&buf, &mut off), Some(&[0xaa, 0xbb][..]));
+        assert_eq!(off, 7);
+
+        // Non-bin tag returns None and does not advance.
+        let mut off = 0;
+        let buf = [0xc0u8]; // nil
+        assert_eq!(read_bin_advance(&buf, &mut off), None);
+        assert_eq!(off, 0);
+
+        // Truncated returns None.
+        let mut off = 0;
+        let buf = [BIN8, 5, 0x01]; // claims 5 bytes, only 1 present
+        assert_eq!(read_bin_advance(&buf, &mut off), None);
+    }
+
+    #[test]
+    fn read_u32_advance_all_widths() {
+        // positive fixint
+        let mut off = 0;
+        assert_eq!(read_u32_advance(&[42u8], &mut off), Some(42));
+        assert_eq!(off, 1);
+
+        // uint8
+        let mut off = 0;
+        assert_eq!(read_u32_advance(&[UINT8, 200], &mut off), Some(200));
+        assert_eq!(off, 2);
+
+        // uint16
+        let mut off = 0;
+        let buf = [UINT16, 0x12, 0x34];
+        assert_eq!(read_u32_advance(&buf, &mut off), Some(0x1234));
+        assert_eq!(off, 3);
+
+        // uint32
+        let mut off = 0;
+        let buf = [UINT32, 0xde, 0xad, 0xbe, 0xef];
+        assert_eq!(read_u32_advance(&buf, &mut off), Some(0xdeadbeef));
+        assert_eq!(off, 5);
+
+        // negative fixint, int*, uint64, float, etc. all rejected
+        let mut off = 0;
+        assert_eq!(read_u32_advance(&[0xffu8], &mut off), None); // negative fixint
+        assert_eq!(off, 0);
+        let mut off = 0;
+        assert_eq!(read_u32_advance(&[INT8, 5], &mut off), None);
+        let mut off = 0;
+        assert_eq!(
+            read_u32_advance(&[UINT64, 0, 0, 0, 0, 0, 0, 0, 1], &mut off),
+            None
+        );
+
+        // Truncated returns None.
+        let mut off = 0;
+        assert_eq!(read_u32_advance(&[UINT16, 0x12], &mut off), None);
+    }
+
+    #[test]
+    fn read_str_advance_basic() {
+        // fixstr "hi"
+        let mut off = 0;
+        let buf = encode(&json!("hi"));
+        assert_eq!(read_str_advance(&buf, &mut off), Some("hi"));
+        assert_eq!(off, buf.len());
+
+        // Sequential reads
+        let buf = encode(&json!(["one", "two"]));
+        let (count, mut off) = array_header(&buf, 0).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(read_str_advance(&buf, &mut off), Some("one"));
+        assert_eq!(read_str_advance(&buf, &mut off), Some("two"));
+        assert_eq!(off, buf.len());
+
+        // Non-string returns None.
+        let mut off = 0;
+        assert_eq!(read_str_advance(&[NIL], &mut off), None);
+        assert_eq!(off, 0);
     }
 
     /// Empty buffer must return `None` for all functions that can.

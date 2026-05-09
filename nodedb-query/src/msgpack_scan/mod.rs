@@ -23,8 +23,8 @@ pub use field::{extract_field, extract_path};
 pub use group_key::build_group_key;
 pub use index::FieldIndex;
 pub use reader::{
-    array_header, map_header, read_bool, read_f64, read_i64, read_null, read_str, read_value,
-    skip_value,
+    array_header, map_header, read_bin_advance, read_bool, read_f64, read_i64, read_null, read_str,
+    read_str_advance, read_u32_advance, read_value, skip_value,
 };
 pub use sidecar::{
     SidecarEntry, SidecarFieldIndex, build_sidecar, field_index_from_sidecar, has_sidecar,
