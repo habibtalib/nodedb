@@ -9,6 +9,7 @@
 //! - [`sync_infra`] — 3000 sync, 4000 storage, 4200 serialization, 5000 config,
 //!   6000 cluster, 7000 memory, 8000 encryption, 9000 internal/bridge/dispatch.
 
+pub mod move_tenant;
 pub mod read_query_auth;
 pub mod sync_infra;
 pub mod write_path;

@@ -560,6 +560,26 @@ impl<'a> FromMessagePack<'a> for ErrorDetails {
                     created_at_lsn,
                 })
             }
+            TAG_MOVE_TENANT_DRAIN_TIMEOUT => {
+                let (tenant, source_db) = read2_str_tolerant(reader, field_count)?;
+                Ok(ErrorDetails::MoveTenantDrainTimeout { tenant, source_db })
+            }
+            TAG_MOVE_TENANT_PREFLIGHT_FAILED => {
+                let (tenant, detail) = read2_str_tolerant(reader, field_count)?;
+                Ok(ErrorDetails::MoveTenantPreflightFailed { tenant, detail })
+            }
+            TAG_MOVE_TENANT_SNAPSHOT_FAILED => {
+                let (tenant, detail) = read2_str_tolerant(reader, field_count)?;
+                Ok(ErrorDetails::MoveTenantSnapshotFailed { tenant, detail })
+            }
+            TAG_MOVE_TENANT_CUTOVER_FAILED => {
+                let (tenant, detail) = read2_str_tolerant(reader, field_count)?;
+                Ok(ErrorDetails::MoveTenantCutoverFailed { tenant, detail })
+            }
+            TAG_MOVE_TENANT_ALREADY_AT_TARGET => {
+                let (tenant, target_db) = read2_str_tolerant(reader, field_count)?;
+                Ok(ErrorDetails::MoveTenantAlreadyAtTarget { tenant, target_db })
+            }
             _unknown => {
                 skip_fields(reader, field_count)?;
                 Ok(ErrorDetails::Internal {

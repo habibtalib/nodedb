@@ -190,6 +190,18 @@ pub enum ErrorDetails {
     #[serde(rename = "clone_predates_query_time")]
     ClonePredatesQueryTime { as_of_lsn: u64, created_at_lsn: u64 },
 
+    // Move Tenant DDL
+    #[serde(rename = "move_tenant_drain_timeout")]
+    MoveTenantDrainTimeout { tenant: String, source_db: String },
+    #[serde(rename = "move_tenant_preflight_failed")]
+    MoveTenantPreflightFailed { tenant: String, detail: String },
+    #[serde(rename = "move_tenant_snapshot_failed")]
+    MoveTenantSnapshotFailed { tenant: String, detail: String },
+    #[serde(rename = "move_tenant_cutover_failed")]
+    MoveTenantCutoverFailed { tenant: String, detail: String },
+    #[serde(rename = "move_tenant_already_at_target")]
+    MoveTenantAlreadyAtTarget { tenant: String, target_db: String },
+
     // Bridge / Dispatch / Internal
     #[serde(rename = "bridge")]
     Bridge {

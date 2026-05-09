@@ -251,6 +251,21 @@ impl ToMessagePack for ErrorDetails {
                 as_of_lsn,
                 created_at_lsn,
             ),
+            ErrorDetails::MoveTenantDrainTimeout { tenant, source_db } => {
+                write2(writer, TAG_MOVE_TENANT_DRAIN_TIMEOUT, tenant, source_db)
+            }
+            ErrorDetails::MoveTenantPreflightFailed { tenant, detail } => {
+                write2(writer, TAG_MOVE_TENANT_PREFLIGHT_FAILED, tenant, detail)
+            }
+            ErrorDetails::MoveTenantSnapshotFailed { tenant, detail } => {
+                write2(writer, TAG_MOVE_TENANT_SNAPSHOT_FAILED, tenant, detail)
+            }
+            ErrorDetails::MoveTenantCutoverFailed { tenant, detail } => {
+                write2(writer, TAG_MOVE_TENANT_CUTOVER_FAILED, tenant, detail)
+            }
+            ErrorDetails::MoveTenantAlreadyAtTarget { tenant, target_db } => {
+                write2(writer, TAG_MOVE_TENANT_ALREADY_AT_TARGET, tenant, target_db)
+            }
         }
     }
 }

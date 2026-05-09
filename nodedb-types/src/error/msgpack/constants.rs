@@ -64,6 +64,11 @@
 // |  56 | CannotCloneMirror         |
 // |  57 | CloneDependency           |
 // |  58 | ClonePredatesQueryTime    |
+// |  59 | MoveTenantDrainTimeout    |
+// |  60 | MoveTenantPreflightFailed |
+// |  61 | MoveTenantSnapshotFailed  |
+// |  62 | MoveTenantCutoverFailed   |
+// |  63 | MoveTenantAlreadyAtTarget |
 
 pub(super) const TAG_CONSTRAINT_VIOLATION: u16 = 1;
 pub(super) const TAG_WRITE_CONFLICT: u16 = 2;
@@ -123,3 +128,8 @@ pub(super) const TAG_CLONE_DEPTH_EXCEEDED: u16 = 55;
 pub(super) const TAG_CANNOT_CLONE_MIRROR: u16 = 56;
 pub(super) const TAG_CLONE_DEPENDENCY: u16 = 57;
 pub(super) const TAG_CLONE_PREDATES_QUERY_TIME: u16 = 58;
+pub(super) const TAG_MOVE_TENANT_DRAIN_TIMEOUT: u16 = 59;
+pub(super) const TAG_MOVE_TENANT_PREFLIGHT_FAILED: u16 = 60;
+pub(super) const TAG_MOVE_TENANT_SNAPSHOT_FAILED: u16 = 61;
+pub(super) const TAG_MOVE_TENANT_CUTOVER_FAILED: u16 = 62;
+pub(super) const TAG_MOVE_TENANT_ALREADY_AT_TARGET: u16 = 63;

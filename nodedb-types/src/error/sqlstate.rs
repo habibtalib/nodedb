@@ -192,6 +192,26 @@ pub const CLONE_DEPENDENCY: &str = "55006";
 /// specific clone.
 pub const CLONE_PREDATES_QUERY_TIME: &str = "22023";
 
+// ── Move Tenant DDL (Class 55 / 57) ─────────────────────────────────────────
+
+/// `57014` — `query_canceled`: drain phase timed out; client should re-try after
+/// ensuring the tenant has no active connections on the source database.
+pub const MOVE_TENANT_DRAIN_TIMEOUT: &str = "57014";
+
+/// `55P02` — `lock_not_available`: pre-flight check found schema incompatibility
+/// between the source and target databases; no state was mutated.
+pub const MOVE_TENANT_PREFLIGHT_FAILED: &str = "55P02";
+
+/// `XX000` — internal error during snapshot phase; source left unchanged.
+pub const MOVE_TENANT_SNAPSHOT_FAILED: &str = "XX000";
+
+/// `XX000` — internal error during cutover phase; source still holds data.
+pub const MOVE_TENANT_CUTOVER_FAILED: &str = "XX000";
+
+/// `02000` — `no_data`: tenant is already present in the target database;
+/// the `MOVE TENANT` is a no-op (idempotent retry of a completed move).
+pub const MOVE_TENANT_ALREADY_AT_TARGET: &str = "02000";
+
 // ── Class XX — Internal Error ────────────────────────────────────────────────
 
 /// `XX000` — `internal_error`

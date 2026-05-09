@@ -72,6 +72,19 @@ impl ErrorCode {
     /// A bitemporal `AS OF` query timestamp predates the clone's creation LSN.
     pub const CLONE_PREDATES_QUERY_TIME: Self = Self(1503);
 
+    // Move Tenant (1600–1699)
+
+    /// `MOVE TENANT` drain phase timed out; source left unchanged.
+    pub const MOVE_TENANT_DRAIN_TIMEOUT: Self = Self(1600);
+    /// `MOVE TENANT` pre-flight failed; collection schema incompatibility.
+    pub const MOVE_TENANT_PREFLIGHT_FAILED: Self = Self(1601);
+    /// `MOVE TENANT` snapshot phase failed; source left unchanged.
+    pub const MOVE_TENANT_SNAPSHOT_FAILED: Self = Self(1602);
+    /// `MOVE TENANT` cutover phase failed; source still holds the data.
+    pub const MOVE_TENANT_CUTOVER_FAILED: Self = Self(1603);
+    /// Tenant is already at the target database; `MOVE TENANT` was a no-op.
+    pub const MOVE_TENANT_ALREADY_AT_TARGET: Self = Self(1604);
+
     // Auth / Security (2000–2099)
     pub const AUTHORIZATION_DENIED: Self = Self(2000);
     pub const AUTH_EXPIRED: Self = Self(2001);
