@@ -156,4 +156,7 @@ pub enum ClusterError {
 
     #[error("partial snapshot cleanup failed for group {group_id}: {detail}")]
     PartialSnapshotCleanupFailed { group_id: u64, detail: String },
+
+    #[error("mirror error: {0}")]
+    Mirror(#[from] crate::mirror::MirrorError),
 }
