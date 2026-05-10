@@ -145,7 +145,7 @@ async fn typeguard_created_at_and_updated_at() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM tracked_docs WHERE id = 't1'")
+        .query_text_joined("SELECT * FROM tracked_docs WHERE id = 't1'")
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);

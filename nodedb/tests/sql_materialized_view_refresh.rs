@@ -12,23 +12,10 @@ mod common;
 
 use common::pgwire_harness::TestServer;
 
-/// Parse a schemaless scan row (`{"data": {...}, "id": "..."}` wrapper)
-/// into its logical row object.
-fn row_data(text: &str) -> serde_json::Map<String, serde_json::Value> {
-    let v: serde_json::Value =
-        serde_json::from_str(text).unwrap_or_else(|_| panic!("not JSON: {text}"));
-    match v {
-        serde_json::Value::Object(mut obj) => match obj.remove("data") {
-            Some(serde_json::Value::Object(inner)) => inner,
-            _ => obj,
-        },
-        _ => panic!("not an object: {text}"),
-    }
-}
-
-fn rows_data(texts: &[String]) -> Vec<serde_json::Map<String, serde_json::Value>> {
-    texts.iter().map(|t| row_data(t)).collect()
-}
+// SELECT * over a multi-column response is expanded by pgwire into one
+// field per declared column, so tests use `query_named_rows` to recover a
+// `HashMap<column_name, value>` view per row. The empty-string convention
+// for absent columns matches the harness contract.
 
 /// A view defined with a projection must materialize only the projected
 /// columns; source-only columns must not appear in the view target.
@@ -55,7 +42,10 @@ async fn refresh_applies_projection() {
         .await
         .unwrap();
 
-    let rows = rows_data(&server.query_text("SELECT * FROM mv_proj").await.unwrap());
+    let rows = server
+        .query_named_rows("SELECT * FROM mv_proj")
+        .await
+        .unwrap();
     assert_eq!(rows.len(), 2, "view must have both projected rows");
     for row in &rows {
         assert!(
@@ -97,14 +87,17 @@ async fn refresh_applies_where_filter() {
         .await
         .unwrap();
 
-    let rows = rows_data(&server.query_text("SELECT * FROM mv_filt").await.unwrap());
+    let rows = server
+        .query_named_rows("SELECT * FROM mv_filt")
+        .await
+        .unwrap();
     assert_eq!(
         rows.len(),
         1,
         "only the row matching WHERE b > 5 may appear"
     );
     assert_eq!(
-        rows[0].get("id").and_then(|v| v.as_str()),
+        rows[0].get("id").map(String::as_str),
         Some("r2"),
         "surviving row must be r2"
     );
@@ -142,7 +135,10 @@ async fn refresh_applies_group_by_aggregate() {
         .await
         .unwrap();
 
-    let rows = rows_data(&server.query_text("SELECT * FROM mv_agg").await.unwrap());
+    let rows = server
+        .query_named_rows("SELECT * FROM mv_agg")
+        .await
+        .unwrap();
     // Raw-copy bug would produce 3 rows (one per source doc) instead of 2.
     assert_eq!(
         rows.len(),
@@ -189,7 +185,10 @@ async fn refresh_applies_join() {
         .await
         .unwrap();
 
-    let rows = rows_data(&server.query_text("SELECT * FROM mv_join").await.unwrap());
+    let rows = server
+        .query_named_rows("SELECT * FROM mv_join")
+        .await
+        .unwrap();
     assert_eq!(
         rows.len(),
         1,
@@ -238,10 +237,13 @@ async fn refresh_removes_rows_excluded_by_where() {
         .await
         .unwrap();
 
-    let rows = rows_data(&server.query_text("SELECT * FROM mv_narrow").await.unwrap());
+    let rows = server
+        .query_named_rows("SELECT * FROM mv_narrow")
+        .await
+        .unwrap();
     assert_eq!(rows.len(), 1, "WHERE-excluded row must be removed");
     assert_eq!(
-        rows[0].get("id").and_then(|v| v.as_str()),
+        rows[0].get("id").map(String::as_str),
         Some("r2"),
         "surviving row after narrowed WHERE must be r2"
     );

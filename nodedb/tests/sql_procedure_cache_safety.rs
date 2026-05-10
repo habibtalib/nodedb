@@ -77,7 +77,7 @@ async fn different_trigger_bodies_execute_independently() {
 
     // Verify trigger A logged 'trigger_a_fired', not 'trigger_b_fired'.
     let log_a = server
-        .query_text("SELECT * FROM trigger_log WHERE id = 'log_a'")
+        .query_text_joined("SELECT * FROM trigger_log WHERE id = 'log_a'")
         .await
         .unwrap();
     assert_eq!(log_a.len(), 1, "trigger A should have logged: {log_a:?}");
@@ -96,7 +96,7 @@ async fn different_trigger_bodies_execute_independently() {
 
     // Verify trigger B logged its own message.
     let log_b = server
-        .query_text("SELECT * FROM trigger_log WHERE id = 'log_b'")
+        .query_text_joined("SELECT * FROM trigger_log WHERE id = 'log_b'")
         .await
         .unwrap();
     assert_eq!(log_b.len(), 1, "trigger B should have logged: {log_b:?}");

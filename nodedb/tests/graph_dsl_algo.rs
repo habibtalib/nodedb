@@ -252,7 +252,7 @@ async fn graph_algo_pagerank_node_id_is_joinable_with_collection_id() {
     );
 
     let joined = server
-        .query_text(&format!(
+        .query_text_joined(&format!(
             "SELECT * FROM rank_join_docs WHERE id = '{first}'"
         ))
         .await
@@ -262,10 +262,11 @@ async fn graph_algo_pagerank_node_id_is_joinable_with_collection_id() {
         1,
         "PAGERANK node_id {first:?} must join against collection id column; got {joined:?}"
     );
-    // Document projection returns the whole row as a JSON blob; check
-    // the id the row resolved to is exactly what PAGERANK emitted.
+    // SELECT * over a multi-column row expands into one pgwire field per
+    // column; the harness joins them with tabs, so an exact substring
+    // match on the id value is sufficient (the id appears verbatim once).
     assert!(
-        joined[0].contains(&format!("\"id\":\"{first}\"")),
+        joined[0].contains(&first),
         "row resolved for PAGERANK node_id {first:?} must contain matching id; got {joined:?}"
     );
 }
