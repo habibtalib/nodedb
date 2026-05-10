@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use nodedb_types::columnar::ColumnType;
+//! NodeDB `Error` and Data Plane `ErrorCode` to PostgreSQL SQLSTATE mapping.
+
 use nodedb_types::error::sqlstate;
-use pgwire::api::Type;
-use pgwire::api::results::FieldFormat;
-use pgwire::api::results::FieldInfo;
-use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
+use pgwire::error::{ErrorInfo, PgWireError};
 
 use crate::bridge::envelope::{ErrorCode, Status};
-use crate::control::security::identity::{AuthenticatedIdentity, Role};
 
 /// Create a pgwire ErrorResponse with a SQLSTATE code.
 pub fn sqlstate_error(code: &str, message: &str) -> PgWireError {
@@ -245,136 +242,6 @@ pub fn error_code_to_sqlstate(code: &ErrorCode) -> (&'static str, &'static str, 
     }
 }
 
-/// Build a FieldInfo for a text column in query results.
-pub fn text_field(name: &str) -> FieldInfo {
-    FieldInfo::new(name.to_owned(), None, None, Type::TEXT, FieldFormat::Text)
-}
-
-/// Build a FieldInfo for an int8 column.
-pub fn int8_field(name: &str) -> FieldInfo {
-    FieldInfo::new(name.to_owned(), None, None, Type::INT8, FieldFormat::Text)
-}
-
-/// Build a FieldInfo for a float8 column.
-pub fn float8_field(name: &str) -> FieldInfo {
-    FieldInfo::new(name.to_owned(), None, None, Type::FLOAT8, FieldFormat::Text)
-}
-
-/// Build a FieldInfo for a float4 column.
-pub fn float4_field(name: &str) -> FieldInfo {
-    FieldInfo::new(name.to_owned(), None, None, Type::FLOAT4, FieldFormat::Text)
-}
-
-/// Build a FieldInfo for an int4 column.
-pub fn int4_field(name: &str) -> FieldInfo {
-    FieldInfo::new(name.to_owned(), None, None, Type::INT4, FieldFormat::Text)
-}
-
-/// Build a FieldInfo for an int2 column.
-pub fn int2_field(name: &str) -> FieldInfo {
-    FieldInfo::new(name.to_owned(), None, None, Type::INT2, FieldFormat::Text)
-}
-
-/// Build a FieldInfo for a bool column.
-pub fn bool_field(name: &str) -> FieldInfo {
-    FieldInfo::new(name.to_owned(), None, None, Type::BOOL, FieldFormat::Text)
-}
-
-/// Build a FieldInfo for a bytea column.
-pub fn bytea_field(name: &str) -> FieldInfo {
-    FieldInfo::new(name.to_owned(), None, None, Type::BYTEA, FieldFormat::Text)
-}
-
-/// Build a FieldInfo for a JSON column.
-pub fn json_field(name: &str) -> FieldInfo {
-    FieldInfo::new(name.to_owned(), None, None, Type::JSON, FieldFormat::Text)
-}
-
-/// Build a FieldInfo for a JSONB column.
-pub fn jsonb_field(name: &str) -> FieldInfo {
-    FieldInfo::new(name.to_owned(), None, None, Type::JSONB, FieldFormat::Text)
-}
-
-/// Build a FieldInfo for a timestamptz column.
-pub fn timestamptz_field(name: &str) -> FieldInfo {
-    FieldInfo::new(
-        name.to_owned(),
-        None,
-        None,
-        Type::TIMESTAMPTZ,
-        FieldFormat::Text,
-    )
-}
-
-/// Build a FieldInfo for a timestamp column.
-pub fn timestamp_field(name: &str) -> FieldInfo {
-    FieldInfo::new(
-        name.to_owned(),
-        None,
-        None,
-        Type::TIMESTAMP,
-        FieldFormat::Text,
-    )
-}
-
-/// Build a FieldInfo for a varchar column.
-pub fn varchar_field(name: &str) -> FieldInfo {
-    FieldInfo::new(
-        name.to_owned(),
-        None,
-        None,
-        Type::VARCHAR,
-        FieldFormat::Text,
-    )
-}
-
-/// Build a FieldInfo for a float4 array column (vector embeddings).
-pub fn float4_array_field(name: &str) -> FieldInfo {
-    FieldInfo::new(
-        name.to_owned(),
-        None,
-        None,
-        Type::FLOAT4_ARRAY,
-        FieldFormat::Text,
-    )
-}
-
-/// Build a FieldInfo for a float8 array column.
-pub fn float8_array_field(name: &str) -> FieldInfo {
-    FieldInfo::new(
-        name.to_owned(),
-        None,
-        None,
-        Type::FLOAT8_ARRAY,
-        FieldFormat::Text,
-    )
-}
-
-/// Map a NodeDB field type name to a pgwire `Type`.
-///
-/// Uses `ColumnType::from_str` + `ColumnType::to_pg_oid` as the single
-/// authoritative OID mapping. Falls back to `Type::TEXT` only for names that
-/// cannot be parsed as a known `ColumnType` (e.g. DataFusion aliases like
-/// `"int4"` or `"float8[]"`).
-pub fn type_name_to_pgwire(type_name: &str) -> Type {
-    // Try to parse via the canonical ColumnType mapping first.
-    if let Ok(ct) = type_name.parse::<ColumnType>() {
-        return Type::from_oid(ct.to_pg_oid()).unwrap_or(Type::TEXT);
-    }
-    // Handle DataFusion / legacy aliases that ColumnType::from_str doesn't cover.
-    match type_name.to_lowercase().as_str() {
-        "int" | "int4" | "integer" => Type::INT4,
-        "int2" | "smallint" => Type::INT2,
-        "float4" | "real" => Type::FLOAT4,
-        "float8" | "double" | "double precision" => Type::FLOAT8,
-        "varchar" => Type::VARCHAR,
-        "timestamptz" => Type::TIMESTAMPTZ,
-        s if s.starts_with("float4[]") => Type::FLOAT4_ARRAY,
-        "float8[]" => Type::FLOAT8_ARRAY,
-        _ => Type::TEXT,
-    }
-}
-
 /// Create a notice response (WARNING level).
 pub fn notice_warning(message: &str) -> pgwire::messages::response::NoticeResponse {
     pgwire::messages::response::NoticeResponse::from(pgwire::error::ErrorInfo::new(
@@ -382,57 +249,6 @@ pub fn notice_warning(message: &str) -> pgwire::messages::response::NoticeRespon
         sqlstate::WARNING.to_owned(),
         message.to_owned(),
     ))
-}
-
-/// Require that the identity is a superuser.
-pub fn require_superuser(identity: &AuthenticatedIdentity, action: &str) -> PgWireResult<()> {
-    if identity.is_superuser {
-        Ok(())
-    } else {
-        Err(sqlstate_error(
-            sqlstate::INSUFFICIENT_PRIVILEGE,
-            &format!("permission denied: only superuser can {action}"),
-        ))
-    }
-}
-
-/// Require that the identity is superuser or tenant_admin.
-pub fn require_admin(identity: &AuthenticatedIdentity, action: &str) -> PgWireResult<()> {
-    if identity.is_superuser || identity.has_role(&Role::TenantAdmin) {
-        Ok(())
-    } else {
-        Err(sqlstate_error(
-            sqlstate::INSUFFICIENT_PRIVILEGE,
-            &format!("permission denied: only superuser or tenant_admin can {action}"),
-        ))
-    }
-}
-
-/// Parse a role name string into a `Role`.
-///
-/// Known roles map to their enum variants; unknown names become `Role::Custom`.
-pub fn parse_role(name: &str) -> Role {
-    // Role::from_str is Infallible — unwrap is safe on Infallible.
-    match name.parse() {
-        Ok(role) => role,
-        Err(e) => match e {},
-    }
-}
-
-/// Decode a hex string into bytes.
-///
-/// Returns `None` if the input has an odd number of characters or contains
-/// characters that are not valid hexadecimal digits.
-pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(2) {
-        return None;
-    }
-    let mut bytes = Vec::with_capacity(s.len() / 2);
-    for i in (0..s.len()).step_by(2) {
-        let byte = u8::from_str_radix(&s[i..i + 2], 16).ok()?;
-        bytes.push(byte);
-    }
-    Some(bytes)
 }
 
 /// Map a Data Plane response status + error code to a SQLSTATE triple.
