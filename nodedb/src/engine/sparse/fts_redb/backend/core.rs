@@ -68,6 +68,36 @@ impl RedbFtsBackend {
     pub fn set_quarantine_registry(&mut self, registry: Arc<QuarantineRegistry>) {
         self.quarantine_registry = Some(registry);
     }
+
+    /// Atomically write a new merged FTS segment and remove the source segments.
+    ///
+    /// All mutations run in a single redb write transaction so the operation
+    /// is crash-safe: a crash mid-compaction leaves the original segments
+    /// intact and the maintenance cycle retries on the next pass.
+    pub fn compact_commit(
+        &self,
+        tid: u64,
+        collection: &str,
+        new_segment_id: &str,
+        new_segment_data: &[u8],
+        merged_ids: &[String],
+    ) -> crate::Result<()> {
+        super::segments::compact_commit(
+            self,
+            tid,
+            collection,
+            new_segment_id,
+            new_segment_data,
+            merged_ids,
+        )
+    }
+
+    /// Enumerate all `(tid, collection)` pairs that have at least one FTS
+    /// segment. Used by maintenance to discover compaction candidates without
+    /// a separate registry.
+    pub fn list_all_fts_collections(&self) -> crate::Result<Vec<(u64, String)>> {
+        super::segments::list_all_collections(self)
+    }
 }
 
 impl FtsBackend for RedbFtsBackend {

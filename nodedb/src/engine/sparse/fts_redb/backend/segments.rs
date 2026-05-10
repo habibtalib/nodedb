@@ -3,6 +3,8 @@
 //! LSM segment blobs against `SEGMENTS`
 //! keyed by `(tenant_id, collection, segment_id)`.
 
+use redb::ReadableTable as _;
+
 use super::core::RedbFtsBackend;
 use super::shared::{MAX_SUBKEY, redb_err};
 use crate::engine::sparse::fts_redb::tables::SEGMENTS;
@@ -97,8 +99,89 @@ pub(super) fn remove(
         let mut table = write_txn
             .open_table(SEGMENTS)
             .map_err(|e| redb_err("open segments", e))?;
-        let _ = table.remove((tid, collection, segment_id));
+        // `Table::remove` returns `Result<Option<AccessGuard<V>>>` — propagate
+        // the error so a corrupt index or aborted txn surfaces; the absent-key
+        // case (`Ok(None)`) is intentionally a no-op, not an error.
+        table
+            .remove((tid, collection, segment_id))
+            .map_err(|e| redb_err("remove segment", e))?;
     }
     write_txn.commit().map_err(|e| redb_err("commit", e))?;
     Ok(())
+}
+
+/// Atomically register a new merged segment and remove the source segments
+/// that were merged into it.
+///
+/// Performing the write and all removals in one redb write transaction
+/// ensures the operation is crash-safe: a crash mid-compaction leaves the
+/// old segments intact (a subsequent maintenance cycle will retry), and
+/// there is never a window where both the old and the new segments coexist
+/// on a reader that opens a concurrent read transaction.
+pub(super) fn compact_commit(
+    backend: &RedbFtsBackend,
+    tid: u64,
+    collection: &str,
+    new_segment_id: &str,
+    new_segment_data: &[u8],
+    merged_ids: &[String],
+) -> crate::Result<()> {
+    let write_txn = backend
+        .db
+        .begin_write()
+        .map_err(|e| redb_err("compact txn", e))?;
+    {
+        let mut table = write_txn
+            .open_table(SEGMENTS)
+            .map_err(|e| redb_err("open segments for compact", e))?;
+        table
+            .insert((tid, collection, new_segment_id), new_segment_data)
+            .map_err(|e| redb_err("insert merged segment", e))?;
+        for id in merged_ids {
+            // Propagate remove errors so a failed source-segment removal aborts
+            // the entire transaction; otherwise we would commit a state in
+            // which both old and new segments are visible to readers, causing
+            // double-counted postings during BM25 scoring.
+            table
+                .remove((tid, collection, id.as_str()))
+                .map_err(|e| redb_err("remove merged source segment", e))?;
+        }
+    }
+    write_txn
+        .commit()
+        .map_err(|e| redb_err("compact txn commit", e))?;
+    Ok(())
+}
+
+/// Enumerate all `(tid, collection)` pairs that have at least one segment
+/// stored in the SEGMENTS table.
+///
+/// Used by maintenance to discover which collections need FTS LSM compaction
+/// without requiring the executor to maintain a separate registry of
+/// FTS-indexed collections.
+pub(super) fn list_all_collections(backend: &RedbFtsBackend) -> crate::Result<Vec<(u64, String)>> {
+    let read_txn = backend
+        .db
+        .begin_read()
+        .map_err(|e| redb_err("read txn", e))?;
+    let table = read_txn
+        .open_table(SEGMENTS)
+        .map_err(|e| redb_err("open segments", e))?;
+
+    let mut collections: Vec<(u64, String)> = Vec::new();
+    let mut last: Option<(u64, String)> = None;
+
+    for entry in table.iter().map_err(|e| redb_err("iter segments", e))? {
+        let (key, _) = entry.map_err(|e| redb_err("next segment key", e))?;
+        let (tid, collection, _) = key.value();
+        let coll = collection.to_string();
+        match &last {
+            Some((t, c)) if *t == tid && c == &coll => {}
+            _ => {
+                collections.push((tid, coll.clone()));
+                last = Some((tid, coll));
+            }
+        }
+    }
+    Ok(collections)
 }

@@ -52,6 +52,20 @@ impl CoreLoop {
         self.tenant_database_map.entry(tenant).or_insert(db);
     }
 
+    /// Register a `TenantId → DatabaseId` mapping.
+    ///
+    /// In production the mapping is populated lazily from request headers.
+    /// This method allows tests and bootstrapping code to prime the mapping
+    /// explicitly so the maintenance budget tracker can resolve per-database
+    /// caps for tenants that have not yet processed any requests.
+    pub fn set_tenant_database(
+        &mut self,
+        tenant: crate::types::TenantId,
+        db: nodedb_types::DatabaseId,
+    ) {
+        self.tenant_database_map.insert(tenant, db);
+    }
+
     /// Resolve the `DatabaseId` for a `TenantId`. Falls back to
     /// `DatabaseId::DEFAULT` when the mapping has not been seen yet.
     pub(in crate::data::executor) fn database_for_tenant(
