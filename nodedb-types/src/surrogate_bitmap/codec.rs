@@ -10,9 +10,16 @@
 //! allocating an intermediate `Vec<u8>` on the read side.
 //!
 //! The zerompk `bin` type maps to msgpack's binary ext (`0xc4`/`0xc5`/`0xc6`
-//! family), which zerompk's derive macro already uses for `Vec<u8>` fields.
-//! Manually implementing the same encoding keeps `SurrogateBitmap` fully
-//! substitutable for the `Option<Vec<u8>>` fields it replaces.
+//! family). Note: zerompk's derive macro does **not** use this family for
+//! plain `Vec<u8>` fields — by default it routes through the generic
+//! `impl<T: ToMessagePack> ToMessagePack for Vec<T>` which writes a
+//! MessagePack array (fixarray / array16 / array32) with each `u8` as a
+//! `uint8` marker. The derive macro only emits `write_binary` /
+//! `read_binary` when the field carries the `#[as_bytes]` attribute.
+//! Manually implementing the binary encoding here keeps `SurrogateBitmap`
+//! interchangeable with the hand-rolled binary `Option<Vec<u8>>` fields
+//! in `TextFields` (which call `writer.write_binary` directly to dodge
+//! the array fallback).
 
 use std::io::Cursor;
 

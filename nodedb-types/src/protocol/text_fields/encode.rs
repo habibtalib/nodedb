@@ -22,6 +22,20 @@ macro_rules! write_opt_field {
             JsonValue(v.clone()).write($writer)?;
         }
     };
+    // variant for `Option<Vec<u8>>` payloads that must encode as a
+    // MessagePack `bin8/bin16/bin32` blob. The generic
+    // `<Vec<u8> as ToMessagePack>::write` writes an
+    // `array<u8>` (length header + each byte as a `cc XX` u8) — that
+    // round-trips on the same generic path but blows up the
+    // `reader.read_binary()` decoder these fields use with
+    // `InvalidMarker(0x94…)`. Calling `write_binary` directly keeps
+    // encoder and decoder agreed on the `bin*` marker family.
+    (binary $writer:expr, $id:expr, $val:expr) => {
+        if let Some(ref v) = $val {
+            $writer.write_u16($id)?;
+            $writer.write_binary(v.as_slice())?;
+        }
+    };
 }
 
 impl zerompk::ToMessagePack for TextFields {
@@ -34,12 +48,12 @@ impl zerompk::ToMessagePack for TextFields {
         write_opt_field!(writer, FID_VALUE, self.value);
         write_opt_field!(writer, FID_COLLECTION, self.collection);
         write_opt_field!(writer, FID_DOCUMENT_ID, self.document_id);
-        write_opt_field!(writer, FID_DATA, self.data);
+        write_opt_field!(binary writer, FID_DATA, self.data);
         write_opt_field!(writer, FID_QUERY_VECTOR, self.query_vector);
         write_opt_field!(writer, FID_TOP_K, self.top_k);
         write_opt_field!(writer, FID_FIELD, self.field);
         write_opt_field!(writer, FID_LIMIT, self.limit);
-        write_opt_field!(writer, FID_DELTA, self.delta);
+        write_opt_field!(binary writer, FID_DELTA, self.delta);
         write_opt_field!(writer, FID_PEER_ID, self.peer_id);
         write_opt_field!(writer, FID_VECTOR_TOP_K, self.vector_top_k);
         write_opt_field!(writer, FID_EDGE_LABEL, self.edge_label);
@@ -61,29 +75,29 @@ impl zerompk::ToMessagePack for TextFields {
         write_opt_field!(writer, FID_FUZZY, self.fuzzy);
         write_opt_field!(writer, FID_EF_SEARCH, self.ef_search);
         write_opt_field!(writer, FID_FIELD_NAME, self.field_name);
-        write_opt_field!(writer, FID_LOWER_BOUND, self.lower_bound);
-        write_opt_field!(writer, FID_UPPER_BOUND, self.upper_bound);
+        write_opt_field!(binary writer, FID_LOWER_BOUND, self.lower_bound);
+        write_opt_field!(binary writer, FID_UPPER_BOUND, self.upper_bound);
         write_opt_field!(writer, FID_MUTATION_ID, self.mutation_id);
         write_opt_field!(writer, FID_VECTORS, self.vectors);
         write_opt_field!(writer, FID_DOCUMENTS, self.documents);
-        write_opt_field!(writer, FID_QUERY_GEOMETRY, self.query_geometry);
+        write_opt_field!(binary writer, FID_QUERY_GEOMETRY, self.query_geometry);
         write_opt_field!(writer, FID_SPATIAL_PREDICATE, self.spatial_predicate);
         write_opt_field!(writer, FID_DISTANCE_METERS, self.distance_meters);
-        write_opt_field!(writer, FID_PAYLOAD, self.payload);
+        write_opt_field!(binary writer, FID_PAYLOAD, self.payload);
         write_opt_field!(writer, FID_FORMAT, self.format);
         write_opt_field!(writer, FID_TIME_RANGE_START, self.time_range_start);
         write_opt_field!(writer, FID_TIME_RANGE_END, self.time_range_end);
         write_opt_field!(writer, FID_BUCKET_INTERVAL, self.bucket_interval);
         write_opt_field!(writer, FID_TTL_MS, self.ttl_ms);
-        write_opt_field!(writer, FID_CURSOR, self.cursor);
+        write_opt_field!(binary writer, FID_CURSOR, self.cursor);
         write_opt_field!(writer, FID_MATCH_PATTERN, self.match_pattern);
         write_opt_field!(writer, FID_KEYS, self.keys);
         write_opt_field!(writer, FID_ENTRIES, self.entries);
         write_opt_field!(writer, FID_FIELDS, self.fields);
         write_opt_field!(writer, FID_INCR_DELTA, self.incr_delta);
         write_opt_field!(writer, FID_INCR_FLOAT_DELTA, self.incr_float_delta);
-        write_opt_field!(writer, FID_EXPECTED, self.expected);
-        write_opt_field!(writer, FID_NEW_VALUE, self.new_value);
+        write_opt_field!(binary writer, FID_EXPECTED, self.expected);
+        write_opt_field!(binary writer, FID_NEW_VALUE, self.new_value);
         write_opt_field!(writer, FID_INDEX_NAME, self.index_name);
         write_opt_field!(writer, FID_SORT_COLUMNS, self.sort_columns);
         write_opt_field!(writer, FID_KEY_COLUMN, self.key_column);
@@ -96,10 +110,10 @@ impl zerompk::ToMessagePack for TextFields {
         write_opt_field!(writer, FID_WINDOW_START_MS, self.window_start_ms);
         write_opt_field!(writer, FID_WINDOW_END_MS, self.window_end_ms);
         write_opt_field!(writer, FID_TOP_K_COUNT, self.top_k_count);
-        write_opt_field!(writer, FID_SCORE_MIN, self.score_min);
-        write_opt_field!(writer, FID_SCORE_MAX, self.score_max);
+        write_opt_field!(binary writer, FID_SCORE_MIN, self.score_min);
+        write_opt_field!(binary writer, FID_SCORE_MAX, self.score_max);
         write_opt_field!(writer, FID_UPDATES, self.updates);
-        write_opt_field!(writer, FID_FILTERS, self.filters);
+        write_opt_field!(binary writer, FID_FILTERS, self.filters);
         write_opt_field!(writer, FID_VECTOR, self.vector);
         write_opt_field!(writer, FID_VECTOR_ID, self.vector_id);
         write_opt_field!(json writer, FID_POLICY, self.policy);
@@ -115,6 +129,7 @@ impl zerompk::ToMessagePack for TextFields {
         write_opt_field!(writer, FID_METRIC, self.metric);
         write_opt_field!(writer, FID_INDEX_TYPE, self.index_type);
         write_opt_field!(writer, FID_DATABASE, self.database);
+        write_opt_field!(writer, FID_SQL_PARAMS, self.sql_params);
 
         Ok(())
     }

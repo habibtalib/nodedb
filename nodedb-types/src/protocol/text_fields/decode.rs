@@ -323,6 +323,9 @@ impl<'a> zerompk::FromMessagePack<'a> for TextFields {
                 FID_DATABASE => {
                     out.database = Some(reader.read_string()?.into_owned());
                 }
+                FID_SQL_PARAMS => {
+                    out.sql_params = Some(Vec::<crate::value::Value>::read(reader)?);
+                }
                 // Unknown field ID — skip value for forward compatibility.
                 _ => {
                     skip_msgpack_value(reader)?;
@@ -421,5 +424,78 @@ mod tests {
         };
         let decoded = roundtrip(&tf);
         assert_eq!(decoded.vector_id, Some(u32::MAX as u64));
+    }
+
+    #[test]
+    fn binary_fields_roundtrip_under_bin_marker() {
+        // Spec: every `Vec<u8>`-valued field that the decoder reads via
+        // `reader.read_binary()` must be encoded as a MessagePack
+        // `bin8/bin16/bin32` blob — not via the generic
+        // `<Vec<u8> as ToMessagePack>::write` which produces a fixarray
+        // of `cc XX` u8s and breaks decoding with
+        // `InvalidMarker(0x94…)`. A regression here means any caller
+        // that ships non-empty bytes through these fields gets a
+        // `BadRequest: invalid MessagePack request` from the server.
+        let payload: Vec<u8> = (0..=255u16).map(|b| b as u8).collect();
+        let tf = TextFields {
+            data: Some(payload.clone()),
+            delta: Some(payload.clone()),
+            lower_bound: Some(payload.clone()),
+            upper_bound: Some(payload.clone()),
+            query_geometry: Some(payload.clone()),
+            payload: Some(payload.clone()),
+            cursor: Some(payload.clone()),
+            expected: Some(payload.clone()),
+            new_value: Some(payload.clone()),
+            score_min: Some(payload.clone()),
+            score_max: Some(payload.clone()),
+            filters: Some(payload.clone()),
+            ..Default::default()
+        };
+        let decoded = roundtrip(&tf);
+        assert_eq!(decoded.data.as_deref(), Some(payload.as_slice()));
+        assert_eq!(decoded.delta.as_deref(), Some(payload.as_slice()));
+        assert_eq!(decoded.lower_bound.as_deref(), Some(payload.as_slice()));
+        assert_eq!(decoded.upper_bound.as_deref(), Some(payload.as_slice()));
+        assert_eq!(decoded.query_geometry.as_deref(), Some(payload.as_slice()));
+        assert_eq!(decoded.payload.as_deref(), Some(payload.as_slice()));
+        assert_eq!(decoded.cursor.as_deref(), Some(payload.as_slice()));
+        assert_eq!(decoded.expected.as_deref(), Some(payload.as_slice()));
+        assert_eq!(decoded.new_value.as_deref(), Some(payload.as_slice()));
+        assert_eq!(decoded.score_min.as_deref(), Some(payload.as_slice()));
+        assert_eq!(decoded.score_max.as_deref(), Some(payload.as_slice()));
+        assert_eq!(decoded.filters.as_deref(), Some(payload.as_slice()));
+    }
+
+    #[test]
+    fn binary_field_encoder_uses_bin_marker_not_fixarray() {
+        // Wire-shape regression guard. The MessagePack `bin8` marker is
+        // `0xc4` and the `bin16` marker is `0xc5`; a fixarray header is
+        // `0x90 + len` (so `0x94` for a 4-byte payload). The bug this
+        // catches encoded `Vec<u8>` as fixarray, which broke the
+        // server's `read_binary` decode. Anchoring the marker byte
+        // pins the wire format so a future refactor cannot regress.
+        let tf = TextFields {
+            data: Some(vec![0xde, 0xad, 0xbe, 0xef]),
+            ..Default::default()
+        };
+        let bytes = zerompk::to_msgpack_vec(&tf).expect("encode");
+        // map header (1 entry): 0x81; field id u16 0x0007 written as
+        // `cd 00 07`; then the value's first marker byte. Walk past
+        // the map+id prefix and assert the value starts with `bin8`.
+        // `bin8` is `0xc4` followed by a 1-byte length and the bytes.
+        assert_eq!(bytes[0], 0x81, "map len 1 header");
+        // The exact id-encoding width depends on zerompk's `write_u16`
+        // impl; allow both fixint (1 byte) and u16 (3 bytes) forms.
+        let value_marker = bytes
+            .iter()
+            .copied()
+            .find(|&b| b == 0xc4 || b == 0xc5 || b == 0xc6 || (0x90..=0x9f).contains(&b))
+            .expect("must find either a bin or array marker");
+        assert!(
+            matches!(value_marker, 0xc4..=0xc6),
+            "binary field must use bin8/bin16/bin32 marker, not fixarray; \
+             saw marker 0x{value_marker:02x}"
+        );
     }
 }

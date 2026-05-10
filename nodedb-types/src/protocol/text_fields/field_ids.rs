@@ -89,3 +89,4 @@ pub(super) const FID_EF_CONSTRUCTION: u16 = 80;
 pub(super) const FID_METRIC: u16 = 81;
 pub(super) const FID_INDEX_TYPE: u16 = 82;
 pub(super) const FID_DATABASE: u16 = 83;
+pub(super) const FID_SQL_PARAMS: u16 = 84;

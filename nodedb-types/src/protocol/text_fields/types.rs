@@ -96,6 +96,7 @@
 //! 81  metric
 //! 82  index_type
 //! 83  database
+//! 84  sql_params
 //! ```
 
 use serde::{Deserialize, Serialize};
@@ -380,6 +381,31 @@ pub struct TextFields {
     /// database context without per-request overhead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub database: Option<String>,
+
+    // ── SQL bound parameters ────────────────────────────────
+    /// Caller-supplied bound parameters for `$1`, `$2`, … placeholders
+    /// in `sql`.
+    ///
+    /// Field ID 84. `None` (or empty) = no bound parameters; the
+    /// server runs the SQL as-is. When `Some`, the server inlines each
+    /// value as a SQL literal before planning. The wire encoding is
+    /// `Vec<Value>` written via the generic zerompk array
+    /// implementation — Value has its own hand-rolled
+    /// `ToMessagePack`/`FromMessagePack` so the canonical scalar
+    /// variants (Null, Bool, Integer, Float, String, Bytes) round-trip
+    /// without a lossy intermediate JSON step.
+    ///
+    /// We carry `Vec<Value>` directly rather than `Vec<u8>` of a
+    /// pre-serialised inner blob because zerompk's generic
+    /// `ToMessagePack for Vec<T>` writes a MessagePack array (length
+    /// header + each element via `T::write`), which round-trips
+    /// cleanly with the symmetric `Vec::<Value>::read`. A
+    /// pre-serialised `Vec<u8>` carried in this field would be
+    /// re-encoded as an array-of-u8 on the way out and fail to decode
+    /// as binary on the way in — exactly the silent-drop pattern this
+    /// field is added to close.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sql_params: Option<Vec<crate::value::Value>>,
 }
 
 impl TextFields {
@@ -634,6 +660,9 @@ impl TextFields {
             n += 1;
         }
         if self.database.is_some() {
+            n += 1;
+        }
+        if self.sql_params.is_some() {
             n += 1;
         }
         n
