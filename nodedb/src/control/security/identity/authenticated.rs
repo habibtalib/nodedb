@@ -59,6 +59,20 @@ impl AuthenticatedIdentity {
         self.is_superuser || roles.iter().any(|r| self.roles.contains(r))
     }
 
+    /// Returns `true` if this identity is Superuser or carries `Role::ClusterAdmin`.
+    pub fn has_cluster_admin(&self) -> bool {
+        self.is_superuser || self.roles.iter().any(|r| matches!(r, Role::ClusterAdmin))
+    }
+
+    /// Returns `true` if this identity is the owner of `db` (or is Superuser).
+    pub fn is_database_owner(&self, db: DatabaseId) -> bool {
+        self.is_superuser
+            || self
+                .roles
+                .iter()
+                .any(|r| matches!(r, Role::DatabaseOwner(d) if *d == db))
+    }
+
     /// Returns `true` if this identity may access the given database.
     ///
     /// Superusers always return `true`. Regular users return `true` only if

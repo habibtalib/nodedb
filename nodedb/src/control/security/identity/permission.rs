@@ -65,6 +65,9 @@ pub enum PermissionTarget {
 pub fn role_grants_permission(role: &Role, permission: Permission) -> bool {
     match role {
         Role::Superuser => true,
+        // ClusterAdmin has no implicit data permissions; it operates exclusively
+        // through require_cluster_admin / require_database_owner_or_higher helpers.
+        Role::ClusterAdmin => false,
         Role::TenantAdmin => true,
         Role::ReadWrite => matches!(
             permission,

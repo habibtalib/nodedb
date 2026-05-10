@@ -11,6 +11,9 @@ use nodedb_types::id::DatabaseId;
 pub enum Role {
     /// Full access to everything, all tenants, system catalog.
     Superuser,
+    /// Cluster-wide admin operations (CREATE DATABASE, SET QUOTA, …).
+    /// Permission-driven; cannot bypass RLS, cannot read other databases' data.
+    ClusterAdmin,
     /// Full access within own tenant. Can manage users/roles.
     TenantAdmin,
     /// Read + write on granted collections.
@@ -33,6 +36,7 @@ impl std::fmt::Display for Role {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Role::Superuser => write!(f, "superuser"),
+            Role::ClusterAdmin => write!(f, "cluster_admin"),
             Role::TenantAdmin => write!(f, "tenant_admin"),
             Role::ReadWrite => write!(f, "readwrite"),
             Role::ReadOnly => write!(f, "readonly"),
@@ -51,6 +55,7 @@ impl FromStr for Role {
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(match s {
             "superuser" => Role::Superuser,
+            "cluster_admin" => Role::ClusterAdmin,
             "tenant_admin" => Role::TenantAdmin,
             "readwrite" => Role::ReadWrite,
             "readonly" => Role::ReadOnly,
@@ -84,6 +89,7 @@ mod tests {
     fn role_display_roundtrip() {
         let roles = [
             Role::Superuser,
+            Role::ClusterAdmin,
             Role::TenantAdmin,
             Role::ReadWrite,
             Role::ReadOnly,
@@ -108,6 +114,17 @@ mod tests {
             let s = role.to_string();
             let parsed: Role = s.parse().unwrap();
             assert_eq!(*role, parsed, "roundtrip failed for {s}");
+        }
+    }
+
+    #[test]
+    fn role_permission_mapping_cluster_admin_no_data_perms() {
+        use super::super::permission::{Permission, role_grants_permission};
+        for perm in [Permission::Read, Permission::Write, Permission::Admin] {
+            assert!(
+                !role_grants_permission(&Role::ClusterAdmin, perm),
+                "ClusterAdmin must not implicitly grant {perm:?}"
+            );
         }
     }
 
