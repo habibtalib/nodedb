@@ -118,6 +118,12 @@ async fn interleaved_writes_do_not_cross_contaminate() {
 
 /// Inserting different keys in source and clone must not cause the other to
 /// see the extra keys.
+///
+/// Snapshot isolation for the lazy KV read path is enforced via a
+/// surrogate ceiling captured from the source's `SurrogateAssigner` at
+/// clone-create time: bindings the source allocates AFTER the AS-OF
+/// point are dropped from clone-delegated scans/gets, so source-side
+/// post-clone INSERTs are invisible from the clone.
 #[tokio::test]
 async fn distinct_inserts_remain_isolated() {
     let server = TestServer::start().await;

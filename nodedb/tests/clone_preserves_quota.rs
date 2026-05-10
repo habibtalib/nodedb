@@ -52,9 +52,9 @@ async fn source_quota_unchanged_after_clone() {
 
     // Source quota must still be set correctly.
     let quota_msgs = client
-        .simple_query("SHOW DATABASE QUOTA quota_src")
+        .simple_query("SHOW DATABASE QUOTA FOR quota_src")
         .await
-        .expect("SHOW DATABASE QUOTA quota_src");
+        .expect("SHOW DATABASE QUOTA FOR quota_src");
 
     // At least one row must be returned — the quota was set.
     let has_row = quota_msgs

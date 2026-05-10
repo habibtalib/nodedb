@@ -56,13 +56,13 @@ async fn delete_source_only_row_creates_tombstone_and_hides_row() {
         .await
         .expect("USE clone_ts");
     client
-        .simple_query("DELETE FROM logs WHERE id = 'l2'")
+        .simple_query("DELETE FROM logs WHERE key = 'l2'")
         .await
         .expect("DELETE l2 from clone");
 
     // l2 must be absent from clone.
     let msgs = client
-        .simple_query("SELECT id FROM logs WHERE id = 'l2'")
+        .simple_query("SELECT key FROM logs WHERE key = 'l2'")
         .await
         .expect("SELECT l2 from clone after delete");
     let clone_rows = row_count(&msgs);
@@ -73,7 +73,7 @@ async fn delete_source_only_row_creates_tombstone_and_hides_row() {
 
     // l1 must still be visible via source delegation.
     let msgs = client
-        .simple_query("SELECT id FROM logs WHERE id = 'l1'")
+        .simple_query("SELECT key FROM logs WHERE key = 'l1'")
         .await
         .expect("SELECT l1 from clone");
     let l1_rows = row_count(&msgs);
@@ -88,7 +88,7 @@ async fn delete_source_only_row_creates_tombstone_and_hides_row() {
         .await
         .expect("USE src_ts");
     let msgs = client
-        .simple_query("SELECT id FROM logs")
+        .simple_query("SELECT key FROM logs")
         .await
         .expect("SELECT all from source");
     let src_ids: Vec<String> = msgs
