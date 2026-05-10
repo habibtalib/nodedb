@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use nodedb::bridge::dispatch::Dispatcher;
 use nodedb::control::security::identity::{AuthMethod, Role};
-use nodedb::control::security::sessions::{SessionParams, SessionRegistry};
+use nodedb::control::security::sessions::{KillReason, SessionParams, SessionRegistry};
 use nodedb::control::state::SharedState;
 use nodedb::types::TenantId;
 use nodedb::wal::WalManager;
@@ -38,6 +38,8 @@ fn sample_params(user_id: u64, username: &str) -> SessionParams {
         auth_method: "password".to_string(),
         tenant_id: 1,
         credential_version: 0,
+        current_database: None,
+        token_expiry_ms: None,
     }
 }
 
@@ -71,10 +73,10 @@ fn session_hard_revoke_close() {
     let reg = SessionRegistry::new();
     let mut rx = reg.register("s1", &sample_params(99, "bob")).unwrap();
     assert!(!rx.has_changed().unwrap_or(false));
-    let killed = reg.kill_sessions_for_user(99);
+    let killed = reg.kill_sessions_for_user(99, KillReason::AdminKill);
     assert_eq!(killed, 1);
     assert!(rx.has_changed().unwrap_or(false));
-    assert!(*rx.borrow_and_update());
+    assert_ne!(*rx.borrow_and_update(), KillReason::Alive);
 }
 
 #[test]

@@ -67,6 +67,7 @@ pub fn make_mirror_descriptor(
             status,
         }),
         audit_dml: nodedb_types::AuditDmlMode::None,
+        idle_session_timeout_secs: 0,
     }
 }
 

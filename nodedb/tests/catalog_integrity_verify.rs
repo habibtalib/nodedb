@@ -175,5 +175,10 @@ fn classify(entry: &CatalogEntry) -> VariantClass {
         CatalogEntry::CloneDatabase { .. } => VariantClass::Exempt,
         // Move tenant cutover re-keys collections; no ownership object is created.
         CatalogEntry::MoveTenantCutover { .. } => VariantClass::Exempt,
+
+        // OIDC providers are cluster-level identity-provider config; no
+        // per-object owner row required.
+        CatalogEntry::PutOidcProvider(_) => VariantClass::Exempt,
+        CatalogEntry::DeleteOidcProvider { .. } => VariantClass::Exempt,
     }
 }
