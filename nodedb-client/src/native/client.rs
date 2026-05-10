@@ -208,6 +208,7 @@ impl NodeDb for NativeClient {
 
     async fn graph_traverse(
         &self,
+        collection: &str,
         start: &NodeId,
         depth: u8,
         edge_filter: Option<&EdgeFilter>,
@@ -217,6 +218,7 @@ impl NodeDb for NativeClient {
             .send(
                 OpCode::GraphHop,
                 TextFields {
+                    collection: Some(collection.to_string()),
                     start_node: Some(start.as_str().to_string()),
                     depth: Some(depth as u32),
                     edge_label: edge_filter.and_then(|f| f.labels.first().cloned()),
@@ -229,6 +231,7 @@ impl NodeDb for NativeClient {
 
     async fn graph_insert_edge(
         &self,
+        collection: &str,
         from: &NodeId,
         to: &NodeId,
         edge_type: &str,
@@ -239,6 +242,7 @@ impl NodeDb for NativeClient {
         conn.send(
             OpCode::EdgePut,
             TextFields {
+                collection: Some(collection.to_string()),
                 from_node: Some(from.as_str().to_string()),
                 to_node: Some(to.as_str().to_string()),
                 edge_type: Some(edge_type.to_string()),
@@ -251,11 +255,12 @@ impl NodeDb for NativeClient {
             .map_err(|e| NodeDbError::storage(format!("invalid edge label: {e}")))
     }
 
-    async fn graph_delete_edge(&self, edge_id: &EdgeId) -> NodeDbResult<()> {
+    async fn graph_delete_edge(&self, collection: &str, edge_id: &EdgeId) -> NodeDbResult<()> {
         let mut conn = self.pool.acquire().await?;
         conn.send(
             OpCode::EdgeDelete,
             TextFields {
+                collection: Some(collection.to_string()),
                 from_node: Some(edge_id.src.as_str().to_string()),
                 to_node: Some(edge_id.dst.as_str().to_string()),
                 edge_type: Some(edge_id.label.clone()),
@@ -326,8 +331,23 @@ impl NodeDb for NativeClient {
     }
 
     async fn execute_sql(&self, query: &str, params: &[Value]) -> NodeDbResult<QueryResult> {
-        validate_native_execute_sql_params(params)?;
-        self.query(query).await
+        // Bound parameters travel through `TextFields::sql_params` as a
+        // zerompk-MessagePack `Vec<Value>`. The server-side `handle_sql`
+        // decodes them and inlines each value as a SQL literal before
+        // planning, so `$1`, `$2`, … placeholders resolve to the
+        // caller's values without round-tripping through a brittle
+        // client-side rewrite. Retries once on a connection-level
+        // failure with a fresh pool acquisition, matching `query()`.
+        let mut conn = self.pool.acquire().await?;
+        match conn.execute_sql_with_params(query, params).await {
+            Ok(r) => Ok(r),
+            Err(e) if is_connection_error(&e) => {
+                drop(conn);
+                let mut conn = self.pool.acquire().await?;
+                conn.execute_sql_with_params(query, params).await
+            }
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -371,28 +391,6 @@ fn build_vector_search_request(
         filters: filters_bytes,
         ..Default::default()
     }
-}
-
-/// Validate the `params` vector for `execute_sql` on the native client.
-///
-/// The native protocol envelope (`TextFields`) does not yet carry bound
-/// parameters — there is no `sql_params` / `bind_values` field. Until
-/// the envelope is extended (a wire-format change), the client must
-/// surface that gap as an explicit error instead of silently dropping
-/// the caller's `params` and sending the SQL with unbound placeholders
-/// (which the server then rejects with a confusing
-/// `value literal: $1` plan error).
-///
-/// Empty `params` is accepted as the no-op pass-through case.
-fn validate_native_execute_sql_params(params: &[Value]) -> NodeDbResult<()> {
-    if params.is_empty() {
-        return Ok(());
-    }
-    Err(NodeDbError::storage(
-        "execute_sql bound parameters are not yet wired through the native \
-         protocol envelope; pass an empty params slice and inline literal \
-         values in the SQL until `TextFields::sql_params` lands",
-    ))
 }
 
 // ─── Internal helpers ──────────────────────────────────────────────
@@ -479,29 +477,32 @@ mod tests {
     }
 
     #[test]
-    fn execute_sql_passes_through_empty_params() {
-        // Empty params is the always-allowed pass-through path.
-        validate_native_execute_sql_params(&[]).expect("empty params must be accepted");
-    }
-
-    #[test]
-    fn execute_sql_native_accepts_bound_parameters() {
-        // Spec: non-empty `params` must either be carried through the
-        // native request envelope (Ok with side effect) or surface an
-        // explicit "not yet wired" error so callers know the gap
-        // exists. A no-op `Ok(())` that drops params and lets the
-        // server reject the unbound placeholder is disallowed — the
-        // server-side error becomes the only signal, and it gives no
-        // hint that the client dropped the bindings before they
-        // reached the wire.
-        let params = vec![Value::String("alice".into()), Value::Integer(42)];
-        let result = validate_native_execute_sql_params(&params);
-        assert!(
-            result.is_err(),
-            "non-empty params on the native client must not be silently accepted as a no-op; \
-             either implement translation through the envelope and update this test, or \
-             return an explicit 'not wired' error so the silent-drop pattern is impossible"
-        );
+    fn execute_sql_encodes_params_into_sql_params_field() {
+        // Spec: non-empty `params` are encoded as a zerompk-MessagePack
+        // `Vec<Value>` and ride on `TextFields::sql_params`. The
+        // round-trip below isn't going through a server; it asserts the
+        // client-side encoding step the trait impl performs is
+        // reversible by the server-side decoder (same crate, same
+        // codec). A silent re-encoding into JSON or a lossy
+        // `Vec<String>` would lose the variant tag and re-create the
+        // silent-wrong pattern the trait contract is built to prevent.
+        let params = vec![
+            Value::Null,
+            Value::Bool(true),
+            Value::Integer(42),
+            Value::String("alice".into()),
+        ];
+        let bytes = zerompk::to_msgpack_vec(&params).expect("encode params");
+        let decoded: Vec<Value> =
+            zerompk::from_msgpack(&bytes).expect("decode round-trips on same codec");
+        assert_eq!(decoded.len(), 4);
+        assert!(matches!(decoded[0], Value::Null));
+        assert!(matches!(decoded[1], Value::Bool(true)));
+        assert!(matches!(decoded[2], Value::Integer(42)));
+        match &decoded[3] {
+            Value::String(s) => assert_eq!(s, "alice"),
+            other => panic!("expected Value::String('alice'), got {other:?}"),
+        }
     }
 
     #[test]

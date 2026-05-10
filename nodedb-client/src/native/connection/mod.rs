@@ -239,6 +239,39 @@ impl NativeConnection {
         response_to_query_result(resp)
     }
 
+    /// Execute a SQL query with bound parameters and return the result.
+    ///
+    /// Bound parameters travel through `TextFields::sql_params` as a
+    /// `Vec<Value>` — zerompk's generic array encoding serialises each
+    /// element via `Value`'s hand-rolled `ToMessagePack` impl so the
+    /// canonical scalar variants round-trip without a lossy JSON step.
+    /// The server inlines each value as a SQL literal before planning,
+    /// so `$1`, `$2`, … placeholders resolve to the caller's values.
+    /// Empty `params` routes through the same opcode but omits the
+    /// field, equivalent to `execute_sql`.
+    pub async fn execute_sql_with_params(
+        &mut self,
+        sql: &str,
+        params: &[nodedb_types::Value],
+    ) -> NodeDbResult<QueryResult> {
+        let sql_params = if params.is_empty() {
+            None
+        } else {
+            Some(params.to_vec())
+        };
+        let resp = self
+            .send(
+                OpCode::Sql,
+                TextFields {
+                    sql: Some(sql.to_string()),
+                    sql_params,
+                    ..Default::default()
+                },
+            )
+            .await?;
+        response_to_query_result(resp)
+    }
+
     /// Execute a DDL command.
     pub async fn execute_ddl(&mut self, sql: &str) -> NodeDbResult<QueryResult> {
         let resp = self
