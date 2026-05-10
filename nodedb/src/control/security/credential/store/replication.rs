@@ -80,6 +80,7 @@ impl CredentialStore {
             must_change_password: false,
             password_changed_at: now,
             default_database_id: 0,
+            accessible_databases: vec![],
         })
     }
 

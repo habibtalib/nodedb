@@ -384,6 +384,18 @@ pub fn notice_warning(message: &str) -> pgwire::messages::response::NoticeRespon
     ))
 }
 
+/// Require that the identity is a superuser.
+pub fn require_superuser(identity: &AuthenticatedIdentity, action: &str) -> PgWireResult<()> {
+    if identity.is_superuser {
+        Ok(())
+    } else {
+        Err(sqlstate_error(
+            sqlstate::INSUFFICIENT_PRIVILEGE,
+            &format!("permission denied: only superuser can {action}"),
+        ))
+    }
+}
+
 /// Require that the identity is superuser or tenant_admin.
 pub fn require_admin(identity: &AuthenticatedIdentity, action: &str) -> PgWireResult<()> {
     if identity.is_superuser || identity.has_role(&Role::TenantAdmin) {

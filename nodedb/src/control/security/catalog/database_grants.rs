@@ -9,6 +9,7 @@
 //! enumerate all privileges for one user without secondary indexes.
 
 use nodedb_types::id::DatabaseId;
+use redb::ReadableTable;
 
 use super::types::{DATABASE_GRANTS, SystemCatalog, catalog_err};
 
@@ -113,6 +114,40 @@ impl SystemCatalog {
             }
         }
         Ok(grants)
+    }
+
+    /// Return the distinct set of database IDs that a user has any grant on.
+    /// Always includes `DatabaseId::DEFAULT` to match the legacy floor.
+    pub fn list_user_grant_databases(&self, user_id: u64) -> crate::Result<Vec<DatabaseId>> {
+        let txn = self
+            .db
+            .begin_read()
+            .map_err(|e| catalog_err("database_grants read txn (user)", e))?;
+        let table = match txn.open_table(DATABASE_GRANTS) {
+            Ok(t) => t,
+            Err(redb::TableError::TableDoesNotExist(_)) => {
+                return Ok(vec![DatabaseId::DEFAULT]);
+            }
+            Err(e) => return Err(catalog_err("open database_grants for user list", e)),
+        };
+        let mut db_ids = std::collections::HashSet::new();
+        db_ids.insert(DatabaseId::DEFAULT);
+        for entry in table
+            .iter()
+            .map_err(|e| catalog_err("iter database_grants for user", e))?
+        {
+            let (k, _v) = entry.map_err(|e| catalog_err("read database_grants entry", e))?;
+            let key_str = k.value();
+            // Key format: "{database_id}:{user_id}:{privilege}"
+            let parts: Vec<&str> = key_str.splitn(3, ':').collect();
+            if parts.len() == 3
+                && let (Ok(db_raw), Ok(uid)) = (parts[0].parse::<u64>(), parts[1].parse::<u64>())
+                && uid == user_id
+            {
+                db_ids.insert(DatabaseId::new(db_raw));
+            }
+        }
+        Ok(db_ids.into_iter().collect())
     }
 
     /// Check whether a specific grant exists.

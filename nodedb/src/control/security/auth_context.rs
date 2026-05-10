@@ -12,6 +12,8 @@
 
 use std::collections::HashMap;
 
+use nodedb_types::DatabaseId;
+
 use crate::types::TenantId;
 
 use super::identity::{AuthMethod, AuthenticatedIdentity};
@@ -102,6 +104,12 @@ pub struct AuthContext {
     /// Per-request ON DENY override: `None` = use policy default.
     /// Set via `SET LOCAL nodedb.on_deny = 'error'` (pgwire) or `X-On-Deny: error` (HTTP).
     pub on_deny_override: Option<super::deny::DenyMode>,
+    /// The database this session is connected to.
+    ///
+    /// Populated from the session's active database at request time. Used by
+    /// `$auth.database_id` RLS predicates for per-database row isolation.
+    /// `None` when the session has no explicit database (cluster-level queries).
+    pub database_id: Option<DatabaseId>,
 }
 
 impl AuthContext {
@@ -186,6 +194,7 @@ impl AuthContext {
             },
             session_id,
             on_deny_override: None,
+            database_id: None,
         }
     }
 
@@ -212,6 +221,7 @@ impl AuthContext {
             auth_time: None,
             session_id,
             on_deny_override: None,
+            database_id: None,
         }
     }
 
@@ -281,6 +291,7 @@ impl AuthContext {
             "auth_method" => Some(serde_json::Value::String(format!("{:?}", self.auth_method))),
             "auth_time" => self.auth_time.map(|t| serde_json::json!(t)),
             "session_id" => Some(serde_json::Value::String(self.session_id.clone())),
+            "database_id" => self.database_id.map(|d| serde_json::json!(d.as_u64())),
             // Metadata sub-fields: $auth.metadata.<key>
             other if other.starts_with("metadata.") => {
                 let key = &other["metadata.".len()..];
@@ -393,6 +404,24 @@ mod tests {
     fn resolve_variable_unknown() {
         let ctx = AuthContext::from_identity(&test_identity(), "s_test_004".into());
         assert_eq!(ctx.resolve_variable("nonexistent"), None);
+    }
+
+    #[test]
+    fn resolve_variable_database_id_none() {
+        // When no database context is stamped, $auth.database_id resolves to
+        // None (fail-closed: predicates that require a database_id deny access).
+        let ctx = AuthContext::from_identity(&test_identity(), "s_test_db_none".into());
+        assert_eq!(ctx.resolve_variable("database_id"), None);
+    }
+
+    #[test]
+    fn resolve_variable_database_id_some() {
+        let mut ctx = AuthContext::from_identity(&test_identity(), "s_test_db_some".into());
+        ctx.database_id = Some(nodedb_types::id::DatabaseId::new(42));
+        assert_eq!(
+            ctx.resolve_variable("database_id"),
+            Some(serde_json::json!(42u64))
+        );
     }
 
     #[test]

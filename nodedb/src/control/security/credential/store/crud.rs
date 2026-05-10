@@ -53,6 +53,7 @@ impl CredentialStore {
             must_change_password: false,
             password_changed_at: now,
             default_database_id: 0,
+            accessible_databases: vec![],
         };
 
         // create_user: no open sessions to invalidate — no invalidation reason.
@@ -63,11 +64,16 @@ impl CredentialStore {
 
     /// Create a service account. No password — can only authenticate
     /// via API keys. Returns the user_id.
+    ///
+    /// `accessible_databases`: if non-empty, the service account is restricted
+    /// to those databases. Empty = legacy = treated as `[DatabaseId::DEFAULT]`
+    /// at auth time.
     pub fn create_service_account(
         &self,
         name: &str,
         tenant_id: TenantId,
         roles: Vec<Role>,
+        accessible_databases: Vec<nodedb_types::id::DatabaseId>,
     ) -> crate::Result<u64> {
         let mut users = write_lock(&self.users)?;
         if users.contains_key(name) {
@@ -96,6 +102,7 @@ impl CredentialStore {
             must_change_password: false,
             password_changed_at: now,
             default_database_id: 0,
+            accessible_databases,
         };
 
         // Service-account creation: no open sessions — no invalidation reason.
@@ -229,6 +236,31 @@ impl CredentialStore {
             }
         }
         self.commit_user_mutation(record, Some(SessionInvalidationReason::RoleGranted))?;
+        Ok(())
+    }
+
+    /// Replace the `accessible_databases` list on a service account.
+    ///
+    /// Requires the caller to have already verified superuser authority.
+    /// For non-service-account users, returns an error.
+    pub fn set_service_account_databases(
+        &self,
+        name: &str,
+        databases: Vec<nodedb_types::id::DatabaseId>,
+    ) -> crate::Result<()> {
+        let mut users = write_lock(&self.users)?;
+        let record = users
+            .get_mut(name)
+            .ok_or_else(|| crate::Error::BadRequest {
+                detail: format!("service account '{name}' not found"),
+            })?;
+        if !record.is_service_account {
+            return Err(crate::Error::BadRequest {
+                detail: format!("'{name}' is a user, not a service account"),
+            });
+        }
+        record.accessible_databases = databases;
+        self.commit_user_mutation(record, Some(SessionInvalidationReason::RoleAltered))?;
         Ok(())
     }
 

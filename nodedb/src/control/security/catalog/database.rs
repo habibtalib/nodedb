@@ -154,6 +154,14 @@ impl SystemCatalog {
         }
     }
 
+    /// Resolve a database id to its name. Returns `None` if not found.
+    pub fn get_database_name_by_id(&self, id: DatabaseId) -> crate::Result<Option<String>> {
+        match self.get_database(id)? {
+            Some(desc) => Ok(Some(desc.name)),
+            None => Ok(None),
+        }
+    }
+
     /// Remove a database descriptor and its reverse-lookup row.
     /// Idempotent: removing a missing database succeeds silently.
     pub fn delete_database(&self, id: DatabaseId) -> crate::Result<()> {

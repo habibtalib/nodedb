@@ -16,12 +16,16 @@
 //! On success, returns `{"status": "ok", "username": "...", "tenant_id": ...}`.
 //! On failure, returns `{"status": "error", "error": "..."}` and closes connection.
 
+use nodedb_types::id::DatabaseId;
+use smallvec::SmallVec;
+
 use crate::config::auth::AuthMode;
 use crate::control::security::audit::{
     ArcAuditEmitter, AuditEmitContext, AuditEmitter, AuditEvent,
 };
 use crate::control::security::auth_context::{AuthContext, generate_session_id};
-use crate::control::security::identity::{AuthMethod, AuthenticatedIdentity, Role};
+use crate::control::security::credential::record::UserRecord;
+use crate::control::security::identity::{AuthMethod, AuthenticatedIdentity, DatabaseSet, Role};
 use crate::control::security::util::base64_url_decode;
 use crate::control::state::SharedState;
 use crate::types::TenantId;
@@ -68,6 +72,30 @@ pub fn resolve_certificate_identity(
 ///
 /// Shared by native protocol and HTTP API authentication paths.
 /// Returns `None` if the token is invalid or the owner user is not found.
+/// Build the owner's `DatabaseSet` from a `UserRecord`.
+///
+/// - Superuser → `DatabaseSet::All`.
+/// - Service account with non-empty `accessible_databases` → `DatabaseSet::Some(...)`.
+/// - Regular user → databases from `_system.database_grants`, always including `DEFAULT`.
+fn build_owner_database_set(state: &SharedState, user: &UserRecord) -> DatabaseSet {
+    if user.is_superuser {
+        return DatabaseSet::All;
+    }
+    if user.is_service_account && !user.accessible_databases.is_empty() {
+        return DatabaseSet::Some(SmallVec::from_iter(
+            user.accessible_databases.iter().copied(),
+        ));
+    }
+    // Regular user or legacy service account: read from database_grants.
+    let db_ids = state
+        .credentials
+        .catalog()
+        .as_ref()
+        .and_then(|cat| cat.list_user_grant_databases(user.user_id).ok())
+        .unwrap_or_else(|| vec![DatabaseId::DEFAULT]);
+    DatabaseSet::Some(SmallVec::from_iter(db_ids))
+}
+
 pub fn verify_api_key_identity(
     state: &SharedState,
     token: &str,
@@ -78,16 +106,24 @@ pub fn verify_api_key_identity(
 
     let user = state.credentials.get_user(&key_record.username)?;
 
-    let identity = AuthenticatedIdentity {
-        user_id: key_record.user_id,
-        username: key_record.username.clone(),
-        tenant_id: key_record.tenant_id,
-        auth_method: AuthMethod::ApiKey,
-        roles: user.roles,
-        is_superuser: user.is_superuser,
-        default_database: None,
-        accessible_databases: AuthenticatedIdentity::default_database_set(user.is_superuser),
+    let owner_set = build_owner_database_set(state, &user);
+
+    // Compute effective database set: owner_set ∩ key_set.
+    // Empty key.accessible_databases means "inherit from owner at this bind" — live,
+    // not a snapshot, so subsequent owner narrowing is automatically honored.
+    let key_set = if key_record.accessible_databases.is_empty() {
+        owner_set.clone()
+    } else {
+        DatabaseSet::Some(SmallVec::from_iter(
+            key_record.accessible_databases.iter().copied(),
+        ))
     };
+    let effective = owner_set.intersect(&key_set);
+
+    let identity =
+        state
+            .api_keys
+            .to_identity(&key_record, user.roles, user.is_superuser, effective);
 
     state.audit_record(
         AuditEvent::AuthSuccess,
@@ -337,7 +373,11 @@ pub async fn authenticate(
 /// API key, certificate, trust). JWT flows can use `AuthContext::from_jwt()`
 /// directly when JWT claims are available for richer context.
 pub fn build_auth_context(identity: &AuthenticatedIdentity) -> AuthContext {
-    AuthContext::from_identity(identity, generate_session_id())
+    let mut ctx = AuthContext::from_identity(identity, generate_session_id());
+    // Stamp the per-user default database so `$auth.database_id` is available
+    // for RLS predicates even before a `USE DATABASE` command.
+    ctx.database_id = identity.default_database;
+    ctx
 }
 
 /// Enrich AuthContext with scope status data from the scope grant store.
@@ -412,6 +452,12 @@ pub fn build_auth_context_with_session(
         && let Ok(mode) = crate::control::security::deny::parse_on_deny(&[&on_deny_val])
     {
         ctx.on_deny_override = Some(mode);
+    }
+
+    // The active session database overrides the per-user default so that
+    // `$auth.database_id` tracks `USE DATABASE` commands within a session.
+    if let Some(db) = sessions.get_current_database(addr) {
+        ctx.database_id = Some(db);
     }
 
     ctx

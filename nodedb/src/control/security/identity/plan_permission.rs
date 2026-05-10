@@ -1,0 +1,294 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! `PhysicalPlan` → `Permission` mapping.
+//!
+//! The match must remain fully exhaustive. Adding a new `PhysicalPlan`
+//! variant must produce a compile error here so the security tier is
+//! intentionally decided rather than defaulted.
+
+#![deny(clippy::wildcard_enum_match_arm)]
+
+use super::permission::Permission;
+
+/// Map a PhysicalPlan to the Permission required to execute it.
+pub fn required_permission(plan: &crate::bridge::envelope::PhysicalPlan) -> Permission {
+    use crate::bridge::envelope::PhysicalPlan;
+    use crate::bridge::physical_plan::{
+        ArrayOp, ColumnarOp, CrdtOp, DocumentOp, GraphOp, KvOp, MetaOp, QueryOp, SpatialOp, TextOp,
+        TimeseriesOp, VectorOp,
+    };
+    match plan {
+        // Read operations.
+        PhysicalPlan::Document(
+            DocumentOp::PointGet { .. }
+            | DocumentOp::RangeScan { .. }
+            | DocumentOp::Scan { .. }
+            | DocumentOp::IndexLookup { .. }
+            | DocumentOp::IndexedFetch { .. }
+            | DocumentOp::EstimateCount { .. }
+            | DocumentOp::MaterializeScan { .. },
+        ) => Permission::Read,
+
+        PhysicalPlan::Vector(
+            VectorOp::Search { .. }
+            | VectorOp::MultiSearch { .. }
+            | VectorOp::QueryStats { .. }
+            | VectorOp::SparseSearch { .. }
+            | VectorOp::MultiVectorScoreSearch { .. },
+        ) => Permission::Read,
+
+        PhysicalPlan::Crdt(
+            CrdtOp::Read { .. }
+            | CrdtOp::ReadAtVersion { .. }
+            | CrdtOp::GetVersionVector
+            | CrdtOp::ExportDelta { .. },
+        ) => Permission::Read,
+
+        PhysicalPlan::Graph(
+            GraphOp::Hop { .. }
+            | GraphOp::Neighbors { .. }
+            | GraphOp::NeighborsMulti { .. }
+            | GraphOp::Path { .. }
+            | GraphOp::Subgraph { .. }
+            | GraphOp::RagFusion { .. }
+            | GraphOp::Algo { .. }
+            | GraphOp::Match { .. }
+            | GraphOp::TemporalNeighbors { .. }
+            | GraphOp::TemporalAlgorithm { .. },
+        ) => Permission::Read,
+
+        PhysicalPlan::Query(
+            QueryOp::Aggregate { .. }
+            | QueryOp::HashJoin { .. }
+            | QueryOp::InlineHashJoin { .. }
+            | QueryOp::PartialAggregate { .. }
+            | QueryOp::BroadcastJoin { .. }
+            | QueryOp::ShuffleJoin { .. }
+            | QueryOp::NestedLoopJoin { .. }
+            | QueryOp::SortMergeJoin { .. }
+            | QueryOp::RecursiveScan { .. }
+            | QueryOp::RecursiveValue { .. }
+            | QueryOp::FacetCounts { .. }
+            | QueryOp::LateralTopK { .. }
+            | QueryOp::LateralLoop { .. },
+        ) => Permission::Read,
+
+        PhysicalPlan::Text(
+            TextOp::Search { .. }
+            | TextOp::BM25ScoreScan { .. }
+            | TextOp::HybridSearch { .. }
+            | TextOp::HybridSearchTriple { .. }
+            | TextOp::PhraseSearch { .. },
+        ) => Permission::Read,
+
+        PhysicalPlan::Spatial(SpatialOp::Scan { .. }) => Permission::Read,
+
+        PhysicalPlan::Columnar(ColumnarOp::Scan { .. } | ColumnarOp::MaterializeScan { .. }) => {
+            Permission::Read
+        }
+
+        PhysicalPlan::Timeseries(TimeseriesOp::Scan { .. }) => Permission::Read,
+
+        // Write operations.
+        PhysicalPlan::Crdt(
+            CrdtOp::Apply { .. }
+            | CrdtOp::RestoreToVersion { .. }
+            | CrdtOp::ListInsert { .. }
+            | CrdtOp::ListDelete { .. }
+            | CrdtOp::ListMove { .. },
+        ) => Permission::Write,
+
+        PhysicalPlan::Vector(
+            VectorOp::Insert { .. }
+            | VectorOp::BatchInsert { .. }
+            | VectorOp::Delete { .. }
+            | VectorOp::SparseInsert { .. }
+            | VectorOp::SparseDelete { .. }
+            | VectorOp::MultiVectorInsert { .. }
+            | VectorOp::MultiVectorDelete { .. }
+            | VectorOp::DirectUpsert { .. },
+        ) => Permission::Write,
+
+        PhysicalPlan::Document(
+            DocumentOp::BatchInsert { .. }
+            | DocumentOp::PointPut { .. }
+            | DocumentOp::PointInsert { .. }
+            | DocumentOp::PointDelete { .. }
+            | DocumentOp::PointUpdate { .. }
+            | DocumentOp::BulkUpdate { .. }
+            | DocumentOp::BulkDelete { .. }
+            | DocumentOp::UpdateFromJoin { .. }
+            | DocumentOp::Upsert { .. }
+            | DocumentOp::InsertSelect { .. }
+            | DocumentOp::Truncate { .. }
+            | DocumentOp::Merge { .. },
+        ) => Permission::Write,
+
+        PhysicalPlan::Graph(
+            GraphOp::EdgePut { .. }
+            | GraphOp::EdgePutBatch { .. }
+            | GraphOp::EdgeDelete { .. }
+            | GraphOp::EdgeDeleteBatch { .. }
+            | GraphOp::SetNodeLabels { .. }
+            | GraphOp::RemoveNodeLabels { .. },
+        ) => Permission::Write,
+
+        PhysicalPlan::Meta(MetaOp::WalAppend { .. }) => Permission::Write,
+
+        PhysicalPlan::Columnar(
+            ColumnarOp::Insert { .. } | ColumnarOp::Update { .. } | ColumnarOp::Delete { .. },
+        ) => Permission::Write,
+
+        PhysicalPlan::Timeseries(TimeseriesOp::Ingest { .. }) => Permission::Write,
+
+        // Transaction batch: requires write (contains writes).
+        PhysicalPlan::Meta(MetaOp::TransactionBatch { .. }) => Permission::Write,
+
+        // DDL / schema changes.
+        PhysicalPlan::Document(
+            DocumentOp::Register { .. }
+            | DocumentOp::DropIndex { .. }
+            | DocumentOp::BackfillIndex { .. },
+        ) => Permission::Alter,
+
+        PhysicalPlan::Crdt(CrdtOp::SetPolicy { .. } | CrdtOp::CompactAtVersion { .. }) => {
+            Permission::Alter
+        }
+
+        PhysicalPlan::Crdt(CrdtOp::GetPolicy { .. }) => Permission::Read,
+
+        PhysicalPlan::Meta(
+            MetaOp::RegisterContinuousAggregate { .. }
+            | MetaOp::UnregisterContinuousAggregate { .. }
+            | MetaOp::ListContinuousAggregates
+            | MetaOp::ConvertCollection { .. },
+        ) => Permission::Alter,
+
+        PhysicalPlan::Vector(
+            VectorOp::SetParams { .. }
+            | VectorOp::Seal { .. }
+            | VectorOp::CompactIndex { .. }
+            | VectorOp::Rebuild { .. },
+        ) => Permission::Alter,
+
+        // Pre-computed responses (constant queries like SELECT 1).
+        PhysicalPlan::Meta(MetaOp::RawResponse { .. }) => Permission::Read,
+
+        // Control operations.
+        PhysicalPlan::Meta(MetaOp::Cancel { .. }) => Permission::Admin,
+
+        // System-level operations: require admin.
+        PhysicalPlan::Meta(
+            MetaOp::CreateSnapshot
+            | MetaOp::Compact
+            | MetaOp::Checkpoint
+            | MetaOp::CreateTenantSnapshot { .. }
+            | MetaOp::RestoreTenantSnapshot { .. }
+            | MetaOp::UnregisterCollection { .. }
+            | MetaOp::UnregisterMaterializedView { .. }
+            | MetaOp::QueryCollectionSize { .. }
+            | MetaOp::AlterArray { .. }
+            | MetaOp::RebuildIndex { .. }
+            | MetaOp::RenameCollection { .. },
+        ) => Permission::Admin,
+
+        // KV engine: read operations.
+        PhysicalPlan::Kv(
+            KvOp::Get { .. }
+            | KvOp::GetTtl { .. }
+            | KvOp::Scan { .. }
+            | KvOp::MaterializeScan { .. }
+            | KvOp::BatchGet { .. }
+            | KvOp::FieldGet { .. }
+            | KvOp::SortedIndexRank { .. }
+            | KvOp::SortedIndexTopK { .. }
+            | KvOp::SortedIndexRange { .. }
+            | KvOp::SortedIndexCount { .. }
+            | KvOp::SortedIndexScore { .. },
+        ) => Permission::Read,
+
+        // KV engine: write operations.
+        PhysicalPlan::Kv(
+            KvOp::Put { .. }
+            | KvOp::Insert { .. }
+            | KvOp::InsertIfAbsent { .. }
+            | KvOp::InsertOnConflictUpdate { .. }
+            | KvOp::Delete { .. }
+            | KvOp::Expire { .. }
+            | KvOp::Persist { .. }
+            | KvOp::BatchPut { .. }
+            | KvOp::RegisterIndex { .. }
+            | KvOp::DropIndex { .. }
+            | KvOp::FieldSet { .. }
+            | KvOp::Truncate { .. }
+            | KvOp::Incr { .. }
+            | KvOp::IncrFloat { .. }
+            | KvOp::Cas { .. }
+            | KvOp::GetSet { .. }
+            | KvOp::RegisterSortedIndex { .. }
+            | KvOp::DropSortedIndex { .. }
+            | KvOp::Transfer { .. }
+            | KvOp::TransferItem { .. },
+        ) => Permission::Write,
+
+        // Tenant purge requires superuser (checked at DDL level); map to Write.
+        PhysicalPlan::Meta(MetaOp::PurgeTenant { .. }) => Permission::Write,
+
+        // Retention enforcement is admin-level (invoked by background tasks).
+        PhysicalPlan::Meta(
+            MetaOp::EnforceTimeseriesRetention { .. }
+            | MetaOp::ApplyContinuousAggRetention
+            | MetaOp::TemporalPurgeEdgeStore { .. }
+            | MetaOp::TemporalPurgeDocumentStrict { .. }
+            | MetaOp::TemporalPurgeColumnar { .. }
+            | MetaOp::TemporalPurgeCrdt { .. }
+            | MetaOp::TemporalPurgeArray { .. },
+        ) => Permission::Admin,
+
+        // Watermark query is admin-level (invoked by enforcement loop).
+        PhysicalPlan::Meta(MetaOp::QueryAggregateWatermark { .. }) => Permission::Admin,
+
+        // Last-value cache queries are read operations.
+        PhysicalPlan::Meta(MetaOp::QueryLastValues { .. } | MetaOp::QueryLastValue { .. }) => {
+            Permission::Read
+        }
+
+        // Array engine: query operators are reads, put/delete are
+        // writes, OpenArray is DDL, flush/compact are admin.
+        PhysicalPlan::Array(
+            ArrayOp::Slice { .. }
+            | ArrayOp::SurrogateBitmapScan { .. }
+            | ArrayOp::Project { .. }
+            | ArrayOp::Aggregate { .. }
+            | ArrayOp::Elementwise { .. },
+        ) => Permission::Read,
+        PhysicalPlan::Array(ArrayOp::Put { .. } | ArrayOp::Delete { .. }) => Permission::Write,
+        PhysicalPlan::Array(ArrayOp::OpenArray { .. }) => Permission::Alter,
+        PhysicalPlan::Array(
+            ArrayOp::Flush { .. } | ArrayOp::Compact { .. } | ArrayOp::DropArray { .. },
+        ) => Permission::Admin,
+
+        // ClusterArray mirrors the local ArrayOp permission model.
+        PhysicalPlan::ClusterArray(
+            crate::bridge::physical_plan::ClusterArrayOp::Slice { .. }
+            | crate::bridge::physical_plan::ClusterArrayOp::Agg { .. },
+        ) => Permission::Read,
+        PhysicalPlan::ClusterArray(
+            crate::bridge::physical_plan::ClusterArrayOp::Put { .. }
+            | crate::bridge::physical_plan::ClusterArrayOp::Delete { .. },
+        ) => Permission::Write,
+
+        // Calvin cross-shard execution batches are write operations dispatched
+        // internally by the Calvin scheduler; treat as Write.
+        PhysicalPlan::Meta(
+            MetaOp::CalvinExecuteStatic { .. }
+            | MetaOp::CalvinExecutePassive { .. }
+            | MetaOp::CalvinExecuteActive { .. },
+        ) => Permission::Write,
+
+        // Synonym group DDL: Alter permission (same tier as CREATE/DROP other DDL objects).
+        PhysicalPlan::Meta(MetaOp::PutSynonymGroup { .. } | MetaOp::DeleteSynonymGroup { .. }) => {
+            Permission::Alter
+        }
+    }
+}

@@ -398,3 +398,104 @@ fn substitute_not(inner: &RlsPredicate, auth: &AuthContext) -> Option<Vec<ScanFi
         _ => None, // Complex NOT not supported → deny
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::control::security::auth_context::AuthContext;
+    use crate::control::security::identity::{
+        AuthMethod, AuthenticatedIdentity, DatabaseSet, Role,
+    };
+    use crate::control::security::predicate::{
+        CompareOp, PolicyMode, PredicateValue, RlsPredicate,
+    };
+    use crate::types::TenantId;
+    use nodedb_types::id::DatabaseId;
+
+    fn test_identity() -> AuthenticatedIdentity {
+        AuthenticatedIdentity {
+            user_id: 42,
+            username: "alice".into(),
+            tenant_id: TenantId::new(1),
+            auth_method: AuthMethod::ScramSha256,
+            roles: vec![Role::ReadWrite],
+            is_superuser: false,
+            default_database: None,
+            accessible_databases: DatabaseSet::Some(smallvec::smallvec![DatabaseId::DEFAULT]),
+        }
+    }
+
+    fn auth_with_database(db_id: DatabaseId) -> AuthContext {
+        let mut ctx = AuthContext::from_identity(&test_identity(), "s_test".into());
+        ctx.database_id = Some(db_id);
+        ctx
+    }
+
+    fn auth_without_database() -> AuthContext {
+        AuthContext::from_identity(&test_identity(), "s_test".into())
+    }
+
+    /// `$auth.database_id` resolves to the session's database id and the
+    /// predicate produces the correct ScanFilter value.
+    #[test]
+    fn database_id_auth_ref_substitutes_correctly() {
+        let db_id = DatabaseId::new(99);
+        let auth = auth_with_database(db_id);
+
+        let predicate = RlsPredicate::Compare {
+            field: "owning_db".into(),
+            op: CompareOp::Eq,
+            value: PredicateValue::AuthRef("database_id".into()),
+        };
+
+        let filters = substitute_to_scan_filters(&predicate, &auth)
+            .expect("should resolve when database_id is set");
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].field, "owning_db");
+        // The value should be the numeric database id.
+        match &filters[0].value {
+            nodedb_types::Value::Integer(n) => assert_eq!(*n as u64, db_id.as_u64()),
+            other => panic!("expected numeric value, got {:?}", other),
+        }
+    }
+
+    /// When `database_id` is `None` the predicate fails closed (returns None).
+    #[test]
+    fn database_id_auth_ref_fails_closed_when_none() {
+        let auth = auth_without_database();
+
+        let predicate = RlsPredicate::Compare {
+            field: "owning_db".into(),
+            op: CompareOp::Eq,
+            value: PredicateValue::AuthRef("database_id".into()),
+        };
+
+        // The substitution must return None so that RLS defaults to deny.
+        let result = substitute_to_scan_filters(&predicate, &auth);
+        assert!(
+            result.is_none(),
+            "predicate must fail closed when database_id is None"
+        );
+    }
+
+    /// `combine_policies` with a single permissive database_id policy produces
+    /// the correct ScanFilter when the session has a bound database.
+    #[test]
+    fn combine_database_id_policy_passes_when_set() {
+        let db_id = DatabaseId::new(77);
+        let auth = auth_with_database(db_id);
+
+        let predicate = RlsPredicate::Compare {
+            field: "db".into(),
+            op: CompareOp::Eq,
+            value: PredicateValue::AuthRef("database_id".into()),
+        };
+
+        let policies = [(predicate, PolicyMode::Permissive)];
+        let filters = combine_policies(&policies, &auth);
+        assert!(
+            filters.as_ref().is_some_and(|v| !v.is_empty()),
+            "should produce scan filters when database_id is bound"
+        );
+    }
+}
