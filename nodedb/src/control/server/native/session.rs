@@ -319,7 +319,7 @@ impl NativeSession {
                     Some(s) => s.as_str(),
                     None => return NativeResponse::error(seq, "42601", "missing 'sql' field"),
                 };
-                dispatch::handle_sql(&ctx, seq, sql).await
+                dispatch::handle_sql(&ctx, seq, sql, fields.sql_params.as_deref()).await
             }
 
             // Session parameters.
@@ -329,7 +329,7 @@ impl NativeSession {
                     None => {
                         // Also support SET via sql field: "SET key = value"
                         if let Some(sql) = &fields.sql {
-                            return dispatch::handle_sql(&ctx, seq, sql).await;
+                            return dispatch::handle_sql(&ctx, seq, sql, None).await;
                         }
                         return NativeResponse::error(seq, "42601", "missing 'key' field");
                     }
@@ -342,7 +342,7 @@ impl NativeSession {
                     Some(k) => k.as_str(),
                     None => {
                         if let Some(sql) = &fields.sql {
-                            return dispatch::handle_sql(&ctx, seq, sql).await;
+                            return dispatch::handle_sql(&ctx, seq, sql, None).await;
                         }
                         return NativeResponse::error(seq, "42601", "missing 'key' field");
                     }
@@ -368,7 +368,7 @@ impl NativeSession {
                     Some(s) => s.as_str(),
                     None => return NativeResponse::error(seq, "42601", "missing 'sql' field"),
                 };
-                dispatch::handle_sql(&ctx, seq, &format!("EXPLAIN {sql}")).await
+                dispatch::handle_sql(&ctx, seq, &format!("EXPLAIN {sql}"), None).await
             }
 
             // Direct Data Plane operations.
@@ -445,7 +445,7 @@ impl NativeSession {
                     Some(s) => s.as_str(),
                     None => return NativeResponse::error(seq, "42601", "missing 'sql' field"),
                 };
-                dispatch::handle_sql(&ctx, seq, sql).await
+                dispatch::handle_sql(&ctx, seq, sql, None).await
             }
 
             // Auth/Ping/Status handled above.

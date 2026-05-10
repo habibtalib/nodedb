@@ -18,7 +18,32 @@ use super::{DispatchCtx, error_to_native};
 use crate::control::server::broadcast::{broadcast_count_to_all_cores, broadcast_to_all_cores};
 
 /// Handle a SQL statement: transaction control, SET/SHOW, DDL, or DataFusion.
-pub(crate) async fn handle_sql(ctx: &DispatchCtx<'_>, seq: u64, sql: &str) -> NativeResponse {
+///
+/// `sql_params`, when present, carries the caller's bound values for
+/// `$1`, `$2`, … placeholders in `sql`. The handler renders each value
+/// as a SQL literal via `value_to_sql_literal` and substitutes the
+/// placeholders before any other dispatch — DDL routing, planner,
+/// transaction buffer — so every downstream sees one canonical SQL
+/// string with literal values in place of placeholders. `None` (the
+/// common case) routes the SQL through unmodified.
+pub(crate) async fn handle_sql(
+    ctx: &DispatchCtx<'_>,
+    seq: u64,
+    sql: &str,
+    sql_params: Option<&[Value]>,
+) -> NativeResponse {
+    // Inline bound parameters before any dispatch — keeps the
+    // substitution invariant in one place so the DDL router, planner,
+    // and transaction buffer all see the same SQL shape regardless of
+    // whether the caller sent params or inlined values directly.
+    let substituted: Option<String> = match sql_params {
+        Some(params) if !params.is_empty() => match inline_params(sql, params) {
+            Ok(s) => Some(s),
+            Err(msg) => return NativeResponse::error(seq, "42P02", msg),
+        },
+        _ => None,
+    };
+    let sql = substituted.as_deref().unwrap_or(sql);
     let sql_trimmed = sql.trim();
     let upper = sql_trimmed.to_uppercase();
 
@@ -428,6 +453,58 @@ async fn handle_explain(ctx: &DispatchCtx<'_>, seq: u64, sql: &str) -> NativeRes
             }
         }
         Err(e) => error_to_native(seq, &e),
+    }
+}
+
+// ─── Bound parameter substitution ────────────────────────────────────
+//
+// The native protocol carries bound parameters in `TextFields::sql_params`
+// as a zerompk-MessagePack `Vec<Value>`. Inlining them into the SQL
+// string before any dispatch is the simplest correct shape: it keeps
+// the planner, DDL router, and transaction buffer unaware of the
+// distinction, and matches what `nodedb_sql::parser::preprocess`
+// expects (a single, fully-resolved SQL string).
+//
+// Errors here surface as `42P02` (`undefined_parameter`) so the client
+// gets a typed SQLSTATE rather than a generic `XX000` opaque failure.
+
+/// Substitute `$N` placeholders in `sql` with the rendered SQL literal
+/// form of each value. Returns the new SQL or a typed error message
+/// suitable for `42P02`.
+fn inline_params(sql: &str, params: &[Value]) -> Result<String, String> {
+    // Render every value first so a render failure aborts the whole
+    // substitution rather than partially rewriting placeholders — a
+    // partially-rewritten SQL would re-create the silent-wrong pattern
+    // the trait contract guards against.
+    let literals: Vec<String> = params
+        .iter()
+        .map(value_to_sql_literal)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(
+        crate::control::server::pgwire::handler::prepared::sql_placeholder::rewrite_sql_placeholders(
+            sql, &literals,
+        ),
+    )
+}
+
+/// Render a `nodedb_types::Value` as a SQL literal usable in
+/// expression position.
+///
+/// Strings are single-quote escaped per `standard_conforming_strings=on`;
+/// numeric / boolean / null values are formatted directly. Variants
+/// that have no canonical SQL literal form (objects, arrays, vectors,
+/// binary, datetime) return `Err` rather than producing a malformed
+/// statement — the caller surfaces this as `42P02`.
+fn value_to_sql_literal(v: &Value) -> Result<String, String> {
+    match v {
+        Value::Null => Ok("NULL".into()),
+        Value::Bool(b) => Ok(if *b { "TRUE".into() } else { "FALSE".into() }),
+        Value::Integer(i) => Ok(i.to_string()),
+        Value::Float(f) => Ok(f.to_string()),
+        Value::String(s) => Ok(format!("'{}'", s.replace('\'', "''"))),
+        other => Err(format!(
+            "sql_params value has no SQL literal form: {other:?}"
+        )),
     }
 }
 
