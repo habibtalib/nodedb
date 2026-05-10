@@ -54,7 +54,10 @@ pub fn make_mirror_descriptor(
         name: name.to_string(),
         status: match &status {
             MirrorStatus::Promoted => DatabaseStatus::Active,
-            _ => DatabaseStatus::Mirroring,
+            MirrorStatus::Bootstrapping { .. }
+            | MirrorStatus::Following
+            | MirrorStatus::Degraded { .. }
+            | MirrorStatus::Disconnected => DatabaseStatus::Mirroring,
         },
         created_at_lsn: 0,
         quota_ref: 0,
