@@ -297,6 +297,32 @@ pub enum Error {
     #[error("session cap ({cap}) exceeded — rejecting new login")]
     SessionCapExceeded { cap: usize },
 
+    /// Session closed because the per-database idle timeout elapsed.
+    #[error("session closed: idle timeout exceeded")]
+    SessionIdleTimeout,
+
+    /// Session closed because the OIDC token expired.
+    #[error("session closed: OIDC token expired")]
+    SessionTokenExpired,
+
+    /// Session terminated by an administrator via `KILL SESSION` DDL.
+    #[error("session terminated by administrator")]
+    SessionKilledByAdmin,
+
+    /// Session closed because the associated user was dropped.
+    #[error("session closed: user account was dropped")]
+    SessionUserDropped,
+
+    /// OIDC bearer token presented but no matching provider is configured.
+    #[error(
+        "OIDC token rejected: unknown provider — no configured provider matches 'iss' claim '{iss}'"
+    )]
+    OidcUnknownProvider { iss: String },
+
+    /// OIDC bearer token rejected: claim mapping produced no default database.
+    #[error("OIDC token rejected: claim mapping produced no default database for subject '{sub}'")]
+    OidcNoDefaultDatabase { sub: String },
+
     /// Vector insert or index rejected: the vector dimension exceeds the
     /// tenant's `max_vector_dim` quota.
     #[error("vector dimension {dim} exceeds tenant quota max_vector_dim={limit}")]

@@ -75,7 +75,7 @@ pub struct Session {
     /// boundary.
     identity_version: u64,
     /// Kill signal from `SessionRegistry`.  Set after successful auth.
-    kill_rx: Option<tokio::sync::watch::Receiver<bool>>,
+    kill_rx: Option<tokio::sync::watch::Receiver<crate::control::security::sessions::KillReason>>,
     /// Database bound to this session. Set once at first authenticated request;
     /// immutable for the session lifetime (a `USE DATABASE` issues a session reset).
     /// Resolution order: explicit (connection-string/handshake) > user default >
@@ -153,9 +153,13 @@ impl Session {
 
     /// Register the session in the registry after authentication and store the
     /// kill receiver.  No-op if the user has `user_id == 0` (trust mode fallback).
+    ///
+    /// `token_expiry_ms` is `Some(exp_epoch_ms)` for OIDC/JWT sessions so the
+    /// idle-sweep loop can enforce token lifetime independently of the TCP session.
     fn register_session(
         &mut self,
         identity: &crate::control::security::identity::AuthenticatedIdentity,
+        token_expiry_ms: Option<u64>,
     ) {
         use crate::control::security::sessions::SessionParams;
 
@@ -170,6 +174,7 @@ impl Session {
             crate::control::security::identity::AuthMethod::ApiKey => "api_key",
             crate::control::security::identity::AuthMethod::Certificate => "certificate",
             crate::control::security::identity::AuthMethod::Trust => "trust",
+            crate::control::security::identity::AuthMethod::OidcBearer => "oidc_bearer",
         };
 
         let credential_version = self.state.credentials.current_version(identity.user_id);
@@ -184,6 +189,8 @@ impl Session {
             auth_method: auth_method.to_string(),
             tenant_id: identity.tenant_id.as_u64(),
             credential_version,
+            current_database: None,
+            token_expiry_ms,
         };
 
         match self
@@ -208,7 +215,11 @@ impl Session {
     /// Returns `true` if the session should terminate immediately.
     fn is_killed(&mut self) -> bool {
         match self.kill_rx.as_mut() {
-            Some(rx) => rx.has_changed().unwrap_or(false) && *rx.borrow_and_update(),
+            Some(rx) => {
+                rx.has_changed().unwrap_or(false)
+                    && *rx.borrow_and_update()
+                        != crate::control::security::sessions::KillReason::Alive
+            }
             None => false,
         }
     }
@@ -423,7 +434,18 @@ impl Session {
                 identity.tenant_id.as_u64(),
                 warning_field
             );
-            self.register_session(&identity);
+
+            // For OIDC bearer sessions, decode the JWT exp claim and store it
+            // so the idle-sweep loop can enforce token lifetime.
+            let token_expiry_ms = if identity.auth_method
+                == crate::control::security::identity::AuthMethod::OidcBearer
+            {
+                body["token"].as_str().and_then(extract_jwt_exp_ms)
+            } else {
+                None
+            };
+
+            self.register_session(&identity, token_expiry_ms);
             self.identity = Some(identity);
             return Ok(resp.into_bytes());
         }
@@ -432,7 +454,7 @@ impl Session {
         if self.identity.is_none() {
             if self.auth_mode == crate::config::auth::AuthMode::Trust {
                 let trust_id = super::session_auth::trust_identity(&self.state, "anonymous");
-                self.register_session(&trust_id);
+                self.register_session(&trust_id, None);
                 self.identity = Some(trust_id);
             } else {
                 return Err(crate::Error::RejectedAuthz {
@@ -707,6 +729,23 @@ impl Session {
         );
 
         Ok(resp_json.into_bytes())
+    }
+}
+
+/// Decode the `exp` claim from a JWT payload (no signature verification).
+///
+/// Returns `Some(exp_ms)` where `exp_ms = exp * 1000` (milliseconds since epoch),
+/// or `None` if the token is malformed or the exp claim is absent/zero.
+fn extract_jwt_exp_ms(token: &str) -> Option<u64> {
+    let parts: Vec<&str> = token.splitn(3, '.').collect();
+    let payload_b64 = parts.get(1)?;
+    let bytes = crate::control::security::util::base64_url_decode(payload_b64)?;
+    let claims: serde_json::Value = sonic_rs::from_slice(&bytes).ok()?;
+    let exp = claims["exp"].as_u64()?;
+    if exp == 0 {
+        None
+    } else {
+        Some(exp.saturating_mul(1000))
     }
 }
 

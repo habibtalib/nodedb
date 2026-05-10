@@ -359,9 +359,33 @@ pub async fn authenticate(
                 .map(|id| (id, None))
         }
 
+        "oidc_bearer" => {
+            let token = body["token"]
+                .as_str()
+                .ok_or_else(|| crate::Error::BadRequest {
+                    detail: "missing 'token' for oidc_bearer auth".into(),
+                })?;
+
+            let identity =
+                crate::control::security::oidc::verify_bearer_token(state, token).await?;
+
+            state.audit_record(
+                AuditEvent::AuthSuccess,
+                Some(identity.tenant_id),
+                peer_addr,
+                &format!(
+                    "OIDC bearer login: sub={} method=oidc_bearer",
+                    identity.username
+                ),
+            );
+            state.auth_metrics.record_auth_success("oidc_bearer");
+
+            Ok((identity, None))
+        }
+
         other => Err(crate::Error::BadRequest {
             detail: format!(
-                "unknown auth method: '{other}'. Use 'trust', 'password', or 'api_key'."
+                "unknown auth method: '{other}'. Use 'trust', 'password', 'api_key', or 'oidc_bearer'."
             ),
         }),
     }

@@ -12,3 +12,14 @@ pub fn now_secs() -> u64 {
         .unwrap_or_default()
         .as_secs()
 }
+
+/// Current wall-clock time in milliseconds since Unix epoch.
+///
+/// Returns 0 on clock failure (extremely rare, only on broken systems).
+/// Used for OIDC token expiry and idle-timeout deadline arithmetic.
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}

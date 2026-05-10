@@ -11,12 +11,31 @@ use crate::control::state::SharedState;
 ///
 /// Returns `(identity, warning)` — warning is non-empty when the account
 /// is in a password grace period or `must_change_password` is set.
+///
+/// `OidcBearer` tokens are validated directly against the OIDC provider catalog
+/// (not the `JwksRegistry` provider list), enabling runtime `CREATE OIDC PROVIDER`
+/// without a server restart.
 pub(crate) async fn handle_auth(
     state: &SharedState,
     auth_mode: &crate::config::auth::AuthMode,
     auth: &ProtoAuth,
     peer_addr: &str,
 ) -> crate::Result<(AuthenticatedIdentity, Option<String>)> {
+    if let ProtoAuth::OidcBearer { token, .. } = auth {
+        let identity = crate::control::security::oidc::verify_bearer_token(state, token).await?;
+        state.audit_record(
+            crate::control::security::audit::AuditEvent::AuthSuccess,
+            Some(identity.tenant_id),
+            peer_addr,
+            &format!(
+                "OIDC bearer login: sub={} method=oidc_bearer",
+                identity.username
+            ),
+        );
+        state.auth_metrics.record_auth_success("oidc_bearer");
+        return Ok((identity, None));
+    }
+
     let body = match auth {
         ProtoAuth::Trust { username } => {
             serde_json::json!({ "method": "trust", "username": username })

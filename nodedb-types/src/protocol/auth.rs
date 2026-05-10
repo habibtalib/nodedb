@@ -20,6 +20,15 @@ pub enum AuthMethod {
     Password { username: String, password: String },
     #[serde(rename = "api_key")]
     ApiKey { token: String },
+    /// OIDC bearer token (native / HTTP clients only; NOT pgwire).
+    #[serde(rename = "oidc_bearer")]
+    OidcBearer {
+        token: String,
+        /// Optional provider name hint. When absent the provider is resolved by
+        /// the `iss` claim in the token.
+        #[serde(default)]
+        provider: Option<String>,
+    },
 }
 
 fn default_username() -> String {

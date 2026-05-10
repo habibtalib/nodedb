@@ -268,6 +268,25 @@ impl From<Error> for NodeDbError {
                 source_cluster,
                 ..
             } => NodeDbError::stale_read_not_leader(database, source_cluster),
+
+            Error::SessionIdleTimeout => {
+                NodeDbError::bad_request("session terminated: idle timeout exceeded".to_owned())
+            }
+            Error::SessionTokenExpired => {
+                NodeDbError::bad_request("session terminated: OIDC token expired".to_owned())
+            }
+            Error::SessionKilledByAdmin => {
+                NodeDbError::bad_request("session terminated by administrator".to_owned())
+            }
+            Error::SessionUserDropped => {
+                NodeDbError::bad_request("session terminated: user account dropped".to_owned())
+            }
+            Error::OidcUnknownProvider { iss } => {
+                NodeDbError::bad_request(format!("OIDC: no provider registered for issuer '{iss}'"))
+            }
+            Error::OidcNoDefaultDatabase { sub } => NodeDbError::bad_request(format!(
+                "OIDC: no default database resolved for sub '{sub}'"
+            )),
         }
     }
 }

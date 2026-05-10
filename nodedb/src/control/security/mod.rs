@@ -25,6 +25,7 @@ pub mod keystore;
 pub mod metering;
 pub mod mtls;
 pub mod observability;
+pub mod oidc;
 pub mod org;
 pub mod permission;
 pub mod permission_tree;

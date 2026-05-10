@@ -109,6 +109,8 @@ pub enum AuthMethod {
     Certificate,
     /// Trust mode (no authentication — dev only).
     Trust,
+    /// OIDC bearer token (native / HTTP clients only; NOT pgwire).
+    OidcBearer,
 }
 
 #[cfg(test)]

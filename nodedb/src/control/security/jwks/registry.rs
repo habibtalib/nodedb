@@ -2,6 +2,12 @@
 
 //! Multi-provider JWKS registry: routes JWT tokens to the correct provider,
 //! fetches keys on demand, and validates signatures.
+//!
+//! All three public entry points (`validate`, `validate_with_provider`,
+//! `validate_with_catalog_provider`) share the same token-decoding,
+//! signature-verification, and time-claim-validation pipeline; they differ
+//! only in how the verification key is resolved. The shared pipeline lives
+//! in [`Self::decode_unverified`] and [`Self::verify_signature_and_time`].
 
 use std::sync::Arc;
 
@@ -14,7 +20,7 @@ use crate::control::security::util::base64_url_decode;
 use crate::types::TenantId;
 
 use super::cache::JwksCache;
-use super::key::verify_signature;
+use super::key::{VerificationKey, verify_signature};
 
 /// Multi-provider JWKS registry.
 ///
@@ -27,6 +33,18 @@ pub struct JwksRegistry {
     policy: Arc<super::url::JwksPolicy>,
     /// Background refresh task handle.
     _refresh_handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+/// JWT broken into its three base64url-encoded parts plus the decoded
+/// header and payload. Produced by [`JwksRegistry::decode_unverified`].
+///
+/// The `parts` slices borrow from the original token string and are reused
+/// when reconstructing the signing input for signature verification — no
+/// re-split, no re-decode.
+struct DecodedToken<'a> {
+    parts: [&'a str; 3],
+    header: JwtHeader,
+    claims: JwtClaims,
 }
 
 impl JwksRegistry {
@@ -76,128 +94,102 @@ impl JwksRegistry {
         }
     }
 
-    /// Validate a JWT token using JWKS.
+    /// Validate a JWT token using JWKS, routing by the `iss` claim.
     ///
     /// Flow:
-    /// 1. Decode header (unverified) → extract `kid` and `alg`.
-    /// 2. Decode payload (unverified) → extract `iss`.
-    /// 3. Match `iss` to a provider → find cached key by `kid`.
-    /// 4. If `kid` not in cache → on-demand re-fetch (rate-limited).
-    /// 5. Verify signature using the matched key.
-    /// 6. Validate `exp`, `nbf`, `iss`, `aud`.
-    /// 7. Return `AuthenticatedIdentity`.
+    /// 1. Decode header + payload (no signature) via [`Self::decode_unverified`].
+    /// 2. Match `iss` to a configured provider via [`Self::find_provider`].
+    /// 3. Resolve the verification key (cache lookup + on-demand re-fetch).
+    /// 4. Verify signature, `exp`, `nbf` via [`Self::verify_signature_and_time`].
+    /// 5. Validate `iss`, `aud` against the matched provider.
+    /// 6. Build and return an `AuthenticatedIdentity`.
     pub async fn validate(&self, token: &str) -> Result<AuthenticatedIdentity, JwtError> {
-        let parts: Vec<&str> = token.split('.').collect();
-        if parts.len() != 3 {
-            return Err(JwtError::MalformedToken);
-        }
-
-        // 1. Decode header.
-        let header = decode_jwt_header(parts[0])?;
-        let kid = header.kid.as_deref().unwrap_or("");
-        let alg = &header.alg;
-
-        // Check algorithm is allowed.
-        if alg == "none" {
-            return Err(JwtError::UnsupportedAlgorithm);
-        }
-        if !self.config.allowed_algorithms.is_empty()
-            && !self.config.allowed_algorithms.iter().any(|a| a == alg)
-        {
-            return Err(JwtError::UnsupportedAlgorithm);
-        }
-
-        // 2. Decode payload (unverified, for issuer routing).
-        let payload_bytes = base64_url_decode(parts[1]).ok_or(JwtError::DecodingError)?;
-        let claims: JwtClaims =
-            sonic_rs::from_slice(&payload_bytes).map_err(|_| JwtError::InvalidClaims)?;
-
-        // 3. Find provider by issuer.
-        let provider = self.find_provider(&claims.iss)?;
-
-        // 4. Look up key by kid.
-        let key = match self.cache.get(&provider.name, kid) {
-            Some(k) => k,
-            None => {
-                // Unknown kid → on-demand re-fetch (rate-limited).
-                self.refetch_for_unknown_kid(provider, kid).await?
-            }
-        };
-
-        // Verify algorithm matches key.
-        if key.algorithm != *alg {
-            // HMAC-when-RSA-expected attack prevention.
-            warn!(
-                expected = %key.algorithm,
-                actual = %alg,
-                kid = %kid,
-                "JWT algorithm mismatch — possible algorithm confusion attack"
-            );
-            return Err(JwtError::UnsupportedAlgorithm);
-        }
-
-        // 5. Verify signature.
-        let signing_input = format!("{}.{}", parts[0], parts[1]);
-        let signature = base64_url_decode(parts[2]).ok_or(JwtError::DecodingError)?;
-
-        if !verify_signature(&key, signing_input.as_bytes(), &signature) {
-            return Err(JwtError::InvalidSignature);
-        }
-
-        // 6. Validate time claims.
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        if claims.exp > 0 && now > claims.exp + self.config.clock_skew_secs {
-            return Err(JwtError::Expired);
-        }
-        if claims.nbf > 0 && now + self.config.clock_skew_secs < claims.nbf {
-            return Err(JwtError::NotYetValid);
-        }
+        let decoded = self.decode_unverified(token)?;
+        let provider = self.find_provider(&decoded.claims.iss)?;
+        let key = self.resolve_key(provider, &decoded).await?;
+        self.verify_signature_and_time(&decoded, &key, &provider.name)?;
 
         // Validate issuer.
-        if !provider.issuer.is_empty() && claims.iss != provider.issuer {
+        if !provider.issuer.is_empty() && decoded.claims.iss != provider.issuer {
             return Err(JwtError::InvalidIssuer);
         }
-
         // Validate audience.
-        if !provider.audience.is_empty() && claims.aud != provider.audience {
+        if !provider.audience.is_empty() && decoded.claims.aud != provider.audience {
             return Err(JwtError::InvalidAudience);
         }
 
-        // 7. Build identity.
-        let roles: Vec<Role> = claims
-            .roles
-            .iter()
-            .map(|r| r.parse::<Role>().unwrap_or(Role::Custom(r.clone())))
-            .collect();
-
-        let username = if claims.sub.is_empty() {
-            format!("jwt_user_{}", claims.user_id)
-        } else {
-            claims.sub.clone()
-        };
+        let claims = decoded.claims;
+        let kid = decoded.header.kid.as_deref().unwrap_or("");
+        let identity = build_identity(&claims);
 
         debug!(
-            username = %username,
+            username = %identity.username,
             tenant_id = claims.tenant_id,
             provider = %provider.name,
             kid = %kid,
             "JWKS JWT validated"
         );
 
-        Ok(AuthenticatedIdentity {
-            user_id: claims.user_id,
-            username,
-            tenant_id: TenantId::new(claims.tenant_id),
-            auth_method: AuthMethod::ApiKey,
-            roles,
-            is_superuser: claims.is_superuser,
-            default_database: None,
-            accessible_databases: AuthenticatedIdentity::default_database_set(claims.is_superuser),
-        })
+        Ok(identity)
+    }
+
+    /// Validate a JWT token using a specific named static provider.
+    ///
+    /// Like `validate`, but skips the `iss`-based provider lookup — the caller
+    /// supplies the resolved provider name (from the OIDC provider catalog).
+    /// Returns the decoded, verified claims on success.
+    pub async fn validate_with_provider(
+        &self,
+        provider_name: &str,
+        token: &str,
+    ) -> Result<JwtClaims, JwtError> {
+        let decoded = self.decode_unverified(token)?;
+        let provider = self
+            .providers
+            .iter()
+            .find(|p| p.name == provider_name)
+            .ok_or(JwtError::InvalidIssuer)?;
+        let key = self.resolve_key(provider, &decoded).await?;
+        self.verify_signature_and_time(&decoded, &key, provider_name)?;
+
+        debug!(
+            provider = %provider_name,
+            kid = %decoded.header.kid.as_deref().unwrap_or(""),
+            sub = %decoded.claims.sub,
+            "JWKS JWT validated via validate_with_provider"
+        );
+        Ok(decoded.claims)
+    }
+
+    /// Validate a JWT using a named catalog provider whose JWKS endpoint is
+    /// provided dynamically (catalog OIDC providers not in the static config).
+    ///
+    /// The provider name is used as the cache key. The `jwks_uri` is used for
+    /// on-demand fetching when the key is not already cached.
+    pub async fn validate_with_catalog_provider(
+        &self,
+        provider_name: &str,
+        jwks_uri: &str,
+        token: &str,
+    ) -> Result<JwtClaims, JwtError> {
+        let decoded = self.decode_unverified(token)?;
+        let kid = decoded.header.kid.as_deref().unwrap_or("");
+        let key = match self.cache.get(provider_name, kid) {
+            Some(k) => k,
+            None => {
+                self.refetch_catalog_key(provider_name, jwks_uri, kid)
+                    .await?
+            }
+        };
+        self.verify_signature_and_time(&decoded, &key, provider_name)?;
+
+        debug!(
+            provider = %provider_name,
+            kid = %kid,
+            sub = %decoded.claims.sub,
+            "JWKS JWT validated via catalog provider"
+        );
+        Ok(decoded.claims)
     }
 
     /// Decode JWT claims without signature verification (for AuthContext building).
@@ -213,6 +205,100 @@ impl JwksRegistry {
     /// Check if any providers are configured.
     pub fn is_configured(&self) -> bool {
         !self.providers.is_empty()
+    }
+
+    // ── Internal pipeline ───────────────────────────────────────────────
+
+    /// Split the token, decode the header + payload, and check that the
+    /// algorithm is non-`none` and on the allow-list. Does NOT verify the
+    /// signature, the `iss`, the `aud`, or the time claims.
+    fn decode_unverified<'a>(&self, token: &'a str) -> Result<DecodedToken<'a>, JwtError> {
+        let raw: Vec<&str> = token.split('.').collect();
+        if raw.len() != 3 {
+            return Err(JwtError::MalformedToken);
+        }
+        let parts = [raw[0], raw[1], raw[2]];
+
+        let header = decode_jwt_header(parts[0])?;
+
+        // Check algorithm.
+        if header.alg == "none" {
+            return Err(JwtError::UnsupportedAlgorithm);
+        }
+        if !self.config.allowed_algorithms.is_empty()
+            && !self
+                .config
+                .allowed_algorithms
+                .iter()
+                .any(|a| a == &header.alg)
+        {
+            return Err(JwtError::UnsupportedAlgorithm);
+        }
+
+        let payload_bytes = base64_url_decode(parts[1]).ok_or(JwtError::DecodingError)?;
+        let claims: JwtClaims =
+            sonic_rs::from_slice(&payload_bytes).map_err(|_| JwtError::InvalidClaims)?;
+
+        Ok(DecodedToken {
+            parts,
+            header,
+            claims,
+        })
+    }
+
+    /// Verify signature + `exp` + `nbf`. Assumes the algorithm has already
+    /// been allow-listed by [`Self::decode_unverified`]. The `provider_name`
+    /// is used only for log context on rejection.
+    fn verify_signature_and_time(
+        &self,
+        decoded: &DecodedToken<'_>,
+        key: &VerificationKey,
+        provider_name: &str,
+    ) -> Result<(), JwtError> {
+        let kid = decoded.header.kid.as_deref().unwrap_or("");
+        if key.algorithm != decoded.header.alg {
+            // HMAC-when-RSA-expected attack prevention.
+            warn!(
+                expected = %key.algorithm,
+                actual = %decoded.header.alg,
+                kid = %kid,
+                provider = %provider_name,
+                "JWT algorithm mismatch — possible algorithm confusion attack"
+            );
+            return Err(JwtError::UnsupportedAlgorithm);
+        }
+
+        let signing_input = format!("{}.{}", decoded.parts[0], decoded.parts[1]);
+        let signature = base64_url_decode(decoded.parts[2]).ok_or(JwtError::DecodingError)?;
+        if !verify_signature(key, signing_input.as_bytes(), &signature) {
+            return Err(JwtError::InvalidSignature);
+        }
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        if decoded.claims.exp > 0 && now > decoded.claims.exp + self.config.clock_skew_secs {
+            return Err(JwtError::Expired);
+        }
+        if decoded.claims.nbf > 0 && now + self.config.clock_skew_secs < decoded.claims.nbf {
+            return Err(JwtError::NotYetValid);
+        }
+        Ok(())
+    }
+
+    /// Resolve the verification key for a static-config provider, refetching
+    /// from the provider's JWKS URL on cache miss (rate-limited).
+    async fn resolve_key(
+        &self,
+        provider: &JwtProviderConfig,
+        decoded: &DecodedToken<'_>,
+    ) -> Result<VerificationKey, JwtError> {
+        let kid = decoded.header.kid.as_deref().unwrap_or("");
+        match self.cache.get(&provider.name, kid) {
+            Some(k) => Ok(k),
+            None => self.refetch_for_unknown_kid(provider, kid).await,
+        }
     }
 
     /// Find the provider matching a token's issuer.
@@ -232,12 +318,12 @@ impl JwksRegistry {
             .ok_or(JwtError::InvalidIssuer)
     }
 
-    /// On-demand re-fetch for unknown `kid`.
+    /// On-demand re-fetch for unknown `kid` against a static-config provider.
     async fn refetch_for_unknown_kid(
         &self,
         provider: &JwtProviderConfig,
         kid: &str,
-    ) -> Result<super::key::VerificationKey, JwtError> {
+    ) -> Result<VerificationKey, JwtError> {
         if !self
             .cache
             .can_refetch(&provider.name, self.config.jwks_min_refetch_secs)
@@ -262,6 +348,71 @@ impl JwksRegistry {
         self.cache
             .get(&provider.name, kid)
             .ok_or(JwtError::InvalidSignature)
+    }
+
+    /// On-demand re-fetch for a catalog provider whose JWKS URI is supplied
+    /// dynamically (not part of static config).
+    async fn refetch_catalog_key(
+        &self,
+        provider_name: &str,
+        jwks_uri: &str,
+        kid: &str,
+    ) -> Result<VerificationKey, JwtError> {
+        if !self
+            .cache
+            .can_refetch(provider_name, self.config.jwks_min_refetch_secs)
+        {
+            warn!(
+                provider = %provider_name,
+                kid = %kid,
+                "unknown kid — re-fetch rate-limited (catalog provider)"
+            );
+            return Err(JwtError::InvalidSignature);
+        }
+        self.cache.mark_refetch_attempted(provider_name);
+        super::fetch::fetch_and_cache(provider_name, jwks_uri, &self.cache, &self.policy).await;
+        self.cache
+            .get(provider_name, kid)
+            .ok_or(JwtError::InvalidSignature)
+    }
+}
+
+/// Build an `AuthenticatedIdentity` from a verified static-provider JWT.
+///
+/// Static-provider tokens carry a `tenant_id` numeric claim and a `roles`
+/// list parsed by [`Role::from_str`]. The catalog-provider path uses
+/// [`crate::control::security::oidc`] instead, which applies stored
+/// claim-mapping rules.
+fn build_identity(claims: &JwtClaims) -> AuthenticatedIdentity {
+    let roles: Vec<Role> = claims
+        .roles
+        .iter()
+        .map(|r| parse_role_infallible(r))
+        .collect();
+    let username = if claims.sub.is_empty() {
+        format!("jwt_user_{}", claims.user_id)
+    } else {
+        claims.sub.clone()
+    };
+    AuthenticatedIdentity {
+        user_id: claims.user_id,
+        username,
+        tenant_id: TenantId::new(claims.tenant_id),
+        auth_method: AuthMethod::OidcBearer,
+        roles,
+        is_superuser: claims.is_superuser,
+        default_database: None,
+        accessible_databases: AuthenticatedIdentity::default_database_set(claims.is_superuser),
+    }
+}
+
+/// Parse a role string. `Role::from_str` is infallible — unknown names land
+/// in `Role::Custom` — so this destructures the `Result` without `unwrap`
+/// and without a phantom fallback that the type system says cannot fire.
+fn parse_role_infallible(s: &str) -> Role {
+    match s.parse::<Role>() {
+        Ok(role) => role,
+        Err(never) => match never {},
     }
 }
 
