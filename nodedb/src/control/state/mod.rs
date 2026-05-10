@@ -8,4 +8,7 @@ mod methods;
 mod methods_audit;
 mod methods_lease;
 
+pub mod audit_dml_cache;
+pub mod collection_to_database;
+
 pub use self::fields::SharedState;

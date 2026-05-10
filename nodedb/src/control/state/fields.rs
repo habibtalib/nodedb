@@ -361,6 +361,12 @@ pub struct SharedState {
     pub quarantine_registry: Arc<crate::storage::quarantine::QuarantineRegistry>,
     /// Per-database and per-tenant connection admission semaphores.
     pub admission_registry: Arc<crate::control::server::admission::AdmissionRegistry>,
+    /// Per-database DML audit mode cache.
+    /// Updated by `ALTER DATABASE SET AUDIT_DML`; consulted by the Event Plane consumer.
+    pub audit_dml_cache: Arc<super::audit_dml_cache::AuditDmlCache>,
+    /// Collection-to-database reverse mapping for DML audit routing.
+    /// Updated on `CREATE COLLECTION` / `DROP COLLECTION`.
+    pub collection_to_database: Arc<super::collection_to_database::CollectionToDatabase>,
     /// LSN ↔ wall-clock millisecond interpolation map.
     ///
     /// Populated from WAL anchor records (`RecordType::LsnMsAnchor`) as they

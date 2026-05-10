@@ -375,6 +375,9 @@ async fn process_normal_batch(
             continue;
         }
 
+        // DML audit: record to audit log before dispatching triggers.
+        super::audit_dml::audit_dml_event(event, shared_state);
+
         if let Some(batch) =
             accumulate_data_event(event, shared_state, &mut trigger_collector, cdc_router)
         {
@@ -442,6 +445,8 @@ mod tests {
             old_value: None,
             system_time_ms: None,
             valid_time_ms: None,
+            user_id: None,
+            statement_digest: None,
         }
     }
 

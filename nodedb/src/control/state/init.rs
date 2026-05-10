@@ -354,6 +354,10 @@ impl SharedState {
                 crate::control::server::admission::AdmissionRegistry::new(),
             ),
             lsn_ms_map: Arc::new(Mutex::new(nodedb_types::temporal::LsnMsMap::new())),
+            audit_dml_cache: Arc::new(crate::control::state::audit_dml_cache::AuditDmlCache::new()),
+            collection_to_database: Arc::new(
+                crate::control::state::collection_to_database::CollectionToDatabase::new(),
+            ),
             materialize_freeze: crate::control::clone::MaterializeFreezeRegistry::new(),
             shutdown: Arc::clone(&shutdown),
             loop_registry: Arc::clone(&loop_registry),

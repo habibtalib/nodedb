@@ -446,6 +446,10 @@ impl SharedState {
             admission_registry: Arc::new(
                 crate::control::server::admission::AdmissionRegistry::new(),
             ),
+            audit_dml_cache: Arc::new(crate::control::state::audit_dml_cache::AuditDmlCache::new()),
+            collection_to_database: Arc::new(
+                crate::control::state::collection_to_database::CollectionToDatabase::new(),
+            ),
             lsn_ms_map: Arc::new(Mutex::new(nodedb_types::temporal::LsnMsMap::new())),
             materialize_freeze: crate::control::clone::MaterializeFreezeRegistry::new(),
             shutdown: Arc::clone(&shutdown),
@@ -454,6 +458,21 @@ impl SharedState {
         });
 
         Self::wire_session_handle_audit(&state);
+
+        // Populate per-database DML audit cache and collection→database reverse
+        // map from the catalog so the Event Plane consumer has accurate data
+        // from the first write after startup.
+        if let Some(catalog) = state.credentials.catalog() {
+            if let Err(e) = state.audit_dml_cache.load_from_catalog(catalog) {
+                tracing::warn!(error = %e, "boot: failed to populate audit_dml_cache from catalog");
+            }
+            if let Err(e) = state.collection_to_database.load_from_catalog(catalog) {
+                tracing::warn!(
+                    error = %e,
+                    "boot: failed to populate collection_to_database cache from catalog"
+                );
+            }
+        }
 
         // Spawn the array GC background task. The handle is stored by the caller
         // (main.rs) which has mutable access at that point via Arc::get_mut.
