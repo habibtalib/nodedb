@@ -108,6 +108,7 @@ pub fn handle_create_database(
         parent_clone: None,
         mirror_origin: None,
         audit_dml: nodedb_types::AuditDmlMode::None,
+        idle_session_timeout_secs: 0,
     };
 
     // Propose through metadata Raft group 0 so all replicas apply the

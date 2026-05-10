@@ -113,6 +113,7 @@ pub fn handle_mirror_database(
         parent_clone: None,
         mirror_origin: Some(mirror_origin),
         audit_dml: nodedb_types::AuditDmlMode::None,
+        idle_session_timeout_secs: 0,
     };
 
     // Propose through Raft; fall back to direct write in single-node mode.

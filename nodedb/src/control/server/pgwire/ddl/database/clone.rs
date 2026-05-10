@@ -170,6 +170,7 @@ pub fn handle_clone_database(
         }),
         mirror_origin: None,
         audit_dml: nodedb_types::AuditDmlMode::None,
+        idle_session_timeout_secs: 0,
     };
 
     // ── Propose via Raft ──────────────────────────────────────────────────────
