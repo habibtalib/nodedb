@@ -26,6 +26,27 @@ pub fn make_state() -> Arc<SharedState> {
     SharedState::new(dispatcher, wal)
 }
 
+/// Create a `SharedState` whose `CredentialStore` is backed by a real redb
+/// catalog and the built-in `default` database is bootstrapped. Use this for
+/// DDL tests that resolve database names (e.g. `FOR DATABASE default`).
+pub fn make_state_with_catalog() -> Arc<SharedState> {
+    let dir = tempfile::tempdir().unwrap();
+    let wal_path = dir.path().join("test.wal");
+    let wal = Arc::new(WalManager::open_for_testing(&wal_path).unwrap());
+    let catalog_path = dir.path().join("system.redb");
+    let credentials = Arc::new(
+        nodedb::control::security::credential::store::CredentialStore::open(&catalog_path).unwrap(),
+    );
+    if let Some(cat) = credentials.catalog() {
+        let _ = cat.bootstrap_default_database();
+    }
+    let (dispatcher, _data_sides) = Dispatcher::new(1, 64);
+    SharedState::new_with_credentials(dispatcher, wal, credentials)
+    // `dir` drops here. On Linux, file handles held by `wal` and the redb
+    // catalog keep both files readable for the test's lifetime even after
+    // the directory entry is removed (open-then-unlink semantics).
+}
+
 /// Superuser identity for DDL tests.
 pub fn superuser() -> AuthenticatedIdentity {
     AuthenticatedIdentity {

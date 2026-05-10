@@ -66,6 +66,7 @@ pub fn make_mirror_descriptor(
             last_applied: Lsn::new(last_applied_lsn),
             status,
         }),
+        audit_dml: nodedb_types::AuditDmlMode::None,
     }
 }
 

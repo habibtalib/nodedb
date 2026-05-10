@@ -530,6 +530,8 @@ fn startup_replay_recovers_all_wal_data() {
                 idempotency_key: None,
                 event_source: nodedb::event::EventSource::User,
                 user_roles: Vec::new(),
+                user_id: None,
+                statement_digest: None,
             },
         })
         .unwrap();

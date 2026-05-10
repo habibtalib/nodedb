@@ -51,6 +51,7 @@ fn mirror_full_lifecycle() {
                 bytes_total: 0,
             },
         }),
+        audit_dml: nodedb_types::AuditDmlMode::None,
     };
     catalog
         .put_database(&descriptor)

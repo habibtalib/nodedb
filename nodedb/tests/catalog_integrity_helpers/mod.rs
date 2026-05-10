@@ -56,6 +56,7 @@ pub fn put_admin_user(catalog: &SystemCatalog) {
         must_change_password: false,
         password_changed_at: 0,
         default_database_id: 0,
+        accessible_databases: vec![],
     };
     catalog.put_user(&user).unwrap();
 }

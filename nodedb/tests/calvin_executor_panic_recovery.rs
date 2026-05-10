@@ -342,6 +342,8 @@ fn calvin_static_replay_sees_only_committed_data() {
             idempotency_key: None,
             event_source: nodedb::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
 
         // Commit a value before the panic batch.
@@ -423,6 +425,8 @@ fn calvin_static_replay_sees_only_committed_data() {
         idempotency_key: None,
         event_source: nodedb::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     };
 
     // Note: this test does NOT assert that the pre-panic committed value is

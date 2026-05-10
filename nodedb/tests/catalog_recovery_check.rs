@@ -373,6 +373,7 @@ async fn credential_ghost_refuses_startup() {
             must_change_password: false,
             password_changed_at: 0,
             default_database_id: 0,
+            accessible_databases: vec![],
         };
         cat.put_user(&stored_user).unwrap();
         // writer and catalog dropped here — redb file is unlocked.
@@ -484,6 +485,7 @@ async fn api_keys_verifier_still_fires() {
         is_revoked: false,
         created_at: 0,
         scope: vec![],
+        accessible_databases: vec![],
     };
     catalog.put_api_key(&key).unwrap();
 

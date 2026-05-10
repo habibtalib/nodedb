@@ -53,6 +53,7 @@ fn clone_from_following_mirror_rejected() {
             last_applied: Lsn::new(50),
             status: MirrorStatus::Following,
         }),
+        audit_dml: nodedb_types::AuditDmlMode::None,
     };
     catalog.put_database(&descriptor).expect("inject mirror");
 
@@ -82,6 +83,7 @@ fn clone_from_degraded_mirror_rejected() {
             last_applied: Lsn::new(20),
             status: MirrorStatus::Degraded { lag_ms: 9_000 },
         }),
+        audit_dml: nodedb_types::AuditDmlMode::None,
     };
     catalog.put_database(&descriptor).expect("inject mirror");
 
@@ -112,6 +114,7 @@ fn clone_from_promoted_mirror_allowed() {
             last_applied: Lsn::new(100),
             status: MirrorStatus::Promoted,
         }),
+        audit_dml: nodedb_types::AuditDmlMode::None,
     };
     catalog.put_database(&descriptor).expect("inject promoted");
 
@@ -135,6 +138,7 @@ fn clone_from_normal_database_allowed() {
         quota_ref: 0,
         parent_clone: None,
         mirror_origin: None,
+        audit_dml: nodedb_types::AuditDmlMode::None,
     };
     catalog.put_database(&descriptor).expect("inject normal db");
 

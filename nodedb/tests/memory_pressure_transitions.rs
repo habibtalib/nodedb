@@ -164,6 +164,8 @@ fn critical_check_engine_pressure_increments_metric() {
         idempotency_key: None,
         event_source: nodedb::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     });
 
     let result = core.check_engine_pressure(&task, EngineId::Vector);
@@ -226,6 +228,8 @@ fn emergency_pressure_suspends_reads_and_increments_metric() {
         idempotency_key: None,
         event_source: nodedb::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     });
 
     let result = core.check_engine_pressure(&task, EngineId::Vector);

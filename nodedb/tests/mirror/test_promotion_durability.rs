@@ -148,6 +148,7 @@ fn mirror_restart_does_not_reconnect_promoted() {
                 last_applied: Lsn::new(50),
                 status: MirrorStatus::Promoted,
             }),
+            audit_dml: nodedb_types::AuditDmlMode::None,
         };
         catalog.put_database(&descriptor).expect("inject promoted");
     }

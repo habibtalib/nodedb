@@ -49,6 +49,8 @@ fn write_event(seq: u64, op: WriteOp, payload_bytes: Vec<u8>, is_delete: bool) -
         old_value: if is_delete { Some(arc) } else { None },
         system_time_ms,
         valid_time_ms,
+        user_id: None,
+        statement_digest: None,
     }
 }
 
