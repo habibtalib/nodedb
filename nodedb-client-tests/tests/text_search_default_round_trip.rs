@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 //! End-to-end test that `NodeDb::text_search` returns real BM25-ranked
-//! matches against indexed text content.
+//! matches against indexed text content on a named field.
 //!
 //! A trait default that short-circuits to `Ok(Vec::new())` without
 //! ever reaching the wire is the silent-wrong pattern this test guards
@@ -23,28 +23,43 @@ async fn text_search_returns_real_matches() {
         .await
         .expect("pgwire connect to harness must succeed");
 
-    // Spec: with indexed content matching the query, `text_search`
-    // returns Ok with at least one BM25-ranked hit.
-    //
-    // Stays RED until the trait API resolves the field-naming gap (a
-    // `field` parameter on `text_search`, or a `text_search_field`
-    // parallel method, or a server-side `SEARCH ... USING TEXT(...)`
-    // DSL that auto-picks the FTS-indexed field). An
-    // `Err("not implemented")` default is correct negative behavior
-    // but not the spec — do not soften the assertion to accept `Err`;
-    // that locks the gap in as the contract.
+    // Seed an FTS-indexed collection. The trait's `field` parameter
+    // names which BM25 index to query; the harness must create both the
+    // collection and the SEARCH INDEX on `body`, otherwise the planner
+    // has nothing to match against.
+    remote
+        .execute_sql("CREATE COLLECTION docs", &[])
+        .await
+        .expect("CREATE COLLECTION docs");
+    remote
+        .execute_sql("CREATE SEARCH INDEX ON docs FIELDS body", &[])
+        .await
+        .expect("CREATE SEARCH INDEX on body field");
+
     let mut doc = nodedb_client::Document::new("d1");
     doc.set(
         "body",
         nodedb_client::Value::String("machine learning is everywhere".into()),
     );
-    let _ = remote
-        .execute_sql("CREATE COLLECTION docs TYPE document", &[])
-        .await;
-    let _ = remote.document_put("docs", doc).await;
+    remote
+        .document_put("docs", doc)
+        .await
+        .expect("seed document with indexed body field");
 
+    // Spec: with indexed content matching the query, `text_search`
+    // returns Ok with at least one BM25-ranked hit on the named field.
+    //
+    // An `Err("not implemented")` default is correct negative behavior
+    // but not the spec — do not soften the assertion to accept `Err`;
+    // that locks the gap in as the contract.
     let matches = remote
-        .text_search("docs", "machine learning", 10, TextSearchParams::default())
+        .text_search(
+            "docs",
+            "body",
+            "machine learning",
+            10,
+            TextSearchParams::default(),
+        )
         .await
         .expect("text_search must return Ok with real matches against indexed content");
     assert!(

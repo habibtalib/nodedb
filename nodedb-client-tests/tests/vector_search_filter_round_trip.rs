@@ -3,14 +3,13 @@
 //! End-to-end test that `NodeDbRemote::vector_search` honors a non-None
 //! `MetadataFilter` argument across the full pgwire round-trip.
 //!
-//! Today's client rejects any non-None filter at the trait method
-//! boundary (`build_vector_search_sql` returns Err). This test asserts
-//! the spec — a filter must round-trip to the server, narrow results,
-//! and come back as a typed `Vec<SearchResult>` — and therefore fails
-//! until the fix replaces the client-side rejection with real predicate
-//! rendering. The unit-level tests in
-//! `nodedb-client/src/remote/sql.rs::tests` lock in the SQL-shape spec;
-//! this test pins the wire round-trip.
+//! The client renders `MetadataFilter::Eq { field, value }` into a
+//! `WHERE <field> = <literal>` clause that precedes `ORDER BY
+//! vector_distance(...) LIMIT k`. The test pins the wire round-trip:
+//! seed a vector collection with metadata, ask for nearest neighbors
+//! constrained by metadata, and require the call to return without
+//! erroring — proving the predicate reaches the server and the planner
+//! accepts the WHERE-on-metadata shape the client emits.
 
 use nodedb_client::{MetadataFilter, NodeDb, NodeDbRemote, Value};
 use nodedb_test_support::pgwire_harness::TestServer;
@@ -19,9 +18,6 @@ use nodedb_test_support::pgwire_harness::TestServer;
 async fn vector_search_with_metadata_filter_round_trips_through_pgwire() {
     let server = TestServer::start().await;
 
-    // Connect a NodeDbRemote to the harness's pgwire port. The harness
-    // already provisions the `nodedb` superuser and the `default`
-    // database so a Trust-mode connect succeeds without further setup.
     let conn_str = format!(
         "host=127.0.0.1 port={} user=nodedb dbname=nodedb",
         server.pg_port
@@ -30,22 +26,51 @@ async fn vector_search_with_metadata_filter_round_trips_through_pgwire() {
         .await
         .expect("pgwire connect to harness must succeed");
 
+    // Provision a vector collection with an explicit `category`
+    // metadata column so the WHERE predicate has a real column to bind
+    // against. Vector engine requires the engine='vector' option plus
+    // explicit FIELDS; the planner does not auto-promote.
+    remote
+        .execute_sql(
+            "CREATE COLLECTION embeddings \
+             FIELDS (id TEXT, embedding VECTOR(3), category TEXT) \
+             WITH (engine='vector', m=8, ef_construction=50)",
+            &[],
+        )
+        .await
+        .expect("CREATE COLLECTION embeddings");
+
+    remote
+        .execute_sql(
+            "INSERT INTO embeddings (id, embedding, category) \
+             VALUES ('v_ai', ARRAY[0.1, 0.2, 0.3], 'ai')",
+            &[],
+        )
+        .await
+        .expect("seed v_ai");
+    remote
+        .execute_sql(
+            "INSERT INTO embeddings (id, embedding, category) \
+             VALUES ('v_other', ARRAY[0.9, 0.9, 0.9], 'other')",
+            &[],
+        )
+        .await
+        .expect("seed v_other");
+
     // Spec: vector_search with a non-None filter renders into a
     // server-side predicate, the server applies it, and the call
-    // returns matching results — Ok with real rows.
-    //
-    // Will stay RED until: (a) the harness provisions the `embeddings`
-    // collection with vector + metadata columns AND (b) the server-side
-    // planner accepts the WHERE-on-metadata predicate the client now
-    // emits. Both are server / harness work outside this client fix.
-    // The test stays here as the spec; do not soften the assertion to
-    // make it green — that would re-create the silent-wrong pattern.
+    // returns matching results — Ok with real rows. A typed Err is
+    // disallowed: it is indistinguishable from the pre-fix
+    // "filter rejected at the client boundary" silent-wrong shape.
     let filter = MetadataFilter::eq("category", Value::String("ai".into()));
     let results = remote
         .vector_search("embeddings", &[0.1, 0.2, 0.3], 5, Some(&filter))
         .await
         .expect("vector_search with filter must return Ok end-to-end");
-    let _ = results;
+    assert!(
+        !results.is_empty(),
+        "vector_search must return at least one row matching the metadata predicate; got empty"
+    );
 
     server.graceful_shutdown().await;
 }
