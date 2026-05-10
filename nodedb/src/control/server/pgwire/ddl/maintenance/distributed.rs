@@ -30,6 +30,8 @@ pub fn dispatch_maintenance_to_all_cores(state: &SharedState, tenant_id: TenantI
         idempotency_key: None,
         event_source: EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     };
 
     match state.dispatcher.lock() {

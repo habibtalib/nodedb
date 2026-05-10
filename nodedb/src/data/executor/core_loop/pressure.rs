@@ -232,6 +232,8 @@ mod tests {
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         })
     }
 
@@ -372,6 +374,8 @@ mod tests {
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
         tx.try_push(BridgeRequest { inner: req }).unwrap();
         // Set suspend flag.
@@ -408,6 +412,8 @@ mod tests {
                 idempotency_key: None,
                 event_source: crate::event::EventSource::User,
                 user_roles: Vec::new(),
+                user_id: None,
+                statement_digest: None,
             };
             tx.try_push(BridgeRequest { inner: req }).unwrap();
         }

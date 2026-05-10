@@ -59,6 +59,8 @@ fn make_request(plan: PhysicalPlan) -> Request {
         idempotency_key: None,
         event_source: crate::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     }
 }
 

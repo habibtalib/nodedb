@@ -122,6 +122,8 @@ impl CoreLoop {
             old_value: old_value.map(Arc::from),
             system_time_ms,
             valid_time_ms,
+            user_id: task.request.user_id.clone(),
+            statement_digest: task.request.statement_digest.clone(),
         };
 
         producer.emit(event);
@@ -158,6 +160,8 @@ impl CoreLoop {
             old_value: None,
             system_time_ms: None,
             valid_time_ms: None,
+            user_id: None,
+            statement_digest: None,
         };
 
         producer.emit(event);

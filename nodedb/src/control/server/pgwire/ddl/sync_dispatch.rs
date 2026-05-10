@@ -61,6 +61,8 @@ pub async fn dispatch_async_with_source(
         idempotency_key: None,
         event_source,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     };
 
     let mut rx = state.tracker.register(request_id);

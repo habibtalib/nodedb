@@ -268,6 +268,8 @@ mod tests {
             idempotency_key: None,
             event_source: EventSource::User,
             user_roles: vec![],
+            user_id: None,
+            statement_digest: None,
         })
     }
 
