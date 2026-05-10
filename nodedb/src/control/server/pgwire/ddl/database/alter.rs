@@ -202,6 +202,40 @@ pub fn handle_alter_database(
             );
         }
 
+        AlterDatabaseOperation::SetIdleTimeout(secs) => {
+            // Required role: ClusterAdmin or Superuser.
+            require_cluster_admin(
+                state,
+                identity,
+                Some(db_id),
+                &format!("ALTER DATABASE {name} SET IDLE_TIMEOUT"),
+            )?;
+            let before = descriptor.idle_session_timeout_secs;
+            descriptor.idle_session_timeout_secs = *secs;
+            let proposed = propose_catalog_entry(
+                state,
+                &CatalogEntry::PutDatabase(Box::new(descriptor.clone())),
+            )
+            .map_err(|e| sqlstate_error("XX000", &format!("catalog propose failed: {e}")))?;
+            if proposed == 0 {
+                catalog
+                    .put_database(&descriptor)
+                    .map_err(|e| sqlstate_error("XX000", &format!("catalog write failed: {e}")))?;
+            }
+
+            // Update the live idle-timeout cache so the sweep loop sees the
+            // new value immediately without a restart.
+            state.idle_timeout_cache.set(db_id, *secs);
+
+            state.audit_record_with_db(
+                crate::control::security::audit::AuditEvent::DatabaseIdleTimeoutChanged,
+                None,
+                Some(db_id),
+                &identity.username,
+                &format!("ALTER DATABASE {name} SET IDLE_TIMEOUT = {secs} (was {before})"),
+            );
+        }
+
         AlterDatabaseOperation::Materialize => {
             return super::materialize::handle_alter_database_materialize(state, identity, name);
         }

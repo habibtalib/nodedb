@@ -198,6 +198,11 @@ pub fn spawn_background_loops(
         },
     );
 
+    // Idle session sweep (5-second timer).
+    // Closes sessions whose idle timeout or OIDC token expiry has elapsed.
+    crate::control::security::sessions::spawn_idle_sweep_loop(shared);
+    info!("idle session sweep loop running");
+
     // Audit log flush (10-second timer).
     let shared_audit = Arc::clone(shared);
     crate::control::shutdown::spawn_loop(

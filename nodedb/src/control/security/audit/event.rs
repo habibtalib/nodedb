@@ -133,6 +133,11 @@ pub enum AuditEvent {
     /// The AUDIT_DML mode for a database was changed via
     /// `ALTER DATABASE SET AUDIT_DML`.
     DatabaseAuditDmlChanged = 44,
+    /// The idle session timeout for a database was changed via
+    /// `ALTER DATABASE SET IDLE_TIMEOUT`.
+    DatabaseIdleTimeoutChanged = 45,
+    /// An OIDC provider was created, altered, or dropped.
+    OidcProviderChanged = 46,
 }
 
 impl AuditEvent {
@@ -187,6 +192,8 @@ impl AuditEvent {
             Self::DatabaseRestored => 42,
             Self::DmlAudit => 43,
             Self::DatabaseAuditDmlChanged => 44,
+            Self::DatabaseIdleTimeoutChanged => 45,
+            Self::OidcProviderChanged => 46,
         }
     }
 
@@ -237,7 +244,9 @@ impl AuditEvent {
             | Self::DatabaseBackedUp
             | Self::DatabaseRestored
             | Self::DmlAudit
-            | Self::DatabaseAuditDmlChanged => false,
+            | Self::DatabaseAuditDmlChanged
+            | Self::DatabaseIdleTimeoutChanged
+            | Self::OidcProviderChanged => false,
         }
     }
 
@@ -291,6 +300,8 @@ impl AuditEvent {
             Self::DatabaseRestored => "database_restored",
             Self::DmlAudit => "dml_audit",
             Self::DatabaseAuditDmlChanged => "database_audit_dml_changed",
+            Self::DatabaseIdleTimeoutChanged => "database_idle_timeout_changed",
+            Self::OidcProviderChanged => "oidc_provider_changed",
         }
     }
 
@@ -341,7 +352,9 @@ impl AuditEvent {
             | Self::TenantMoved
             | Self::DatabaseBackedUp
             | Self::DatabaseRestored
-            | Self::DatabaseAuditDmlChanged => AuditLevel::Standard,
+            | Self::DatabaseAuditDmlChanged
+            | Self::DatabaseIdleTimeoutChanged
+            | Self::OidcProviderChanged => AuditLevel::Standard,
             Self::DmlAudit => AuditLevel::Forensic,
         }
     }

@@ -10,5 +10,6 @@ mod methods_lease;
 
 pub mod audit_dml_cache;
 pub mod collection_to_database;
+pub mod idle_timeout_cache;
 
 pub use self::fields::SharedState;

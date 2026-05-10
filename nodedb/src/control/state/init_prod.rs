@@ -447,6 +447,9 @@ impl SharedState {
                 crate::control::server::admission::AdmissionRegistry::new(),
             ),
             audit_dml_cache: Arc::new(crate::control::state::audit_dml_cache::AuditDmlCache::new()),
+            idle_timeout_cache: Arc::new(
+                crate::control::state::idle_timeout_cache::IdleTimeoutCache::new(),
+            ),
             collection_to_database: Arc::new(
                 crate::control::state::collection_to_database::CollectionToDatabase::new(),
             ),
@@ -470,6 +473,12 @@ impl SharedState {
                 tracing::warn!(
                     error = %e,
                     "boot: failed to populate collection_to_database cache from catalog"
+                );
+            }
+            if let Err(e) = state.idle_timeout_cache.load_from_catalog(catalog) {
+                tracing::warn!(
+                    error = %e,
+                    "boot: failed to populate idle_timeout_cache from catalog"
                 );
             }
         }

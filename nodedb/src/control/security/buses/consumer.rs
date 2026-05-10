@@ -157,7 +157,10 @@ fn handle_session_invalidated(
 
     // Hard revoke: signal every open session for this user to close.
     if event.reason.is_hard_revoke() {
-        session_registry.kill_sessions_for_user(event.user_id);
+        session_registry.kill_sessions_for_user(
+            event.user_id,
+            crate::control::security::sessions::KillReason::UserDropped,
+        );
     }
     // Soft revoke: identity rehydrate is driven by the per-user version
     // counter at the next request-entry boundary — no explicit signal needed.
@@ -240,6 +243,8 @@ mod tests {
             auth_method: "password".into(),
             tenant_id: 1,
             credential_version: 0,
+            current_database: None,
+            token_expiry_ms: None,
         };
         let mut kill_rx = registry.register("session-42", &params).unwrap();
 
@@ -266,7 +271,11 @@ mod tests {
             kill_rx.has_changed().unwrap_or(false),
             "kill_rx must be signalled for hard revoke"
         );
-        assert!(*kill_rx.borrow_and_update(), "kill value must be true");
+        assert_ne!(
+            *kill_rx.borrow_and_update(),
+            crate::control::security::sessions::KillReason::Alive,
+            "kill value must not be Alive"
+        );
     }
 
     #[tokio::test]

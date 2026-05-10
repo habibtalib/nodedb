@@ -355,6 +355,9 @@ impl SharedState {
             ),
             lsn_ms_map: Arc::new(Mutex::new(nodedb_types::temporal::LsnMsMap::new())),
             audit_dml_cache: Arc::new(crate::control::state::audit_dml_cache::AuditDmlCache::new()),
+            idle_timeout_cache: Arc::new(
+                crate::control::state::idle_timeout_cache::IdleTimeoutCache::new(),
+            ),
             collection_to_database: Arc::new(
                 crate::control::state::collection_to_database::CollectionToDatabase::new(),
             ),

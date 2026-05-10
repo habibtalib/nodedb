@@ -364,6 +364,9 @@ pub struct SharedState {
     /// Per-database DML audit mode cache.
     /// Updated by `ALTER DATABASE SET AUDIT_DML`; consulted by the Event Plane consumer.
     pub audit_dml_cache: Arc<super::audit_dml_cache::AuditDmlCache>,
+    /// Per-database idle session timeout cache.
+    /// Updated by `ALTER DATABASE SET IDLE_TIMEOUT`; consulted by the idle-sweep loop.
+    pub idle_timeout_cache: Arc<super::idle_timeout_cache::IdleTimeoutCache>,
     /// Collection-to-database reverse mapping for DML audit routing.
     /// Updated on `CREATE COLLECTION` / `DROP COLLECTION`.
     pub collection_to_database: Arc<super::collection_to_database::CollectionToDatabase>,
