@@ -240,6 +240,79 @@ DELETE FROM orders WHERE status = 'cancelled' RETURNING *;
 
 ## DDL
 
+### Database
+
+Databases are top-level containers that own collection namespaces, quota budgets, and serve as the atomic unit for clone, mirror, and backup operations. See [Databases](databases.md) for full reference.
+
+```sql
+-- Create a database with optional quotas and settings
+CREATE DATABASE prod_us;
+CREATE DATABASE staging WITH (
+    priority_class='standard',
+    max_memory_bytes=5368709120,
+    max_qps=5000,
+    max_connections=500
+);
+
+-- Rename a database (numeric identity unchanged)
+ALTER DATABASE staging RENAME TO staging_old;
+
+-- Update quotas
+ALTER DATABASE prod_us SET QUOTA (max_qps=10000, max_connections=1000);
+
+-- Materialize a clone (force copy-on-write rows to target storage, blocks)
+ALTER DATABASE my_clone MATERIALIZE;
+
+-- Promote a mirror to writable (one-way, irreversible)
+ALTER DATABASE replica PROMOTE;
+
+-- Switch session to a different database (aborts transaction, invalidates prepared statements)
+USE DATABASE prod_us;
+-- Or in psql: \c prod_us
+
+-- Clone a database at a point in time
+CLONE DATABASE staging FROM prod_us AS OF SYSTEM TIME 1730000000000;
+CLONE DATABASE latest FROM prod_us;   -- uses prod_us's current LSN
+
+-- Mirror a database (read-only replica, optionally cross-cluster)
+MIRROR DATABASE prod_eu FROM prod_us MODE = async;
+MIRROR DATABASE prod_eu FROM prod_us MODE = sync;
+
+-- Move a tenant to a different database
+MOVE TENANT acme FROM prod_us TO prod_eu;
+
+-- View databases
+SHOW DATABASES;
+
+-- View clone lineage, mirror status, quotas, or usage
+SHOW DATABASE LINEAGE FOR my_clone;
+SHOW DATABASE MIRROR STATUS FOR prod_eu;
+SHOW DATABASE QUOTA FOR prod_us;
+SHOW DATABASE USAGE FOR prod_us;
+
+-- Drop a database
+DROP DATABASE staging;              -- fails if non-empty without CASCADE
+DROP DATABASE staging CASCADE;      -- drops all collections
+DROP DATABASE staging FORCE;        -- force-materializes clones before dropping
+
+-- Audit and tenant quotas
+ALTER DATABASE prod_us SET AUDIT_DML = 'all';       -- all DML + SELECT
+ALTER DATABASE prod_us SET AUDIT_DML = 'writes';    -- INSERT/UPDATE/DELETE only
+ALTER DATABASE prod_us SET AUDIT_DML = 'none';      -- disabled (default)
+ALTER DATABASE prod_us SET IDLE_TIMEOUT 1800;       -- idle session timeout in seconds
+
+ALTER TENANT acme IN DATABASE prod_us SET QUOTA (max_memory_bytes=1073741824);
+
+-- View sessions and kill idle ones
+SHOW SESSIONS [IN DATABASE prod_us];
+KILL SESSION 'sid_abc123';
+
+-- Audit events tagged by database
+SHOW AUDIT IN DATABASE prod_us [WHERE event_type = 'database_quota_changed'];
+```
+
+All database DDL is replicated via the metadata Raft group and is consistent across the cluster. For full examples and context, see [Databases](databases.md).
+
 ### Collections
 
 ```sql

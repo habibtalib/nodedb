@@ -7,6 +7,7 @@ Welcome to the NodeDB docs. These guides explain what each engine does, when to 
 - [Getting Started](getting-started.md) — Prerequisites, build, run, first queries
 - [Architecture](architecture.md) — How the three-plane execution model works (now includes cross-engine identity)
 - [Query Language](query-language.md) — Full SQL reference (DDL, DML, engine-specific syntax, functions)
+- [Databases](databases.md) — Database lifecycle, quotas, clone/mirror, multi-tenancy, isolation
 - [Protocols](protocols.md) — Six wire protocols (pgwire, NDB, HTTP, RESP, ILP, Sync)
 
 ## Engine Guides
