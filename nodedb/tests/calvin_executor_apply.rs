@@ -103,6 +103,7 @@ fn kv_get(coll: &str, key: &[u8]) -> PhysicalPlan {
         collection: coll.to_string(),
         key: key.to_vec(),
         rls_filters: Vec::new(),
+        surrogate_ceiling: None,
     })
 }
 

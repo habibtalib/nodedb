@@ -38,6 +38,7 @@ fn kv_get_isolated() {
             collection: "cache".into(),
             key: b"session_abc".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(resp_a.status, Status::Ok);
@@ -56,6 +57,7 @@ fn kv_get_isolated() {
             collection: "cache".into(),
             key: b"session_abc".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     // KV engine returns Ok with empty payload or NotFound for missing keys.

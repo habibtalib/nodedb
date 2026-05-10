@@ -39,6 +39,7 @@ fn kv_protocol_command_sequence() {
             collection: "default".into(),
             key: b"key1".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(payload, b"value1");
@@ -66,6 +67,7 @@ fn kv_protocol_command_sequence() {
             collection: "default".into(),
             key: b"key1".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(payload, b"value2");
@@ -79,6 +81,7 @@ fn kv_protocol_command_sequence() {
             collection: "default".into(),
             key: b"key1".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(resp.status, Status::Ok);
@@ -105,6 +108,7 @@ fn kv_protocol_command_sequence() {
             collection: "default".into(),
             key: b"key1".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(resp.status, Status::Ok);
@@ -207,6 +211,7 @@ fn kv_and_vector_coexist() {
             collection: "users".into(),
             key: b"user:3".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(payload, b"data:3");
@@ -264,6 +269,7 @@ fn ttl_expiry_produces_expired_key_info() {
             collection: "sessions".into(),
             key: b"s1".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(resp.status, Status::Ok);
@@ -298,6 +304,7 @@ fn ttl_expiry_produces_expired_key_info() {
             collection: "sessions".into(),
             key: b"persistent".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(payload, b"forever");
@@ -427,6 +434,7 @@ fn kv_truncate_clears_all() {
             collection: "ephemeral".into(),
             key: b"k0".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(resp.status, Status::Ok);
@@ -490,6 +498,7 @@ fn kv_index_write_amp_ratio_matches() {
             filters: Vec::new(),
             match_pattern: None,
             sort_keys: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     let json: serde_json::Value = payload_value(&payload);
@@ -547,6 +556,7 @@ fn kv_mass_expiry_respects_reap_budget() {
             collection: "mass_expire".into(),
             key: b"survivor".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(payload, b"alive");
@@ -564,6 +574,7 @@ fn kv_mass_expiry_respects_reap_budget() {
             collection: "mass_expire".into(),
             key: b"survivor".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(payload, b"alive");

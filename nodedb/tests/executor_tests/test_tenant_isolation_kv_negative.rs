@@ -58,6 +58,7 @@ fn kv_cross_tenant_put_does_not_overwrite() {
             collection: "cache".into(),
             key: b"shared_key".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(resp_a.status, Status::Ok);
@@ -123,6 +124,7 @@ fn kv_cross_tenant_delete_does_not_affect_owner() {
             collection: "sessions".into(),
             key: b"sess_xyz".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(resp_a.status, Status::Ok);

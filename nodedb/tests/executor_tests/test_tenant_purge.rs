@@ -174,6 +174,7 @@ fn purge_removes_all_tenant_data() {
             collection: "sessions".into(),
             key: b"sess_1".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     let kv_empty = kv_resp.payload.is_empty()
