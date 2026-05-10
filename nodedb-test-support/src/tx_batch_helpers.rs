@@ -210,6 +210,7 @@ pub fn kv_get(key: &[u8]) -> PhysicalPlan {
         collection: "kv_coll".into(),
         key: key.to_vec(),
         rls_filters: Vec::new(),
+        surrogate_ceiling: None,
     })
 }
 
