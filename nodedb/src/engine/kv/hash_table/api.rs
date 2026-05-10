@@ -16,6 +16,14 @@ impl KvHashTable {
     /// Checks the primary table first, then the rehash source (if active).
     /// Expired keys return None (lazy expiry fallback).
     pub fn get(&self, key: &[u8], now_ms: u64) -> Option<&[u8]> {
+        self.get_with_surrogate(key, now_ms).map(|(v, _)| v)
+    }
+
+    /// Get the value AND the row's stable surrogate for a key.  Used by
+    /// the clone-delegated read path to filter rows whose binding was
+    /// allocated AFTER the clone's AS-OF point (snapshot isolation).
+    /// Returns `None` if the key is missing or expired.
+    pub fn get_with_surrogate(&self, key: &[u8], now_ms: u64) -> Option<(&[u8], Surrogate)> {
         let h = hash_key(key);
 
         // Check primary table.
@@ -23,7 +31,7 @@ impl KvHashTable {
             if entry.is_expired(now_ms) {
                 return None;
             }
-            return Some(read_value_from(entry, &self.overflow));
+            return Some((read_value_from(entry, &self.overflow), entry.surrogate));
         }
 
         // Check rehash source if active.
@@ -33,7 +41,7 @@ impl KvHashTable {
             if entry.is_expired(now_ms) {
                 return None;
             }
-            return Some(read_value_from(entry, &self.overflow));
+            return Some((read_value_from(entry, &self.overflow), entry.surrogate));
         }
 
         None

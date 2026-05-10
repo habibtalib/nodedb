@@ -30,10 +30,32 @@ impl CoreLoop {
         collection: &str,
         key: &[u8],
         rls_filters: &[u8],
+        surrogate_ceiling: Option<u32>,
     ) -> Response {
         debug!(core = self.core_id, %collection, "kv get");
         let now_ms = current_ms();
-        match self.kv_engine.get(tid, collection, key, now_ms) {
+        let fetched = match surrogate_ceiling {
+            Some(ceiling) => {
+                // Clone-delegated read: drop the row when its binding was
+                // allocated AFTER the clone's AS-OF surrogate ceiling.
+                // `Surrogate::ZERO` means the entry was created via an
+                // internal RMW path that did not bind an identity; treat
+                // it as pre-clone (visible) — internal rows do not
+                // originate from user post-clone writes.
+                self.kv_engine
+                    .get_with_surrogate(tid, collection, key, now_ms)
+                    .and_then(|(value, surrogate)| {
+                        let s = surrogate.as_u32();
+                        if s != 0 && s > ceiling {
+                            None
+                        } else {
+                            Some(value)
+                        }
+                    })
+            }
+            None => self.kv_engine.get(tid, collection, key, now_ms),
+        };
+        match fetched {
             Some(value) => {
                 // RLS post-fetch: evaluate filters against KV value.
                 if !crate::data::executor::handlers::rls_eval::rls_check_msgpack_bytes(

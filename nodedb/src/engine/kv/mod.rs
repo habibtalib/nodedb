@@ -20,6 +20,7 @@ pub mod sorted_index;
 pub use engine::KvEngine;
 pub use engine_atomic::{AtomicError, CasResult};
 pub use engine_stats::{ExpiredKey, KvStats};
+pub use scan::KvScanParams;
 
 /// Get current wall-clock time in milliseconds since Unix epoch.
 ///

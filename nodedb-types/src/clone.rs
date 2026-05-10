@@ -41,6 +41,16 @@ pub struct CloneOrigin {
     /// WAL LSN at the moment this clone was created. Used to detect
     /// bitemporal queries that pre-date the clone.
     pub clone_created_at: Lsn,
+    /// Surrogate high-water captured from the source's `SurrogateAssigner`
+    /// at clone-create time.  KV bindings allocated AFTER this value
+    /// belong strictly to source-side writes that must not be visible
+    /// from the resulting clone — the lazy KV read path uses this
+    /// ceiling to filter source-delegated rows.  `None` on legacy clones
+    /// created before this field existed (no isolation enforced —
+    /// matches the prior behaviour).
+    #[serde(default)]
+    #[msgpack(default)]
+    pub kv_surrogate_ceiling: Option<u32>,
 }
 
 /// Materialization state of a copy-on-write clone.
@@ -107,6 +117,7 @@ mod tests {
             source_collection: "users".to_string(),
             as_of_lsn: Lsn::new(42_000),
             clone_created_at: Lsn::new(42_100),
+            kv_surrogate_ceiling: Some(7),
         }
     }
 

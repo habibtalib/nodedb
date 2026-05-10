@@ -10,6 +10,7 @@
 use crate::bridge::envelope::Response;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;
+use crate::engine::kv::KvScanParams;
 use crate::engine::kv::current_ms;
 
 impl CoreLoop {
@@ -29,9 +30,17 @@ impl CoreLoop {
         };
 
         let now_ms = current_ms();
-        let (entries, next_cursor) = self
-            .kv_engine
-            .scan(tid, collection, cursor, count, now_ms, None, None, None);
+        let (entries, next_cursor) = self.kv_engine.scan(KvScanParams {
+            tenant_id: tid,
+            collection,
+            cursor,
+            count,
+            now_ms,
+            match_pattern: None,
+            filter_field: None,
+            filter_value: None,
+            surrogate_ceiling: None,
+        });
 
         // Encode response payload as msgpack:
         //   [next_cursor: bytes, entries: [[key, value], ...]]
