@@ -80,6 +80,7 @@ fn plant_sentinel(cache: &PlanCache, col: &str) -> PlanCacheKey {
         collection: col.into(),
         key: vec![],
         rls_filters: vec![],
+        surrogate_ceiling: None,
     }));
     cache.insert(key.clone(), plan);
     key

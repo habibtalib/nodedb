@@ -65,6 +65,7 @@ mod tests {
             collection: "users".into(),
             key: vec![],
             rls_filters: vec![],
+            surrogate_ceiling: None,
         }))
     }
 

@@ -23,6 +23,7 @@ pub(crate) fn build_point_get(
             collection: collection.to_string(),
             key: doc_id.into_bytes(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         })),
         Some(CollectionType::Columnar(ColumnarProfile::Timeseries { .. })) => {
             Err(crate::Error::BadRequest {

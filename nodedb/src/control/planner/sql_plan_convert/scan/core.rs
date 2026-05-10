@@ -94,6 +94,9 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_scan(
             filters: filter_bytes,
             match_pattern: None,
             sort_keys: sort.clone(),
+            // Original SQL planner output never carries a clone ceiling;
+            // the clone resolver overrides it when delegating to source.
+            surrogate_ceiling: None,
         }),
         EngineType::DocumentSchemaless | EngineType::DocumentStrict => {
             PhysicalPlan::Document(DocumentOp::Scan {
@@ -184,6 +187,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_point_get(
             collection: collection.into(),
             key: sql_value_to_bytes(key_value),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
         EngineType::DocumentSchemaless | EngineType::DocumentStrict => {
             let pk_string = sql_value_to_string(key_value);

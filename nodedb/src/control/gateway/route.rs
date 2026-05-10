@@ -69,6 +69,7 @@ mod tests {
             collection: "test".into(),
             key: b"k".to_vec(),
             rls_filters: vec![],
+            surrogate_ceiling: None,
         });
         let route = TaskRoute {
             plan: plan.clone(),

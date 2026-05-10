@@ -177,6 +177,7 @@ mod tests {
             collection: "users".into(),
             key: vec![],
             rls_filters: vec![],
+            surrogate_ceiling: None,
         });
         let routes = route_plan(plan, 1, Some(&table), DatabaseId::DEFAULT);
         assert_eq!(routes.len(), 1);
@@ -211,6 +212,7 @@ mod tests {
             collection,
             key: vec![],
             rls_filters: vec![],
+            surrogate_ceiling: None,
         });
         let routes = route_plan(plan, 1, Some(&table), DatabaseId::DEFAULT);
         assert_eq!(routes.len(), 1);

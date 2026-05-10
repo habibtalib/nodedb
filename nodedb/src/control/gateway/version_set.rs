@@ -388,6 +388,7 @@ mod tests {
             collection: "users".into(),
             key: b"key".to_vec(),
             rls_filters: vec![],
+            surrogate_ceiling: None,
         });
         let vs = GatewayVersionSet::from_plan(&plan, |_| 5);
         assert_eq!(vs.len(), 1);
@@ -400,6 +401,7 @@ mod tests {
             collection: "alpha".into(),
             key: vec![],
             rls_filters: vec![],
+            surrogate_ceiling: None,
         });
         let vs1 = GatewayVersionSet::from_plan(&plan, |_| 1);
         let vs2 = GatewayVersionSet::from_plan(&plan, |_| 1);

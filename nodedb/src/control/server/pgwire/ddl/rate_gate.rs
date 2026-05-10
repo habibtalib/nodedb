@@ -175,6 +175,7 @@ pub async fn rate_remaining(
         collection: RATE_COLLECTION.to_string(),
         key: rate_key.as_bytes().to_vec(),
         rls_filters: Vec::new(),
+        surrogate_ceiling: None,
     });
 
     let current = match crate::control::server::dispatch_utils::dispatch_to_data_plane(

@@ -404,6 +404,7 @@ mod tests {
             collection: col.into(),
             key: b"k".to_vec(),
             rls_filters: vec![],
+            surrogate_ceiling: None,
         })
     }
 
