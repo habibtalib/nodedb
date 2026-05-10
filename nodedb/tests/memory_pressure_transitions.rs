@@ -41,8 +41,13 @@ fn make_governor_at(engine: EngineId, utilization_percent: u8) -> Arc<MemoryGove
     })
     .unwrap();
     let fill = (budget_bytes as u64 * utilization_percent as u64 / 100) as usize;
-    if fill > 0 {
-        let _ = gov.try_reserve(DatabaseId::DEFAULT, TenantId::new(1), engine, fill);
+    if fill > 0
+        && let Ok(tok) = gov.try_reserve(DatabaseId::DEFAULT, TenantId::new(1), engine, fill)
+    {
+        // `ReservationToken` is RAII; binding to `_` would drop it
+        // immediately and reset the engine to 0% utilization. Leak it so
+        // the budget stays charged for the lifetime of the test governor.
+        std::mem::forget(tok);
     }
     Arc::new(gov)
 }
