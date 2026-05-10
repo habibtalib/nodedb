@@ -37,8 +37,13 @@ use common::cluster_harness::TestCluster;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-/// Run `sql` on `client` and return every row's first column as a `String`.
-async fn query_col0(client: &tokio_postgres::Client, sql: &str) -> Vec<String> {
+/// Run `sql` on `client` and return every row's columns as a `HashMap`
+/// keyed by column name.  Used for `SELECT *` over TVFs that expand into
+/// multiple pgwire fields (one per array dimension/attribute).
+async fn query_named_rows(
+    client: &tokio_postgres::Client,
+    sql: &str,
+) -> Vec<std::collections::HashMap<String, String>> {
     let msgs = client.simple_query(sql).await.unwrap_or_else(|e| {
         let detail = if let Some(db) = e.as_db_error() {
             format!(
@@ -55,7 +60,12 @@ async fn query_col0(client: &tokio_postgres::Client, sql: &str) -> Vec<String> {
     msgs.into_iter()
         .filter_map(|m| {
             if let tokio_postgres::SimpleQueryMessage::Row(r) = m {
-                r.get(0).map(|s| s.to_string())
+                let names: Vec<String> = r.columns().iter().map(|c| c.name().to_string()).collect();
+                let mut map = std::collections::HashMap::with_capacity(names.len());
+                for (i, name) in names.into_iter().enumerate() {
+                    map.insert(name, r.get(i).unwrap_or("").to_string());
+                }
+                Some(map)
             } else {
                 None
             }
@@ -131,7 +141,10 @@ async fn cluster_array_slice_spans_multiple_shards() {
     let client = &cluster.nodes[node_idx].client;
 
     // Slice chr=1, pos 0..99 — should return exactly the 3 cells for chr=1.
-    let rows = query_col0(
+    // ARRAY_SLICE projects one pgwire field per declared column: a
+    // `coords` JSON-array column followed by an `attrs` JSON-array column
+    // carrying the requested attribute values in projection order.
+    let rows = query_named_rows(
         client,
         "SELECT * FROM ARRAY_SLICE('genome', '{chr: [1, 1], pos: [0, 99]}', ['qual'], 100)",
     )
@@ -143,18 +156,19 @@ async fn cluster_array_slice_spans_multiple_shards() {
         "expected 3 cells for chr=1, pos 0..99; got {rows:?}"
     );
 
-    // Each row is JSON `{"coords": [...], "attrs": [...]}`.
-    // Collect and sort qual values; must be [10.0, 20.0, 30.0].
     let mut quals: Vec<f64> = rows
         .iter()
         .map(|row| {
-            let cell: serde_json::Value =
-                serde_json::from_str(row).unwrap_or_else(|e| panic!("row not JSON: {row}: {e}"));
-            cell.get("attrs")
-                .and_then(|a| a.as_array())
+            let attrs_text = row
+                .get("attrs")
+                .unwrap_or_else(|| panic!("missing attrs column in {row:?}"));
+            let attrs: serde_json::Value = serde_json::from_str(attrs_text)
+                .unwrap_or_else(|e| panic!("attrs not JSON: {attrs_text}: {e}"));
+            attrs
+                .as_array()
                 .and_then(|a| a.first())
                 .and_then(|v| v.as_f64())
-                .unwrap_or_else(|| panic!("missing qual in row: {row}"))
+                .unwrap_or_else(|| panic!("missing qual in row: {row:?}"))
         })
         .collect();
     quals.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -174,18 +188,17 @@ async fn cluster_array_agg_sum_across_shards() {
     let (cluster, node_idx) = spawn_cluster_with_genome().await;
     let client = &cluster.nodes[node_idx].client;
 
-    let rows = query_col0(client, "SELECT * FROM ARRAY_AGG('genome', 'qual', 'sum')").await;
+    let rows = query_named_rows(client, "SELECT * FROM ARRAY_AGG('genome', 'qual', 'sum')").await;
 
     assert_eq!(rows.len(), 1, "scalar agg must return exactly one row");
 
-    // The JSON result is `{"result": <f64>}`. Total qual = 666.0.
-    let row = &rows[0];
-    let cell: serde_json::Value =
-        serde_json::from_str(row).unwrap_or_else(|e| panic!("agg row not JSON: {row}: {e}"));
-    let result = cell
+    // ARRAY_AGG projects a `result` column carrying the aggregate value.
+    let result_text = rows[0]
         .get("result")
-        .and_then(|v| v.as_f64())
-        .unwrap_or_else(|| panic!("missing 'result' field in: {row}"));
+        .unwrap_or_else(|| panic!("missing 'result' column in {:?}", rows[0]));
+    let result: f64 = result_text
+        .parse()
+        .unwrap_or_else(|e| panic!("result not a float: {result_text}: {e}"));
 
     assert!(
         (result - 666.0).abs() < 1e-4,
@@ -202,7 +215,7 @@ async fn cluster_array_agg_grouped_by_chr() {
     let (cluster, node_idx) = spawn_cluster_with_genome().await;
     let client = &cluster.nodes[node_idx].client;
 
-    let rows = query_col0(
+    let rows = query_named_rows(
         client,
         "SELECT * FROM ARRAY_AGG('genome', 'qual', 'sum', 'chr')",
     )
@@ -214,20 +227,23 @@ async fn cluster_array_agg_grouped_by_chr() {
         "group-by-chr must return 3 rows (one per chromosome); got {rows:?}"
     );
 
-    // Collect (chr, sum) pairs and sort by chr for deterministic assertion.
+    // Group-by-key projects two columns: `group` (the dimension value)
+    // and `result` (the aggregate).
     let mut groups: Vec<(i64, f64)> = rows
         .iter()
         .map(|row| {
-            let cell: serde_json::Value = serde_json::from_str(row)
-                .unwrap_or_else(|e| panic!("group row not JSON: {row}: {e}"));
-            let key = cell
+            let key_text = row
                 .get("group")
-                .and_then(|v| v.as_i64())
-                .unwrap_or_else(|| panic!("missing 'group' in: {row}"));
-            let result = cell
+                .unwrap_or_else(|| panic!("missing 'group' column in {row:?}"));
+            let result_text = row
                 .get("result")
-                .and_then(|v| v.as_f64())
-                .unwrap_or_else(|| panic!("missing 'result' in: {row}"));
+                .unwrap_or_else(|| panic!("missing 'result' column in {row:?}"));
+            let key: i64 = key_text
+                .parse()
+                .unwrap_or_else(|e| panic!("group not an int: {key_text}: {e}"));
+            let result: f64 = result_text
+                .parse()
+                .unwrap_or_else(|e| panic!("result not a float: {result_text}: {e}"));
             (key, result)
         })
         .collect();

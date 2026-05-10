@@ -55,13 +55,27 @@ async fn query_col0(client: &tokio_postgres::Client, sql: &str) -> Vec<String> {
 
 /// Parse the `attrs[0]` int64 from a single ARRAY_SLICE result row.
 ///
-/// Each row from ARRAY_SLICE is JSON: `{"coords": [...], "attrs": [v]}`.
+/// `SELECT *` over ARRAY_SLICE expands to one pgwire field per declared
+/// column.  This test uses the column-0 helper, which lands on the
+/// `attrs` JSON-array column for the slice TVF (e.g. `[99]`).  Older
+/// codecs returned the full `{"coords": [...], "attrs": [v]}` envelope
+/// in that slot — accept either shape so the test stays robust to the
+/// projection tightening.
 fn parse_int_attr(row: &str) -> i64 {
     let v: serde_json::Value =
         serde_json::from_str(row).unwrap_or_else(|e| panic!("row is not JSON: {row}: {e}"));
-    v.get("attrs")
-        .and_then(|a| a.as_array())
-        .and_then(|a| a.first())
+    let arr = match v {
+        // Bare attrs array — `[99]`.
+        serde_json::Value::Array(a) => a,
+        // Envelope with `attrs` field.
+        serde_json::Value::Object(map) => map
+            .get("attrs")
+            .and_then(|a| a.as_array())
+            .cloned()
+            .unwrap_or_else(|| panic!("envelope missing attrs array: {row}")),
+        _ => panic!("row is neither array nor object: {row}"),
+    };
+    arr.first()
         .and_then(|n| n.as_i64())
         .unwrap_or_else(|| panic!("cannot extract attrs[0] as i64 from: {row}"))
 }

@@ -118,8 +118,11 @@ async fn array_slice_returns_in_range_cells() {
     let srv = TestServer::start().await;
     prepare_genome(&srv).await;
 
+    // SELECT * over an ARRAY_SLICE TVF expands to one pgwire field per
+    // declared column ('coords' + each requested attr). Use named rows so
+    // the assertion does not depend on column ordering.
     let rows = srv
-        .query_text(
+        .query_named_rows(
             "SELECT * FROM ARRAY_SLICE('genome_variants', \
              '{chrom: [1, 1], pos: [0, 13000]}', ['variant', 'qual'], 100)",
         )
@@ -130,21 +133,29 @@ async fn array_slice_returns_in_range_cells() {
         2,
         "expected two cells in chrom=1, pos<13000; got {rows:?}"
     );
-    // Each row is a JSON cell `{"coords": [...], "attrs": [...]}`.
-    // Reject any internal `[18, "<base64>"]` tagged-msgpack leak.
+    // Each row carries a `coords` column (JSON array text) and an
+    // `attrs` column (JSON array text of the requested attribute values
+    // in projection order).  Reject any internal tagged-msgpack leak
+    // (`[18, "<base64>"]` shape).
     for row in &rows {
-        let cell: serde_json::Value =
-            serde_json::from_str(row).unwrap_or_else(|e| panic!("row not JSON object: {row}: {e}"));
-        let coords = cell
+        let coords_text = row
             .get("coords")
-            .and_then(|v| v.as_array())
-            .unwrap_or_else(|| panic!("missing coords array in {row}"));
-        assert!(!coords.is_empty(), "coords empty in {row}");
-        let attrs = cell
+            .unwrap_or_else(|| panic!("missing coords column in {row:?}"));
+        let coords: serde_json::Value = serde_json::from_str(coords_text)
+            .unwrap_or_else(|e| panic!("coords not JSON: {coords_text}: {e}"));
+        let coords_arr = coords
+            .as_array()
+            .unwrap_or_else(|| panic!("coords not an array: {coords_text}"));
+        assert!(!coords_arr.is_empty(), "coords empty in {row:?}");
+        let attrs_text = row
             .get("attrs")
-            .and_then(|v| v.as_array())
-            .unwrap_or_else(|| panic!("missing attrs array in {row}"));
-        assert!(!attrs.is_empty(), "attrs empty in {row}");
+            .unwrap_or_else(|| panic!("missing attrs column in {row:?}"));
+        let attrs: serde_json::Value = serde_json::from_str(attrs_text)
+            .unwrap_or_else(|e| panic!("attrs not JSON: {attrs_text}: {e}"));
+        let attrs_arr = attrs
+            .as_array()
+            .unwrap_or_else(|| panic!("attrs not an array: {attrs_text}"));
+        assert!(!attrs_arr.is_empty(), "attrs empty in {row:?}");
     }
 }
 
@@ -187,7 +198,7 @@ async fn array_agg_group_by_chrom() {
     prepare_genome(&srv).await;
 
     let rows = srv
-        .query_text("SELECT * FROM ARRAY_AGG('genome_variants', 'qual', 'sum', 'chrom')")
+        .query_text_joined("SELECT * FROM ARRAY_AGG('genome_variants', 'qual', 'sum', 'chrom')")
         .await
         .expect("ARRAY_AGG group");
     assert_eq!(
