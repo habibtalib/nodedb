@@ -9,6 +9,7 @@
 //! cross-crate vocabulary; types specific to one engine live in that engine's
 //! crate.
 
+pub mod audit_dml;
 pub mod config;
 pub mod quota;
 
@@ -59,6 +60,7 @@ pub mod wire_version;
 
 pub use approx::{CountMinSketch, HyperLogLog, SpaceSaving, TDigest};
 pub use array_cell::ArrayCell;
+pub use audit_dml::AuditDmlMode;
 pub use bbox::{BoundingBox, geometry_bbox};
 pub use clone::{CloneOrigin, CloneStatus, MAX_CLONE_DEPTH};
 pub use collection::{CollectionType, CollectionTypeParseError};

@@ -4,7 +4,7 @@
 
 pub use super::alter_ops::{AlterCollectionOp, AlterRoleOp, AlterUserOp};
 pub use super::graph_types::{GraphDirection, GraphProperties};
-pub use nodedb_types::QuotaSpec;
+pub use nodedb_types::{AuditDmlMode, QuotaSpec};
 
 /// Temporal anchor for a `CLONE DATABASE` statement.
 ///
@@ -48,6 +48,8 @@ pub enum AlterDatabaseOperation {
     /// `ALTER DATABASE <name> PROMOTE` — promotes a mirror to writable primary.
     /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the mirror subsystem lands.
     Promote,
+    /// `ALTER DATABASE <name> SET AUDIT_DML = <mode>` — sets the DML audit level.
+    SetAuditDml(AuditDmlMode),
 }
 
 /// Operations available on `ALTER TENANT <name> IN DATABASE <db> <operation>`.

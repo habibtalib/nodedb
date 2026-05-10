@@ -6,7 +6,7 @@
 //!   CLONE DATABASE, MIRROR DATABASE, MOVE TENANT,
 //!   BACKUP DATABASE, RESTORE DATABASE.
 
-use nodedb_types::{MirrorMode, PriorityClass, QuotaSpec};
+use nodedb_types::{AuditDmlMode, MirrorMode, PriorityClass, QuotaSpec};
 
 use crate::ddl_ast::statement::{AlterDatabaseOperation, CloneAsOf, NodedbStatement};
 use crate::error::SqlError;
@@ -201,6 +201,29 @@ fn parse_alter_database(parts: &[&str], original: &str) -> Result<NodedbStatemen
                     AlterDatabaseOperation::SetQuota(spec)
                 }
                 "DEFAULT" => AlterDatabaseOperation::SetDefault,
+                "AUDIT_DML" => {
+                    // SET AUDIT_DML = <mode>
+                    let eq = parts.get(5).copied().unwrap_or("");
+                    if eq != "=" {
+                        return Err(SqlError::Parse {
+                            detail: format!(
+                                "ALTER DATABASE SET AUDIT_DML requires '=', got '{eq}'"
+                            ),
+                        });
+                    }
+                    let raw = parts.get(6).copied().ok_or_else(|| SqlError::Parse {
+                        detail: "ALTER DATABASE SET AUDIT_DML requires a value (NONE, WRITES, ALL)"
+                            .into(),
+                    })?;
+                    let mode = raw
+                        .trim_matches('\'')
+                        .trim_matches('"')
+                        .parse::<AuditDmlMode>()
+                        .map_err(|e| SqlError::Parse {
+                            detail: format!("ALTER DATABASE SET AUDIT_DML: {e}"),
+                        })?;
+                    AlterDatabaseOperation::SetAuditDml(mode)
+                }
                 other => {
                     return Err(SqlError::Parse {
                         detail: format!("ALTER DATABASE SET: unknown target '{other}'"),
@@ -1034,6 +1057,59 @@ mod tests {
         match err {
             SqlError::Parse { detail } => {
                 assert!(detail.contains("requires a database name"), "{detail}");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_alter_set_audit_dml_writes() {
+        let stmt = ok("ALTER DATABASE mydb SET AUDIT_DML = WRITES");
+        assert_eq!(
+            stmt,
+            NodedbStatement::AlterDatabase {
+                name: "mydb".into(),
+                operation: AlterDatabaseOperation::SetAuditDml(AuditDmlMode::Writes),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_alter_set_audit_dml_all() {
+        let stmt = ok("ALTER DATABASE mydb SET AUDIT_DML = ALL");
+        assert_eq!(
+            stmt,
+            NodedbStatement::AlterDatabase {
+                name: "mydb".into(),
+                operation: AlterDatabaseOperation::SetAuditDml(AuditDmlMode::All),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_alter_set_audit_dml_none() {
+        let stmt = ok("ALTER DATABASE mydb SET AUDIT_DML = NONE");
+        assert_eq!(
+            stmt,
+            NodedbStatement::AlterDatabase {
+                name: "mydb".into(),
+                operation: AlterDatabaseOperation::SetAuditDml(AuditDmlMode::None),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_alter_set_audit_dml_invalid_value_rejected() {
+        let sql = "ALTER DATABASE mydb SET AUDIT_DML = INVALID";
+        let upper = sql.to_uppercase();
+        let parts: Vec<&str> = sql.split_whitespace().collect();
+        let err = try_parse(&upper, &parts, sql).unwrap().unwrap_err();
+        match err {
+            SqlError::Parse { detail } => {
+                assert!(
+                    detail.contains("AUDIT_DML"),
+                    "expected AUDIT_DML in error: {detail}"
+                );
             }
             other => panic!("unexpected error: {other:?}"),
         }

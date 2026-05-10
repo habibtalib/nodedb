@@ -2,7 +2,7 @@
 
 //! Types stored in the `_system.databases` catalog table.
 
-use nodedb_types::{DatabaseId, MirrorOrigin};
+use nodedb_types::{AuditDmlMode, DatabaseId, MirrorOrigin};
 
 /// Lifecycle status of a database.
 ///
@@ -67,6 +67,11 @@ pub struct DatabaseDescriptor {
     /// historical record of their origin; `status` will be `Promoted`.
     #[msgpack(default)]
     pub mirror_origin: Option<MirrorOrigin>,
+    /// DML audit level for this database.
+    /// Set via `ALTER DATABASE <name> SET AUDIT_DML = <mode>`.
+    #[msgpack(default)]
+    #[serde(default)]
+    pub audit_dml: AuditDmlMode,
 }
 
 /// Reference to a clone's origin. Populated by the clone subsystem; stored
@@ -109,6 +114,7 @@ impl DatabaseDescriptor {
             quota_ref: 0,
             parent_clone: None,
             mirror_origin: None,
+            audit_dml: AuditDmlMode::None,
         }
     }
 }
