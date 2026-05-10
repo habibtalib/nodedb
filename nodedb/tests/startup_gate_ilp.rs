@@ -27,31 +27,49 @@ use nodedb::control::state::SharedState;
 
 mod common;
 
+/// Test-scoped owners that must outlive the spawned ILP listener.
+/// Critically, `_data_sides` owns the Data Plane SPSC consumer halves —
+/// dropping it closes the rings and deadlocks the listener's flush
+/// dispatch.
+struct GatedOwners {
+    _sequencer: StartupSequencer,
+    _dir: tempfile::TempDir,
+    _data_sides: Vec<nodedb::bridge::dispatch::CoreChannelDataSide>,
+}
+
 fn make_gated_state() -> (
     Arc<SharedState>,
-    StartupSequencer,
     nodedb::control::startup::ReadyGate,
-    tempfile::TempDir,
+    GatedOwners,
 ) {
     let dir = tempfile::tempdir().unwrap();
     let wal_path = dir.path().join("gate_ilp_test.wal");
     let wal = Arc::new(nodedb::wal::WalManager::open_for_testing(&wal_path).unwrap());
-    let (dispatcher, _data_sides) = Dispatcher::new(1, 64);
+    let (dispatcher, data_sides) = Dispatcher::new(1, 64);
     let mut shared = SharedState::new(dispatcher, wal);
 
-    let (seq, gate) = StartupSequencer::new();
-    let gw_gate = seq.register_gate(StartupPhase::GatewayEnable, "gateway-enable-ilp-test");
+    let (sequencer, gate) = StartupSequencer::new();
+    let gateway_gate =
+        sequencer.register_gate(StartupPhase::GatewayEnable, "gateway-enable-ilp-test");
 
     Arc::get_mut(&mut shared)
         .expect("SharedState not yet cloned")
         .startup = Arc::clone(&gate);
 
-    (shared, seq, gw_gate, dir)
+    (
+        shared,
+        gateway_gate,
+        GatedOwners {
+            _sequencer: sequencer,
+            _dir: dir,
+            _data_sides: data_sides,
+        },
+    )
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ilp_accept_blocked_until_gateway_enable() {
-    let (shared, _seq, gw_gate, _dir) = make_gated_state();
+    let (shared, gw_gate, _owners) = make_gated_state();
     let startup_gate = Arc::clone(&shared.startup);
 
     // Bind a real ILP TCP socket on an ephemeral port.
@@ -88,9 +106,12 @@ async fn ilp_accept_blocked_until_gateway_enable() {
         .expect("ILP connect timed out")
         .expect("ILP TCP connect failed");
 
-    // Send an ILP line and shut down the write side.
-    let ilp_line = b"cpu,host=gate_test value=1.0 1000000000\n";
-    stream.write_all(ilp_line).await.expect("ILP write failed");
+    // Shut down the write side without sending a line. The handler must
+    // still accept (after the gate fires), read to EOF, and close — that
+    // round-trip is what the test measures. Sending a real ILP line would
+    // route the request through `dispatch_to_data_plane` which awaits a
+    // response from a Data Plane core that this minimal harness doesn't
+    // run, deadlocking the connection close past the test timeout.
     stream.shutdown().await.ok();
 
     // Start timing. The server won't close its side until it accepts and

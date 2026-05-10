@@ -7,6 +7,7 @@ use pgwire::error::PgWireResult;
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use crate::types::DatabaseId;
 use crate::types::TraceId;
 
 use super::super::sql_parse::{parse_sql_value, split_values};
@@ -71,7 +72,8 @@ pub(super) fn parse_write_statement(
         after_coll_trimmed.starts_with('{') || after_coll_trimmed.starts_with('[');
     let mut coll_type: Option<nodedb_types::CollectionType> = None;
     if let Some(catalog) = state.credentials.catalog()
-        && let Ok(Some(coll)) = catalog.get_collection(tenant_id.as_u64(), &coll_name)
+        && let Ok(Some(coll)) =
+            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &coll_name)
     {
         // Skip non-schemaless collections for standard VALUES INSERT (let SQL path handle).
         // But always handle here for: UPSERT, { } object literal (any collection type).
@@ -228,7 +230,11 @@ pub(super) async fn dispatch_plan(
     plan: crate::bridge::envelope::PhysicalPlan,
 ) -> Option<PgWireResult<Vec<Response>>> {
     if let Err(e) = crate::control::server::wal_dispatch::wal_append_if_write(
-        &state.wal, tenant_id, vshard_id, &plan,
+        &state.wal,
+        tenant_id,
+        vshard_id,
+        crate::types::DatabaseId::DEFAULT,
+        &plan,
     ) {
         return Some(Err(sqlstate_error("XX000", &e.to_string())));
     }
@@ -324,11 +330,12 @@ pub(super) async fn plan_and_dispatch(
     state: &SharedState,
     _identity: &crate::control::security::identity::AuthenticatedIdentity,
     tenant_id: nodedb_types::TenantId,
+    database_id: crate::types::DatabaseId,
     sql: &str,
 ) -> PgWireResult<()> {
     let query_ctx = crate::control::planner::context::QueryContext::for_state(state);
     let tasks = query_ctx
-        .plan_sql(sql, tenant_id)
+        .plan_sql(sql, tenant_id, database_id)
         .await
         .map_err(|e| sqlstate_error_raw("XX000", &e.to_string()))?;
     for task in tasks {
@@ -336,6 +343,7 @@ pub(super) async fn plan_and_dispatch(
             &state.wal,
             tenant_id,
             task.vshard_id,
+            task.database_id,
             &task.plan,
         )
         .map_err(|e| sqlstate_error_raw("XX000", &e.to_string()))?;

@@ -9,6 +9,7 @@ use nodedb_sql::ddl_ast::NodedbStatement;
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::ddl::change_stream::create_change_stream;
+use crate::control::server::pgwire::ddl::collection::copy_from::CopyFromOptions;
 use crate::control::server::pgwire::ddl::collection::{
     CreateCollectionRequest, CreateIndexRequest, copy_from_file, copy_to_file, create_collection,
     create_index, create_table, dispatch_register_by_name,
@@ -21,13 +22,19 @@ use crate::control::server::pgwire::ddl::custom_type::{
     alter_type_add_value, create_composite_type, create_enum_type, drop_type, show_types,
 };
 use crate::control::server::pgwire::ddl::materialized_view::create_materialized_view;
+use crate::control::server::pgwire::ddl::oidc::{
+    alter_oidc_provider_claim_mapping, create_oidc_provider, drop_oidc_provider,
+    show_oidc_providers,
+};
 use crate::control::server::pgwire::ddl::retention_policy::create_retention_policy;
 use crate::control::server::pgwire::ddl::schedule::{CreateScheduleRequest, create_schedule};
 use crate::control::server::pgwire::ddl::synonym_group::{
     create_synonym_group, drop_synonym_group, show_synonym_groups,
 };
+use crate::control::server::pgwire::ddl::tenant::handle_move_tenant;
 use crate::control::server::pgwire::ddl::trigger::create_trigger;
 use crate::control::state::SharedState;
+use crate::types::DatabaseId;
 
 use super::alter::dispatch_alter_collection;
 
@@ -37,6 +44,7 @@ pub(super) async fn try_dispatch_async(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     stmt: &NodedbStatement,
+    database_id: DatabaseId,
 ) -> Option<PgWireResult<Vec<Response>>> {
     match stmt {
         NodedbStatement::CreateTrigger {
@@ -195,9 +203,10 @@ pub(super) async fn try_dispatch_async(
                     flags,
                     balanced_raw: balanced_raw.as_deref(),
                 },
+                database_id,
             );
             let result = match result {
-                Ok(resp) => dispatch_register_by_name(state, identity, name)
+                Ok(resp) => dispatch_register_by_name(state, identity, name, database_id)
                     .await
                     .map(|()| resp)
                     .map_err(|e| {
@@ -231,10 +240,11 @@ pub(super) async fn try_dispatch_async(
                     flags,
                     balanced_raw: balanced_raw.as_deref(),
                 },
+                database_id,
             )
             .await;
             let result = match result {
-                Ok(resp) => dispatch_register_by_name(state, identity, name)
+                Ok(resp) => dispatch_register_by_name(state, identity, name, database_id)
                     .await
                     .map(|()| resp)
                     .map_err(|e| {
@@ -308,9 +318,12 @@ pub(super) async fn try_dispatch_async(
                 identity,
                 collection,
                 path,
-                format.as_ref(),
-                *delimiter,
-                *header,
+                CopyFromOptions {
+                    format: format.as_ref(),
+                    delimiter: *delimiter,
+                    header: *header,
+                },
+                database_id,
             )
             .await,
         ),
@@ -333,6 +346,42 @@ pub(super) async fn try_dispatch_async(
             )
             .await,
         ),
+
+        NodedbStatement::MoveTenant {
+            tenant_name,
+            from_db,
+            to_db,
+        } => Some(handle_move_tenant(state, identity, tenant_name, from_db, to_db).await),
+
+        NodedbStatement::CreateOidcProvider {
+            name,
+            issuer,
+            jwks_uri,
+            audience,
+            claim_mappings,
+        } => Some(
+            create_oidc_provider(
+                state,
+                identity,
+                name,
+                issuer,
+                jwks_uri,
+                audience.as_deref(),
+                claim_mappings,
+            )
+            .await,
+        ),
+
+        NodedbStatement::AlterOidcProviderClaimMapping {
+            name,
+            claim_mappings,
+        } => Some(alter_oidc_provider_claim_mapping(state, identity, name, claim_mappings).await),
+
+        NodedbStatement::DropOidcProvider { name, if_exists } => {
+            Some(drop_oidc_provider(state, identity, name, *if_exists).await)
+        }
+
+        NodedbStatement::ShowOidcProviders => Some(show_oidc_providers(state, identity)),
 
         _ => None,
     }

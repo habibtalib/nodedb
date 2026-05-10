@@ -16,6 +16,7 @@ use pgwire::error::PgWireResult;
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use crate::types::DatabaseId;
 
 /// Try to handle a SQL statement as a Control Plane DDL command.
 ///
@@ -28,6 +29,7 @@ pub async fn dispatch(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     sql: &str,
+    database_id: DatabaseId,
 ) -> Option<PgWireResult<Vec<Response>>> {
     // AST-typed fast path: parse once, handle IF [NOT] EXISTS at the
     // dispatch level, then fall through to legacy handlers for the
@@ -49,7 +51,7 @@ pub async fn dispatch(
             )));
         }
         Some(Ok(stmt)) => {
-            if let Some(r) = ast::try_dispatch(state, identity, &stmt).await {
+            if let Some(r) = ast::try_dispatch(state, identity, &stmt, database_id).await {
                 return Some(r);
             }
         }
@@ -71,7 +73,7 @@ pub async fn dispatch(
         return Some(r);
     }
 
-    if let Some(r) = engine_ops::dispatch(state, identity, sql, &upper, &parts).await {
+    if let Some(r) = engine_ops::dispatch(state, identity, sql, &upper, &parts, database_id).await {
         return Some(r);
     }
 
@@ -87,7 +89,7 @@ pub async fn dispatch(
         return Some(r);
     }
 
-    if let Some(r) = dsl::dispatch(state, identity, sql, &upper, &parts).await {
+    if let Some(r) = dsl::dispatch(state, identity, sql, &upper, &parts, database_id).await {
         return Some(r);
     }
 

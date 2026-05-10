@@ -291,8 +291,13 @@ impl CoreLoop {
                 .put(tid, target_collection, doc_id, &updated_bytes)
                 .is_ok()
             {
-                self.doc_cache
-                    .put(tid, target_collection, doc_id, &updated_bytes);
+                self.doc_cache.put(
+                    task.request.database_id.as_u64(),
+                    tid,
+                    target_collection,
+                    doc_id,
+                    &updated_bytes,
+                );
                 affected += 1;
                 if returning.is_some() {
                     if let Some(obj) = target_doc.as_object_mut() {

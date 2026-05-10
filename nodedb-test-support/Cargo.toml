@@ -28,3 +28,5 @@ sonic-rs = { workspace = true }
 zerompk = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
+smallvec = { workspace = true }
+uuid = { workspace = true }

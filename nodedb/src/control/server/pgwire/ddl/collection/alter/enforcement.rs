@@ -3,6 +3,7 @@
 //! `ALTER COLLECTION ... SET {RETENTION,LEGAL_HOLD,APPEND_ONLY,LAST_VALUE_CACHE}`
 //! — non-schema enforcement knobs propagated through `CatalogEntry::PutCollection`.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -24,7 +25,7 @@ pub fn alter_collection_set_retention(
         return Err(sqlstate_error("XX000", "no catalog available"));
     };
     let mut coll = catalog
-        .get_collection(tenant_id, name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, name)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
         .ok_or_else(|| sqlstate_error("42P01", &format!("collection '{name}' not found")))?;
 
@@ -48,7 +49,7 @@ pub fn alter_collection_set_legal_hold(
         return Err(sqlstate_error("XX000", "no catalog available"));
     };
     let mut coll = catalog
-        .get_collection(tenant_id, name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, name)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
         .ok_or_else(|| sqlstate_error("42P01", &format!("collection '{name}' not found")))?;
 
@@ -94,7 +95,7 @@ pub fn alter_collection_set_append_only(
         return Err(sqlstate_error("XX000", "no catalog available"));
     };
     let mut coll = catalog
-        .get_collection(tenant_id, name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, name)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
         .ok_or_else(|| sqlstate_error("42P01", &format!("collection '{name}' not found")))?;
 
@@ -120,7 +121,7 @@ pub fn alter_collection_set_last_value_cache(
         return Err(sqlstate_error("XX000", "no catalog available"));
     };
     let mut coll = catalog
-        .get_collection(tenant_id, name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, name)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
         .ok_or_else(|| sqlstate_error("42P01", &format!("collection '{name}' not found")))?;
 
@@ -144,7 +145,7 @@ fn persist_and_bump(
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     if log_index == 0 {
         catalog
-            .put_collection(coll)
+            .put_collection(DatabaseId::DEFAULT, coll)
             .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     }
     state.schema_version.bump();

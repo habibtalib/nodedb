@@ -149,10 +149,11 @@ pub(in super::super) fn convert_create_array(
     }
 
     // 4. Emit OpenArray so the Data Plane opens the engine side.
-    let vshard = VShardId::from_collection(name);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, name);
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Array(ArrayOp::OpenArray {
             array_id: aid,
             schema_msgpack,
@@ -202,7 +203,7 @@ pub(in super::super) fn convert_drop_array(
                 detail: format!("array catalog remove: {e}"),
             });
         }
-        if let Err(e) = catalog.delete_all_surrogates_for_collection(name) {
+        if let Err(e) = catalog.delete_all_surrogates_for_collection(ctx.database_id, name) {
             return Err(crate::Error::PlanError {
                 detail: format!("array surrogate-map cleanup: {e}"),
             });
@@ -211,10 +212,11 @@ pub(in super::super) fn convert_drop_array(
     let Some(aid) = removed_array_id else {
         return Ok(Vec::new());
     };
-    let vshard = VShardId::from_collection(name);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, name);
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Array(ArrayOp::DropArray { array_id: aid }),
         post_set_op: PostSetOp::None,
     }])

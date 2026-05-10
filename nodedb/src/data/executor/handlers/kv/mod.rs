@@ -8,6 +8,7 @@ mod crud;
 mod dispatch;
 mod field;
 mod index;
+mod materialize_scan;
 mod scan;
 mod sorted;
 mod transfer;

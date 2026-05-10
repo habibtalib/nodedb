@@ -55,6 +55,8 @@ async fn grant_superuser_requires_superuser() {
         auth_method: AuthMethod::Trust,
         roles: vec![Role::TenantAdmin],
         is_superuser: false,
+        default_database: None,
+        accessible_databases: AuthenticatedIdentity::default_database_set(false),
     };
     let err = ddl_err(&state, &admin, "GRANT ROLE superuser TO ivan").await;
     assert!(err.contains("only superuser"), "{err}");

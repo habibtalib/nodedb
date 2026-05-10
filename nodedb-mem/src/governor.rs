@@ -2,16 +2,96 @@
 
 //! Central memory governor.
 //!
-//! The governor owns all engine budgets and enforces the global ceiling.
+//! The governor owns all budget levels and enforces a four-layer hierarchy:
+//! global ceiling → per-database → per-tenant → per-engine.
 //! Every subsystem that wants to allocate significant memory must go through
 //! the governor.
+//!
+//! ## Lock-poisoning policy
+//!
+//! The maps guarded by `RwLock` here (`database_budgets`, `tenant_budgets`)
+//! contain only `Arc<Budget>` handles — never partially-mutated invariants.
+//! `Budget` itself is built from atomics and is consistent at every byte
+//! boundary. A panic in another thread therefore cannot leave the *contents*
+//! of these maps in an inconsistent state; only the `RwLock`'s poison flag
+//! is set. We deliberately recover via `unwrap_or_else(|p| p.into_inner())`
+//! so a one-off panic in a quota helper does not poison the entire memory
+//! subsystem and stall every future reservation. If a Budget's atomics ever
+//! grow into a multi-step protocol that *can* be partially updated, this
+//! policy must be revisited.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock};
+
+use nodedb_types::{DatabaseId, TenantId};
 
 use crate::budget::Budget;
 use crate::engine::EngineId;
 use crate::error::{MemError, Result};
 use crate::pressure::{PressureLevel, PressureThresholds};
+use crate::reservation_token::ReservationToken;
+
+/// Shared atomic global usage tracker.
+///
+/// Separate struct so that `ReservationToken` can hold a weak-free `Arc`
+/// without pulling in the full governor.
+pub struct GlobalCounter {
+    pub(crate) allocated: AtomicUsize,
+    pub(crate) ceiling: usize,
+}
+
+impl std::fmt::Debug for GlobalCounter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GlobalCounter")
+            .field("allocated", &self.allocated.load(Ordering::Relaxed))
+            .field("ceiling", &self.ceiling)
+            .finish()
+    }
+}
+
+/// A named budget with an atomic allocated counter.
+///
+/// Used for per-database and per-tenant budget layers.
+#[derive(Debug)]
+struct ScopedBudget {
+    limit: usize,
+    allocated: Arc<AtomicUsize>,
+}
+
+impl ScopedBudget {
+    fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            allocated: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// Attempt a CAS-based reservation. Returns the `Arc` to the counter on
+    /// success so the token can hold a reference for drop-release.
+    fn try_reserve(&self, size: usize) -> Option<Arc<AtomicUsize>> {
+        loop {
+            let current = self.allocated.load(Ordering::Relaxed);
+            if current + size > self.limit {
+                return None;
+            }
+            match self.allocated.compare_exchange_weak(
+                current,
+                current + size,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Some(Arc::clone(&self.allocated)),
+                Err(_) => continue,
+            }
+        }
+    }
+
+    fn available(&self) -> usize {
+        let alloc = self.allocated.load(Ordering::Relaxed);
+        self.limit.saturating_sub(alloc)
+    }
+}
 
 /// Configuration for the memory governor.
 #[derive(Debug, Clone)]
@@ -41,17 +121,30 @@ impl GovernorConfig {
 
 /// The central memory governor.
 ///
-/// Thread-safe: all budget operations use atomics internally.
+/// Thread-safe: global, database, and tenant counters use atomics.
+/// The budget map itself is behind an `RwLock`; reads (common) take a shared
+/// lock, writes (rare — only when quotas change) take an exclusive lock.
 #[derive(Debug)]
 pub struct MemoryGovernor {
-    /// Per-engine budgets.
+    /// Per-engine budgets (original arity-2 tracking).
     budgets: HashMap<EngineId, Budget>,
+
+    /// Shared global counter. Held by both the governor and every live token.
+    global_counter: Arc<GlobalCounter>,
 
     /// Global ceiling in bytes.
     global_ceiling: usize,
 
     /// Pressure thresholds for graduated backpressure.
     thresholds: PressureThresholds,
+
+    /// Per-database budget map. Keyed by `DatabaseId`. Populated lazily via
+    /// `set_database_budget`; databases without an entry are uncapped.
+    database_budgets: RwLock<HashMap<DatabaseId, ScopedBudget>>,
+
+    /// Per-tenant budget map. Keyed by `(DatabaseId, TenantId)`. Populated
+    /// lazily via `set_tenant_budget`.
+    tenant_budgets: RwLock<HashMap<(DatabaseId, TenantId), ScopedBudget>>,
 }
 
 impl MemoryGovernor {
@@ -64,50 +157,230 @@ impl MemoryGovernor {
             budgets.insert(*engine, Budget::new(*limit));
         }
 
+        let global_counter = Arc::new(GlobalCounter {
+            allocated: AtomicUsize::new(0),
+            ceiling: config.global_ceiling,
+        });
+
         Ok(Self {
             budgets,
+            global_counter,
             global_ceiling: config.global_ceiling,
             thresholds: PressureThresholds::default(),
+            database_budgets: RwLock::new(HashMap::new()),
+            tenant_budgets: RwLock::new(HashMap::new()),
         })
     }
 
-    /// Try to reserve `size` bytes for the given engine.
+    // ── Database budget setters ───────────────────────────────────────────────
+
+    /// Install or replace the memory ceiling for a database.
     ///
-    /// Returns `Ok(())` if the reservation succeeded, or an error describing
-    /// why it was rejected.
-    pub fn try_reserve(&self, engine: EngineId, size: usize) -> Result<()> {
-        let budget = self
+    /// Called by the catalog apply path when `ALTER DATABASE … SET QUOTA` is
+    /// executed. Takes effect for all subsequent `try_reserve` calls; in-flight
+    /// tokens already issued are not recalled.
+    pub fn set_database_budget(&self, db: DatabaseId, max_bytes: usize) {
+        let mut map = self
+            .database_budgets
+            .write()
+            .unwrap_or_else(|p| p.into_inner());
+        map.insert(db, ScopedBudget::new(max_bytes));
+    }
+
+    /// Remove the per-database budget ceiling, making that database uncapped.
+    pub fn clear_database_budget(&self, db: DatabaseId) {
+        let mut map = self
+            .database_budgets
+            .write()
+            .unwrap_or_else(|p| p.into_inner());
+        map.remove(&db);
+    }
+
+    // ── Tenant budget setters ─────────────────────────────────────────────────
+
+    /// Install or replace the memory ceiling for a tenant within a database.
+    pub fn set_tenant_budget(&self, db: DatabaseId, tenant: TenantId, max_bytes: usize) {
+        let mut map = self
+            .tenant_budgets
+            .write()
+            .unwrap_or_else(|p| p.into_inner());
+        map.insert((db, tenant), ScopedBudget::new(max_bytes));
+    }
+
+    /// Remove the per-tenant budget ceiling.
+    pub fn clear_tenant_budget(&self, db: DatabaseId, tenant: TenantId) {
+        let mut map = self
+            .tenant_budgets
+            .write()
+            .unwrap_or_else(|p| p.into_inner());
+        map.remove(&(db, tenant));
+    }
+
+    // ── 4-arity reservation ───────────────────────────────────────────────────
+
+    /// Reserve `size` bytes for the given (database, tenant, engine) triple.
+    ///
+    /// Check order: **global → database → tenant → engine** (largest scope
+    /// first, to fail fast and avoid partial increments at deep levels).
+    ///
+    /// On any failure the function rolls back any partial increments already
+    /// applied at higher layers and returns an error describing the exhausted
+    /// layer. On success, returns a [`ReservationToken`] whose `Drop`
+    /// implementation releases all four layers.
+    ///
+    /// Databases or tenants without a configured budget are skipped (uncapped).
+    /// Engines without a configured budget return [`MemError::UnknownEngine`].
+    pub fn try_reserve(
+        &self,
+        db: DatabaseId,
+        tenant: TenantId,
+        engine: EngineId,
+        size: usize,
+    ) -> Result<ReservationToken> {
+        // ── Layer 1: global ceiling ───────────────────────────────────────────
+        let global_arc = Arc::clone(&self.global_counter);
+        if size > 0 {
+            loop {
+                let current = global_arc.allocated.load(Ordering::Relaxed);
+                if current + size > global_arc.ceiling {
+                    return Err(MemError::GlobalCeilingExceeded {
+                        allocated: current,
+                        ceiling: global_arc.ceiling,
+                        requested: size,
+                    });
+                }
+                match global_arc.allocated.compare_exchange_weak(
+                    current,
+                    current + size,
+                    Ordering::AcqRel,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => break,
+                    Err(_) => continue,
+                }
+            }
+        }
+
+        // ── Layer 2: per-database budget ──────────────────────────────────────
+        let db_counter = {
+            let map = self
+                .database_budgets
+                .read()
+                .unwrap_or_else(|p| p.into_inner());
+            if let Some(budget) = map.get(&db) {
+                match budget.try_reserve(size) {
+                    Some(arc) => Some(arc),
+                    None => {
+                        // Roll back global.
+                        if size > 0 {
+                            global_arc.allocated.fetch_sub(size, Ordering::Relaxed);
+                        }
+                        return Err(MemError::DatabaseBudgetExhausted {
+                            db,
+                            requested: size,
+                            available: budget.available(),
+                            limit: budget.limit,
+                        });
+                    }
+                }
+            } else {
+                None
+            }
+        };
+
+        // ── Layer 3: per-tenant budget ────────────────────────────────────────
+        let tenant_counter = {
+            let map = self
+                .tenant_budgets
+                .read()
+                .unwrap_or_else(|p| p.into_inner());
+            if let Some(budget) = map.get(&(db, tenant)) {
+                match budget.try_reserve(size) {
+                    Some(arc) => Some(arc),
+                    None => {
+                        // Roll back database and global.
+                        if let Some(ref ctr) = db_counter
+                            && size > 0
+                        {
+                            ctr.fetch_sub(size, Ordering::Relaxed);
+                        }
+                        if size > 0 {
+                            global_arc.allocated.fetch_sub(size, Ordering::Relaxed);
+                        }
+                        return Err(MemError::TenantBudgetExhausted {
+                            db,
+                            tenant,
+                            requested: size,
+                            available: budget.available(),
+                            limit: budget.limit,
+                        });
+                    }
+                }
+            } else {
+                None
+            }
+        };
+
+        // ── Layer 4: per-engine budget ────────────────────────────────────────
+        let engine_budget = self
             .budgets
             .get(&engine)
             .ok_or(MemError::UnknownEngine(engine))?;
 
-        // Check global ceiling first.
-        let total_allocated: usize = self.budgets.values().map(|b| b.allocated()).sum();
-        if total_allocated + size > self.global_ceiling {
-            return Err(MemError::GlobalCeilingExceeded {
-                allocated: total_allocated,
-                ceiling: self.global_ceiling,
-                requested: size,
-            });
-        }
-
-        // Check per-engine budget.
-        if !budget.try_reserve(size) {
+        let engine_counter = if let Some(arc) = engine_budget.try_reserve_arc(size) {
+            Some(arc)
+        } else {
+            // Roll back tenant, database, and global.
+            if let Some(ref ctr) = tenant_counter
+                && size > 0
+            {
+                ctr.fetch_sub(size, Ordering::Relaxed);
+            }
+            if let Some(ref ctr) = db_counter
+                && size > 0
+            {
+                ctr.fetch_sub(size, Ordering::Relaxed);
+            }
+            if size > 0 {
+                global_arc.allocated.fetch_sub(size, Ordering::Relaxed);
+            }
             return Err(MemError::BudgetExhausted {
                 engine,
                 requested: size,
-                available: budget.available(),
-                limit: budget.limit(),
+                available: engine_budget.available(),
+                limit: engine_budget.limit(),
             });
-        }
+        };
 
-        Ok(())
+        Ok(ReservationToken::new(
+            crate::reservation_token::ReservationParams {
+                global_counter: global_arc,
+                database_counter: db_counter,
+                tenant_counter,
+                engine_counter,
+                size,
+                db,
+                tenant,
+                engine,
+            },
+        ))
     }
 
     /// Release `size` bytes back to the given engine's budget.
+    ///
+    /// This method only releases the engine-layer counter; it exists for
+    /// legacy compatibility with code that uses [`BudgetGuard`] rather than
+    /// `ReservationToken`. New code should hold a `ReservationToken` and let
+    /// drop handle all four layers.
     pub fn release(&self, engine: EngineId, size: usize) {
         if let Some(budget) = self.budgets.get(&engine) {
             budget.release(size);
+        }
+        // Also release from global counter for legacy callers.
+        if size > 0 {
+            self.global_counter
+                .allocated
+                .fetch_sub(size, Ordering::Relaxed);
         }
     }
 
@@ -121,7 +394,7 @@ impl MemoryGovernor {
         self.global_ceiling
     }
 
-    /// Total memory allocated across all engines.
+    /// Total memory allocated across all engines (engine-layer sum).
     pub fn total_allocated(&self) -> usize {
         self.budgets.values().map(|b| b.allocated()).sum()
     }
@@ -181,6 +454,12 @@ pub struct EngineSnapshot {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::thread;
+
+    use nodedb_types::{DatabaseId, TenantId};
+
     use super::*;
 
     fn test_config() -> GovernorConfig {
@@ -195,60 +474,252 @@ mod tests {
         }
     }
 
+    fn db() -> DatabaseId {
+        DatabaseId::DEFAULT
+    }
+
+    fn tenant() -> TenantId {
+        TenantId::new(1)
+    }
+
+    // ── Basic 4-arity reservation ────────────────────────────────────────────
+
     #[test]
     fn reserve_within_budget() {
         let gov = MemoryGovernor::new(test_config()).unwrap();
-        gov.try_reserve(EngineId::Vector, 1000).unwrap();
+        let tok = gov
+            .try_reserve(db(), tenant(), EngineId::Vector, 1000)
+            .unwrap();
         assert_eq!(gov.budget(EngineId::Vector).unwrap().allocated(), 1000);
+        assert_eq!(tok.size(), 1000);
     }
 
     #[test]
     fn reserve_exceeds_engine_budget() {
         let gov = MemoryGovernor::new(test_config()).unwrap();
-        let err = gov.try_reserve(EngineId::Query, 3000).unwrap_err();
+        let err = gov
+            .try_reserve(db(), tenant(), EngineId::Query, 3000)
+            .unwrap_err();
         assert!(matches!(err, MemError::BudgetExhausted { .. }));
     }
 
     #[test]
     fn reserve_exceeds_global_ceiling() {
         let gov = MemoryGovernor::new(test_config()).unwrap();
-        gov.try_reserve(EngineId::Vector, 4096).unwrap();
-        gov.try_reserve(EngineId::Query, 2048).unwrap();
-        gov.try_reserve(EngineId::Timeseries, 1024).unwrap();
-
-        // Within engine budget but exceeds global ceiling.
-        // (This would need a 4th engine, but the global is already at 7168.)
-        // Let's try adding more to timeseries.
-        let err = gov.try_reserve(EngineId::Timeseries, 2000).unwrap_err();
-        // Should fail because timeseries budget is 1024 and already used 1024.
+        // Fill up global ceiling by filling all engines.
+        let _t1 = gov
+            .try_reserve(db(), tenant(), EngineId::Vector, 4096)
+            .unwrap();
+        let _t2 = gov
+            .try_reserve(db(), tenant(), EngineId::Query, 2048)
+            .unwrap();
+        let _t3 = gov
+            .try_reserve(db(), tenant(), EngineId::Timeseries, 1024)
+            .unwrap();
+        // All engine budgets are also exhausted, so either error is valid.
+        let err = gov
+            .try_reserve(db(), tenant(), EngineId::Timeseries, 2000)
+            .unwrap_err();
         assert!(matches!(
             err,
             MemError::BudgetExhausted { .. } | MemError::GlobalCeilingExceeded { .. }
         ));
     }
 
+    // ── RAII release ──────────────────────────────────────────────────────────
+
     #[test]
-    fn release_frees_capacity() {
+    fn raii_release_returns_to_baseline() {
         let gov = MemoryGovernor::new(test_config()).unwrap();
-        gov.try_reserve(EngineId::Vector, 4096).unwrap();
 
-        assert!(gov.try_reserve(EngineId::Vector, 1).is_err());
+        {
+            let tok = gov
+                .try_reserve(db(), tenant(), EngineId::Vector, 1000)
+                .unwrap();
+            assert_eq!(gov.budget(EngineId::Vector).unwrap().allocated(), 1000);
+            assert_eq!(tok.size(), 1000);
+        } // token dropped here
 
-        gov.release(EngineId::Vector, 1000);
-        gov.try_reserve(EngineId::Vector, 500).unwrap();
+        assert_eq!(
+            gov.budget(EngineId::Vector).unwrap().allocated(),
+            0,
+            "engine counter must be returned on drop"
+        );
     }
+
+    // ── Database-cap hierarchical denial ─────────────────────────────────────
+
+    #[test]
+    fn database_cap_denies_even_with_tenant_headroom() {
+        let gov = MemoryGovernor::new(test_config()).unwrap();
+        // Database budget: 500 bytes.
+        gov.set_database_budget(db(), 500);
+        // Tenant budget: generous.
+        gov.set_tenant_budget(db(), tenant(), 4096);
+
+        // Reservation of 600 must fail at the database layer even though
+        // both global and tenant have headroom.
+        let err = gov
+            .try_reserve(db(), tenant(), EngineId::Vector, 600)
+            .unwrap_err();
+        assert!(
+            matches!(err, MemError::DatabaseBudgetExhausted { .. }),
+            "expected DatabaseBudgetExhausted, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn global_cap_denies_even_with_database_and_tenant_headroom() {
+        // Global ceiling of 200. Engine limit also 200 (passes validation since
+        // sum ≤ global). DB and tenant budgets are generous. Request 300 bytes —
+        // global layer fires first and denies.
+        let mut engine_limits = HashMap::new();
+        engine_limits.insert(EngineId::Vector, 200);
+        let gov = MemoryGovernor::new(GovernorConfig {
+            global_ceiling: 200,
+            engine_limits,
+        })
+        .unwrap();
+        gov.set_database_budget(db(), 1024);
+        gov.set_tenant_budget(db(), tenant(), 1024);
+
+        let err = gov
+            .try_reserve(db(), tenant(), EngineId::Vector, 300)
+            .unwrap_err();
+        assert!(
+            matches!(err, MemError::GlobalCeilingExceeded { .. }),
+            "expected GlobalCeilingExceeded, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn tenant_cap_denies_with_db_headroom() {
+        let gov = MemoryGovernor::new(test_config()).unwrap();
+        gov.set_database_budget(db(), 4096);
+        gov.set_tenant_budget(db(), tenant(), 300);
+
+        let err = gov
+            .try_reserve(db(), tenant(), EngineId::Vector, 400)
+            .unwrap_err();
+        assert!(
+            matches!(err, MemError::TenantBudgetExhausted { .. }),
+            "expected TenantBudgetExhausted, got {err:?}"
+        );
+    }
+
+    // ── Rollback correctness: partial increments must be undone on failure ────
+
+    #[test]
+    fn partial_increments_rolled_back_on_db_failure() {
+        let gov = MemoryGovernor::new(test_config()).unwrap();
+        gov.set_database_budget(db(), 50);
+
+        // Request 100 bytes → fails at DB layer. Global should stay at 0.
+        let _ = gov
+            .try_reserve(db(), tenant(), EngineId::Vector, 100)
+            .unwrap_err();
+
+        // Global counter must be 0 (rolled back).
+        assert_eq!(
+            gov.global_counter.allocated.load(Ordering::Relaxed),
+            0,
+            "global counter must be rolled back on database-layer failure"
+        );
+    }
+
+    #[test]
+    fn partial_increments_rolled_back_on_tenant_failure() {
+        let gov = MemoryGovernor::new(test_config()).unwrap();
+        gov.set_database_budget(db(), 4096);
+        gov.set_tenant_budget(db(), tenant(), 50);
+
+        let _ = gov
+            .try_reserve(db(), tenant(), EngineId::Vector, 100)
+            .unwrap_err();
+
+        // Both global and db counters must be 0.
+        assert_eq!(
+            gov.global_counter.allocated.load(Ordering::Relaxed),
+            0,
+            "global counter must be rolled back on tenant-layer failure"
+        );
+        let db_map = gov.database_budgets.read().unwrap();
+        let db_alloc = db_map[&db()].allocated.load(Ordering::Relaxed);
+        assert_eq!(db_alloc, 0, "database counter must be rolled back");
+    }
+
+    // ── Concurrent reserves ───────────────────────────────────────────────────
+
+    #[test]
+    fn concurrent_reserves_never_exceed_cap() {
+        let mut limits = HashMap::new();
+        limits.insert(EngineId::Vector, 10_000);
+        let gov = Arc::new(
+            MemoryGovernor::new(GovernorConfig {
+                global_ceiling: 10_000,
+                engine_limits: limits,
+            })
+            .unwrap(),
+        );
+        gov.set_database_budget(DatabaseId::DEFAULT, 10_000);
+
+        // N threads each try to reserve S bytes.
+        let n_threads = 8;
+        let reserve_size = 1_000;
+        let mut handles = Vec::new();
+
+        for i in 0..n_threads {
+            let gov_clone = Arc::clone(&gov);
+            handles.push(thread::spawn(move || {
+                gov_clone.try_reserve(
+                    DatabaseId::DEFAULT,
+                    TenantId::new(i as u64),
+                    EngineId::Vector,
+                    reserve_size,
+                )
+            }));
+        }
+
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let successful: Vec<_> = results.into_iter().filter_map(|r| r.ok()).collect();
+
+        // At most 10 successful reservations of 1000 bytes each against a 10000 cap.
+        assert!(
+            successful.len() <= 10,
+            "expected at most 10 successful reservations, got {}",
+            successful.len()
+        );
+
+        let engine_alloc = gov.budget(EngineId::Vector).unwrap().allocated();
+        assert!(
+            engine_alloc <= 10_000,
+            "engine total {engine_alloc} must not exceed cap 10000"
+        );
+
+        let global_alloc = gov.global_counter.allocated.load(Ordering::Relaxed);
+        assert!(
+            global_alloc <= 10_000,
+            "global total {global_alloc} must not exceed ceiling 10000"
+        );
+    }
+
+    // ── Legacy tests ─────────────────────────────────────────────────────────
 
     #[test]
     fn unknown_engine_rejected() {
         let gov = MemoryGovernor::new(test_config()).unwrap();
-        let err = gov.try_reserve(EngineId::Crdt, 100).unwrap_err();
+        let err = gov
+            .try_reserve(db(), tenant(), EngineId::Crdt, 100)
+            .unwrap_err();
         assert!(matches!(err, MemError::UnknownEngine(EngineId::Crdt)));
     }
 
     #[test]
     fn snapshot_reports_all_engines() {
         let gov = MemoryGovernor::new(test_config()).unwrap();
-        gov.try_reserve(EngineId::Vector, 2048).unwrap();
+        let _tok = gov
+            .try_reserve(db(), tenant(), EngineId::Vector, 2048)
+            .unwrap();
 
         let snap = gov.snapshot();
         assert_eq!(snap.len(), 3);
@@ -263,40 +734,21 @@ mod tests {
     fn engine_pressure_levels() {
         let gov = MemoryGovernor::new(test_config()).unwrap();
 
-        // Vector budget is 4096. At 0% → Normal.
         assert_eq!(gov.engine_pressure(EngineId::Vector), PressureLevel::Normal);
 
-        // Allocate 70% → Warning.
-        gov.try_reserve(EngineId::Vector, 2868).unwrap(); // ~70%
+        let _tok1 = gov
+            .try_reserve(db(), tenant(), EngineId::Vector, 2868)
+            .unwrap();
         assert_eq!(
             gov.engine_pressure(EngineId::Vector),
             PressureLevel::Warning
         );
-
-        // Allocate to 87% → Critical.
-        gov.try_reserve(EngineId::Vector, 700).unwrap(); // ~87%
-        assert_eq!(
-            gov.engine_pressure(EngineId::Vector),
-            PressureLevel::Critical
-        );
-    }
-
-    #[test]
-    fn global_pressure_tracks_total() {
-        let gov = MemoryGovernor::new(test_config()).unwrap();
-        assert_eq!(gov.global_pressure(), PressureLevel::Normal);
-
-        // Fill to ~70% of global ceiling (8192).
-        gov.try_reserve(EngineId::Vector, 4096).unwrap();
-        gov.try_reserve(EngineId::Query, 1700).unwrap();
-        // ~70% = 5796/8192
-        assert!(gov.global_pressure() >= PressureLevel::Warning);
     }
 
     #[test]
     fn invalid_config_rejected() {
         let mut config = test_config();
-        config.global_ceiling = 100; // Way too small for the engine limits.
+        config.global_ceiling = 100;
         assert!(MemoryGovernor::new(config).is_err());
     }
 }

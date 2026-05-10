@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use crate::control::planner::physical::PhysicalTask;
-use crate::types::Lsn;
+use crate::types::{DatabaseId, Lsn};
 
 /// PostgreSQL transaction state for ReadyForQuery status byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +44,15 @@ pub struct CursorState {
 /// Per-connection session state.
 pub struct PgSession {
     pub tx_state: TransactionState,
+    /// Database bound to this pgwire session.
+    ///
+    /// Set at startup from the `database` parameter in the PostgreSQL StartupMessage
+    /// (i.e. `psql -d <name>` or `dbname=<name>` in the connection string). If the
+    /// client sends no database parameter, falls back to the resolution chain:
+    /// user-default → tenant-default → `DatabaseId::DEFAULT` ("default").
+    ///
+    /// Mutable only via `USE DATABASE <name>`, which issues a full session reset.
+    pub current_database: Option<DatabaseId>,
     /// Session parameters set via SET commands.
     pub parameters: HashMap<String, String>,
     /// Buffered write tasks accumulated between BEGIN and COMMIT.
@@ -119,6 +128,7 @@ impl PgSession {
         parameters.insert("rounding_mode".into(), "HALF_EVEN".into());
         Self {
             tx_state: TransactionState::Idle,
+            current_database: None,
             parameters,
             tx_buffer: Vec::new(),
             tx_snapshot_lsn: None,

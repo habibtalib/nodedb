@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::types::{TenantId, VShardId};
+use crate::types::{DatabaseId, TenantId, VShardId};
 
 /// Post-execution set operation for merging multi-task results.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +31,10 @@ pub struct PhysicalTask {
 
     /// Target vShard (determines which Data Plane core handles this).
     pub vshard_id: VShardId,
+
+    /// Database scope. All data access is restricted to this database namespace.
+    /// `DatabaseId::DEFAULT` (0) is the built-in `default` database.
+    pub database_id: DatabaseId,
 
     /// The physical operation to execute.
     pub plan: PhysicalPlan,

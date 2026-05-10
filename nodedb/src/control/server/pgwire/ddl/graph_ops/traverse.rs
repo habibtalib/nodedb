@@ -37,6 +37,39 @@ fn clamp_depth(value: usize, field: &'static str) -> PgWireResult<usize> {
     Ok(value)
 }
 
+/// Check a requested traversal depth against a tenant depth limit.
+///
+/// `limit = 0` means unlimited — the same convention as `max_connections`.
+/// Returns a pgwire error if the depth exceeds a finite limit.
+pub(crate) fn check_graph_depth_against_limit(
+    depth: usize,
+    limit: u32,
+    field: &'static str,
+) -> PgWireResult<()> {
+    if limit > 0 && depth as u32 > limit {
+        return Err(sqlstate_error(
+            "42P17",
+            &format!("{field} {depth} exceeds tenant quota max_graph_depth={limit}"),
+        ));
+    }
+    Ok(())
+}
+
+/// Look up the tenant's `max_graph_depth` quota and check against it.
+fn check_tenant_graph_depth(
+    state: &SharedState,
+    tenant_id: crate::types::TenantId,
+    depth: usize,
+    field: &'static str,
+) -> PgWireResult<()> {
+    let tenants = match state.tenants.lock() {
+        Ok(t) => t,
+        Err(p) => p.into_inner(),
+    };
+    let limit = tenants.quota(tenant_id).max_graph_depth;
+    check_graph_depth_against_limit(depth, limit, field)
+}
+
 /// `GRAPH TRAVERSE FROM '<node_id>' [DEPTH <n>] [LABEL '<label>'] [DIRECTION in|out|both]`
 pub async fn traverse(
     state: &SharedState,
@@ -50,8 +83,9 @@ pub async fn traverse(
         return Err(sqlstate_error("42601", "missing FROM '<node_id>'"));
     }
     let depth = clamp_depth(depth, "DEPTH")?;
-    let dir = to_engine_direction(direction);
     let tenant_id = identity.tenant_id;
+    check_tenant_graph_depth(state, tenant_id, depth, "DEPTH")?;
+    let dir = to_engine_direction(direction);
 
     match crate::control::server::graph_dispatch::cross_core_bfs_with_options(
         state,
@@ -126,6 +160,7 @@ pub async fn shortest_path(
     }
     let max_depth = clamp_depth(max_depth, "MAX_DEPTH")?;
     let tenant_id = identity.tenant_id;
+    check_tenant_graph_depth(state, tenant_id, max_depth, "MAX_DEPTH")?;
     match crate::control::server::graph_dispatch::cross_core_shortest_path(
         state, tenant_id, src, dst, edge_label, max_depth,
     )
@@ -133,5 +168,31 @@ pub async fn shortest_path(
     {
         Ok(resp) => payload_to_query_response(&resp.payload),
         Err(e) => Err(sqlstate_error("XX000", &e.to_string())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_graph_depth_against_limit;
+
+    #[test]
+    fn tenant_graph_depth_under_bound_succeeds() {
+        assert!(check_graph_depth_against_limit(5, 10, "DEPTH").is_ok());
+        assert!(check_graph_depth_against_limit(10, 10, "DEPTH").is_ok());
+    }
+
+    #[test]
+    fn tenant_graph_depth_exceeded_rejected() {
+        let err = check_graph_depth_against_limit(11, 10, "DEPTH")
+            .expect_err("depth > limit must be rejected");
+        let msg = err.to_string();
+        assert!(msg.contains("11"), "error must include the requested depth");
+        assert!(msg.contains("10"), "error must include the limit");
+    }
+
+    #[test]
+    fn tenant_graph_depth_zero_means_unlimited() {
+        assert!(check_graph_depth_against_limit(usize::MAX, 0, "DEPTH").is_ok());
+        assert!(check_graph_depth_against_limit(99999, 0, "MAX_DEPTH").is_ok());
     }
 }

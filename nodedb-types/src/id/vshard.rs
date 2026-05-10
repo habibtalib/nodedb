@@ -37,14 +37,18 @@ impl VShardId {
         self.0
     }
 
-    /// Compute vShard from a collection name.
+    /// Compute vShard from a database + collection name pair.
     ///
-    /// Uses a simple DJB-like hash (multiply-31) for deterministic
-    /// collection-to-shard routing.
-    pub fn from_collection(collection: &str) -> Self {
-        let hash = collection
-            .as_bytes()
+    /// The database identity is mixed into the hash so that the same collection
+    /// name in two different databases routes to independent vShards. Uses a
+    /// DJB-like multiply-31 hash, seeded with the database id bytes, followed
+    /// by a zero separator byte, followed by the collection name bytes.
+    pub fn from_collection_in_database(db: crate::id::DatabaseId, collection: &str) -> Self {
+        let db_bytes = db.as_u64().to_le_bytes();
+        let hash = db_bytes
             .iter()
+            .chain(std::iter::once(&0u8))
+            .chain(collection.as_bytes().iter())
             .fold(0u32, |h, &b| h.wrapping_mul(31).wrapping_add(b as u32));
         Self::new(hash % Self::COUNT)
     }
@@ -105,5 +109,38 @@ mod tests {
             "poor distribution: only {} vShards hit",
             seen.len()
         );
+    }
+
+    #[test]
+    fn from_collection_in_database_deterministic() {
+        use crate::id::DatabaseId;
+        let db = DatabaseId::new(1024);
+        let a = VShardId::from_collection_in_database(db, "users");
+        let b = VShardId::from_collection_in_database(db, "users");
+        assert_eq!(a, b);
+        assert!(a.as_u32() < VShardId::COUNT);
+    }
+
+    #[test]
+    fn from_collection_in_database_different_dbs_differ() {
+        use crate::id::DatabaseId;
+        let db0 = DatabaseId::DEFAULT;
+        let db1 = DatabaseId::new(1024);
+        // Same collection name in different databases should typically route
+        // to different vShards (probabilistic; collection "users" is a
+        // canonical example and the two hashes are known to differ).
+        let a = VShardId::from_collection_in_database(db0, "users");
+        let b = VShardId::from_collection_in_database(db1, "users");
+        assert_ne!(
+            a, b,
+            "same collection name, different databases should route differently"
+        );
+    }
+
+    #[test]
+    fn from_collection_in_database_default_in_range() {
+        use crate::id::DatabaseId;
+        let v = VShardId::from_collection_in_database(DatabaseId::DEFAULT, "orders");
+        assert!(v.as_u32() < VShardId::COUNT);
     }
 }

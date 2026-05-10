@@ -69,6 +69,7 @@ fn make_request(plan: PhysicalPlan) -> Request {
         request_id: RequestId::new(1),
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(0),
+        database_id: nodedb::types::DatabaseId::DEFAULT,
         plan,
         deadline: Instant::now() + Duration::from_secs(5),
         priority: Priority::Normal,
@@ -77,6 +78,8 @@ fn make_request(plan: PhysicalPlan) -> Request {
         idempotency_key: None,
         event_source: nodedb::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     }
 }
 

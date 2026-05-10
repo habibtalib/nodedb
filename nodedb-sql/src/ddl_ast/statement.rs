@@ -4,6 +4,66 @@
 
 pub use super::alter_ops::{AlterCollectionOp, AlterRoleOp, AlterUserOp};
 pub use super::graph_types::{GraphDirection, GraphProperties};
+pub use nodedb_types::{AuditDmlMode, QuotaSpec};
+
+/// Temporal anchor for a `CLONE DATABASE` statement.
+///
+/// Every `match` on this enum must be exhaustive — no `_ =>` arms.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CloneAsOf {
+    /// Use the source database's current commit LSN at clone time.
+    /// Corresponds to the bare `CLONE DATABASE … FROM …` form or the
+    /// explicit `… AS OF SYSTEM TIME LATEST` form.
+    Latest,
+    /// Use the LSN corresponding to the given milliseconds-since-epoch
+    /// timestamp, resolved via the `LsnMsAnchor` mechanism.
+    ///
+    /// Corresponds to `… AS OF SYSTEM TIME <ms>`.
+    SystemTimeMs(i64),
+}
+
+/// Operations available on `ALTER DATABASE <name> <operation>`.
+///
+/// Every variant must be matched exhaustively — no `_ =>` arms anywhere.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AlterDatabaseOperation {
+    /// `ALTER DATABASE <name> RENAME TO <new_name>`
+    Rename { new_name: String },
+    /// `ALTER DATABASE <name> SET QUOTA (max_memory_bytes = ..., ...)`
+    ///
+    /// All fields in the spec are optional; absent fields leave the existing
+    /// quota value unchanged (merged at apply time with the stored record or
+    /// `QuotaRecord::DEFAULT`).
+    SetQuota(QuotaSpec),
+    /// `ALTER DATABASE <name> SET DEFAULT` — marks this database as the
+    /// per-user default for future sessions. Returns
+    /// `FEATURE_NOT_YET_IMPLEMENTED` until the per-user default-database
+    /// binding lands; the canonical path is
+    /// `ALTER USER <name> SET DEFAULT DATABASE <db>`.
+    SetDefault,
+    /// `ALTER DATABASE <name> MATERIALIZE` — triggers background materialization
+    /// of a cloned database. Returns `FEATURE_NOT_YET_IMPLEMENTED` until the
+    /// clone/mirror subsystem lands.
+    Materialize,
+    /// `ALTER DATABASE <name> PROMOTE` — promotes a mirror to writable primary.
+    /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the mirror subsystem lands.
+    Promote,
+    /// `ALTER DATABASE <name> SET AUDIT_DML = <mode>` — sets the DML audit level.
+    SetAuditDml(AuditDmlMode),
+    /// `ALTER DATABASE <name> SET IDLE_TIMEOUT = <secs>` — sets the idle session
+    /// timeout in seconds for sessions in this database. `0` disables the per-database
+    /// timeout (falls back to the global `idle_timeout_secs` setting).
+    SetIdleTimeout(u64),
+}
+
+/// Operations available on `ALTER TENANT <name> IN DATABASE <db> <operation>`.
+///
+/// Every variant must be matched exhaustively — no `_ =>` arms anywhere.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AlterTenantOperation {
+    /// `ALTER TENANT <name> IN DATABASE <db> SET QUOTA (...)`
+    SetQuota(QuotaSpec),
+}
 
 /// Typed representation of every NodeDB DDL statement.
 ///
@@ -296,6 +356,129 @@ pub enum NodedbStatement {
     },
     ShowContinuousAggregates,
 
+    // ── Database lifecycle ───────────────────────────────────────
+    /// `CREATE DATABASE [IF NOT EXISTS] <name> [WITH (...)]`
+    CreateDatabase {
+        name: String,
+        if_not_exists: bool,
+        /// Key-value pairs from `WITH (...)`, if present.
+        options: Vec<(String, String)>,
+    },
+    /// `DROP DATABASE [IF EXISTS] <name> [CASCADE | FORCE]`
+    ///
+    /// `FORCE` and `CASCADE` are accepted as synonyms by the parser and both
+    /// set `cascade = true`. PostgreSQL's `WITH (FORCE)` extension also
+    /// terminates active sessions; that is a separate concern handled by the
+    /// session registry at drop time and does not require a distinct AST flag.
+    DropDatabase {
+        name: String,
+        if_exists: bool,
+        cascade: bool,
+    },
+    /// `ALTER DATABASE <name> <operation>`
+    AlterDatabase {
+        name: String,
+        operation: AlterDatabaseOperation,
+    },
+    /// `SHOW DATABASES`
+    ShowDatabases,
+    /// `SHOW DATABASE QUOTA FOR <name>` — quota limits for a named database.
+    ShowDatabaseQuota {
+        name: String,
+    },
+    /// `SHOW DATABASE USAGE FOR <name>` — runtime usage counters for a database.
+    ShowDatabaseUsage {
+        name: String,
+    },
+    /// `SHOW DATABASE LINEAGE FOR <name>` — walks the parent clone chain from
+    /// `<name>` up to the root, returning one row per ancestor with
+    /// `(database_id, name, as_of_lsn, clone_created_at_lsn)`.
+    ShowDatabaseLineage {
+        name: String,
+    },
+    /// `ALTER TENANT <name> IN DATABASE <db> <operation>`
+    ///
+    /// New SQL surface. Sets per-tenant resource budgets within a specific database.
+    AlterTenant {
+        name: String,
+        database: String,
+        operation: AlterTenantOperation,
+    },
+    /// `SHOW TENANT QUOTA FOR <name> IN DATABASE <db>`
+    ShowTenantQuotaInDatabase {
+        name: String,
+        database: String,
+    },
+    /// `SHOW TENANT USAGE FOR <name> IN DATABASE <db>`
+    ShowTenantUsageInDatabase {
+        name: String,
+        database: String,
+    },
+    /// `USE DATABASE <name>` — session reset to a different database.
+    UseDatabase {
+        name: String,
+    },
+    /// `CLONE DATABASE <new> FROM <source> [AS OF SYSTEM TIME <ms> | LATEST]`
+    CloneDatabase {
+        new_name: String,
+        source_name: String,
+        /// The temporal anchor for this clone. `Latest` means "use the
+        /// source's current commit LSN at clone time".
+        as_of: CloneAsOf,
+    },
+    /// `MIRROR DATABASE <local_name> FROM <source_cluster>.<source_database> [MODE = sync | async]`
+    ///
+    /// Creates a continuously-updated read-only replica of `source_database` in
+    /// `source_cluster`. The local database is initialized with
+    /// `MirrorStatus::Bootstrapping` and transitions to `Following` once the
+    /// initial snapshot transfer completes.
+    ///
+    /// Every match on this variant must be exhaustive — no `_ =>` arms.
+    MirrorDatabase {
+        /// Name of the new local mirror database.
+        local_name: String,
+        /// Cluster identifier of the source cluster.
+        source_cluster: String,
+        /// Name of the database in the source cluster to mirror.
+        source_database: String,
+        /// Replication mode: `Sync` means the source waits for mirror ack;
+        /// `Async` (default) means the mirror trails the source.
+        mode: nodedb_types::MirrorMode,
+    },
+    /// `SHOW DATABASE MIRROR STATUS [FOR <name>]`
+    ///
+    /// Returns one row per mirror database (or one row if `FOR <name>` is given):
+    /// `name`, `source_cluster`, `source_database`, `mode`, `status`,
+    /// `last_applied_lsn`, `last_apply_ms`.
+    ///
+    /// Every match on this variant must be exhaustive — no `_ =>` arms.
+    ShowDatabaseMirrorStatus {
+        /// Filter to a specific mirror by name, or `None` to show all mirrors.
+        name: Option<String>,
+    },
+    /// `MOVE TENANT <tenant> FROM <db_a> TO <db_b>`
+    ///
+    /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the tenant-move subsystem lands.
+    MoveTenant {
+        tenant_name: String,
+        from_db: String,
+        to_db: String,
+    },
+    /// `BACKUP DATABASE <name> TO <uri>`
+    ///
+    /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the backup subsystem lands.
+    BackupDatabase {
+        name: String,
+        uri: String,
+    },
+    /// `RESTORE DATABASE <name> FROM <uri>`
+    ///
+    /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the restore subsystem lands.
+    RestoreDatabase {
+        name: String,
+        uri: String,
+    },
+
     // ── Backup / restore ─────────────────────────────────────────
     BackupTenant {
         tenant_id: String,
@@ -376,10 +559,22 @@ pub enum NodedbStatement {
         target_name: String,
         grantee: String,
     },
+    /// `GRANT <privilege> ON DATABASE <name> TO <user>`
+    GrantDatabasePermission {
+        permission: String,
+        db_name: String,
+        grantee: String,
+    },
     RevokePermission {
         permission: String,
         target_type: String,
         target_name: String,
+        grantee: String,
+    },
+    /// `REVOKE <privilege> ON DATABASE <name> FROM <user>`
+    RevokeDatabasePermission {
+        permission: String,
+        db_name: String,
         grantee: String,
     },
     ShowPermissions {
@@ -389,6 +584,34 @@ pub enum NodedbStatement {
     ShowGrants {
         username: Option<String>,
     },
+
+    // ── OIDC providers ───────────────────────────────────────────
+    /// `CREATE OIDC PROVIDER <name> ISSUER '<iss>' JWKS_URI '<uri>'
+    ///  [AUDIENCE '<aud>'] [CLAIM MAPPING WHEN <claim_name> = '<value>'
+    ///  SET DEFAULT_DATABASE = <id>, ADD DATABASES [<ids>], ADD ROLES ['<role>', ...]]`
+    CreateOidcProvider {
+        name: String,
+        issuer: String,
+        jwks_uri: String,
+        audience: Option<String>,
+        /// `(claim_name, claim_value, default_database, add_databases, add_roles)` tuples.
+        claim_mappings: Vec<OidcClaimMappingClause>,
+    },
+    /// `ALTER OIDC PROVIDER <name> SET CLAIM MAPPING WHEN <claim_name> = '<value>'
+    ///  SET DEFAULT_DATABASE = <id>, ADD DATABASES [<ids>], ADD ROLES ['<role>', ...]`
+    ///
+    /// Replaces the entire claim-mapping list for the named provider.
+    AlterOidcProviderClaimMapping {
+        name: String,
+        claim_mappings: Vec<OidcClaimMappingClause>,
+    },
+    /// `DROP OIDC PROVIDER [IF EXISTS] <name>`
+    DropOidcProvider {
+        name: String,
+        if_exists: bool,
+    },
+    /// `SHOW OIDC PROVIDERS`
+    ShowOidcProviders,
 
     // ── CRDT conflict policy ─────────────────────────────────────
     /// `SHOW CONFLICT POLICY ON <collection>`
@@ -530,6 +753,20 @@ pub enum NodedbStatement {
         delimiter: Option<char>,
         header: bool,
     },
+}
+
+/// One `WHEN <claim_name> = '<value>' SET ...` clause inside a
+/// `CREATE OIDC PROVIDER` or `ALTER OIDC PROVIDER` statement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OidcClaimMappingClause {
+    pub claim_name: String,
+    pub claim_value: String,
+    /// Optional default database ID to grant for matching tokens.
+    pub default_database: Option<u64>,
+    /// Additional database IDs accessible to matching tokens.
+    pub add_databases: Vec<u64>,
+    /// Role names to grant to matching tokens.
+    pub add_roles: Vec<String>,
 }
 
 /// Source for `COPY ... TO`.

@@ -52,6 +52,7 @@ pub mod metadata_group;
 pub mod migration;
 #[doc(hidden)]
 pub mod migration_executor;
+pub mod mirror;
 pub mod multi_raft;
 pub mod quic_transport;
 pub mod raft_loop;

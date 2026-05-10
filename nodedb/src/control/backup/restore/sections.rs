@@ -2,6 +2,7 @@
 
 //! Catalog-section and data-section helpers for RESTORE TENANT.
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use crate::Error;
@@ -76,7 +77,7 @@ pub(super) fn apply_metadata_sections(
                         );
                         continue;
                     };
-                    if let Err(e) = catalog.put_collection(&coll) {
+                    if let Err(e) = catalog.put_collection(DatabaseId::DEFAULT, &coll) {
                         tracing::warn!(
                             tenant_id,
                             name = %blob.name,

@@ -149,10 +149,11 @@ pub(super) fn convert_alter_array(
         }
     }
 
-    let vshard = VShardId::from_collection(name);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, name);
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Meta(MetaOp::AlterArray {
             array_id: name.to_string(),
             audit_retain_ms,

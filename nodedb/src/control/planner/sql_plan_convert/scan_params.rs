@@ -23,6 +23,7 @@ pub(super) struct ScanParams<'a> {
     pub window_functions: &'a [nodedb_sql::types::WindowSpec],
     pub tenant_id: TenantId,
     pub temporal: &'a nodedb_sql::TemporalScope,
+    pub database_id: crate::types::DatabaseId,
 }
 
 /// Parameters for `convert_join`.
@@ -49,6 +50,7 @@ pub(super) struct RecursiveScanParams<'a> {
     pub distinct: &'a bool,
     pub limit: &'a usize,
     pub tenant_id: TenantId,
+    pub database_id: crate::types::DatabaseId,
 }
 
 /// Parameters for `convert_recursive_value`.
@@ -61,6 +63,7 @@ pub(super) struct RecursiveValueParams<'a> {
     pub max_depth: &'a usize,
     pub distinct: &'a bool,
     pub tenant_id: TenantId,
+    pub database_id: crate::types::DatabaseId,
 }
 
 /// Parameters for `convert_timeseries_scan`.
@@ -116,6 +119,7 @@ pub(super) struct HybridSearchParams<'a> {
     /// response field.
     pub score_alias: Option<&'a str>,
     pub tenant_id: TenantId,
+    pub database_id: crate::types::DatabaseId,
 }
 
 /// Parameters for `convert_hybrid_search_triple`.
@@ -132,6 +136,7 @@ pub(super) struct HybridSearchTripleParams<'a> {
     pub rrf_k: &'a (f64, f64, f64),
     pub score_alias: Option<&'a str>,
     pub tenant_id: TenantId,
+    pub database_id: crate::types::DatabaseId,
 }
 
 /// Parameters for `convert_spatial_scan`.
@@ -145,4 +150,5 @@ pub(super) struct SpatialScanParams<'a> {
     pub limit: &'a usize,
     pub projection: &'a [Projection],
     pub tenant_id: TenantId,
+    pub database_id: crate::types::DatabaseId,
 }

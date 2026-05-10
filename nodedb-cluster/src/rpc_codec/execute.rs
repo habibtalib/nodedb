@@ -28,6 +28,9 @@ pub struct ExecuteRequest {
     pub plan_bytes: Vec<u8>,
     /// Tenant ID authenticated on the originating node; trusted on the receiver.
     pub tenant_id: u64,
+    /// Database scope authenticated on the originating node; trusted on the receiver.
+    /// `0` maps to `DatabaseId::DEFAULT` (the built-in `default` database).
+    pub database_id: u64,
     /// Milliseconds remaining until the caller's deadline.
     /// 0 means the deadline has already expired — receiver returns DeadlineExceeded.
     pub deadline_remaining_ms: u64,
@@ -161,6 +164,7 @@ mod tests {
         let req = ExecuteRequest {
             plan_bytes: b"msgpack-plan-bytes".to_vec(),
             tenant_id: 7,
+            database_id: 0,
             deadline_remaining_ms: 5000,
             trace_id: [
                 0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34, 0x56, 0x78, 0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34,
@@ -195,6 +199,7 @@ mod tests {
         let req = ExecuteRequest {
             plan_bytes: vec![0xAB, 0xCD],
             tenant_id: 0,
+            database_id: 0,
             deadline_remaining_ms: 1000,
             trace_id: [0u8; 16],
             descriptor_versions: vec![],

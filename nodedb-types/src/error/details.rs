@@ -86,6 +86,12 @@ pub enum ErrorDetails {
     AuthorizationDenied { resource: String },
     #[serde(rename = "auth_expired")]
     AuthExpired,
+    /// Tenant quota: vector dimension exceeds `max_vector_dim`.
+    #[serde(rename = "tenant_vector_dim_exceeded")]
+    TenantVectorDimExceeded { dim: u32, limit: u32 },
+    /// Tenant quota: graph traversal depth exceeds `max_graph_depth`.
+    #[serde(rename = "tenant_graph_depth_exceeded")]
+    TenantGraphDepthExceeded { depth: u32, limit: u32 },
 
     // Protocol handshake
     #[serde(rename = "handshake_failed")]
@@ -165,6 +171,51 @@ pub enum ErrorDetails {
     // Engine ops
     #[serde(rename = "array")]
     Array { array: String },
+
+    // Quota
+    #[serde(rename = "quota_overcommit")]
+    QuotaOvercommit { field: String },
+    #[serde(rename = "quota_exceeded")]
+    QuotaExceeded { scope: String },
+    #[serde(rename = "server_overload")]
+    ServerOverload,
+
+    // Clone DDL
+    #[serde(rename = "clone_depth_exceeded")]
+    CloneDepthExceeded { depth: u32, limit: u32 },
+    #[serde(rename = "cannot_clone_mirror")]
+    CannotCloneMirror { database: String },
+    #[serde(rename = "clone_dependency")]
+    CloneDependency { dependents: Vec<String> },
+    #[serde(rename = "clone_predates_query_time")]
+    ClonePredatesQueryTime { as_of_lsn: u64, created_at_lsn: u64 },
+
+    // Mirror DDL
+    /// Write attempted on a mirror database that has not been promoted.
+    #[serde(rename = "mirror_read_only")]
+    MirrorReadOnly { database: String },
+    /// Strong read requested on a mirror; the client should contact the source.
+    #[serde(rename = "stale_read_not_leader")]
+    StaleReadNotLeader {
+        database: String,
+        /// Hint: source cluster endpoint the client should redirect to.
+        source_cluster: String,
+    },
+    /// Operation requires the database to be a promoted mirror.
+    #[serde(rename = "mirror_not_promoted")]
+    MirrorNotPromoted { database: String },
+
+    // Move Tenant DDL
+    #[serde(rename = "move_tenant_drain_timeout")]
+    MoveTenantDrainTimeout { tenant: String, source_db: String },
+    #[serde(rename = "move_tenant_preflight_failed")]
+    MoveTenantPreflightFailed { tenant: String, detail: String },
+    #[serde(rename = "move_tenant_snapshot_failed")]
+    MoveTenantSnapshotFailed { tenant: String, detail: String },
+    #[serde(rename = "move_tenant_cutover_failed")]
+    MoveTenantCutoverFailed { tenant: String, detail: String },
+    #[serde(rename = "move_tenant_already_at_target")]
+    MoveTenantAlreadyAtTarget { tenant: String, target_db: String },
 
     // Bridge / Dispatch / Internal
     #[serde(rename = "bridge")]

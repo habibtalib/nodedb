@@ -36,6 +36,8 @@ pub mod telemetry;
 #[cfg(feature = "tokio")]
 pub mod tokio_fd;
 pub mod waker;
+pub mod wfq;
+pub mod wfq_metrics;
 
 pub use async_bridge::{BridgeChannel, ControlHandle, DataHandle, PinnedDataHandle};
 pub use backpressure::{BackpressureConfig, BackpressureController, PressureState};
@@ -46,3 +48,5 @@ pub use eventfd::{EventFd, WakePair};
 pub use metrics::BridgeMetrics;
 #[cfg(feature = "tokio")]
 pub use tokio_fd::AsyncControlHandle;
+pub use wfq::{WeightedFairQueue, priority_weight};
+pub use wfq_metrics::VirtualQueueMetrics;

@@ -26,15 +26,20 @@ impl CoreLoop {
             .map(|(_, name)| name)
             .unwrap_or(collection);
 
+        // The measurement name carries an optional `<db_id>/` db-qualifier for
+        // non-default databases (`db_qualified()` in the planner emits this
+        // shape). The slash is part of the wire-level routing key, not part of
+        // the user-facing measurement, so allow it alongside the original
+        // `[a-zA-Z0-9_-]` set.
         if !measurement
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '/')
         {
             return self.response_error(
                 task,
                 ErrorCode::Internal {
                     detail: format!(
-                        "invalid measurement name '{measurement}': only [a-zA-Z0-9_-] allowed"
+                        "invalid measurement name '{measurement}': only [a-zA-Z0-9_-/] allowed"
                     ),
                 },
             );
@@ -170,15 +175,20 @@ impl CoreLoop {
             .map(|(_, name)| name)
             .unwrap_or(collection);
 
+        // The measurement name carries an optional `<db_id>/` db-qualifier for
+        // non-default databases (`db_qualified()` in the planner emits this
+        // shape). The slash is part of the wire-level routing key, not part of
+        // the user-facing measurement, so allow it alongside the original
+        // `[a-zA-Z0-9_-]` set.
         if !measurement
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '/')
         {
             return self.response_error(
                 task,
                 ErrorCode::Internal {
                     detail: format!(
-                        "invalid measurement name '{measurement}': only [a-zA-Z0-9_-] allowed"
+                        "invalid measurement name '{measurement}': only [a-zA-Z0-9_-/] allowed"
                     ),
                 },
             );

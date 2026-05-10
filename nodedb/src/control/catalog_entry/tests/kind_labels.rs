@@ -4,6 +4,7 @@
 
 use crate::control::catalog_entry::entry::CatalogEntry;
 use crate::control::security::catalog::StoredCollection;
+use crate::control::security::catalog::oidc_providers::StoredOidcProvider;
 use crate::control::security::catalog::sequence_types::StoredSequence;
 
 #[test]
@@ -31,5 +32,24 @@ fn kind_label_is_stable() {
         }
         .kind(),
         "delete_sequence"
+    );
+    let provider = StoredOidcProvider {
+        provider_name: "test".into(),
+        issuer: "https://example.com".into(),
+        jwks_uri: "https://example.com/.well-known/jwks.json".into(),
+        audience: None,
+        claim_mapping: vec![],
+        created_at_lsn: 0,
+    };
+    assert_eq!(
+        CatalogEntry::PutOidcProvider(Box::new(provider)).kind(),
+        "put_oidc_provider"
+    );
+    assert_eq!(
+        CatalogEntry::DeleteOidcProvider {
+            name: "test".into()
+        }
+        .kind(),
+        "delete_oidc_provider"
     );
 }

@@ -15,7 +15,7 @@ use tracing::{debug, error};
 
 use super::session::SyncSession;
 use super::wire::*;
-use crate::types::{TenantId, TraceId, VShardId};
+use crate::types::{DatabaseId, TenantId, TraceId, VShardId};
 
 // ── Dispatcher trait ─────────────────────────────────────────────────────────
 
@@ -174,7 +174,7 @@ impl SyncSession {
         );
 
         let tenant_id = self.tenant_id.unwrap_or(TenantId::new(0));
-        let vshard = VShardId::from_collection(&msg.collection);
+        let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &msg.collection);
 
         match dispatcher
             .dispatch_ingest(tenant_id, vshard, msg.collection.clone(), ilp_lines)

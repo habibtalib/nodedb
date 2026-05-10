@@ -12,6 +12,7 @@ pub(super) async fn dispatch(
     sql: &str,
     upper: &str,
     parts: &[&str],
+    database_id: crate::types::DatabaseId,
 ) -> Option<PgWireResult<Vec<Response>>> {
     // Vector index lifecycle: SHOW VECTOR INDEX, ALTER VECTOR INDEX.
     if upper.starts_with("SHOW VECTOR INDEX ") {
@@ -160,7 +161,10 @@ pub(super) async fn dispatch(
     // Timeseries: CREATE TIMESERIES, SHOW PARTITIONS, ALTER TIMESERIES.
     if upper.starts_with("CREATE TIMESERIES ") {
         return Some(super::super::timeseries::create_timeseries(
-            state, identity, parts,
+            state,
+            identity,
+            parts,
+            database_id,
         ));
     }
     if upper.starts_with("SHOW PARTITIONS ") {

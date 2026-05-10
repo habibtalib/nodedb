@@ -266,7 +266,13 @@ impl CoreLoop {
                         .put(tid, collection, doc_id, &updated_bytes)
                         .is_ok()
                     {
-                        self.doc_cache.put(tid, collection, doc_id, &updated_bytes);
+                        self.doc_cache.put(
+                            task.request.database_id.as_u64(),
+                            tid,
+                            collection,
+                            doc_id,
+                            &updated_bytes,
+                        );
                         affected += 1;
                         if returning.is_some() {
                             // Include document ID in the returned document.
@@ -434,7 +440,12 @@ impl CoreLoop {
                     warn!(core = self.core_id, %doc_id, error = %e, "bulk delete: edge cascade failed");
                 }
                 self.mark_node_deleted(tid, doc_id);
-                self.doc_cache.invalidate(tid, collection, doc_id);
+                self.doc_cache.invalidate(
+                    task.request.database_id.as_u64(),
+                    tid,
+                    collection,
+                    doc_id,
+                );
                 affected += 1;
                 if let Some(doc) = pre_delete_doc {
                     returned_docs.push(doc);

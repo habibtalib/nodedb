@@ -9,7 +9,8 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::RwLock;
+use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, RwLock};
 use tracing::info;
 
 use crate::types::TenantId;
@@ -50,6 +51,16 @@ pub struct CredentialStore {
     pub(in crate::control::security::credential) password_expiry_grace_days: u32,
     /// Argon2id hashing parameters from server config.
     pub(in crate::control::security::credential) argon2_config: Argon2Config,
+    /// Per-user credential version counters.  Bumped on every mutation.
+    /// `RwLock` guards the map; the `AtomicU64` inside allows lock-free reads
+    /// once the slot is known to exist.
+    pub(in crate::control::security::credential) versions: RwLock<HashMap<u64, Arc<AtomicU64>>>,
+    /// Session-invalidation bus (None until `set_buses` is called; None in test stores).
+    pub(in crate::control::security::credential) si_bus:
+        std::sync::OnceLock<Arc<crate::control::security::buses::SessionInvalidationBus>>,
+    /// User-change bus (None until `set_buses` is called; None in test stores).
+    pub(in crate::control::security::credential) uc_bus:
+        std::sync::OnceLock<Arc<crate::control::security::buses::UserChangeBus>>,
 }
 
 impl Default for CredentialStore {
@@ -93,6 +104,9 @@ impl CredentialStore {
             password_expiry_secs: 0,
             password_expiry_grace_days: 0,
             argon2_config: Argon2Config::default(),
+            versions: RwLock::new(HashMap::new()),
+            si_bus: std::sync::OnceLock::new(),
+            uc_bus: std::sync::OnceLock::new(),
         }
     }
 
@@ -127,6 +141,9 @@ impl CredentialStore {
             password_expiry_secs: 0,
             password_expiry_grace_days: 0,
             argon2_config: Argon2Config::default(),
+            versions: RwLock::new(HashMap::new()),
+            si_bus: std::sync::OnceLock::new(),
+            uc_bus: std::sync::OnceLock::new(),
         })
     }
 
@@ -169,6 +186,116 @@ impl CredentialStore {
         *next += 1;
         self.persist_next_id(*next)?;
         Ok(id)
+    }
+
+    /// Wire in the security buses.  Called once from `SharedState` construction
+    /// after the `CredentialStore` has been wrapped in `Arc`.  May be called
+    /// via `&self` because the fields use `OnceLock`.  Silently ignored if
+    /// called more than once (test helpers that don't need buses skip this).
+    pub fn set_buses(
+        &self,
+        si_bus: Arc<crate::control::security::buses::SessionInvalidationBus>,
+        uc_bus: Arc<crate::control::security::buses::UserChangeBus>,
+    ) {
+        let _ = self.si_bus.set(si_bus);
+        let _ = self.uc_bus.set(uc_bus);
+    }
+
+    /// Subscribe to user-change events.  Returns a broadcast receiver that
+    /// fires whenever any user is mutated.  Primarily used in tests.
+    pub fn subscribe_user_changes(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<crate::control::security::buses::UserChanged> {
+        match self.uc_bus.get() {
+            Some(bus) => bus.subscribe(),
+            None => {
+                // No bus wired — return a fresh dead-end channel.
+                tokio::sync::broadcast::channel(1).1
+            }
+        }
+    }
+
+    /// Subscribe to session-invalidation events.  Returns a broadcast receiver
+    /// that fires whenever a mutation triggers a hard or soft revoke.  Primarily
+    /// used in tests.
+    pub fn subscribe_session_invalidation(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<crate::control::security::buses::SessionInvalidated> {
+        match self.si_bus.get() {
+            Some(bus) => bus.subscribe(),
+            None => tokio::sync::broadcast::channel(1).1,
+        }
+    }
+
+    /// Bump the per-user version counter, inserting the slot if absent.
+    /// Returns the new version value.
+    pub(in crate::control::security::credential) fn bump_version(
+        &self,
+        user_id: u64,
+    ) -> crate::Result<u64> {
+        // Fast path: slot already exists — just fetch_add.
+        {
+            let map = read_lock(&self.versions)?;
+            if let Some(ctr) = map.get(&user_id) {
+                return Ok(ctr.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1);
+            }
+        }
+        // Slow path: insert under write-lock (double-checked).
+        let mut map = write_lock(&self.versions)?;
+        let ctr = map
+            .entry(user_id)
+            .or_insert_with(|| Arc::new(AtomicU64::new(0)));
+        Ok(ctr.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1)
+    }
+
+    /// Return the current version for a user.  Returns 0 if the user has
+    /// never had a mutation recorded (e.g. loaded from a previous store that
+    /// pre-dates versions).
+    pub fn current_version(&self, user_id: u64) -> u64 {
+        let map = self.versions.read().unwrap_or_else(|p| p.into_inner());
+        match map.get(&user_id) {
+            Some(ctr) => ctr.load(std::sync::atomic::Ordering::Relaxed),
+            None => 0,
+        }
+    }
+
+    /// Single-funnel for all user mutations that touch persisted state.
+    ///
+    /// In order:
+    /// 1. Persist the `UserRecord` to redb via `persist_user`.
+    /// 2. Bump the per-user version counter.
+    /// 3. Publish `UserChanged` on the user-change bus.
+    /// 4. If `invalidation` is `Some`, publish `SessionInvalidated` on the
+    ///    session-invalidation bus.
+    ///
+    /// Both bus publishes are fire-and-forget — a return value of 0 (no
+    /// active subscribers) is silently accepted.
+    pub(in crate::control::security::credential) fn commit_user_mutation(
+        &self,
+        record: &mut UserRecord,
+        invalidation: Option<crate::control::security::buses::SessionInvalidationReason>,
+    ) -> crate::Result<()> {
+        let user_id = record.user_id;
+
+        // 1. Persist.
+        self.persist_user(record)?;
+
+        // 2. Version bump.
+        self.bump_version(user_id)?;
+
+        // 3. UserChanged.
+        if let Some(bus) = self.uc_bus.get() {
+            bus.publish(crate::control::security::buses::UserChanged { user_id });
+        }
+
+        // 4. SessionInvalidated (if reason given).
+        if let Some(reason) = invalidation
+            && let Some(bus) = self.si_bus.get()
+        {
+            bus.publish(crate::control::security::buses::SessionInvalidated { user_id, reason });
+        }
+
+        Ok(())
     }
 
     /// Bootstrap the superuser from config. Called once on startup.
@@ -214,6 +341,8 @@ impl CredentialStore {
                 password_expires_at: self.compute_expiry(),
                 must_change_password: false,
                 password_changed_at: now,
+                default_database_id: 0,
+                accessible_databases: vec![],
             };
             self.persist_user(&mut record)?;
             users.insert(username.to_string(), record);

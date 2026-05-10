@@ -12,6 +12,7 @@ use tracing::debug;
 
 use crate::bridge::envelope::Response;
 use crate::data::executor::core_loop::CoreLoop;
+use crate::data::executor::handlers::point::apply_put::PointPutParams;
 use crate::data::executor::task::ExecutionTask;
 use crate::engine::document::store::surrogate_to_doc_id;
 use nodedb_types::Surrogate;
@@ -79,7 +80,17 @@ impl CoreLoop {
         // `apply_point_put` returns prior bytes if any — for PointInsert this
         // must be `None` because the probe above already rejected the
         // conflict case. We intentionally drop it.
-        if let Err(e) = self.apply_point_put(&txn, tid, collection, row_key, surrogate, value) {
+        if let Err(e) = self.apply_point_put(
+            &txn,
+            PointPutParams {
+                database_id: task.request.database_id.as_u64(),
+                tid,
+                collection,
+                document_id: row_key,
+                surrogate,
+                value,
+            },
+        ) {
             return self.response_error(task, e);
         }
 

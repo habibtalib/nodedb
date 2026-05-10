@@ -14,6 +14,7 @@
 //!  - decode failures are non-fatal — the original payload is returned
 //!    so the client still sees the raw search hits.
 
+use nodedb_types::DatabaseId;
 use nodedb_types::Surrogate;
 use serde::{Deserialize, Serialize};
 
@@ -94,9 +95,11 @@ pub fn translate_vector_search_payload(
             if hit.doc_id.is_some() {
                 continue;
             }
-            if let Ok(Some(pk_bytes)) =
-                catalog.get_pk_for_surrogate(collection, Surrogate::new(hit.id))
-                && let Ok(s) = String::from_utf8(pk_bytes)
+            if let Ok(Some(pk_bytes)) = catalog.get_pk_for_surrogate(
+                DatabaseId::DEFAULT,
+                collection,
+                Surrogate::new(hit.id),
+            ) && let Ok(s) = String::from_utf8(pk_bytes)
             {
                 hit.doc_id = Some(s);
             }

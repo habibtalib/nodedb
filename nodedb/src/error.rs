@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use crate::types::{RequestId, TenantId, VShardId};
+use crate::types::{DatabaseId, RequestId, TenantId, VShardId};
 
 /// Internal error classes for NodeDB Origin.
 ///
@@ -135,9 +135,21 @@ pub enum Error {
     #[error("query fan-out exceeded: {shards_touched} shards > limit {limit}")]
     FanOutExceeded { shards_touched: u16, limit: u16 },
 
+    /// Database is temporarily frozen because a clone materializer is reading
+    /// from it as the source.  The write must be retried after the materializer
+    /// sweep completes.  Maps to SQLSTATE `40001` (serialization_failure) so
+    /// clients that already handle write conflicts will retry automatically.
+    #[error("database {database_id} is frozen for clone materialization; retry shortly")]
+    SourceFrozen { database_id: DatabaseId },
+
     // --- Client input errors ---
     #[error("bad request: {detail}")]
     BadRequest { detail: String },
+
+    /// The proposed quota allocation would push the sum past the configured
+    /// ceiling. The `field` names the over-budget dimension.
+    #[error("quota overcommit on field '{field}': {detail}")]
+    QuotaOvercommit { field: String, detail: String },
 
     #[error("query plan error: {detail}")]
     PlanError { detail: String },
@@ -281,6 +293,60 @@ pub enum Error {
     )]
     SequencerUnavailable,
 
+    /// New login rejected because the active-session registry is at capacity.
+    #[error("session cap ({cap}) exceeded — rejecting new login")]
+    SessionCapExceeded { cap: usize },
+
+    /// Session closed because the per-database idle timeout elapsed.
+    #[error("session closed: idle timeout exceeded")]
+    SessionIdleTimeout,
+
+    /// Session closed because the OIDC token expired.
+    #[error("session closed: OIDC token expired")]
+    SessionTokenExpired,
+
+    /// Session terminated by an administrator via `KILL SESSION` DDL.
+    #[error("session terminated by administrator")]
+    SessionKilledByAdmin,
+
+    /// Session closed because the associated user was dropped.
+    #[error("session closed: user account was dropped")]
+    SessionUserDropped,
+
+    /// OIDC bearer token presented but no matching provider is configured.
+    #[error(
+        "OIDC token rejected: unknown provider — no configured provider matches 'iss' claim '{iss}'"
+    )]
+    OidcUnknownProvider { iss: String },
+
+    /// OIDC bearer token rejected: claim mapping produced no default database.
+    #[error("OIDC token rejected: claim mapping produced no default database for subject '{sub}'")]
+    OidcNoDefaultDatabase { sub: String },
+
+    /// Vector insert or index rejected: the vector dimension exceeds the
+    /// tenant's `max_vector_dim` quota.
+    #[error("vector dimension {dim} exceeds tenant quota max_vector_dim={limit}")]
+    TenantVectorDimExceeded { dim: u32, limit: u32 },
+
+    /// Graph traversal rejected: the requested depth exceeds the tenant's
+    /// `max_graph_depth` quota.
+    #[error("graph traversal depth {depth} exceeds tenant quota max_graph_depth={limit}")]
+    TenantGraphDepthExceeded { depth: u32, limit: u32 },
+
+    /// A GRANT ROLE would create a cycle in the role inheritance graph.
+    ///
+    /// NodeDB enforces a DAG at write time so `resolve_inheritance` never
+    /// needs runtime cycle detection.
+    #[error(
+        "role inheritance cycle: granting '{parent}' as parent of '{child}' would create a cycle"
+    )]
+    RoleInheritanceCycle { child: String, parent: String },
+
+    /// A GRANT ROLE would push the inheritance chain past
+    /// `MAX_ROLE_INHERITANCE_DEPTH`. Rejected at catalog-write time.
+    #[error("role inheritance depth {depth} exceeds the maximum allowed depth of {limit}")]
+    RoleInheritanceDepthExceeded { depth: usize, limit: usize },
+
     /// The OLLP dependent-read retry loop exhausted its retry budget.
     ///
     /// The predicate's matching set kept changing across retries. Consider
@@ -290,6 +356,27 @@ pub enum Error {
          changing across retries. Consider rephrasing as a static-key UPDATE if possible."
     )]
     OllpExhausted { retries: u8 },
+
+    /// A write was attempted on a mirror database that has not yet been promoted.
+    ///
+    /// Mirrors are read-only replicas of a source database. All writes are rejected
+    /// until the mirror is promoted via `ALTER DATABASE <name> PROMOTE`.
+    #[error("database '{database}' is a read-only mirror; promote it before writing")]
+    MirrorReadOnly { database: String },
+
+    /// A strong-consistency read was attempted on a mirror database.
+    ///
+    /// Mirrors cannot serve strong reads because they are not the Raft leader
+    /// for the source's commit log. The client should redirect to the source cluster.
+    #[error(
+        "database '{database}' is a mirror; redirect strong reads to source cluster '{source_cluster}'"
+    )]
+    StaleReadNotLeader {
+        database: String,
+        source_cluster: String,
+        /// Human-readable detail including actual lag if available.
+        detail: String,
+    },
 }
 
 /// Result alias for NodeDB operations.

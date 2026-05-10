@@ -35,7 +35,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::{AuthenticatedIdentity, Role};
 use crate::control::server::pgwire::types::{int8_field, text_field};
 use crate::control::state::SharedState;
-use crate::types::TraceId;
+use crate::types::{DatabaseId, TraceId};
 
 /// Row generator for `_system.dropped_collections`.
 pub async fn dropped_collections(
@@ -60,7 +60,7 @@ pub async fn dropped_collections(
     };
 
     let dropped = catalog
-        .load_dropped_collections()
+        .load_dropped_collections(DatabaseId::DEFAULT)
         .map_err(|e| pgwire::error::PgWireError::ApiError(Box::new(e)))?;
 
     // Live retention window — reads the same cell the GC sweeper
@@ -126,7 +126,7 @@ async fn query_collection_size(
 ) -> Option<u64> {
     use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
     use crate::bridge::physical_plan::MetaOp;
-    use crate::types::{ReadConsistency, TenantId, VShardId};
+    use crate::types::{DatabaseId, ReadConsistency, TenantId, VShardId};
 
     let request_id = state.next_request_id();
     let timeout = std::time::Duration::from_millis(500);
@@ -134,6 +134,7 @@ async fn query_collection_size(
     let request = Request {
         request_id,
         tenant_id: TenantId::new(tenant_id),
+        database_id: DatabaseId::DEFAULT,
         vshard_id: VShardId::new(0),
         plan: PhysicalPlan::Meta(MetaOp::QueryCollectionSize {
             tenant_id,
@@ -146,6 +147,8 @@ async fn query_collection_size(
         idempotency_key: None,
         event_source: crate::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     };
     let mut rx = state.tracker.register(request_id);
     {

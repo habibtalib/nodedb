@@ -7,6 +7,7 @@
 //! - `CONVERT COLLECTION <name> TO strict (col1 TYPE, col2 TYPE, ...)`
 //! - `CONVERT COLLECTION <name> TO kv`
 
+use nodedb_types::DatabaseId;
 use std::time::Duration;
 
 use pgwire::api::results::Response;
@@ -35,7 +36,7 @@ pub async fn convert_collection(
     };
 
     let mut coll = catalog
-        .get_collection(tenant_id.as_u64(), &collection)
+        .get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &collection)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
         .ok_or_else(|| {
             sqlstate_error(
@@ -137,7 +138,7 @@ pub async fn convert_collection(
     }
 
     catalog
-        .put_collection(&coll)
+        .put_collection(DatabaseId::DEFAULT, &coll)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
 
     tracing::info!(

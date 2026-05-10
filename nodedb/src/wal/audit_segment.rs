@@ -66,7 +66,7 @@ impl AuditWalSegment {
         payload.extend_from_slice(audit_bytes);
 
         let lsn = wal
-            .append(RecordType::Put as u32, 0, 0, &payload)
+            .append(RecordType::Put as u32, 0, 0, 0, &payload)
             .map_err(crate::Error::Wal)?;
 
         Ok(lsn)
@@ -91,7 +91,7 @@ impl AuditWalSegment {
         payload.extend_from_slice(audit_bytes);
 
         let lsn = wal
-            .append(RecordType::Put as u32, 0, 0, &payload)
+            .append(RecordType::Put as u32, 0, 0, 0, &payload)
             .map_err(crate::Error::Wal)?;
         wal.sync().map_err(crate::Error::Wal)?;
 

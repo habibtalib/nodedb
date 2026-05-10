@@ -3,6 +3,7 @@
 //! Top-level query entry: CTE handling, UNION dispatch, and LIMIT
 //! application. ORDER BY and search-trigger detection live in `order_by.rs`.
 
+use nodedb_types::DatabaseId;
 use sqlparser::ast::{self, Query, SetExpr};
 
 use super::order_by::{apply_order_by, try_hybrid_from_projection};
@@ -152,7 +153,10 @@ pub fn plan_query(
                 ..
             } = plan
             {
-                let info = catalog.get_collection(collection).ok().flatten();
+                let info = catalog
+                    .get_collection(DatabaseId::DEFAULT, collection)
+                    .ok()
+                    .flatten();
                 let is_vector_primary = info
                     .as_ref()
                     .map(|c| c.primary == nodedb_types::PrimaryEngine::Vector)
@@ -396,6 +400,7 @@ struct CteCatalog<'a> {
 impl SqlCatalog for CteCatalog<'_> {
     fn get_collection(
         &self,
+        database_id: DatabaseId,
         name: &str,
     ) -> std::result::Result<Option<CollectionInfo>, SqlCatalogError> {
         // Check CTE names first.
@@ -412,6 +417,6 @@ impl SqlCatalog for CteCatalog<'_> {
                 vector_primary: None,
             }));
         }
-        self.inner.get_collection(name)
+        self.inner.get_collection(database_id, name)
     }
 }

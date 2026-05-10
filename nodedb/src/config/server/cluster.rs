@@ -59,6 +59,28 @@ pub struct ClusterSettings {
     #[serde(default)]
     pub tls: Option<TlsPaths>,
 
+    /// Maximum number of simultaneously active authenticated sessions cluster-wide.
+    /// 0 = unlimited (default).  Over-cap new logins are rejected with a
+    /// `SESSION_CAP_EXCEEDED` error; existing sessions are never evicted.
+    #[serde(default)]
+    pub max_active_sessions: usize,
+
+    /// Maximum login attempts per unique source IP per minute.
+    ///
+    /// Pre-authentication token bucket. Attempts that exceed this limit are
+    /// rejected before the SCRAM exchange or Argon2 verification begins.
+    /// Default: 30. Set to 0 to disable.
+    #[serde(default = "default_login_attempts_per_ip_per_min")]
+    pub login_attempts_per_ip_per_min: u64,
+
+    /// Maximum login attempts per username per minute.
+    ///
+    /// Pre-authentication token bucket. Attempts that exceed this limit are
+    /// rejected before the SCRAM exchange or Argon2 verification begins.
+    /// Default: 10. Set to 0 to disable.
+    #[serde(default = "default_login_attempts_per_user_per_min")]
+    pub login_attempts_per_user_per_min: u64,
+
     /// **SECURITY ESCAPE HATCH.** When `true` the Raft QUIC transport
     /// accepts any client certificate (including none) and the client
     /// skips server certificate verification. Any network peer reaching
@@ -105,6 +127,14 @@ fn default_num_groups() -> u64 {
 
 fn default_replication_factor() -> usize {
     3
+}
+
+fn default_login_attempts_per_ip_per_min() -> u64 {
+    30
+}
+
+fn default_login_attempts_per_user_per_min() -> u64 {
+    10
 }
 
 impl ClusterSettings {

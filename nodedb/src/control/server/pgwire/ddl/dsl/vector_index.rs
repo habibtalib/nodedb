@@ -15,6 +15,7 @@ use crate::bridge::physical_plan::VectorOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::types::sqlstate_error;
 use crate::control::state::SharedState;
+use crate::types::DatabaseId;
 use crate::types::TraceId;
 
 use super::helpers::{find_param_str, find_param_usize};
@@ -72,7 +73,8 @@ pub async fn create_vector_index(
         &identity.username,
     )?;
 
-    let vshard = crate::types::VShardId::from_collection(collection);
+    let vshard =
+        crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
     let set_params_plan = PhysicalPlan::Vector(VectorOp::SetParams {
         collection: collection.to_string(),
         m,

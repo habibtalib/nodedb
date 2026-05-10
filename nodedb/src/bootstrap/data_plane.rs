@@ -53,6 +53,7 @@ pub struct CoreSharedResources {
     pub array_catalog: crate::control::array_catalog::ArrayCatalogHandle,
     pub quarantine_registry: Arc<QuarantineRegistry>,
     pub system_metrics: Arc<SystemMetrics>,
+    pub maintenance_budget: Arc<crate::control::maintenance::MaintenanceBudgetTracker>,
 }
 
 /// Spawn all Data Plane cores, wire dispatcher notifiers, and return core handles.
@@ -74,6 +75,7 @@ pub fn spawn_data_plane_cores(
         array_catalog,
         quarantine_registry,
         system_metrics,
+        maintenance_budget,
     } = resources;
     let num_cores = config.server.data_plane_cores;
     let compaction_cfg = CoreCompactionConfig {
@@ -104,6 +106,7 @@ pub fn spawn_data_plane_cores(
             Arc::clone(&hlc),
             Arc::clone(&array_catalog),
             Arc::clone(&quarantine_registry),
+            Arc::clone(&maintenance_budget),
         )?;
         core_handles.push(handle);
         notifiers.push((core_id, notifier));

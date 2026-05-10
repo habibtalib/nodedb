@@ -13,7 +13,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use nodedb_types::TenantId;
-    use nodedb_types::id::VShardId;
+    use nodedb_types::id::{DatabaseId, VShardId};
 
     use super::*;
 
@@ -58,7 +58,7 @@ mod tests {
         let mut first: Option<(String, u32)> = None;
         for i in 0u32..512 {
             let name = format!("col_{i}");
-            let vshard = VShardId::from_collection(&name).as_u32();
+            let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &name).as_u32();
             if let Some((ref fname, fv)) = first {
                 if fv != vshard {
                     return (fname.clone(), name);
@@ -329,13 +329,13 @@ mod tests {
 
         // Pick a vshard id that's different from col_a and col_b.
         let passive_vshard_id = {
-            let a = VShardId::from_collection(&col_a).as_u32();
-            let b = VShardId::from_collection(&col_b).as_u32();
+            let a = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &col_a).as_u32();
+            let b = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &col_b).as_u32();
             // Find one that differs from both.
             let mut candidate = 9999u32;
             for i in 0u32..64 {
                 let name = format!("passive_col_{i}");
-                let v = VShardId::from_collection(&name).as_u32();
+                let v = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &name).as_u32();
                 if v != a && v != b {
                     candidate = v;
                     break;

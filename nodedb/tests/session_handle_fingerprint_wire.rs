@@ -41,6 +41,8 @@ fn nodedb_auth_ctx() -> AuthContext {
         auth_method: AuthMethod::Trust,
         roles: vec![Role::Superuser],
         is_superuser: true,
+        default_database: None,
+        accessible_databases: AuthenticatedIdentity::default_database_set(true),
     };
     AuthContext::from_identity(&identity, generate_session_id())
 }

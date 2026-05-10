@@ -25,6 +25,15 @@ pub enum KvOp {
         /// RLS post-fetch filters. Evaluated after fetching the value.
         /// Returns nil on denial (no info leak).
         rls_filters: Vec<u8>,
+        /// Clone snapshot-isolation ceiling: when set, a fetched entry
+        /// whose surrogate exceeds this value is treated as not-found.
+        /// Populated by the clone resolver when rewriting a target-side
+        /// `Get` for delegation to the source database — bindings the
+        /// source allocated AFTER the clone's AS-OF must not leak
+        /// through.  `None` for normal (non-clone-delegated) gets.
+        #[serde(default)]
+        #[msgpack(default)]
+        surrogate_ceiling: Option<u32>,
     },
 
     /// Insert or update (RESP SET / SQL UPSERT semantics). Writes a Binary
@@ -107,6 +116,15 @@ pub enum KvOp {
         #[serde(default)]
         #[msgpack(default)]
         sort_keys: Vec<(String, bool)>,
+        /// Clone snapshot-isolation ceiling: when set, scan results
+        /// drop entries whose surrogate exceeds this value.  Populated
+        /// by the clone resolver when rewriting a target-side scan for
+        /// delegation to the source database — bindings the source
+        /// allocated AFTER the clone's AS-OF must not leak through.
+        /// `None` for normal (non-clone-delegated) scans.
+        #[serde(default)]
+        #[msgpack(default)]
+        surrogate_ceiling: Option<u32>,
     },
 
     /// Set or update TTL on an existing key.
@@ -300,5 +318,19 @@ pub enum KvOp {
     SortedIndexScore {
         index_name: String,
         primary_key: Vec<u8>,
+    },
+
+    /// Cursor-paginated raw scan for the clone materializer.
+    ///
+    /// Unlike `Scan`, this returns raw `(key, value)` byte pairs **plus** the
+    /// next-cursor in a single payload, so the materializer can drive the
+    /// scan to completion in O(N / count) round-trips. The response payload
+    /// is msgpack-encoded as a 2-element array:
+    ///   `[ next_cursor: bytes, entries: [[key: bytes, value: bytes], ...] ]`
+    /// `next_cursor` is empty when the scan is complete.
+    MaterializeScan {
+        collection: String,
+        cursor: Vec<u8>,
+        count: usize,
     },
 }

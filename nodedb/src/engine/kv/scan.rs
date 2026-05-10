@@ -2,12 +2,36 @@
 
 //! Cursor-based KV scan with optional glob pattern matching.
 
+use nodedb_types::Surrogate;
+
 use super::entry::KvEntry;
 use super::hash_table::KvHashTable;
 
 /// Result of a scan: `(entries, next_cursor_idx)`.
 /// Entries are `(key_bytes, value_bytes)` references. `next_cursor_idx = 0` means scan complete.
 pub type ScanBatch<'a> = (Vec<(&'a [u8], &'a [u8])>, usize);
+
+/// Scan batch that also surfaces each row's stable surrogate.  Consumed
+/// by the clone-delegated read path (snapshot-isolation ceiling filter).
+pub type ScanBatchWithSurrogate<'a> = (Vec<(&'a [u8], &'a [u8], Surrogate)>, usize);
+
+/// Parameters for a cursor-based [`super::engine::KvEngine::scan`].
+///
+/// Bundles all per-scan inputs so the method stays argument-count clean.
+/// `surrogate_ceiling` enforces clone snapshot isolation: rows whose
+/// surrogate exceeds the ceiling are hidden from the caller.
+pub struct KvScanParams<'a> {
+    pub tenant_id: u64,
+    pub collection: &'a str,
+    pub cursor: &'a [u8],
+    pub count: usize,
+    pub now_ms: u64,
+    pub match_pattern: Option<&'a str>,
+    pub filter_field: Option<&'a str>,
+    pub filter_value: Option<&'a [u8]>,
+    /// `None` = no ceiling (full visibility). `Some(c)` = hide rows with surrogate > c.
+    pub surrogate_ceiling: Option<u32>,
+}
 
 impl KvHashTable {
     /// Cursor-based scan: iterate entries starting from `cursor_idx`.
@@ -25,6 +49,20 @@ impl KvHashTable {
         now_ms: u64,
         match_pattern: Option<&str>,
     ) -> ScanBatch<'_> {
+        let (rows, next) = self.scan_with_surrogate(cursor_idx, count, now_ms, match_pattern);
+        (rows.into_iter().map(|(k, v, _)| (k, v)).collect(), next)
+    }
+
+    /// Like [`scan`], but surfaces each row's surrogate alongside its
+    /// key/value so a caller can filter by clone snapshot-isolation
+    /// ceiling (drop rows bound after the AS-OF point).
+    pub fn scan_with_surrogate(
+        &self,
+        cursor_idx: usize,
+        count: usize,
+        now_ms: u64,
+        match_pattern: Option<&str>,
+    ) -> ScanBatchWithSurrogate<'_> {
         let mut results = Vec::with_capacity(count);
         let total_slots = self.capacity() + self.rehash_source_len();
 
@@ -37,7 +75,7 @@ impl KvHashTable {
                 && matches_pattern(&e.key, match_pattern)
             {
                 let value = self.read_value(e);
-                results.push((e.key.as_slice(), value));
+                results.push((e.key.as_slice(), value, e.surrogate));
             }
             idx += 1;
         }

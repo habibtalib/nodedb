@@ -22,6 +22,7 @@ struct TimeseriesCatalog;
 impl SqlCatalog for TimeseriesCatalog {
     fn get_collection(
         &self,
+        _: nodedb_types::DatabaseId,
         name: &str,
     ) -> std::result::Result<Option<CollectionInfo>, nodedb_sql::SqlCatalogError> {
         let info = match name {
@@ -64,6 +65,8 @@ fn sql_to_physical(sql: &str) -> PhysicalPlan {
         surrogate_assigner: None,
         cluster_enabled: false,
         bitemporal_retention_registry: None,
+        max_vector_dim: 0,
+        database_id: nodedb::types::DatabaseId::DEFAULT,
     };
     let tenant_id = nodedb::types::TenantId::new(1);
     let tasks = convert(&plans, tenant_id, &ctx).unwrap();

@@ -35,7 +35,7 @@ async fn typeguard_default_injects_when_absent() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM tg_defaults WHERE id = 'd1'")
+        .query_text_joined("SELECT * FROM tg_defaults WHERE id = 'd1'")
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
@@ -70,7 +70,7 @@ async fn typeguard_default_does_not_overwrite() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM tg_no_overwrite WHERE id = 'd1'")
+        .query_text_joined("SELECT * FROM tg_no_overwrite WHERE id = 'd1'")
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
@@ -109,7 +109,7 @@ async fn typeguard_value_always_overwrites() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM tg_value_overwrite WHERE id = 'v1'")
+        .query_text_joined("SELECT * FROM tg_value_overwrite WHERE id = 'v1'")
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
@@ -144,7 +144,7 @@ async fn typeguard_required_plus_default() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM tg_req_default WHERE id = 'r1'")
+        .query_text_joined("SELECT * FROM tg_req_default WHERE id = 'r1'")
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
@@ -179,7 +179,7 @@ async fn typeguard_default_integer() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM tg_int_default WHERE id = 'p1'")
+        .query_text_joined("SELECT * FROM tg_int_default WHERE id = 'p1'")
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
@@ -392,7 +392,7 @@ async fn strict_default_gen_uuid_v7() {
     result.unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM strict_uuid")
+        .query_text_joined("SELECT * FROM strict_uuid")
         .await
         .unwrap();
     assert_eq!(rows.len(), 1, "should have 1 row: {rows:?}");
@@ -419,7 +419,7 @@ async fn strict_default_now() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM strict_ts WHERE id = 't1'")
+        .query_text_joined("SELECT * FROM strict_ts WHERE id = 't1'")
         .await
         .unwrap();
     assert_eq!(rows.len(), 1, "should have 1 row: {rows:?}");

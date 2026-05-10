@@ -174,8 +174,10 @@ impl CoreLoop {
                 let merged = build_merged(&target_doc, source_doc, source_alias);
                 // Find first MATCHED arm whose predicate is satisfied.
                 if let Some(arm) = find_arm(clauses, MergeClauseKindOp::Matched, &merged) {
+                    let db_id = task.request.database_id.as_u64();
                     match apply_action(
                         self,
+                        db_id,
                         tid,
                         target_collection,
                         doc_id,
@@ -202,8 +204,10 @@ impl CoreLoop {
                 let merged = target_doc.clone();
                 if let Some(arm) = find_arm(clauses, MergeClauseKindOp::NotMatchedBySource, &merged)
                 {
+                    let db_id = task.request.database_id.as_u64();
                     match apply_action(
                         self,
+                        db_id,
                         tid,
                         target_collection,
                         doc_id,

@@ -21,11 +21,12 @@ pub(crate) fn convert_flush(
         detail: "ARRAY_FLUSH: no WAL wired into convert context".into(),
     })?;
     let aid = ArrayId::new(tenant_id, name);
-    let vshard = VShardId::from_collection(name);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, name);
     let wal_lsn = wal.next_lsn().as_u64();
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Array(ArrayOp::Flush {
             array_id: aid,
             wal_lsn,
@@ -41,10 +42,11 @@ pub(crate) fn convert_compact(
 ) -> crate::Result<Vec<PhysicalTask>> {
     let entry = super::helpers::load_entry(name, ctx)?;
     let aid = ArrayId::new(tenant_id, name);
-    let vshard = VShardId::from_collection(name);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, name);
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Array(ArrayOp::Compact {
             array_id: aid,
             audit_retain_ms: entry.audit_retain_ms,

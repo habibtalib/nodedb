@@ -89,6 +89,7 @@ fn kv_get_in(coll: &str, key: &[u8]) -> PhysicalPlan {
         collection: coll.to_string(),
         key: key.to_vec(),
         rls_filters: Vec::new(),
+        surrogate_ceiling: None,
     })
 }
 
@@ -332,6 +333,7 @@ fn calvin_static_replay_sees_only_committed_data() {
             request_id: nodedb::types::RequestId::new(42),
             tenant_id: nodedb::types::TenantId::new(1),
             vshard_id: nodedb::types::VShardId::new(0),
+            database_id: nodedb::types::DatabaseId::DEFAULT,
             plan,
             deadline: Instant::now() + Duration::from_secs(5),
             priority: Priority::Normal,
@@ -340,6 +342,8 @@ fn calvin_static_replay_sees_only_committed_data() {
             idempotency_key: None,
             event_source: nodedb::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
 
         // Commit a value before the panic batch.
@@ -412,6 +416,7 @@ fn calvin_static_replay_sees_only_committed_data() {
         request_id: nodedb::types::RequestId::new(43),
         tenant_id: nodedb::types::TenantId::new(1),
         vshard_id: nodedb::types::VShardId::new(0),
+        database_id: nodedb::types::DatabaseId::DEFAULT,
         plan,
         deadline: Instant::now() + Duration::from_secs(5),
         priority: Priority::Normal,
@@ -420,6 +425,8 @@ fn calvin_static_replay_sees_only_committed_data() {
         idempotency_key: None,
         event_source: nodedb::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     };
 
     // Note: this test does NOT assert that the pre-panic committed value is

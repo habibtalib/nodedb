@@ -163,4 +163,40 @@ impl CoreLoop {
             })
             .unwrap_or(0)
     }
+
+    /// Write a raw segment blob directly into the FTS LSM segment store for
+    /// a given `(tenant, collection)`.
+    ///
+    /// This bypasses the memtable flush path and is intended for maintenance
+    /// tests and bootstrapping code that need to pre-populate a known number
+    /// of L0 segments without indexing documents. In production code,
+    /// segments are written automatically when the FTS memtable crosses its
+    /// flush threshold.
+    pub fn fts_write_segment(
+        &self,
+        tenant: crate::types::TenantId,
+        collection: &str,
+        segment_id: &str,
+        data: &[u8],
+    ) -> crate::Result<()> {
+        use nodedb_fts::backend::FtsBackend;
+        self.inverted
+            .backend()
+            .write_segment(tenant.as_u64(), collection, segment_id, data)
+    }
+
+    /// Return the list of FTS LSM segment IDs for a `(tenant, collection)`.
+    ///
+    /// Used by maintenance tests to verify that compaction reduced the
+    /// segment count at a given level.
+    pub fn fts_list_segments(
+        &self,
+        tenant: crate::types::TenantId,
+        collection: &str,
+    ) -> crate::Result<Vec<String>> {
+        use nodedb_fts::backend::FtsBackend;
+        self.inverted
+            .backend()
+            .list_segments(tenant.as_u64(), collection)
+    }
 }

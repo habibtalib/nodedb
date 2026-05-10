@@ -89,6 +89,18 @@ pub struct WriteEvent {
     /// `_ts_valid_from` extracted from the new (or old, on delete) row
     /// payload. `None` under the same conditions as `system_time_ms`.
     pub valid_time_ms: Option<i64>,
+
+    /// The authenticated user ID that originated this write, if available.
+    ///
+    /// Populated from `Request.user_id` for user-originated DML. `None` for
+    /// trigger, CRDT sync, Raft follower, and deferred writes.
+    pub user_id: Option<Arc<str>>,
+
+    /// The SQL statement digest (plan digest) that produced this write, if available.
+    ///
+    /// Populated from `Request.statement_digest` (which reuses the plan digest
+    /// already computed by nodedb-sql). `None` for non-user writes.
+    pub statement_digest: Option<Arc<str>>,
 }
 
 /// The type of write operation that generated this event.
@@ -219,6 +231,8 @@ mod tests {
             old_value: None,
             system_time_ms: None,
             valid_time_ms: None,
+            user_id: None,
+            statement_digest: None,
         };
         assert_eq!(event.sequence, 1);
         assert_eq!(event.op, WriteOp::Insert);

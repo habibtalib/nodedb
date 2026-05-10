@@ -13,14 +13,14 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 pub async fn drop_retention_policy(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop retention policies")?;
+    require_tenant_admin(identity, "drop retention policies")?;
 
     // DROP RETENTION POLICY <name>
     if parts.len() < 4 {

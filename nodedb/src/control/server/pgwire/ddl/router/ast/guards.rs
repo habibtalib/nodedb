@@ -9,6 +9,7 @@ use nodedb_sql::ddl_ast::NodedbStatement;
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use crate::types::DatabaseId;
 
 use super::exists::{
     alert_exists, change_stream_exists, collection_exists, continuous_aggregate_exists,
@@ -22,6 +23,7 @@ pub(super) fn try_dispatch_guards(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     stmt: &NodedbStatement,
+    database_id: DatabaseId,
 ) -> Option<PgWireResult<Vec<Response>>> {
     match stmt {
         // ── IF NOT EXISTS: swallow duplicate-creation errors ──────
@@ -30,7 +32,7 @@ pub(super) fn try_dispatch_guards(
             if_not_exists: true,
             ..
         } => {
-            if collection_exists(state, identity, name) {
+            if collection_exists(state, identity, name, database_id) {
                 return Some(Ok(vec![Response::Execution(Tag::new("CREATE COLLECTION"))]));
             }
             None // fall through to legacy CREATE handler
@@ -41,7 +43,7 @@ pub(super) fn try_dispatch_guards(
             if_not_exists: true,
             ..
         } => {
-            if collection_exists(state, identity, name) {
+            if collection_exists(state, identity, name, database_id) {
                 return Some(Ok(vec![Response::Execution(Tag::new("CREATE TABLE"))]));
             }
             None // fall through to schema dispatcher
@@ -64,7 +66,7 @@ pub(super) fn try_dispatch_guards(
             if_exists: true,
             ..
         } => {
-            if !collection_exists(state, identity, name) {
+            if !collection_exists(state, identity, name, database_id) {
                 return Some(Ok(vec![Response::Execution(Tag::new("DROP COLLECTION"))]));
             }
             None

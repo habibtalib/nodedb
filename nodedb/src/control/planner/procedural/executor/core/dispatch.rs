@@ -64,7 +64,13 @@ impl<'a> StatementExecutor<'a> {
 
         // Not a NodeDB extension: route through plan_sql with transaction buffering.
         let ctx = crate::control::planner::context::QueryContext::for_state(self.state);
-        let tasks = ctx.plan_sql(&bound_sql, self.tenant_id).await?;
+        let tasks = ctx
+            .plan_sql(
+                &bound_sql,
+                self.tenant_id,
+                crate::types::DatabaseId::DEFAULT,
+            )
+            .await?;
 
         if let Some(ref tx_ctx) = self.tx_ctx {
             let mut guard = tx_ctx.lock().unwrap_or_else(|p| p.into_inner());
@@ -77,6 +83,7 @@ impl<'a> StatementExecutor<'a> {
                     &self.state.wal,
                     task.tenant_id,
                     task.vshard_id,
+                    task.database_id,
                     &task.plan,
                 )?;
 
@@ -162,6 +169,7 @@ impl<'a> StatementExecutor<'a> {
                 &self.state.wal,
                 task.tenant_id,
                 task.vshard_id,
+                task.database_id,
                 &task.plan,
             )?;
         }

@@ -5,11 +5,9 @@
 //! Writes by Tenant A must NOT appear in Tenant B's change stream subscription.
 //! The ChangeStream is scoped by `(collection, tenant_id)` — this test verifies it.
 
+use crate::helpers::{TENANT_A, TENANT_B};
 use nodedb::control::change_stream::{ChangeEvent, ChangeOperation, ChangeStream};
 use nodedb::types::{Lsn, TenantId};
-
-const TENANT_A: u64 = 10;
-const TENANT_B: u64 = 20;
 
 #[test]
 fn cdc_stream_isolated_between_tenants() {

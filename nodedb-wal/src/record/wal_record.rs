@@ -26,11 +26,17 @@ impl WalRecord {
     /// concatenated with the record header bytes to form the AAD, binding
     /// the ciphertext to its segment (preamble-swap defense). Pass `None`
     /// for unencrypted records (the argument is ignored in that case).
+    ///
+    /// `database_id` is stored in header bytes 34-41 (previously reserved,
+    /// zero-filled). Pre-existing records with zeros decode to `DatabaseId(0)`
+    /// (the default database), preserving backward compatibility.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         record_type: u32,
         lsn: u64,
         tenant_id: u64,
         vshard_id: u32,
+        database_id: u64,
         payload: Vec<u8>,
         encryption_key: Option<&crate::crypto::WalEncryptionKey>,
         preamble_bytes: Option<&[u8; PREAMBLE_SIZE]>,
@@ -51,7 +57,8 @@ impl WalRecord {
                 tenant_id,
                 vshard_id,
                 payload_len: 0,
-                reserved: [0u8; 16],
+                database_id,
+                reserved: [0u8; 8],
                 crc32c: 0,
             };
             let header_bytes = temp_header.to_bytes();
@@ -78,7 +85,8 @@ impl WalRecord {
             tenant_id,
             vshard_id,
             payload_len: final_payload.len() as u32,
-            reserved: [0u8; 16],
+            database_id,
+            reserved: [0u8; 8],
             crc32c: 0,
         };
 
@@ -209,6 +217,7 @@ mod tests {
             1,
             0,
             0,
+            0,
             payload.to_vec(),
             None,
             None,
@@ -223,6 +232,7 @@ mod tests {
         let mut record = WalRecord::new(
             RecordType::Put as u32,
             1,
+            0,
             0,
             0,
             payload.to_vec(),
@@ -241,7 +251,7 @@ mod tests {
     fn payload_too_large_rejected() {
         let big_payload = vec![0u8; MAX_WAL_PAYLOAD_SIZE + 1];
         assert!(matches!(
-            WalRecord::new(RecordType::Put as u32, 1, 0, 0, big_payload, None, None),
+            WalRecord::new(RecordType::Put as u32, 1, 0, 0, 0, big_payload, None, None),
             Err(WalError::PayloadTooLarge { .. })
         ));
     }
@@ -253,6 +263,7 @@ mod tests {
         let record = WalRecord::new(
             RecordType::LsnMsAnchor as u32,
             42,
+            0,
             0,
             0,
             anchor.to_bytes().to_vec(),

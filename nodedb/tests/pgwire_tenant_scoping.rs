@@ -196,9 +196,13 @@ async fn tenant_user_cannot_see_other_tenants_collection_as_empty() {
     let result = query_as(&server, "svc_xtn", "SELECT secret FROM t1_only").await;
     match result {
         Err(msg) => {
+            // Accept both legacy "unknown table" and the canonical
+            // "table not found" wording — semantics are identical
+            // (cross-tenant isolation enforced via lookup failure).
+            let lower = msg.to_lowercase();
             assert!(
-                msg.to_lowercase().contains("unknown table"),
-                "expected 'unknown table' error, got: {msg}"
+                lower.contains("unknown table") || lower.contains("table not found"),
+                "expected isolation error, got: {msg}"
             );
         }
         Ok(rows) => panic!(

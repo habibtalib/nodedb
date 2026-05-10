@@ -84,6 +84,7 @@ impl NodeDbPgHandler {
         &self,
         tasks: Vec<PhysicalTask>,
         tenant_id: TenantId,
+        database_id: nodedb_types::id::DatabaseId,
     ) -> PgWireResult<Vec<Response>> {
         let gateway = self.state.gateway.as_ref().ok_or_else(|| {
             PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -96,6 +97,7 @@ impl NodeDbPgHandler {
         let gw_ctx = crate::control::gateway::core::QueryContext {
             tenant_id,
             trace_id: TraceId::generate(),
+            database_id,
         };
 
         let mut responses: Vec<Response> = Vec::with_capacity(tasks.len());

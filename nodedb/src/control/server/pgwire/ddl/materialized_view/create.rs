@@ -3,6 +3,7 @@
 //! `CREATE MATERIALIZED VIEW` handler — replicates through the
 //! metadata raft group via `CatalogEntry::PutMaterializedView`.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -30,7 +31,7 @@ pub async fn create_materialized_view(
 
     // Validate source collection exists.
     if let Some(catalog) = state.credentials.catalog() {
-        match catalog.get_collection(tenant_id.as_u64(), &source) {
+        match catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &source) {
             Ok(Some(_)) => {}
             _ => {
                 return Err(sqlstate_error(
@@ -87,7 +88,7 @@ pub async fn create_materialized_view(
     // when a collection of the same name already exists (idempotent).
     let target_exists = match state.credentials.catalog() {
         Some(catalog) => matches!(
-            catalog.get_collection(tenant_id.as_u64(), &name),
+            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &name),
             Ok(Some(c)) if c.is_active
         ),
         None => false,
@@ -125,6 +126,9 @@ pub async fn create_materialized_view(
             size_bytes_estimate: 0,
             primary: nodedb_types::PrimaryEngine::Document,
             vector_primary: None,
+            database_id: nodedb_types::DatabaseId::DEFAULT,
+            cloned_from: None,
+            clone_status: nodedb_types::CloneStatus::default(),
         };
         let coll_entry =
             crate::control::catalog_entry::CatalogEntry::PutCollection(Box::new(target.clone()));
@@ -135,7 +139,7 @@ pub async fn create_materialized_view(
             && let Some(catalog) = state.credentials.catalog()
         {
             catalog
-                .put_collection(&target)
+                .put_collection(DatabaseId::DEFAULT, &target)
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
         }
         // Register the target with this node's Data Plane so writes

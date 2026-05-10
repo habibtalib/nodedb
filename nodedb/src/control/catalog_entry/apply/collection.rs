@@ -2,13 +2,14 @@
 
 //! Apply Collection catalog entries to `SystemCatalog` redb.
 
+use nodedb_types::DatabaseId;
 use tracing::{debug, warn};
 
 use crate::control::security::catalog::auth_types::object_type;
 use crate::control::security::catalog::{StoredCollection, SystemCatalog};
 
 pub fn put(stored: &StoredCollection, catalog: &SystemCatalog) {
-    if let Err(e) = catalog.put_collection(stored) {
+    if let Err(e) = catalog.put_collection(stored.database_id, stored) {
         warn!(
             collection = %stored.name,
             tenant = stored.tenant_id,
@@ -37,7 +38,7 @@ pub fn purge(tenant_id: u64, name: &str, catalog: &SystemCatalog) {
     // in that case, which is fine — we still call
     // `delete_parent_owner` because the owner row may linger
     // independently.
-    match catalog.delete_collection(tenant_id, name) {
+    match catalog.delete_collection(DatabaseId::DEFAULT, tenant_id, name) {
         Ok(removed) => {
             debug!(
                 collection = %name,
@@ -59,7 +60,7 @@ pub fn purge(tenant_id: u64, name: &str, catalog: &SystemCatalog) {
     // be observed again, so leaving the catalog rows behind would
     // just be allocator-bloat. Mirrors the array-drop cleanup in
     // `array_convert::convert_drop_array`.
-    if let Err(e) = catalog.delete_all_surrogates_for_collection(name) {
+    if let Err(e) = catalog.delete_all_surrogates_for_collection(DatabaseId::DEFAULT, name) {
         warn!(
             collection = %name,
             tenant = tenant_id,
@@ -70,10 +71,10 @@ pub fn purge(tenant_id: u64, name: &str, catalog: &SystemCatalog) {
 }
 
 pub fn deactivate(tenant_id: u64, name: &str, catalog: &SystemCatalog) {
-    match catalog.get_collection(tenant_id, name) {
+    match catalog.get_collection(DatabaseId::DEFAULT, tenant_id, name) {
         Ok(Some(mut stored)) => {
             stored.is_active = false;
-            if let Err(e) = catalog.put_collection(&stored) {
+            if let Err(e) = catalog.put_collection(DatabaseId::DEFAULT, &stored) {
                 warn!(
                     collection = %name,
                     tenant = tenant_id,

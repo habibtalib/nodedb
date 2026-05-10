@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+use nodedb_types::id::DatabaseId;
+
 use crate::types::TenantId;
 
 use super::super::catalog::StoredUser;
@@ -32,6 +34,12 @@ pub struct UserRecord {
     pub must_change_password: bool,
     /// Unix timestamp (seconds) when the password was last changed.
     pub password_changed_at: u64,
+    /// The database ID this user connects to by default. `0` means server default.
+    pub default_database_id: u64,
+    /// Database IDs this account may access. Ignored for regular users (they use
+    /// `_system.database_grants`). For service accounts: authoritative; empty = legacy =
+    /// treat as `[DatabaseId::DEFAULT]` at auth time.
+    pub accessible_databases: Vec<DatabaseId>,
 }
 
 impl UserRecord {
@@ -52,6 +60,12 @@ impl UserRecord {
             password_expires_at: self.password_expires_at,
             must_change_password: self.must_change_password,
             password_changed_at: self.password_changed_at,
+            default_database_id: self.default_database_id,
+            accessible_databases: self
+                .accessible_databases
+                .iter()
+                .map(|id| id.as_u64())
+                .collect(),
         }
     }
 
@@ -61,13 +75,18 @@ impl UserRecord {
             .iter()
             .map(|r| r.parse().unwrap_or(Role::ReadOnly))
             .collect();
-        // password_changed_at defaults to created_at for pre-T4-C records
+        // password_changed_at defaults to created_at for pre-existing records
         // (where the field was absent and zerompk returns 0).
         let password_changed_at = if s.password_changed_at > 0 {
             s.password_changed_at
         } else {
             s.created_at
         };
+        let accessible_databases = s
+            .accessible_databases
+            .iter()
+            .map(|&id| DatabaseId::new(id))
+            .collect();
         Self {
             user_id: s.user_id,
             username: s.username,
@@ -83,6 +102,8 @@ impl UserRecord {
             password_expires_at: s.password_expires_at,
             must_change_password: s.must_change_password,
             password_changed_at,
+            default_database_id: s.default_database_id,
+            accessible_databases,
             roles,
         }
     }

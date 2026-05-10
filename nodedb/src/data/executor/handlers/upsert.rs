@@ -9,6 +9,7 @@ use tracing::debug;
 
 use crate::bridge::envelope::{ErrorCode, Response};
 use crate::data::executor::core_loop::CoreLoop;
+use crate::data::executor::handlers::point::apply_put::PointPutParams;
 use crate::data::executor::task::ExecutionTask;
 use crate::engine::document::store::surrogate_to_doc_id;
 use nodedb_types::Surrogate;
@@ -193,7 +194,13 @@ impl CoreLoop {
                 };
                 match write_result {
                     Ok(_prior) => {
-                        self.doc_cache.put(tid, collection, row_key, &stored_bytes);
+                        self.doc_cache.put(
+                            task.request.database_id.as_u64(),
+                            tid,
+                            collection,
+                            row_key,
+                            &stored_bytes,
+                        );
                         self.emit_put_event(
                             task,
                             tid,
@@ -230,18 +237,27 @@ impl CoreLoop {
                 // existence probe just above found none, and apply_point_put
                 // is the only writer on this core — prior must be None. We
                 // pass it straight through so the emit resolves to Insert.
-                let prior =
-                    match self.apply_point_put(&txn, tid, collection, row_key, surrogate, value) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            return self.response_error(
-                                task,
-                                ErrorCode::Internal {
-                                    detail: e.to_string(),
-                                },
-                            );
-                        }
-                    };
+                let prior = match self.apply_point_put(
+                    &txn,
+                    PointPutParams {
+                        database_id: task.request.database_id.as_u64(),
+                        tid,
+                        collection,
+                        document_id: row_key,
+                        surrogate,
+                        value,
+                    },
+                ) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        return self.response_error(
+                            task,
+                            ErrorCode::Internal {
+                                detail: e.to_string(),
+                            },
+                        );
+                    }
+                };
 
                 if let Err(e) = txn.commit() {
                     return self.response_error(

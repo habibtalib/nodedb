@@ -13,7 +13,7 @@ use nodedb::bridge::physical_plan::DocumentOp;
 use nodedb::control::planner::procedural::ast::*;
 use nodedb::control::planner::procedural::executor::transaction::ProcedureTransactionCtx;
 use nodedb::control::planner::procedural::parse_block;
-use nodedb::types::{TenantId, VShardId};
+use nodedb::types::{DatabaseId, TenantId, VShardId};
 use nodedb_types::sync::compensation::CompensationHint;
 use nodedb_types::sync::wire::DeltaRejectMsg;
 
@@ -76,6 +76,7 @@ fn tx_ctx_commit_yields_independent_tasks() {
     ctx.buffer_task(nodedb::control::planner::physical::PhysicalTask {
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(0),
+        database_id: DatabaseId::DEFAULT,
         plan: PhysicalPlan::Document(DocumentOp::PointPut {
             collection: "orders".into(),
             document_id: "o-1".into(),
@@ -88,6 +89,7 @@ fn tx_ctx_commit_yields_independent_tasks() {
     ctx.buffer_task(nodedb::control::planner::physical::PhysicalTask {
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(0),
+        database_id: DatabaseId::DEFAULT,
         plan: PhysicalPlan::Document(DocumentOp::PointDelete {
             collection: "temp".into(),
             document_id: "t-1".into(),
@@ -127,6 +129,7 @@ fn procedure_can_target_multiple_vshards() {
     ctx.buffer_task(nodedb::control::planner::physical::PhysicalTask {
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(0),
+        database_id: DatabaseId::DEFAULT,
         plan: PhysicalPlan::Document(DocumentOp::PointPut {
             collection: "a".into(),
             document_id: "d1".into(),
@@ -140,6 +143,7 @@ fn procedure_can_target_multiple_vshards() {
     ctx.buffer_task(nodedb::control::planner::physical::PhysicalTask {
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(1),
+        database_id: DatabaseId::DEFAULT,
         plan: PhysicalPlan::Document(DocumentOp::PointPut {
             collection: "b".into(),
             document_id: "d2".into(),

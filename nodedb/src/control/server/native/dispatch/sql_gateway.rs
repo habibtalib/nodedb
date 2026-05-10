@@ -36,6 +36,7 @@ pub(super) async fn dispatch_task_via_gateway(
             let gw_ctx = GatewayQueryContext {
                 tenant_id,
                 trace_id: TraceId::generate(),
+                database_id: nodedb_types::id::DatabaseId::DEFAULT,
             };
             gw.execute(&gw_ctx, plan)
                 .await
@@ -49,7 +50,13 @@ pub(super) async fn dispatch_task_via_gateway(
         }
         None => {
             // Boot fallback: no gateway yet, dispatch locally.
-            wal_dispatch::wal_append_if_write(&ctx.state.wal, tenant_id, vshard_id, &plan)?;
+            wal_dispatch::wal_append_if_write(
+                &ctx.state.wal,
+                tenant_id,
+                vshard_id,
+                crate::types::DatabaseId::DEFAULT,
+                &plan,
+            )?;
             dispatch_utils::dispatch_to_data_plane(
                 ctx.state,
                 tenant_id,

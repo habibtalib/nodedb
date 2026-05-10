@@ -12,7 +12,7 @@ use crate::bridge::envelope::PhysicalPlan;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::dispatch_utils;
 use crate::control::state::SharedState;
-use crate::types::{TraceId, VShardId};
+use crate::types::{DatabaseId, TraceId, VShardId};
 
 use super::super::super::types::sqlstate_error;
 use super::helpers::{
@@ -41,7 +41,7 @@ pub async fn balance_as_of(
     let as_of_secs = parse_timestamp_secs(&as_of_str)?;
 
     // Read current balance from the target document.
-    let vshard = VShardId::from_collection(&collection);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
     let pk_bytes = key.as_bytes().to_vec();
     let surrogate = state
         .surrogate_assigner
@@ -76,7 +76,7 @@ pub async fn balance_as_of(
         return Err(sqlstate_error("XX000", "no catalog available"));
     };
     let coll = catalog
-        .get_collection(tenant_id.as_u64(), &collection)
+        .get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &collection)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
         .ok_or_else(|| sqlstate_error("42P01", &format!("collection '{collection}' not found")))?;
 
@@ -89,7 +89,8 @@ pub async fn balance_as_of(
     };
 
     // Scan the source collection for rows where join_column = key AND created_at > as_of.
-    let source_vshard = VShardId::from_collection(&mat_def.source_collection);
+    let source_vshard =
+        VShardId::from_collection_in_database(DatabaseId::DEFAULT, &mat_def.source_collection);
     let source_scan = PhysicalPlan::Document(crate::bridge::physical_plan::DocumentOp::Scan {
         collection: mat_def.source_collection.clone(),
         limit: usize::MAX,

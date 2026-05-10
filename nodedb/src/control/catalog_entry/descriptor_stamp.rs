@@ -53,7 +53,7 @@ pub fn stamp(entry: CatalogEntry, clock: &HlcClock, catalog: &SystemCatalog) -> 
     match entry {
         CatalogEntry::PutCollection(mut stored) => {
             let prior = catalog
-                .get_collection(stored.tenant_id, &stored.name)
+                .get_collection(stored.database_id, stored.tenant_id, &stored.name)
                 .ok()
                 .flatten()
                 .map(|c| c.descriptor_version)
@@ -149,7 +149,15 @@ pub fn stamp(entry: CatalogEntry, clock: &HlcClock, catalog: &SystemCatalog) -> 
         | CatalogEntry::PutSynonymGroup(_)
         | CatalogEntry::DeleteSynonymGroup { .. }
         | CatalogEntry::PutCustomType(_)
-        | CatalogEntry::DeleteCustomType { .. }) => entry,
+        | CatalogEntry::DeleteCustomType { .. }
+        | CatalogEntry::PutDatabase(_)
+        | CatalogEntry::DeleteDatabase { .. }
+        | CatalogEntry::PutDatabaseGrant { .. }
+        | CatalogEntry::DeleteDatabaseGrant { .. }
+        | CatalogEntry::PutOidcProvider(_)
+        | CatalogEntry::DeleteOidcProvider { .. }
+        | CatalogEntry::CloneDatabase { .. }
+        | CatalogEntry::MoveTenantCutover { .. }) => entry,
     }
 }
 
@@ -158,6 +166,7 @@ mod tests {
     use super::*;
     use crate::control::security::catalog::StoredCollection;
     use crate::control::security::credential::CredentialStore;
+    use nodedb_types::DatabaseId;
     use std::sync::Arc;
 
     fn make_catalog() -> (Arc<CredentialStore>, tempfile::TempDir) {
@@ -200,7 +209,9 @@ mod tests {
             assert!(boxed.modification_hlc > prior_hlc);
             prior_hlc = boxed.modification_hlc;
             // Persist so the next iteration reads this as prior.
-            catalog.put_collection(&boxed).expect("put_collection");
+            catalog
+                .put_collection(DatabaseId::DEFAULT, &boxed)
+                .expect("put_collection");
         }
     }
 

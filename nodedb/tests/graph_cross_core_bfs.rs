@@ -208,9 +208,10 @@ async fn cross_core_bfs_stops_on_empty_frontier() {
     let server = TestServer::start().await;
     server.exec("CREATE COLLECTION bfs_empty").await.unwrap();
 
-    // Single edge, DEPTH much larger than the graph diameter. The hop
+    // Single edge (diameter 1), DEPTH a handful of hops larger. The hop
     // after discovery must see an empty frontier and stop without
-    // further broadcasts.
+    // further broadcasts. Keep DEPTH within the default tenant
+    // max_graph_depth quota.
     server
         .exec("GRAPH INSERT EDGE IN 'bfs_empty' FROM 'a' TO 'b' TYPE 'l'")
         .await
@@ -218,7 +219,7 @@ async fn cross_core_bfs_stops_on_empty_frontier() {
 
     let start = Instant::now();
     let rows = server
-        .query_text("GRAPH TRAVERSE FROM 'a' DEPTH 50 LABEL 'l' DIRECTION out")
+        .query_text("GRAPH TRAVERSE FROM 'a' DEPTH 5 LABEL 'l' DIRECTION out")
         .await
         .unwrap();
     let elapsed = start.elapsed();

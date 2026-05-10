@@ -1,5 +1,15 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+//! pgwire connection factory: SCRAM-SHA-256 / Argon2 authentication and
+//! session bootstrapping.
+//!
+//! **Auth scope**: pgwire authenticates exclusively via SCRAM-SHA-256 over
+//! the Postgres wire protocol. OIDC bearer tokens are NOT accepted here —
+//! the Postgres wire protocol has no clean way to carry a bearer without a
+//! non-standard extension or a sidecar proxy. OIDC bearer logins live on
+//! the native and HTTP entry points (see `control/security/oidc/`); do not
+//! add a JWT branch to this factory.
+
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -15,7 +25,7 @@ use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 use crate::config::auth::AuthMode;
-use crate::control::security::audit::AuditEvent;
+use crate::control::security::audit::{ArcAuditEmitter, AuditEvent};
 use crate::control::security::credential::CredentialStore;
 use crate::control::state::SharedState;
 
@@ -41,6 +51,50 @@ impl AuthSource for NodeDbAuthSource {
         let username = login.user().unwrap_or("unknown");
         let source = login.host();
 
+        // Record auth start time for constant-time floor enforcement on all
+        // failure paths (rate-limit, lockout, unknown user).
+        let auth_start = std::time::Instant::now();
+
+        // Pre-authentication login rate-limit check — consulted before lockout
+        // and before SCRAM credential lookup begins.
+        use crate::control::security::ratelimit::limiter::LoginRateLimitOutcome;
+        use crate::control::server::session_auth::AUTH_FLOOR;
+        let peer_ip_str = source
+            .parse::<std::net::SocketAddr>()
+            .map(|s| s.ip().to_string())
+            .unwrap_or_else(|_| source.to_string());
+        let rl_outcome = self.state.rate_limiter.check_login(&peer_ip_str, username);
+        if !matches!(rl_outcome, LoginRateLimitOutcome::Allowed) {
+            use crate::control::security::audit::{
+                ArcAuditEmitter, AuditEmitContext, AuditEmitter,
+            };
+            let emitter = ArcAuditEmitter(std::sync::Arc::clone(&self.state.audit));
+            let detail = match rl_outcome {
+                LoginRateLimitOutcome::IpExceeded => {
+                    format!("login rate limited (ip={peer_ip_str}): {username}")
+                }
+                LoginRateLimitOutcome::UserExceeded => {
+                    format!("login rate limited (user): {username}")
+                }
+                LoginRateLimitOutcome::Allowed => unreachable!(),
+            };
+            emitter.emit(
+                AuditEvent::LoginRateLimited,
+                "login_rate_limit",
+                &detail,
+                AuditEmitContext::new(None, "", username),
+            );
+            self.state.auth_metrics.record_auth_failure("scram");
+            // Constant-time floor before returning the generic invalid-password
+            // error so timing cannot distinguish rate-limit from wrong password.
+            let deadline = auth_start + AUTH_FLOOR;
+            let now = std::time::Instant::now();
+            if deadline > now {
+                tokio::time::sleep(deadline - now).await;
+            }
+            return Err(PgWireError::InvalidPassword(username.to_owned()));
+        }
+
         // Check lockout before returning credentials.
         if self.credentials.check_lockout(username).is_err() {
             self.state.audit_record(
@@ -49,6 +103,12 @@ impl AuthSource for NodeDbAuthSource {
                 source,
                 &format!("user '{username}' is locked out"),
             );
+            // Constant-time floor for lockout rejection.
+            let deadline = auth_start + AUTH_FLOOR;
+            let now = std::time::Instant::now();
+            if deadline > now {
+                tokio::time::sleep(deadline - now).await;
+            }
             return Err(PgWireError::InvalidPassword(format!(
                 "{username} (account locked)"
             )));
@@ -69,7 +129,10 @@ impl AuthSource for NodeDbAuthSource {
                 Ok(Password::new(Some(creds.salt), creds.salted_password))
             }
             None => {
-                self.credentials.record_login_failure(username);
+                let emitter = ArcAuditEmitter(std::sync::Arc::clone(&self.state.audit));
+                let source_ip = source.parse::<std::net::SocketAddr>().ok().map(|s| s.ip());
+                self.credentials
+                    .record_login_failure(username, source_ip, &emitter);
                 self.state.audit_record(
                     AuditEvent::AuthFailure,
                     None,
@@ -145,6 +208,7 @@ impl PgWireServerHandlers for NodeDbPgHandlerFactory {
                 Arc::new(AuthStartup::Scram {
                     sasl: Box::new(sasl),
                     state: Arc::clone(&self.state),
+                    handler: self.handler.clone(),
                 })
             }
         }
@@ -159,7 +223,46 @@ enum AuthStartup {
     Scram {
         sasl: Box<pgwire::api::auth::sasl::SASLAuthStartupHandler<DefaultServerParameterProvider>>,
         state: Arc<SharedState>,
+        /// Handler reference so we can bind the startup `database` param to
+        /// the session store after SCRAM succeeds (mirrors the trust path).
+        handler: Arc<NodeDbPgHandler>,
     },
+}
+
+/// Resolve the pgwire `database` StartupMessage parameter to a `DatabaseId`
+/// and bind it to the session store for this connection.
+///
+/// The key `"database"` is set by clients via `dbname=` or `psql -d <name>`.
+/// An absent or empty value is silently ignored — the session will use the
+/// server default (DatabaseId::DEFAULT / `"default"`).
+/// An unrecognised name is also silently ignored here; the first DDL/DML
+/// statement will surface the missing-database error at query time, which
+/// matches PostgreSQL behaviour for `psql -d nonexistent` (it succeeds at
+/// connect; errors on the first query that requires the db).
+fn bind_startup_database<C: pgwire::api::ClientInfo>(
+    client: &C,
+    addr: &std::net::SocketAddr,
+    handler: &NodeDbPgHandler,
+) {
+    let db_name = match client.metadata().get("database") {
+        Some(n) if !n.is_empty() => n.clone(),
+        _ => return,
+    };
+
+    handler.sessions.ensure_session(*addr);
+
+    let db_id = if let Some(cat) = handler.state.credentials.catalog().as_ref() {
+        cat.get_database_id_by_name(&db_name).ok().flatten()
+    } else {
+        None
+    };
+
+    if let Some(id) = db_id {
+        handler.sessions.set_current_database(addr, id);
+    }
+    // If the name is not found we leave current_database unset (None).
+    // The first query that actually needs a database context will produce
+    // the appropriate DATABASE_NOT_FOUND error.
 }
 
 #[async_trait]
@@ -190,9 +293,21 @@ impl StartupHandler for AuthStartup {
                     &source,
                     &format!("trust auth: {username}"),
                 );
+
+                // Bind the `database` startup parameter to the session store.
+                // `psql -d <name>` sets this key in the pgwire StartupMessage;
+                // we resolve it once at handshake time so every query on this
+                // connection executes in the declared database context.
+                let addr = client.socket_addr();
+                bind_startup_database(client, &addr, handler);
+
                 Ok(())
             }
-            AuthStartup::Scram { sasl, state } => {
+            AuthStartup::Scram {
+                sasl,
+                state,
+                handler,
+            } => {
                 let was_in_auth = matches!(
                     client.state(),
                     pgwire::api::PgWireConnectionState::AuthenticationInProgress
@@ -215,7 +330,7 @@ impl StartupHandler for AuthStartup {
                                 pgwire::api::PgWireConnectionState::ReadyForQuery
                             ) =>
                     {
-                        // SCRAM succeeded — reset lockout counter.
+                        // SCRAM succeeded — reset lockout counter and bind database.
                         state.credentials.record_login_success(&username);
                         state.audit_record(
                             AuditEvent::AuthSuccess,
@@ -223,10 +338,17 @@ impl StartupHandler for AuthStartup {
                             &source,
                             &format!("SCRAM-SHA-256 auth: {username}"),
                         );
+                        // Bind the `database` startup parameter to the session.
+                        let addr = client.socket_addr();
+                        bind_startup_database(client, &addr, handler);
                     }
                     Err(_) if was_in_auth => {
                         // SCRAM failed — increment lockout counter.
-                        state.credentials.record_login_failure(&username);
+                        let emitter = ArcAuditEmitter(std::sync::Arc::clone(&state.audit));
+                        let scram_ip = source.parse::<std::net::SocketAddr>().ok().map(|s| s.ip());
+                        state
+                            .credentials
+                            .record_login_failure(&username, scram_ip, &emitter);
                         state.audit_record(
                             AuditEvent::AuthFailure,
                             None,

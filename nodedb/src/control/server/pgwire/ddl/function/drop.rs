@@ -8,7 +8,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 use super::parse::validate_identifier;
 
 /// Handle `DROP FUNCTION [IF EXISTS] <name>`
@@ -19,7 +19,7 @@ pub fn drop_function(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop functions")?;
+    require_tenant_admin(identity, "drop functions")?;
 
     let (name, if_exists) = parse_drop_function(parts)?;
     let tenant_id = identity.tenant_id.as_u64();

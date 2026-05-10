@@ -355,7 +355,7 @@ pub fn new_inbox(capacity: usize, config: &SequencerConfig) -> (Inbox, InboxRece
 mod tests {
     use super::*;
     use crate::calvin::types::{EngineKeySet, ReadWriteSet, SortedVec, TxClass};
-    use nodedb_types::id::VShardId;
+    use nodedb_types::id::{DatabaseId, VShardId};
 
     fn default_config() -> SequencerConfig {
         SequencerConfig::default()
@@ -365,7 +365,7 @@ mod tests {
         let mut first: Option<(String, u32)> = None;
         for i in 0u32..512 {
             let name = format!("col_{i}");
-            let vshard = VShardId::from_collection(&name).as_u32();
+            let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &name).as_u32();
             if let Some((ref fname, fv)) = first {
                 if fv != vshard {
                     return (fname.clone(), name);

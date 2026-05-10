@@ -22,6 +22,37 @@ pub struct EventPlaneComponents {
     pub trigger_dlq: Arc<std::sync::Mutex<TriggerDlq>>,
 }
 
+/// Enumerate mirror databases that need their observer link re-established
+/// after a server restart, and log the restart decisions.
+///
+/// This is called once during startup, after [`SharedState`] and the catalog
+/// are fully open. Databases with `MirrorStatus::Promoted` are excluded:
+/// they are normal writable databases and must NOT attempt to reconnect.
+/// The actual link objects are created by the cluster layer when it
+/// processes each restart decision; this function only reads the catalog
+/// and logs.
+pub fn log_mirror_restart_decisions(shared: &Arc<crate::control::state::SharedState>) {
+    let catalog = match shared.credentials.catalog() {
+        Some(c) => c,
+        None => return,
+    };
+    match crate::control::mirror::enumerate_resumable_mirrors(catalog) {
+        Ok(decisions) => {
+            for d in &decisions {
+                tracing::info!(
+                    database = %d.database_name,
+                    resume_lsn = d.resume_from_lsn,
+                    needs_bootstrap = d.needs_bootstrap,
+                    "mirror restart: observer link will resume"
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "mirror restart: failed to enumerate mirrors; skipping");
+        }
+    }
+}
+
 /// Spawn all persistent background subsystems.
 ///
 /// Includes: Event Plane consumers, event trigger processor, webhook manager wiring,
@@ -46,8 +77,77 @@ pub fn spawn_background_loops(
         watermark_store,
         trigger_dlq,
     } = components;
+    // Mirror restart: enumerate databases that need observer links re-established
+    // and log the decisions. The cluster layer processes these asynchronously
+    // via the mirror_link_registry once QUIC transport is available.
+    log_mirror_restart_decisions(shared);
+
     // Event trigger processor.
     crate::control::event_trigger::spawn_event_trigger_processor(Arc::clone(shared));
+
+    // Mirror lag monitor (5-second interval).
+    // Reads `_system.mirror_lag` for every active mirror and updates
+    // the `nodedb_database_mirror_lag_ms` metric. Also drives status
+    // transitions (Following → Degraded → Disconnected) and clears the
+    // metric when a mirror is promoted.
+    {
+        let shared_mirror = Arc::clone(shared);
+        crate::control::shutdown::spawn_loop(
+            &shared.loop_registry,
+            &shared.shutdown,
+            "mirror_lag_monitor",
+            move |mut shutdown| async move {
+                let mut tick = tokio::time::interval(Duration::from_secs(5));
+                loop {
+                    tokio::select! {
+                        _ = shutdown.wait_cancelled() => break,
+                        _ = tick.tick() => {}
+                    }
+                    if shutdown.is_cancelled() {
+                        break;
+                    }
+                    let catalog = match shared_mirror.credentials.catalog() {
+                        Some(c) => c,
+                        None => continue,
+                    };
+                    let databases = match catalog.list_databases() {
+                        Ok(d) => d,
+                        Err(e) => {
+                            tracing::warn!(error = %e, "mirror_lag_monitor: catalog list error");
+                            continue;
+                        }
+                    };
+                    for db in databases {
+                        let origin = match db.mirror_origin.as_ref() {
+                            Some(o) => o,
+                            None => continue,
+                        };
+                        // Promoted mirrors are normal writable databases — skip.
+                        if matches!(origin.status, nodedb_types::MirrorStatus::Promoted) {
+                            continue;
+                        }
+                        // Read the real receive timestamp from the link registry.
+                        // `None` means no link is registered for this database (the
+                        // cluster layer has not yet (re)established it after restart);
+                        // `update_lag_status` falls back to the catalog's apply time
+                        // in that case so the disconnect timer still advances.
+                        let last_received =
+                            shared_mirror.mirror_link_registry.last_received_ms(db.id);
+                        crate::control::mirror::update_lag_status(
+                            catalog,
+                            db.id,
+                            &db.name,
+                            &origin.status,
+                            last_received,
+                            false,
+                            &shared_mirror.database_metrics,
+                        );
+                    }
+                }
+            },
+        );
+        info!("mirror lag monitor running");
+    }
 
     // Wire webhook manager.
     shared.webhook_manager.set_state(Arc::clone(shared));
@@ -97,6 +197,11 @@ pub fn spawn_background_loops(
             }
         },
     );
+
+    // Idle session sweep (5-second timer).
+    // Closes sessions whose idle timeout or OIDC token expiry has elapsed.
+    crate::control::security::sessions::spawn_idle_sweep_loop(shared);
+    info!("idle session sweep loop running");
 
     // Audit log flush (10-second timer).
     let shared_audit = Arc::clone(shared);
@@ -148,6 +253,61 @@ pub fn spawn_background_loops(
         Arc::clone(&shared.usage_store),
         60,
     );
+
+    // Background clone materializer sweep.
+    // Automatically progresses cloned collections from Shadowed → Materialized
+    // without requiring explicit DDL.  The foreground ALTER DATABASE MATERIALIZE
+    // and DROP DATABASE FORCE paths bypass this loop and call the blocking
+    // materializer directly.
+    {
+        let shared_sweep = Arc::clone(shared);
+        let sweep_ms = std::env::var("NODEDB_CLONE_SWEEP_INTERVAL_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(30_000);
+        let sweep_interval = Duration::from_millis(sweep_ms);
+        crate::control::shutdown::spawn_loop(
+            &shared.loop_registry,
+            &shared.shutdown,
+            "clone_materializer_sweep",
+            move |mut shutdown| async move {
+                let mut tick = tokio::time::interval(sweep_interval);
+                loop {
+                    tokio::select! {
+                        _ = shutdown.wait_cancelled() => break,
+                        _ = tick.tick() => {}
+                    }
+                    if shutdown.is_cancelled() {
+                        break;
+                    }
+                    let state_for_sweep = Arc::clone(&shared_sweep);
+                    let result = tokio::task::spawn_blocking(move || {
+                        let Some(catalog) = state_for_sweep.credentials.catalog() else {
+                            return;
+                        };
+                        let cancel = std::sync::atomic::AtomicBool::new(false);
+                        if let Err(e) =
+                            crate::control::maintenance::clone_materializer::run_scheduled_sweep(
+                                &state_for_sweep,
+                                catalog,
+                                &cancel,
+                            )
+                        {
+                            tracing::warn!(error = %e, "clone materializer sweep error");
+                        }
+                    })
+                    .await;
+                    if let Err(e) = result {
+                        tracing::warn!(error = %e, "clone materializer sweep task panicked");
+                    }
+                }
+            },
+        );
+        info!(
+            interval_ms = sweep_ms,
+            "clone materializer background sweep running"
+        );
+    }
 
     // Cold tier task (if configured).
     if let Some(ref cold_settings) = config.cold_storage {

@@ -4,8 +4,8 @@
 
 use super::{
     alert, backup, change_stream, cluster_admin, collection, conflict_policy, copy_from, copy_to,
-    custom_type, index, maintenance, materialized_view, retention, rls, schedule, sequence,
-    synonym_group, trigger, user_auth,
+    custom_type, database, index, maintenance, materialized_view, oidc_provider, retention, rls,
+    schedule, sequence, synonym_group, tenant, trigger, user_auth,
 };
 use crate::ddl_ast::graph_parse;
 use crate::ddl_ast::statement::NodedbStatement;
@@ -77,11 +77,14 @@ pub fn parse(sql: &str) -> Option<Result<NodedbStatement, SqlError>> {
     // COPY TO file-path form — table and query forms.
     try_family!(copy_to::try_parse(&upper, trimmed));
     try_family!(user_auth::try_parse(&upper, &parts, trimmed));
+    try_family!(oidc_provider::try_parse(&upper, &parts, trimmed));
     try_family!(change_stream::try_parse(&upper, &parts, trimmed));
     try_family!(rls::try_parse(&upper, &parts, trimmed));
     try_family!(materialized_view::try_parse(&upper, &parts, trimmed));
     try_family!(synonym_group::try_parse(&upper, &parts, trimmed));
     try_family!(custom_type::try_parse(&upper, &parts, trimmed));
+    try_family!(database::try_parse(&upper, &parts, trimmed));
+    try_family!(tenant::try_parse(&upper, &parts, trimmed));
     None
 }
 

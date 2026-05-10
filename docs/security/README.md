@@ -4,12 +4,27 @@ NodeDB has a defense-in-depth security model covering authentication, authorizat
 
 ## Guides
 
-- [Authentication](auth.md) — Users, passwords, API keys, JWKS, mTLS
-- [Roles & Permissions (RBAC)](rbac.md) — CREATE ROLE, GRANT, REVOKE, permission hierarchy
+- [Authentication](auth.md) — Users, passwords, API keys, service accounts, OIDC, mTLS
+- [OIDC Single Sign-On](oidc.md) — JWT bearer authentication, claim mapping, provider setup
+- [Roles & Permissions (RBAC)](rbac.md) — CREATE ROLE, GRANT, REVOKE, permission hierarchy, ClusterAdmin
+- [Session Management](sessions.md) — SHOW SESSIONS, KILL SESSION, idle timeout, lockout, rate limiting
 - [Row-Level Security (RLS)](rls.md) — Per-row filtering based on auth context
-- [Audit Log](audit.md) — Hash-chained audit trail, change tracking, SIEM export
-- [Multi-Tenancy](tenants.md) — Tenant isolation, quotas, purge
+- [Audit Log](audit.md) — Hash-chained audit trail, database-scoped events, DML audit, SIEM export
+- [Multi-Tenancy](tenants.md) — Database vs Tenant, tenant isolation, quotas, purge
 - [Encryption](encryption.md) — At-rest cipher per storage tier, key management, TLS
+
+## Database Scoping
+
+Authentication and access control are now database-aware:
+
+- **API keys** can be narrowed to specific databases
+- **Service accounts** are created per database
+- **RLS policies** can reference `$auth.database_id`
+- **Session management** binds connections to one database
+- **Audit events** include `database_id` for filtering
+- **Admin DDL** is gated by role (ClusterAdmin for cross-database ops)
+
+See [Authentication](auth.md), [RBAC](rbac.md), [Audit Log](audit.md), and [Session Management](sessions.md).
 
 ## Encryption (summary)
 

@@ -42,6 +42,7 @@ pub mod error;
 pub mod governor;
 pub mod metrics;
 pub mod pressure;
+pub mod reservation_token;
 pub mod spill;
 
 pub use arena::{bind_thread_to_local_numa, current_thread_arena, pin_thread_arena};
@@ -52,4 +53,5 @@ pub use engine::EngineId;
 pub use error::{MemError, Result};
 pub use governor::{GovernorConfig, MemoryGovernor};
 pub use pressure::{PressureLevel, PressureThresholds};
+pub use reservation_token::ReservationToken;
 pub use spill::{SpillAction, SpillConfig, SpillController};

@@ -11,7 +11,7 @@ use crate::control::security::catalog::trigger_types::{
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 /// Handle `CREATE [OR REPLACE] TRIGGER ...` from typed AST fields.
 #[allow(clippy::too_many_arguments)]
@@ -32,7 +32,7 @@ pub fn create_trigger(
     security: &str,
     body_sql: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create triggers")?;
+    require_tenant_admin(identity, "create triggers")?;
 
     let tenant_id = identity.tenant_id.as_u64();
 

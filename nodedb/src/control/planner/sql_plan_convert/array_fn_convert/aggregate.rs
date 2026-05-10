@@ -54,7 +54,7 @@ pub(crate) fn convert_agg(
         super::helpers::resolve_array_temporal(temporal, "ARRAY_AGG")?;
     let mapped = map_reducer(reducer);
     let aid = ArrayId::new(tenant_id, name);
-    let vshard = VShardId::from_collection(name);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, name);
 
     let plan = if ctx.cluster_enabled {
         // Encode the reducer for the wire. The coordinator decodes it
@@ -91,6 +91,7 @@ pub(crate) fn convert_agg(
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: ctx.database_id,
         plan,
         post_set_op: PostSetOp::None,
     }])
@@ -143,6 +144,8 @@ mod tests {
             surrogate_assigner: None,
             cluster_enabled,
             bitemporal_retention_registry: None,
+            max_vector_dim: 0,
+            database_id: crate::types::DatabaseId::DEFAULT,
         }
     }
 

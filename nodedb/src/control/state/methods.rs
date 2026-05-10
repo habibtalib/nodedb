@@ -12,6 +12,33 @@ use crate::types::TenantId;
 use super::SharedState;
 
 impl SharedState {
+    /// Snapshot the configured global quota ceiling.
+    ///
+    /// Callers (notably `ALTER DATABASE … SET QUOTA`) pass the result to
+    /// `SystemCatalog::put_database_quota` so the sum-of-quotas check runs
+    /// against the live ceiling. A poisoned lock falls back to
+    /// `GlobalQuotaCeiling::default()` (all zeros = no enforcement) so a
+    /// poisoned lock never silently rejects valid quotas; the upstream poison
+    /// will surface elsewhere with a real diagnostic.
+    pub fn quota_ceiling_snapshot(&self) -> crate::control::security::catalog::GlobalQuotaCeiling {
+        match self.quota_ceiling.read() {
+            Ok(g) => g.clone(),
+            Err(p) => p.into_inner().clone(),
+        }
+    }
+
+    /// Replace the global quota ceiling. Called once at startup after the
+    /// server config is parsed; future `ALTER SYSTEM` paths may also call this.
+    pub fn set_quota_ceiling(
+        &self,
+        ceiling: crate::control::security::catalog::GlobalQuotaCeiling,
+    ) {
+        match self.quota_ceiling.write() {
+            Ok(mut g) => *g = ceiling,
+            Err(p) => *p.into_inner() = ceiling,
+        }
+    }
+
     /// Allocate the next unique request ID for this node.
     ///
     /// All callers that dispatch to the local Data Plane and register a waiter
@@ -25,6 +52,97 @@ impl SharedState {
             self.request_id_counter
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         )
+    }
+
+    /// Convert an LSN back to wall-clock milliseconds using the anchor map.
+    ///
+    /// Used by the clone resolver to compute `effective_source_ms` for the
+    /// engine's `system_as_of_ms` field. Returns `None` when the anchor map
+    /// has no entries that bracket the requested LSN (engine then uses
+    /// latest-version behaviour — safe for tests where anchors are absent).
+    ///
+    /// A poisoned lock is recovered via `into_inner()` (consistent with the
+    /// other `lsn_ms_map` accessors below) and logged so that bitemporal
+    /// reads do not silently degrade to "latest" on the back of a panic in
+    /// an unrelated writer.
+    pub fn ms_to_lsn_inverse(&self, lsn: nodedb_types::Lsn) -> Option<i64> {
+        let map = match self.lsn_ms_map.lock() {
+            Ok(g) => g,
+            Err(poisoned) => {
+                warn!(
+                    lsn = %lsn,
+                    "lsn_ms_map poisoned in ms_to_lsn_inverse — recovering inner state; \
+                     bitemporal reads may use a stale anchor view until the next anchor is recorded"
+                );
+                poisoned.into_inner()
+            }
+        };
+        nodedb_types::temporal::lsn_to_ms(&map, lsn).ok()
+    }
+
+    /// Convert wall-clock milliseconds to the nearest LSN using the anchor map.
+    ///
+    /// When the map is populated (WAL anchor records have been replayed), this
+    /// performs linear interpolation between surrounding anchors.  When the map
+    /// is empty (no anchors yet, or testing) the current WAL frontier is
+    /// returned as the best available approximation.
+    pub fn ms_to_lsn(&self, wall_ms: i64) -> nodedb_types::Lsn {
+        let map = match self.lsn_ms_map.lock() {
+            Ok(g) => g,
+            Err(poisoned) => {
+                warn!(
+                    wall_ms = wall_ms,
+                    "lsn_ms_map poisoned in ms_to_lsn — recovering inner state"
+                );
+                poisoned.into_inner()
+            }
+        };
+        // Walk anchors to find the pair that brackets wall_ms.
+        let anchors = map.anchors();
+        if anchors.is_empty() {
+            // No anchor data yet.  A very small wall_ms (well before any
+            // plausible server-start epoch) predates all recorded LSNs;
+            // return LSN 0 so the clone predation check fires correctly.
+            // Any other value maps to the current frontier.
+            const EPOCH_THRESHOLD_MS: i64 = 1_000_000; // ~16 minutes after Unix epoch
+            if wall_ms < EPOCH_THRESHOLD_MS {
+                return nodedb_types::Lsn::new(0);
+            }
+            return self.wal.next_lsn();
+        }
+        // Binary search by wall_ms to find the bracketing pair.
+        match anchors.binary_search_by_key(&wall_ms, |a| a.wall_ms) {
+            Ok(idx) => nodedb_types::Lsn::new(anchors[idx].lsn),
+            Err(0) => nodedb_types::Lsn::new(anchors[0].lsn),
+            Err(idx) if idx >= anchors.len() => {
+                nodedb_types::Lsn::new(anchors[anchors.len() - 1].lsn)
+            }
+            Err(idx) => {
+                // Interpolate between anchors[idx-1] and anchors[idx].
+                let lo = anchors[idx - 1];
+                let hi = anchors[idx];
+                let ms_span = (hi.wall_ms - lo.wall_ms).max(1) as u64;
+                let lsn_span = hi.lsn.saturating_sub(lo.lsn);
+                let ms_delta = (wall_ms - lo.wall_ms).max(0) as u64;
+                let lsn = lo.lsn + (lsn_span * ms_delta / ms_span);
+                nodedb_types::Lsn::new(lsn)
+            }
+        }
+    }
+
+    /// Record a new WAL anchor into the LSN↔ms map.
+    ///
+    /// Called when an `LsnMsAnchor` WAL record is replayed at startup or
+    /// emitted by the WAL writer.  Non-monotonic anchors are silently ignored
+    /// (the WAL guarantees monotonicity; a violation here means a partially
+    /// replayed or corrupt segment and must not panic).
+    pub fn push_lsn_ms_anchor(&self, lsn: u64, wall_ms: i64) {
+        if let Ok(mut map) = self.lsn_ms_map.lock() {
+            let anchor = nodedb_types::temporal::LsnMsAnchor::new(lsn, wall_ms);
+            // Silently ignore non-monotonic anchors — they arrive during WAL
+            // replay of partially-written segments and must not crash the server.
+            let _ = map.push(anchor);
+        }
     }
 
     /// Advance the per-tenant observed write-HLC high-water to the current

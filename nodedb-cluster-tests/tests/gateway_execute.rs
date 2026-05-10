@@ -31,6 +31,7 @@ fn test_ctx() -> QueryContext {
     QueryContext {
         tenant_id: TenantId::new(0),
         trace_id: nodedb_types::TraceId::ZERO,
+        database_id: nodedb_types::id::DatabaseId::DEFAULT,
     }
 }
 
@@ -84,6 +85,7 @@ async fn gateway_execute_kv_put_get_single_node() {
         collection: "gw_kv_smoke".into(),
         key: b"smoke-key".to_vec(),
         rls_filters: vec![],
+        surrogate_ceiling: None,
     });
     let get_result = gateway.execute(&ctx, get_plan).await;
     assert!(
@@ -131,6 +133,7 @@ async fn gateway_execute_sql_plan_cache_populated() {
             collection: "gw_cache_smoke".into(),
             key: b"smoke-key".to_vec(),
             rls_filters: vec![],
+            surrogate_ceiling: None,
         }))
     };
 
@@ -189,6 +192,7 @@ fn plan_cache_key_construction_and_lookup() {
         collection: "gw_kv_smoke".into(),
         key: b"smoke-key".to_vec(),
         rls_filters: vec![],
+        surrogate_ceiling: None,
     });
     cache.insert(key.clone(), Arc::new(plan));
 

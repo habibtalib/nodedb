@@ -57,6 +57,8 @@ impl CoreLoop {
                 old_value: write.old_value.map(|v| Arc::from(v.as_slice())),
                 system_time_ms,
                 valid_time_ms,
+                user_id: None,
+                statement_digest: None,
             };
 
             producer.emit(event);

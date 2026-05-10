@@ -4164,6 +4164,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "smallvec",
  "snap",
  "sonic-rs",
  "sqlparser",
@@ -4182,6 +4183,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "unicode-normalization",
+ "uuid",
  "wasmtime",
  "x509-parser 0.16.0",
  "zeroize",
@@ -4212,6 +4214,7 @@ version = "0.1.1"
 dependencies = [
  "fluxbench",
  "libc",
+ "nodedb-types",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4387,6 +4390,7 @@ version = "0.1.1"
 dependencies = [
  "fluxbench",
  "libc",
+ "nodedb-types",
  "tempfile",
  "thiserror 2.0.18",
  "tikv-jemalloc-ctl",
@@ -4488,10 +4492,12 @@ dependencies = [
  "nodedb-types",
  "nodedb-wal",
  "serde_json",
+ "smallvec",
  "sonic-rs",
  "tempfile",
  "tokio",
  "tokio-postgres",
+ "uuid",
  "zerompk",
 ]
 

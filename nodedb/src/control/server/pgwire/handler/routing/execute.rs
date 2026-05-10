@@ -44,21 +44,31 @@ impl NodeDbPgHandler {
 
         // Column projection: re-encode each query response with one pgwire
         // field per named column from the SELECT list.
-        let projection = {
-            use super::super::projection::{
-                fields_for_projection, lookup_keys_for_projection, needs_projection,
-                parse_select_projection,
-            };
-            parse_select_projection(sql)
-                .filter(|items| needs_projection(items))
-                .map(|items| {
-                    let fields = fields_for_projection(&items);
-                    let keys = lookup_keys_for_projection(&items);
-                    (fields, keys)
-                })
+        use super::super::projection::{
+            ProjectionItem, fields_for_projection, lookup_keys_for_projection, needs_projection,
+            parse_select_projection, reproject_star_response,
         };
+        let items_opt = parse_select_projection(sql);
 
-        if let Some((fields, keys)) = projection {
+        // SELECT * — expand each row's JSON object into individual columns.
+        if matches!(items_opt.as_deref(), Some([ProjectionItem::Star])) {
+            let mut projected = Vec::with_capacity(responses.len());
+            for resp in responses {
+                projected.push(reproject_star_response(resp).await.map_err(|e| {
+                    PgWireError::UserError(Box::new(ErrorInfo::new(
+                        "ERROR".to_owned(),
+                        "XX000".to_owned(),
+                        format!("star projection failed: {e}"),
+                    )))
+                })?);
+            }
+            return Ok(projected);
+        }
+
+        // Named columns — re-encode with the declared column list.
+        if let Some(items) = items_opt.filter(|items| needs_projection(items)) {
+            let fields = fields_for_projection(&items);
+            let keys = lookup_keys_for_projection(&items);
             let mut projected = Vec::with_capacity(responses.len());
             for resp in responses {
                 projected.push(
@@ -108,11 +118,28 @@ impl NodeDbPgHandler {
             return Ok(vec![Response::Execution(Tag::new("OK"))]);
         }
 
+        // Clone CoW read-path interception: for Shadowed/Materializing clones,
+        // augment tasks with source-database reads and merge results.
+        // Returns Some(responses) when clone dispatch is fully handled.
+        // Returns None when this is not a cloned collection (fast path).
+        if let Some(clone_responses) = self
+            .maybe_dispatch_clone_reads(tasks.clone(), tenant_id, addr)
+            .await?
+        {
+            return Ok(clone_responses);
+        }
+
         let consistency = consistency_for_tasks(&tasks);
 
         // When all tasks target a remote leader, route through the gateway.
         if self.should_forward_via_gateway(&tasks, consistency) {
-            return self.dispatch_tasks_via_gateway(tasks, tenant_id).await;
+            let database_id = self
+                .sessions
+                .get_current_database(addr)
+                .unwrap_or(crate::types::DatabaseId::DEFAULT);
+            return self
+                .dispatch_tasks_via_gateway(tasks, tenant_id, database_id)
+                .await;
         }
 
         let tx_state = self.sessions.transaction_state(addr);
@@ -332,8 +359,33 @@ impl NodeDbPgHandler {
                     None
                 };
 
+            // --- Clone write-path interception ---
+            // For PointUpdate / PointDelete on Shadowed/Materializing clones,
+            // apply copy-up or tombstone before (or instead of) normal dispatch.
+            // Non-cloned collections and Materialized clones short-circuit here.
+            {
+                use super::clone_write_dispatch::CloneWriteOutcome;
+                match self.maybe_intercept_clone_write(&task, tenant_id).await? {
+                    CloneWriteOutcome::Handled(resp) => {
+                        let shaped =
+                            crate::control::server::pgwire::handler::plan::payload_to_response(
+                                resp.payload.as_ref(),
+                                plan_kind,
+                            );
+                        if let Some(notice) = shaped.notice {
+                            self.sessions.push_notice(addr, notice);
+                        }
+                        responses.push(shaped.response);
+                        continue;
+                    }
+                    CloneWriteOutcome::Passthrough => {}
+                }
+            }
+
             // --- Normal dispatch ---
-            let resp = self.dispatch_task(task).await.map_err(|e| {
+            let user_id: Option<std::sync::Arc<str>> =
+                Some(std::sync::Arc::from(identity.username.as_str()));
+            let resp = self.dispatch_task(task, user_id).await.map_err(|e| {
                 let (severity, code, message) = error_to_sqlstate(&e);
                 PgWireError::UserError(Box::new(ErrorInfo::new(
                     severity.to_owned(),

@@ -349,6 +349,40 @@ impl NodeDbError {
         }
     }
 
+    // ── Quota ──
+
+    /// Sum of database or tenant quotas would exceed the configured ceiling.
+    pub fn quota_overcommit(field: impl Into<String>, detail: impl fmt::Display) -> Self {
+        let field = field.into();
+        Self {
+            code: ErrorCode::QUOTA_OVERCOMMIT,
+            message: format!("quota overcommit on field '{field}': {detail}"),
+            details: ErrorDetails::QuotaOvercommit { field },
+            cause: None,
+        }
+    }
+
+    /// Request rejected because a tenant or database quota is exhausted.
+    pub fn quota_exceeded(scope: impl Into<String>, detail: impl fmt::Display) -> Self {
+        let scope = scope.into();
+        Self {
+            code: ErrorCode::TENANT_QUOTA_EXCEEDED,
+            message: format!("quota exceeded for {scope}: {detail}"),
+            details: ErrorDetails::QuotaExceeded { scope },
+            cause: None,
+        }
+    }
+
+    /// Global resource pressure; server cannot accept the request.
+    pub fn server_overload(detail: impl fmt::Display) -> Self {
+        Self {
+            code: ErrorCode::SERVER_OVERLOAD,
+            message: format!("server overload: {detail}"),
+            details: ErrorDetails::ServerOverload,
+            cause: None,
+        }
+    }
+
     // ── Bridge / Dispatch / Internal ──
 
     pub fn bridge(detail: impl fmt::Display) -> Self {

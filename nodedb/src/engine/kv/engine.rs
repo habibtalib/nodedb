@@ -14,6 +14,7 @@ use super::engine_helpers::table_key;
 use super::expiry_wheel::ExpiryWheel;
 use super::hash_table::KvHashTable;
 use super::index::KvIndexSet;
+use super::scan::KvScanParams;
 
 /// Result of a KV SCAN operation: `(entries, next_cursor_bytes)`.
 ///
@@ -190,6 +191,24 @@ impl KvEngine {
         self.tables.get(&tkey)?.get(key, now_ms).map(|v| v.to_vec())
     }
 
+    /// GET with surrogate: returns the value bytes AND the row's stable
+    /// surrogate when the binding was made.  Used by the clone-delegated
+    /// read path to enforce a per-row surrogate ceiling — bindings the
+    /// source allocated AFTER the clone's AS-OF point are filtered out.
+    pub fn get_with_surrogate(
+        &self,
+        tenant_id: u64,
+        collection: &str,
+        key: &[u8],
+        now_ms: u64,
+    ) -> Option<(Vec<u8>, nodedb_types::Surrogate)> {
+        let tkey = table_key(tenant_id, collection);
+        self.tables
+            .get(&tkey)?
+            .get_with_surrogate(key, now_ms)
+            .map(|(v, s)| (v.to_vec(), s))
+    }
+
     /// GET TTL: Returns the remaining TTL in milliseconds for a key.
     ///
     /// - `None` — key does not exist (or is expired)
@@ -269,22 +288,30 @@ impl KvEngine {
     ///
     /// Returns `(entries, next_cursor_bytes)`. `next_cursor_bytes` is empty
     /// when the scan is complete. Each entry is `(key, value)`.
-    #[allow(clippy::too_many_arguments)]
-    pub fn scan(
-        &self,
-        tenant_id: u64,
-        collection: &str,
-        cursor: &[u8],
-        count: usize,
-        now_ms: u64,
-        match_pattern: Option<&str>,
-        filter_field: Option<&str>,
-        filter_value: Option<&[u8]>,
-    ) -> ScanResult {
+    /// `params.surrogate_ceiling` enforces clone snapshot isolation when set.
+    pub fn scan(&self, params: KvScanParams<'_>) -> ScanResult {
+        let KvScanParams {
+            tenant_id,
+            collection,
+            cursor,
+            count,
+            now_ms,
+            match_pattern,
+            filter_field,
+            filter_value,
+            surrogate_ceiling,
+        } = params;
         let tkey = table_key(tenant_id, collection);
         let table = match self.tables.get(&tkey) {
             Some(t) => t,
             None => return (Vec::new(), Vec::new()),
+        };
+
+        let surrogate_visible = |s: u32| -> bool {
+            match surrogate_ceiling {
+                Some(c) => s == 0 || s <= c,
+                None => true,
+            }
         };
 
         // Index-accelerated path: if we have an equality filter and an index, use it.
@@ -310,9 +337,10 @@ impl KvEngine {
                     if results.len() >= count {
                         break;
                     }
-                    if let Some(val) = table.get(pk, now_ms)
+                    if let Some((val, surrogate)) = table.get_with_surrogate(pk, now_ms)
                         && (match_pattern.is_none()
                             || super::scan::matches_pattern_pub(pk, match_pattern))
+                        && surrogate_visible(surrogate.as_u32())
                     {
                         results.push((pk.to_vec(), val.to_vec()));
                     }
@@ -329,11 +357,18 @@ impl KvEngine {
             0
         };
 
-        let (entries, next_cursor_idx) = table.scan(cursor_idx, count, now_ms, match_pattern);
+        let (entries, next_cursor_idx) =
+            table.scan_with_surrogate(cursor_idx, count, now_ms, match_pattern);
 
         let owned: Vec<(Vec<u8>, Vec<u8>)> = entries
             .into_iter()
-            .map(|(k, v)| (k.to_vec(), v.to_vec()))
+            .filter_map(|(k, v, s)| {
+                if surrogate_visible(s.as_u32()) {
+                    Some((k.to_vec(), v.to_vec()))
+                } else {
+                    None
+                }
+            })
             .collect();
 
         let next_cursor = if next_cursor_idx == 0 {

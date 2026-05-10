@@ -117,7 +117,8 @@ impl CoreLoop {
         };
 
         // 9. Caches: evict all tenant data.
-        self.doc_cache.evict_tenant(tenant_id);
+        self.doc_cache
+            .evict_tenant(task.request.database_id.as_u64(), tenant_id);
         self.aggregate_cache.retain(|(t, _), _| *t != tid_key);
 
         // 10. Doc configs: remove collection configs for this tenant.

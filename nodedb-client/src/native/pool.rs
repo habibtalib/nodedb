@@ -30,6 +30,10 @@ pub struct PoolConfig {
     pub idle_timeout: Duration,
     /// Authentication method.
     pub auth: AuthMethod,
+    /// Target database name sent in the auth handshake frame.
+    ///
+    /// `None` means the server default (`"default"` / `DatabaseId::DEFAULT`).
+    pub database: Option<String>,
     /// TLS configuration. Default: disabled.
     pub tls: super::connection::TlsConfig,
 }
@@ -44,6 +48,7 @@ impl Default for PoolConfig {
             auth: AuthMethod::Trust {
                 username: "admin".into(),
             },
+            database: None,
             tls: Default::default(),
         }
     }
@@ -151,8 +156,9 @@ impl Pool {
         // Perform the native protocol handshake.
         conn.perform_client_handshake().await?;
 
-        // Authenticate.
-        conn.authenticate(self.config.auth.clone()).await?;
+        // Authenticate — pass the optional database name for handshake binding.
+        conn.authenticate(self.config.auth.clone(), self.config.database.as_deref())
+            .await?;
 
         // Capture negotiated metadata from the first handshake.
         {

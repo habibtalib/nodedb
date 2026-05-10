@@ -27,7 +27,7 @@ fn wal_append_fsync_1k(b: &mut Bencher) {
         let mut writer = WalWriter::open_without_direct_io(&path).unwrap();
         for _ in 0..1000 {
             writer
-                .append(RecordType::Put as u32, 1, 0, &payload)
+                .append(RecordType::Put as u32, 1, 0, 0, &payload)
                 .unwrap();
         }
         writer.sync().unwrap();
@@ -47,7 +47,7 @@ fn wal_append_only_10k(b: &mut Bencher) {
         let mut writer = WalWriter::open_without_direct_io(&path).unwrap();
         for _ in 0..10_000 {
             writer
-                .append(RecordType::Put as u32, 1, 0, &payload)
+                .append(RecordType::Put as u32, 1, 0, 0, &payload)
                 .unwrap();
         }
         black_box(writer.next_lsn())
@@ -85,6 +85,7 @@ fn wal_group_commit(b: &mut Bencher) {
                                 record_type: RecordType::Put as u32,
                                 tenant_id: t,
                                 vshard_id: 0,
+                                database_id: 0,
                                 payload: p.clone(),
                             },
                         )

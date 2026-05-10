@@ -44,10 +44,11 @@ pub(crate) fn convert_elementwise(
     }
     let left = ArrayId::new(tenant_id, left_name);
     let right = ArrayId::new(tenant_id, right_name);
-    let vshard = VShardId::from_collection(left_name);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, left_name);
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Array(ArrayOp::Elementwise {
             left,
             right,

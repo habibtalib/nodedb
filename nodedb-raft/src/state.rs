@@ -41,8 +41,30 @@ pub enum NodeRole {
     Follower,
     Candidate,
     Leader,
-    /// Non-voting member catching up : new node joins as learner first).
+    /// Non-voting member catching up: a new node joins as learner first.
     Learner,
+    /// Cross-cluster observer: receives log entries from a source cluster as a
+    /// non-voting, non-quorum member. Unlike a `Learner`, an observer never
+    /// transitions to `Voter` within this group — it permanently observes.
+    /// Acks are advisory and never gate commit on the source.
+    Observer,
+}
+
+/// Role of a remote peer as seen by the local leader.
+///
+/// Used to classify tracked peers so the leader can send entries to both
+/// voter peers and observer peers without including observers in quorum math.
+///
+/// Exhaustive matches are required everywhere this enum is matched — no
+/// `_ =>` arms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeerRole {
+    /// Full voting member that participates in leader election and the commit
+    /// quorum.
+    Voter,
+    /// Cross-cluster observer that receives entries and acks advisorily.
+    /// Never counted in quorum; slow-apply does not stall source commits.
+    Observer,
 }
 
 /// Volatile state on all servers.
@@ -69,20 +91,62 @@ impl Default for VolatileState {
     }
 }
 
+/// Per-observer send state tracked by the leader.
+///
+/// Observers have an independent bounded send queue. When the queue is full
+/// because the observer is slow, new entries are dropped from the queue and
+/// the observer falls into snapshot-recovery mode on reconnect. Source commits
+/// are never delayed by observer apply pace.
+#[derive(Debug, Clone)]
+pub struct ObserverState {
+    /// Index of the next log entry to send to this observer.
+    pub next_index: u64,
+    /// Index of the highest log entry the observer has acked (advisory).
+    pub match_index: u64,
+    /// Number of entries currently queued for this observer (advisory
+    /// backpressure tracking). Does not gate commit.
+    pub pending_count: u32,
+}
+
+impl ObserverState {
+    /// Maximum number of in-flight entries queued for an observer before the
+    /// leader stops pushing and waits for the observer to drain. Once the
+    /// observer drains below this threshold, replication resumes. Source
+    /// commits are never affected.
+    pub const MAX_PENDING: u32 = 256;
+}
+
 /// Volatile state on leaders (reinitialized after election).
 #[derive(Debug, Clone)]
 pub struct LeaderState {
-    /// For each peer: index of next log entry to send.
+    /// For each voter peer: index of next log entry to send.
     pub next_index: Vec<(u64, u64)>,
-    /// For each peer: index of highest log entry known to be replicated.
+    /// For each voter/learner peer: index of highest log entry known to be replicated.
     pub match_index: Vec<(u64, u64)>,
+    /// Per-observer send state. Observers are tracked separately from voters
+    /// and learners so quorum math never accidentally includes them.
+    pub observer_states: Vec<(u64, ObserverState)>,
 }
 
 impl LeaderState {
-    pub fn new(peers: &[u64], last_log_index: u64) -> Self {
+    /// Create leader state for the given voter/learner peers plus observers.
+    pub fn new(peers: &[u64], observers: &[u64], last_log_index: u64) -> Self {
         Self {
             next_index: peers.iter().map(|&id| (id, last_log_index + 1)).collect(),
             match_index: peers.iter().map(|&id| (id, 0)).collect(),
+            observer_states: observers
+                .iter()
+                .map(|&id| {
+                    (
+                        id,
+                        ObserverState {
+                            next_index: last_log_index + 1,
+                            match_index: 0,
+                            pending_count: 0,
+                        },
+                    )
+                })
+                .collect(),
         }
     }
 
@@ -114,8 +178,7 @@ impl LeaderState {
         }
     }
 
-    /// Add a new peer to leader tracking. Initializes next_index to
-    /// `last_log_index + 1` (the peer needs to catch up from the end of the log).
+    /// Add a new voter/learner peer to leader tracking.
     pub fn add_peer(&mut self, peer: u64, last_log_index: u64) {
         if !self.next_index.iter().any(|&(id, _)| id == peer) {
             self.next_index.push((peer, last_log_index + 1));
@@ -123,15 +186,52 @@ impl LeaderState {
         }
     }
 
-    /// Remove a peer from leader tracking.
+    /// Remove a voter/learner peer from leader tracking.
     pub fn remove_peer(&mut self, peer: u64) {
         self.next_index.retain(|&(id, _)| id != peer);
         self.match_index.retain(|&(id, _)| id != peer);
     }
 
-    /// Current peer list tracked by this leader state.
+    /// Current voter/learner peer list tracked by this leader state.
     pub fn peers(&self) -> Vec<u64> {
         self.next_index.iter().map(|&(id, _)| id).collect()
+    }
+
+    /// Add an observer to leader tracking.
+    pub fn add_observer(&mut self, observer: u64, last_log_index: u64) {
+        if !self.observer_states.iter().any(|&(id, _)| id == observer) {
+            self.observer_states.push((
+                observer,
+                ObserverState {
+                    next_index: last_log_index + 1,
+                    match_index: 0,
+                    pending_count: 0,
+                },
+            ));
+        }
+    }
+
+    /// Remove an observer from leader tracking.
+    pub fn remove_observer(&mut self, observer: u64) {
+        self.observer_states.retain(|&(id, _)| id != observer);
+    }
+
+    /// Get a mutable reference to an observer's state.
+    pub fn observer_state_mut(&mut self, observer: u64) -> Option<&mut ObserverState> {
+        self.observer_states
+            .iter_mut()
+            .find(|(id, _)| *id == observer)
+            .map(|(_, state)| state)
+    }
+
+    /// Whether an observer's send queue is below the backpressure threshold.
+    /// Returns `false` if the observer is unknown.
+    pub fn observer_can_receive(&self, observer: u64) -> bool {
+        self.observer_states
+            .iter()
+            .find(|(id, _)| *id == observer)
+            .map(|(_, state)| state.pending_count < ObserverState::MAX_PENDING)
+            .unwrap_or(false)
     }
 }
 
@@ -149,7 +249,7 @@ mod tests {
     #[test]
     fn leader_state_initialization() {
         let peers = vec![2, 3, 4];
-        let ls = LeaderState::new(&peers, 10);
+        let ls = LeaderState::new(&peers, &[], 10);
         assert_eq!(ls.next_index_for(2), 11);
         assert_eq!(ls.next_index_for(3), 11);
         assert_eq!(ls.match_index_for(2), 0);
@@ -158,7 +258,7 @@ mod tests {
     #[test]
     fn leader_state_update() {
         let peers = vec![2, 3];
-        let mut ls = LeaderState::new(&peers, 5);
+        let mut ls = LeaderState::new(&peers, &[], 5);
         ls.set_next_index(2, 8);
         ls.set_match_index(2, 7);
         assert_eq!(ls.next_index_for(2), 8);

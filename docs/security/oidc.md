@@ -1,0 +1,264 @@
+# OIDC Single Sign-On
+
+NodeDB integrates with external OIDC providers for JWT-based bearer authentication. Users authenticate once with an identity provider and receive a token usable across NodeDB without managing separate passwords.
+
+## Overview
+
+OIDC is a delegated authentication protocol where:
+
+1. User authenticates with an external provider (Auth0, Okta, Keycloak, etc.)
+2. Provider issues a JWT bearer token
+3. User presents token to NodeDB in the `Authorization: Bearer <token>` header
+4. NodeDB validates the signature via the provider's JWKS, applies claim-mapping rules, and grants access
+
+**Supported on:** Native protocol and HTTP only. **Not on pgwire** — the Postgres wire protocol cannot carry bearer tokens without a non-standard extension; pgwire stays SCRAM-SHA-256 only.
+
+## Registering a Provider
+
+Create a provider configuration:
+
+```sql
+CREATE OIDC PROVIDER okta WITH (
+    issuer = 'https://dev-12345.okta.com/',
+    jwks_url = 'https://dev-12345.okta.com/.well-known/jwks.json',
+    audience = 'api://nodedb'
+);
+```
+
+**Parameters:**
+
+| Parameter  | Required | Description                                                                                       |
+| ---------- | -------- | ------------------------------------------------------------------------------------------------- |
+| `issuer`   | Yes      | Provider's issuer URL (e.g. `https://accounts.google.com`, `https://your-domain.auth0.com/`)      |
+| `jwks_url` | Yes      | JWKS endpoint for signature validation (e.g. `https://accounts.google.com/.well-known/jwks.json`) |
+| `audience` | Yes      | Expected `aud` claim in the JWT (matches your app's audience with the provider)                   |
+
+**Permissions:** `CREATE OIDC PROVIDER` requires Superuser or ClusterAdmin role.
+
+**Persistence:** Provider config is stored in `_system.oidc_providers` and replicated via Raft.
+
+## Claim Mapping
+
+Map JWT claims to NodeDB identity attributes. Define rules in the provider configuration:
+
+```sql
+CREATE OIDC PROVIDER okta WITH (
+    issuer = 'https://dev-12345.okta.com/',
+    jwks_url = 'https://dev-12345.okta.com/.well-known/jwks.json',
+    audience = 'api://nodedb',
+    claim_mapping = [
+        { claim = 'email', value = 'alice@company.com', effect = { default_database = 'prod', add_databases = ['prod', 'staging'] } },
+        { claim = 'email', value = 'bob@company.com', effect = { default_database = 'staging', add_databases = ['staging'] } },
+        { claim = 'department', value = 'engineering', effect = { add_databases = ['prod', 'staging', 'dev'], add_roles = ['DatabaseEditor', 'ClusterAdmin'] } }
+    ]
+);
+```
+
+**Rule structure:**
+
+```
+{ claim = <claim_name>, value = <claim_value>, effect = {
+    default_database = <DatabaseId | null>,
+    add_databases = [<DatabaseId>, ...],
+    add_roles = [<Role>, ...]
+} }
+```
+
+**How it works:**
+
+- If JWT contains claim `claim_name` with value matching `value`, apply the `effect`
+- `default_database` sets the user's default database for the session
+- `add_databases` adds the databases to the user's accessible set
+- `add_roles` adds roles to the authenticated identity
+- Multiple rules are OR-combined: if any rule matches, its effect applies
+- Claim values support wildcards (`*`) for matching any value of a claim
+
+**Example: wildcard for department**
+
+```sql
+claim_mapping = [
+    { claim = 'department', value = '*', effect = { add_databases = ['logging'] } }
+]
+```
+
+All users with a `department` claim get access to the `logging` database.
+
+## Updating Provider Configuration
+
+Modify claim mapping or issuer details:
+
+```sql
+ALTER OIDC PROVIDER okta SET (
+    claim_mapping = [
+        { claim = 'email', value = 'alice@company.com', effect = { add_databases = ['analytics'] } }
+    ]
+);
+```
+
+Changes take effect immediately for new authentications. Existing sessions retain their identity until the next request (same as role-change propagation).
+
+## Listing Providers
+
+View all configured providers:
+
+```sql
+SHOW OIDC PROVIDERS;
+```
+
+**Output columns:**
+
+| Column                | Type      | Description             |
+| --------------------- | --------- | ----------------------- |
+| `provider_name`       | String    | Name (e.g. 'okta')      |
+| `issuer`              | String    | Issuer URL              |
+| `jwks_url`            | String    | JWKS endpoint           |
+| `audience`            | String    | Expected audience claim |
+| `claim_mapping_count` | i32       | Number of claim rules   |
+| `created_at`          | Timestamp | Registration date       |
+
+## Removing a Provider
+
+```sql
+DROP OIDC PROVIDER okta;
+```
+
+**Permissions:** Superuser or ClusterAdmin.
+
+**Effect:** Existing sessions tied to this provider are revoked at their next request boundary. New OIDC logins via this provider are rejected.
+
+## JWKS Caching
+
+NodeDB caches JWKS locally to avoid repeated network roundtrips:
+
+**Cache behavior:**
+
+- **Fetch on startup:** When a provider is registered, JWKS is fetched once
+- **Refresh on `kid` miss:** If a token's `kid` (key ID) is not in the cache, refresh the JWKS
+- **TTL expiry:** Cache expires after 1 hour; next validation triggers refresh
+- **Circuit breaker:** If the provider is unreachable, use cached JWKS for up to 24 hours
+
+**Explicit reload:**
+
+```sql
+ALTER OIDC PROVIDER okta SET RELOAD_JWKS;
+```
+
+## JWT Verification Sequence
+
+1. Decode JWT header (check `alg`, `kid`)
+2. Look up provider by `iss` claim
+3. Fetch/cache JWKS from provider's `jwks_url`
+4. Validate signature using the key with matching `kid`
+5. Check `aud` claim matches provider's configured audience
+6. Check `exp` (expiry) not in the past
+7. Apply claim mapping rules
+8. Build ephemeral `AuthenticatedIdentity`
+
+**Failure mode:** Any step failure returns `INVALID_CREDENTIALS` (no detail leak).
+
+## Required Role
+
+Claim-mapping operations require Superuser or ClusterAdmin. Regular users cannot list or modify OIDC providers.
+
+```sql
+-- Regular user attempt
+ALTER OIDC PROVIDER okta SET claim_mapping = [...];
+-- Error: INSUFFICIENT_PRIVILEGE
+```
+
+## End-to-End Example
+
+**1. Provider registration (admin)**
+
+```sql
+CREATE OIDC PROVIDER auth0 WITH (
+    issuer = 'https://your-domain.auth0.com/',
+    jwks_url = 'https://your-domain.auth0.com/.well-known/jwks.json',
+    audience = 'nodedb-api'
+);
+```
+
+**2. Get token from provider**
+
+```bash
+# Via Auth0's token endpoint
+curl -X POST https://your-domain.auth0.com/oauth/token \
+  -H 'content-type: application/json' \
+  -d '{
+    "client_id": "your-client-id",
+    "client_secret": "your-client-secret",
+    "audience": "nodedb-api",
+    "grant_type": "client_credentials"
+  }'
+
+# Returns: { "access_token": "eyJhbGc..." }
+```
+
+**3. Connect to NodeDB with token**
+
+Native protocol:
+
+```rust
+let identity = AuthenticationMethod::OidcBearer {
+    token: "eyJhbGc...".to_string(),
+    provider: "auth0".to_string(),
+};
+let session = client.authenticate(identity).await?;
+```
+
+HTTP:
+
+```bash
+curl -H "Authorization: Bearer eyJhbGc..." \
+     http://localhost:6480/v1/query \
+     -d '{"sql": "SELECT * FROM users"}'
+```
+
+**4. Session bound to database(s) from claims**
+
+User's token contains `sub: alice@company.com`. If claim mapping includes:
+
+```
+{ claim = 'sub', value = 'alice@company.com', effect = { add_databases = ['prod'] } }
+```
+
+Then Alice's session is bound to the `prod` database. She cannot query other databases.
+
+## Comparison with Password Auth
+
+| Feature                | Password (SCRAM)            | OIDC Bearer                  |
+| ---------------------- | --------------------------- | ---------------------------- |
+| **Credential storage** | NodeDB (hashed)             | External provider            |
+| **Password change**    | `ALTER USER … SET PASSWORD` | Provider's self-service      |
+| **MFA**                | N/A                         | Provider-enforced            |
+| **Session lifetime**   | Connection lifetime         | Token expiry (usually 1h)    |
+| **Refresh**            | Reconnect only              | Token refresh endpoint       |
+| **Protocol**           | pgwire, HTTP, native        | HTTP, native only            |
+| **Use case**           | Internal teams              | Federated (enterprise, SaaS) |
+
+## Audit
+
+OIDC authentication events appear in the audit log:
+
+```sql
+SHOW AUDIT WHERE event_type = 'AuthSuccess' AND provider = 'okta';
+```
+
+**Audit entry includes:**
+
+| Field         | Value                               |
+| ------------- | ----------------------------------- |
+| `event_type`  | `AuthSuccess`                       |
+| `provider`    | OIDC provider name                  |
+| `jwt_subject` | JWT `sub` claim (e.g. user's email) |
+| `auth_method` | `OidcBearer`                        |
+| `timestamp`   | Login time                          |
+
+**Failed OIDC attempts:**
+
+```sql
+SHOW AUDIT WHERE event_type = 'AuthFailure' AND auth_method = 'OidcBearer';
+-- Returns: invalid signature, missing kid, expired token, audience mismatch, etc.
+```
+
+[Back to security](README.md)

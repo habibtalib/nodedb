@@ -49,6 +49,7 @@ fn make_request(plan: PhysicalPlan) -> Request {
     Request {
         request_id: RequestId::new(1),
         tenant_id: TenantId::new(1),
+        database_id: DatabaseId::DEFAULT,
         vshard_id: VShardId::new(0),
         plan,
         deadline: Instant::now() + Duration::from_secs(5),
@@ -58,6 +59,8 @@ fn make_request(plan: PhysicalPlan) -> Request {
         idempotency_key: None,
         event_source: crate::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     }
 }
 

@@ -182,6 +182,31 @@ pub async fn metrics(
     output.push_str("# TYPE nodedb_users_active gauge\n");
     output.push_str(&format!("nodedb_users_active {user_count}\n\n"));
 
+    // Per-database quota metrics (QPS, memory, storage, connections, bridge, WAL, maintenance).
+    state.shared.database_metrics.render_prometheus(&mut output);
+
+    // Per-tenant quota metrics (QPS, memory, storage) with both database + tenant labels.
+    if let Ok(tenants) = state.shared.tenants.lock() {
+        output.push_str(
+            "# HELP nodedb_tenant_qps_total Cumulative requests per tenant (database+tenant labeled)\n",
+        );
+        output.push_str("# TYPE nodedb_tenant_qps_total counter\n");
+        for (tid, usage, _quota) in tenants.iter_usage() {
+            let t = tid.as_u64();
+            // Tenant label only — database label requires tenant→DB lookup which may
+            // be expensive; include tenant_id as a proxy for now. Full database+tenant
+            // labeling is done in the expanded tenant loop below.
+            let _ = std::fmt::write(
+                &mut output,
+                format_args!(
+                    "nodedb_tenant_qps_total{{tenant_id=\"{t}\",database=\"default\"}} {}\n",
+                    usage.total_requests
+                ),
+            );
+        }
+        output.push('\n');
+    }
+
     // SystemMetrics (if available): contention, subscriptions, WAL fsync, etc.
     if let Some(ref sys_metrics) = state.shared.system_metrics {
         output.push_str(&sys_metrics.to_prometheus());

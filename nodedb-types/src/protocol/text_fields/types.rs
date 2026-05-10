@@ -95,6 +95,7 @@
 //! 80  ef_construction
 //! 81  metric
 //! 82  index_type
+//! 83  database
 //! ```
 
 use serde::{Deserialize, Serialize};
@@ -369,6 +370,16 @@ pub struct TextFields {
     /// Index type ("hnsw", "hnsw_pq", "ivf_pq").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index_type: Option<String>,
+
+    // ── Database context ─────────────────────────────────────
+    /// Target database name sent in the `Auth` handshake frame.
+    ///
+    /// Field ID 83. `None` = server default (`DatabaseId::DEFAULT`).
+    /// The server binds this to the session's `current_database` at
+    /// handshake time so every subsequent operation runs in this
+    /// database context without per-request overhead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
 }
 
 impl TextFields {
@@ -620,6 +631,9 @@ impl TextFields {
             n += 1;
         }
         if self.index_type.is_some() {
+            n += 1;
+        }
+        if self.database.is_some() {
             n += 1;
         }
         n

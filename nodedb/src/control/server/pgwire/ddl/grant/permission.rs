@@ -15,7 +15,7 @@ use crate::control::security::identity::{AuthenticatedIdentity, Permission};
 use crate::control::security::permission::{format_permission, function_target, parse_permission};
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 fn propose_grant(
     state: &SharedState,
@@ -88,7 +88,7 @@ pub fn grant_permission(
         (t, format!("collection '{target_name}'"))
     };
 
-    require_admin(identity, "grant permissions")?;
+    require_tenant_admin(identity, "grant permissions")?;
 
     let perms = if perm_str.eq_ignore_ascii_case("ALL") {
         vec![
@@ -138,7 +138,7 @@ pub fn revoke_permission(
         (t, format!("collection '{target_name}'"))
     };
 
-    require_admin(identity, "revoke permissions")?;
+    require_tenant_admin(identity, "revoke permissions")?;
 
     let perm = parse_permission(perm_str)
         .ok_or_else(|| sqlstate_error("42601", &format!("unknown permission: {perm_str}")))?;

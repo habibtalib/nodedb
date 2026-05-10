@@ -8,6 +8,7 @@
 //! - [`build_generated_column_specs`] — extract generated-column
 //!   specs from a `StoredCollection`'s schema JSON
 
+use nodedb_types::DatabaseId;
 use sonic_rs;
 
 use crate::control::security::catalog::{
@@ -111,7 +112,7 @@ pub fn find_materialized_sum_bindings(
     collection_name: &str,
 ) -> Vec<crate::bridge::physical_plan::MaterializedSumBinding> {
     let all_collections = catalog
-        .load_collections_for_tenant(tenant_id)
+        .load_collections_for_tenant(DatabaseId::DEFAULT, tenant_id)
         .unwrap_or_default();
 
     let mut bindings = Vec::new();

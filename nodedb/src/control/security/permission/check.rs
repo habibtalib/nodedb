@@ -5,6 +5,7 @@
 //! Multi-layer order: superuser → owner → built-in role → explicit
 //! user grant → role grants (with custom-role inheritance).
 
+use crate::control::security::audit::{AuditEmitContext, AuditEmitter, AuditEvent};
 use crate::control::security::identity::{self, AuthenticatedIdentity, Permission};
 use crate::control::security::role::RoleStore;
 
@@ -20,12 +21,19 @@ impl PermissionStore {
     /// 3. Built-in role grants (from identity.rs role_grants_permission)
     /// 4. Explicit collection-level grants (on user or any of user's roles)
     /// 5. Custom role inheritance chain (via `RoleStore`)
+    ///
+    /// When access is denied (returns `false`) the decision is emitted to
+    /// `emitter` as `AuditEvent::PermissionDenied`.  Pass
+    /// `&NoopAuditEmitter` from callers that are not the terminal denial
+    /// point (e.g. multi-layer fallback chains that try broader scopes
+    /// after this call).
     pub fn check(
         &self,
         identity: &AuthenticatedIdentity,
         permission: Permission,
         collection: &str,
         role_store: &RoleStore,
+        emitter: &dyn AuditEmitter,
     ) -> bool {
         if identity.is_superuser {
             return true;
@@ -60,7 +68,13 @@ impl PermissionStore {
         }
 
         for role in &identity.roles {
-            let chain = role_store.resolve_inheritance(role);
+            let chain = match role_store.resolve_inheritance(role) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to resolve role inheritance — denying");
+                    continue;
+                }
+            };
             for ancestor in &chain {
                 let role_grantee = ancestor.to_string();
                 if grants.contains(&Grant {
@@ -73,6 +87,19 @@ impl PermissionStore {
             }
         }
 
+        emitter.emit(
+            AuditEvent::PermissionDenied,
+            &identity.username,
+            &format!(
+                "permission {:?} denied on '{}' for user '{}'",
+                permission, collection, identity.username
+            ),
+            AuditEmitContext::new(
+                Some(identity.tenant_id),
+                &identity.user_id.to_string(),
+                &identity.username,
+            ),
+        );
         false
     }
 
@@ -80,12 +107,14 @@ impl PermissionStore {
     ///
     /// Same multi-layer check as [`Self::check`] but uses
     /// `function:tenant:name` targets. Function owners implicitly
-    /// have EXECUTE.
+    /// have EXECUTE.  Emits `AuditEvent::PermissionDenied` via
+    /// `emitter` when access is denied.
     pub fn check_function(
         &self,
         identity: &AuthenticatedIdentity,
         function_name: &str,
         role_store: &RoleStore,
+        emitter: &dyn AuditEmitter,
     ) -> bool {
         if identity.is_superuser {
             return true;
@@ -121,7 +150,13 @@ impl PermissionStore {
         }
 
         for role in &identity.roles {
-            let chain = role_store.resolve_inheritance(role);
+            let chain = match role_store.resolve_inheritance(role) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to resolve role inheritance — denying");
+                    continue;
+                }
+            };
             for ancestor in &chain {
                 if grants.contains(&Grant {
                     target: target.clone(),
@@ -133,6 +168,19 @@ impl PermissionStore {
             }
         }
 
+        emitter.emit(
+            AuditEvent::PermissionDenied,
+            &identity.username,
+            &format!(
+                "EXECUTE permission denied on function '{}' for user '{}'",
+                function_name, identity.username
+            ),
+            AuditEmitContext::new(
+                Some(identity.tenant_id),
+                &identity.user_id.to_string(),
+                &identity.username,
+            ),
+        );
         false
     }
 
@@ -152,10 +200,14 @@ impl PermissionStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::control::security::audit::NoopAuditEmitter;
     use crate::control::security::identity::{AuthMethod, Role};
     use crate::types::TenantId;
 
+    const NOOP: &NoopAuditEmitter = &NoopAuditEmitter;
+
     fn identity(username: &str, roles: Vec<Role>, superuser: bool) -> AuthenticatedIdentity {
+        use crate::control::security::identity::DatabaseSet;
         AuthenticatedIdentity {
             user_id: 1,
             username: username.into(),
@@ -163,6 +215,12 @@ mod tests {
             auth_method: AuthMethod::Trust,
             roles,
             is_superuser: superuser,
+            default_database: None,
+            accessible_databases: if superuser {
+                DatabaseSet::All
+            } else {
+                DatabaseSet::Some(smallvec::smallvec![nodedb_types::id::DatabaseId::DEFAULT])
+            },
         }
     }
 
@@ -171,7 +229,7 @@ mod tests {
         let store = PermissionStore::new();
         let roles = RoleStore::new();
         let id = identity("admin", vec![], true);
-        assert!(store.check(&id, Permission::Write, "secret", &roles));
+        assert!(store.check(&id, Permission::Write, "secret", &roles, NOOP));
     }
 
     #[test]
@@ -183,9 +241,9 @@ mod tests {
             .unwrap();
 
         let id = identity("alice", vec![], false);
-        assert!(store.check(&id, Permission::Read, "users", &roles));
-        assert!(store.check(&id, Permission::Write, "users", &roles));
-        assert!(store.check(&id, Permission::Drop, "users", &roles));
+        assert!(store.check(&id, Permission::Read, "users", &roles, NOOP));
+        assert!(store.check(&id, Permission::Write, "users", &roles, NOOP));
+        assert!(store.check(&id, Permission::Drop, "users", &roles, NOOP));
     }
 
     #[test]
@@ -197,7 +255,7 @@ mod tests {
             .unwrap();
 
         let id = identity("bob", vec![], false);
-        assert!(!store.check(&id, Permission::Write, "users", &roles));
+        assert!(!store.check(&id, Permission::Write, "users", &roles, NOOP));
     }
 
     #[test]
@@ -210,8 +268,8 @@ mod tests {
             .unwrap();
 
         let id = identity("bob", vec![], false);
-        assert!(store.check(&id, Permission::Read, "orders", &roles));
-        assert!(!store.check(&id, Permission::Write, "orders", &roles));
+        assert!(store.check(&id, Permission::Read, "orders", &roles, NOOP));
+        assert!(!store.check(&id, Permission::Write, "orders", &roles, NOOP));
     }
 
     #[test]
@@ -224,7 +282,7 @@ mod tests {
             .unwrap();
 
         let id = identity("viewer", vec![Role::Custom("readonly".into())], false);
-        assert!(store.check(&id, Permission::Read, "reports", &roles));
+        assert!(store.check(&id, Permission::Read, "reports", &roles, NOOP));
     }
 
     #[test]
@@ -241,7 +299,7 @@ mod tests {
             .unwrap();
 
         let id = identity("alice", vec![Role::Custom("analyst".into())], false);
-        assert!(perm_store.check(&id, Permission::Read, "data", &role_store));
+        assert!(perm_store.check(&id, Permission::Read, "data", &role_store, NOOP));
     }
 
     #[test]
@@ -259,7 +317,7 @@ mod tests {
 
         let roles = RoleStore::new();
         let id = identity("bob", vec![], false);
-        assert!(!store.check(&id, Permission::Read, "users", &roles));
+        assert!(!store.check(&id, Permission::Read, "users", &roles, NOOP));
     }
 
     #[test]
@@ -267,8 +325,39 @@ mod tests {
         let store = PermissionStore::new();
         let roles = RoleStore::new();
         let id = identity("writer", vec![Role::ReadWrite], false);
-        assert!(store.check(&id, Permission::Read, "anything", &roles));
-        assert!(store.check(&id, Permission::Write, "anything", &roles));
-        assert!(!store.check(&id, Permission::Drop, "anything", &roles));
+        assert!(store.check(&id, Permission::Read, "anything", &roles, NOOP));
+        assert!(store.check(&id, Permission::Write, "anything", &roles, NOOP));
+        assert!(!store.check(&id, Permission::Drop, "anything", &roles, NOOP));
+    }
+
+    #[test]
+    fn denied_check_emits_permission_denied() {
+        use crate::control::security::audit::emitter::test_helpers::CapturingEmitter;
+
+        let store = PermissionStore::new();
+        let roles = RoleStore::new();
+        let emitter = CapturingEmitter::new();
+        let id = identity("eve", vec![], false);
+
+        let allowed = store.check(&id, Permission::Write, "secrets", &roles, &emitter);
+        assert!(!allowed);
+
+        let recorded = emitter.recorded();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, AuditEvent::PermissionDenied);
+    }
+
+    #[test]
+    fn allowed_check_does_not_emit() {
+        use crate::control::security::audit::emitter::test_helpers::CapturingEmitter;
+
+        let store = PermissionStore::new();
+        let roles = RoleStore::new();
+        let emitter = CapturingEmitter::new();
+        let id = identity("admin", vec![], true);
+
+        let allowed = store.check(&id, Permission::Write, "anything", &roles, &emitter);
+        assert!(allowed);
+        assert!(emitter.recorded().is_empty());
     }
 }

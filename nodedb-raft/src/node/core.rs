@@ -79,7 +79,9 @@ impl<S: LogStorage> RaftNode<S> {
     /// leader until it is promoted via `promote_self_to_voter`.
     pub fn new(config: RaftConfig, storage: S) -> Self {
         let now = Instant::now();
-        let role = if config.starts_as_learner {
+        let role = if config.starts_as_observer {
+            NodeRole::Observer
+        } else if config.starts_as_learner {
             NodeRole::Learner
         } else {
             NodeRole::Follower
@@ -197,6 +199,11 @@ impl<S: LogStorage> RaftNode<S> {
         &self.config.learners
     }
 
+    /// Current observer peer list tracked by this leader (excluding self).
+    pub fn observers(&self) -> &[u64] {
+        &self.config.observers
+    }
+
     /// Whether `peer` is currently tracked as a learner in this group.
     pub fn is_learner_peer(&self, peer: u64) -> bool {
         self.config.learners.contains(&peer)
@@ -221,6 +228,11 @@ impl<S: LogStorage> RaftNode<S> {
             NodeRole::Learner => {
                 // Learners never run election timeouts. They catch up
                 // passively via AppendEntries from the leader.
+            }
+            NodeRole::Observer => {
+                // Observers never run election timeouts. They receive entries
+                // from the source leader and apply them locally. Acks are
+                // advisory and never gate commit on the source.
             }
         }
     }
@@ -269,7 +281,9 @@ mod tests {
             group_id: 1,
             peers,
             learners: vec![],
+            observers: vec![],
             starts_as_learner: false,
+            starts_as_observer: false,
             election_timeout_min: Duration::from_millis(150),
             election_timeout_max: Duration::from_millis(300),
             heartbeat_interval: Duration::from_millis(50),

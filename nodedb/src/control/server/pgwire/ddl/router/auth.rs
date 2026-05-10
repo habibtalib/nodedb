@@ -30,6 +30,13 @@ pub(super) async fn dispatch(
             state, identity, parts,
         ));
     }
+    if upper.starts_with("ALTER SERVICE ACCOUNT ") {
+        return Some(
+            super::super::service_account_alter::alter_service_account_set_databases(
+                state, identity, parts,
+            ),
+        );
+    }
 
     // System-level settings (ALTER SYSTEM SET ...).
     if upper.starts_with("ALTER SYSTEM ") {

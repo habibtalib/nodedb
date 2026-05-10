@@ -12,6 +12,7 @@
 //! schema references the type. Each type receives a stable u32 OID from the
 //! high-numbered range (70000+) so pgwire clients see a recognisable type.
 
+use nodedb_types::DatabaseId;
 use std::sync::Arc;
 
 use futures::stream;
@@ -22,7 +23,7 @@ use crate::control::security::catalog::{CompositeField, CustomTypeDef, StoredCus
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::types::{require_admin, sqlstate_error, text_field};
+use super::super::types::{require_tenant_admin, sqlstate_error, text_field};
 
 /// Handle `CREATE TYPE <name> AS ENUM ('label1', ...)`.
 pub async fn create_enum_type(
@@ -31,7 +32,7 @@ pub async fn create_enum_type(
     name: &str,
     labels: &[String],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create custom types")?;
+    require_tenant_admin(identity, "create custom types")?;
     let tenant_id = identity.tenant_id.as_u64();
 
     if state.custom_type_registry.exists(tenant_id, name) {
@@ -65,7 +66,7 @@ pub async fn create_composite_type(
     name: &str,
     fields: &[(String, String)],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create custom types")?;
+    require_tenant_admin(identity, "create custom types")?;
     let tenant_id = identity.tenant_id.as_u64();
 
     if state.custom_type_registry.exists(tenant_id, name) {
@@ -106,7 +107,7 @@ pub async fn drop_type(
     name: &str,
     if_exists: bool,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop custom types")?;
+    require_tenant_admin(identity, "drop custom types")?;
     let tenant_id = identity.tenant_id.as_u64();
 
     if !state.custom_type_registry.exists(tenant_id, name) {
@@ -159,7 +160,7 @@ pub async fn alter_type_add_value(
     type_name: &str,
     label: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "alter custom types")?;
+    require_tenant_admin(identity, "alter custom types")?;
     let tenant_id = identity.tenant_id.as_u64();
 
     let mut stored = state
@@ -264,7 +265,7 @@ fn find_referencing_collections(
         Some(c) => c,
         None => return Vec::new(),
     };
-    let collections = match catalog.load_collections_for_tenant(tenant_id) {
+    let collections = match catalog.load_collections_for_tenant(DatabaseId::DEFAULT, tenant_id) {
         Ok(c) => c,
         Err(_) => return Vec::new(),
     };

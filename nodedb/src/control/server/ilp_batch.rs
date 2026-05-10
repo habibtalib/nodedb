@@ -10,7 +10,7 @@ use crate::bridge::physical_plan::TimeseriesOp;
 use crate::control::gateway::GatewayErrorMap;
 use crate::control::gateway::core::QueryContext;
 use crate::control::state::SharedState;
-use crate::types::{Lsn, RequestId, TenantId, TraceId, VShardId};
+use crate::types::{DatabaseId, Lsn, RequestId, TenantId, TraceId, VShardId};
 
 /// EWMA-based rate estimator for adaptive ILP batch sizing.
 pub(super) struct IlpRateEstimator {
@@ -103,7 +103,7 @@ async fn flush_ilp_batch_inner(
     // the memtable data on the correct Data Plane core.
     // Per-series sharding is deferred until the scan path supports
     // fan-out across multiple cores.
-    let collection_vshard = VShardId::from_collection(&collection);
+    let collection_vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
     let mut shard_batches: std::collections::HashMap<u32, String> =
         std::collections::HashMap::new();
 
@@ -128,6 +128,7 @@ async fn flush_ilp_batch_inner(
             &state.wal,
             tenant_id,
             vshard_id,
+            crate::types::DatabaseId::DEFAULT,
             &collection,
             &payload_bytes,
             Some(&state.credentials),
@@ -147,6 +148,7 @@ async fn flush_ilp_batch_inner(
                 let gw_ctx = QueryContext {
                     tenant_id,
                     trace_id: TraceId::generate(),
+                    database_id: nodedb_types::id::DatabaseId::DEFAULT,
                 };
                 gw.execute(&gw_ctx, plan)
                     .await
@@ -208,11 +210,11 @@ async fn flush_ilp_batch_inner(
                 if !fields.is_empty()
                     && let Some(catalog) = state.credentials.catalog().as_ref()
                     && let Ok(Some(mut coll)) =
-                        catalog.get_collection(tenant_id.as_u64(), &collection)
+                        catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &collection)
                     && coll.fields != fields
                 {
                     coll.fields = fields;
-                    if let Err(e) = catalog.put_collection(&coll) {
+                    if let Err(e) = catalog.put_collection(DatabaseId::DEFAULT, &coll) {
                         tracing::warn!(
                             collection = %collection,
                             error = %e,

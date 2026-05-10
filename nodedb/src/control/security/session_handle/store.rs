@@ -282,6 +282,10 @@ mod tests {
             auth_method: AuthMethod::ApiKey,
             roles: vec![Role::ReadWrite],
             is_superuser: false,
+            default_database: None,
+            accessible_databases: crate::control::security::identity::DatabaseSet::Some(
+                smallvec::smallvec![nodedb_types::id::DatabaseId::DEFAULT],
+            ),
         };
         AuthContext::from_identity(&identity, generate_session_id())
     }

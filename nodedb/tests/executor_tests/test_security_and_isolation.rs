@@ -9,7 +9,10 @@
 
 use nodedb::bridge::envelope::{PhysicalPlan, Status};
 use nodedb::bridge::physical_plan::{DocumentOp, GraphOp, VectorOp};
+use nodedb::control::security::audit::NoopAuditEmitter;
 use nodedb_types::vector_distance::DistanceMetric;
+
+const NOOP: &NoopAuditEmitter = &NoopAuditEmitter;
 
 use crate::helpers::*;
 
@@ -99,6 +102,8 @@ fn security_rls_policy_enforcement() {
             auth_method: AuthMethod::ApiKey,
             roles: vec![Role::ReadWrite],
             is_superuser: false,
+            default_database: None,
+            accessible_databases: AuthenticatedIdentity::default_database_set(false),
         };
         AuthContext::from_identity(&identity, "test".into())
     };
@@ -107,20 +112,20 @@ fn security_rls_policy_enforcement() {
     let doc_ok = serde_json::json!({"status": "approved", "amount": 100});
     assert!(
         store
-            .check_write_with_auth(1, "orders", &doc_ok, &make_auth(1))
+            .check_write_with_auth(1, "orders", &doc_ok, &make_auth(1), NOOP)
             .is_ok()
     );
 
     // Pending document rejected.
     let doc_bad = serde_json::json!({"status": "pending", "amount": 200});
-    let err = store.check_write_with_auth(1, "orders", &doc_bad, &make_auth(1));
+    let err = store.check_write_with_auth(1, "orders", &doc_bad, &make_auth(1), NOOP);
     assert!(err.is_err());
     assert!(err.unwrap_err().to_string().contains("require_approved"));
 
     // Different tenant has no policies — allowed.
     assert!(
         store
-            .check_write_with_auth(99, "orders", &doc_bad, &make_auth(99))
+            .check_write_with_auth(99, "orders", &doc_bad, &make_auth(99), NOOP)
             .is_ok()
     );
 }

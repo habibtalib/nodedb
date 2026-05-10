@@ -138,4 +138,89 @@ impl NodeDbError {
             cause: None,
         }
     }
+
+    /// Vector insert or index rejected: vector `dim` exceeds tenant's
+    /// `max_vector_dim` quota.
+    pub fn tenant_vector_dim_exceeded(dim: u32, limit: u32) -> Self {
+        Self {
+            code: ErrorCode::TENANT_VECTOR_DIM_EXCEEDED,
+            message: format!("vector dimension {dim} exceeds tenant quota max_vector_dim={limit}"),
+            details: ErrorDetails::TenantVectorDimExceeded { dim, limit },
+            cause: None,
+        }
+    }
+
+    /// Graph traversal rejected: requested `depth` exceeds tenant's
+    /// `max_graph_depth` quota.
+    pub fn tenant_graph_depth_exceeded(depth: u32, limit: u32) -> Self {
+        Self {
+            code: ErrorCode::TENANT_GRAPH_DEPTH_EXCEEDED,
+            message: format!(
+                "graph traversal depth {depth} exceeds tenant quota max_graph_depth={limit}"
+            ),
+            details: ErrorDetails::TenantGraphDepthExceeded { depth, limit },
+            cause: None,
+        }
+    }
+
+    /// `CLONE DATABASE` rejected: the clone chain is already at `depth` levels,
+    /// which equals or exceeds `MAX_CLONE_DEPTH` (8).
+    pub fn clone_depth_exceeded(depth: u32, limit: u32) -> Self {
+        Self {
+            code: ErrorCode::CLONE_DEPTH_EXCEEDED,
+            message: format!(
+                "clone chain depth {depth} exceeds the maximum of {limit}; \
+                 materialize a clone to flatten the chain before cloning again"
+            ),
+            details: ErrorDetails::CloneDepthExceeded { depth, limit },
+            cause: None,
+        }
+    }
+
+    /// `CLONE DATABASE` rejected: the source database is a mirror and cannot
+    /// be cloned until it is promoted to a writable primary.
+    pub fn cannot_clone_mirror(database: impl Into<String>) -> Self {
+        let database = database.into();
+        Self {
+            code: ErrorCode::CANNOT_CLONE_MIRROR,
+            message: format!(
+                "database '{database}' is a mirror and cannot be cloned; \
+                 promote it first with ALTER DATABASE {database} PROMOTE"
+            ),
+            details: ErrorDetails::CannotCloneMirror { database },
+            cause: None,
+        }
+    }
+
+    /// `DROP DATABASE` rejected: one or more databases are cloned from this
+    /// source. `dependents` lists the dependent database names.
+    pub fn clone_dependency(source: impl Into<String>, dependents: Vec<String>) -> Self {
+        let source = source.into();
+        let dep_list = dependents.join(", ");
+        Self {
+            code: ErrorCode::CLONE_DEPENDENCY,
+            message: format!(
+                "cannot drop database '{source}': it is the source for clone(s): {dep_list}"
+            ),
+            details: ErrorDetails::CloneDependency { dependents },
+            cause: None,
+        }
+    }
+
+    /// Bitemporal `AS OF` query predates the clone's creation LSN; the clone
+    /// did not exist at that point in time.
+    pub fn clone_predates_query_time(as_of_lsn: u64, created_at_lsn: u64) -> Self {
+        Self {
+            code: ErrorCode::CLONE_PREDATES_QUERY_TIME,
+            message: format!(
+                "AS OF LSN {as_of_lsn} predates this clone's creation LSN {created_at_lsn}; \
+                 the database did not exist at that point in time"
+            ),
+            details: ErrorDetails::ClonePredatesQueryTime {
+                as_of_lsn,
+                created_at_lsn,
+            },
+            cause: None,
+        }
+    }
 }

@@ -9,12 +9,15 @@
 //! cross-crate vocabulary; types specific to one engine live in that engine's
 //! crate.
 
+pub mod audit_dml;
 pub mod config;
+pub mod quota;
 
 pub mod approx;
 pub mod array_cell;
 pub mod backup_envelope;
 pub mod bbox;
+pub mod clone;
 pub mod collection;
 pub mod collection_config;
 pub mod columnar;
@@ -34,6 +37,7 @@ pub mod json_msgpack;
 pub mod kv;
 pub mod kv_parsing;
 pub mod lsn;
+pub mod mirror;
 pub mod multi_vector;
 pub mod namespace;
 pub mod protocol;
@@ -56,7 +60,9 @@ pub mod wire_version;
 
 pub use approx::{CountMinSketch, HyperLogLog, SpaceSaving, TDigest};
 pub use array_cell::ArrayCell;
+pub use audit_dml::AuditDmlMode;
 pub use bbox::{BoundingBox, geometry_bbox};
+pub use clone::{CloneOrigin, CloneStatus, MAX_CLONE_DEPTH};
 pub use collection::{CollectionType, CollectionTypeParseError};
 pub use collection_config::{PayloadAtom, PayloadIndexKind, PrimaryEngine, VectorPrimaryConfig};
 pub use columnar::{
@@ -72,7 +78,8 @@ pub use graph::Direction;
 pub use hlc::{Hlc, HlcClock};
 pub use hnsw::{HnswCheckpoint, HnswNodeSnapshot, HnswParams};
 pub use id::{
-    CollectionId, DocumentId, EdgeId, EdgeIdParseError, IdError, IdType, NodeId, ShapeId, TenantId,
+    CollectionId, DatabaseId, DocumentId, EdgeId, EdgeIdParseError, IdError, IdType, NodeId,
+    ShapeId, TenantId,
 };
 pub use json_msgpack::{
     JsonValue, json_from_msgpack, json_to_msgpack, json_to_msgpack_or_empty,
@@ -80,8 +87,12 @@ pub use json_msgpack::{
 };
 pub use kv::{KV_DEFAULT_INLINE_THRESHOLD, KvConfig, KvTtlPolicy, is_valid_kv_key_type};
 pub use lsn::Lsn;
+pub use mirror::{MirrorLagRecord, MirrorMode, MirrorOrigin, MirrorStatus};
 pub use multi_vector::{MultiVector, MultiVectorError, MultiVectorScoreMode};
 pub use namespace::Namespace;
+pub use quota::{
+    PriorityClass, PriorityClassParseError, QuotaRecord, QuotaSpec, QuotaValidationError,
+};
 pub use result::{QueryResult, SearchResult, SubGraph};
 pub use sparse_vector::{SparseVector, SparseVectorError};
 pub use surrogate::Surrogate;

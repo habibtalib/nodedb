@@ -7,21 +7,38 @@ use tracing::debug;
 use crate::bridge::envelope::Response;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;
+use crate::engine::kv::KvScanParams;
 use crate::engine::kv::current_ms;
 
+/// Parameters for the KV SCAN handler.
+pub(in crate::data::executor) struct KvScanHandlerParams<'a> {
+    pub tid: u64,
+    pub collection: &'a str,
+    pub cursor: &'a [u8],
+    pub count: usize,
+    pub match_pattern: Option<&'a str>,
+    pub filters: &'a [u8],
+    pub sort_keys: &'a [(String, bool)],
+    pub surrogate_ceiling: Option<u32>,
+}
+
 impl CoreLoop {
-    #[allow(clippy::too_many_arguments)]
     pub(in crate::data::executor) fn execute_kv_scan(
         &self,
         task: &ExecutionTask,
-        tid: u64,
-        collection: &str,
-        cursor: &[u8],
-        count: usize,
-        match_pattern: Option<&str>,
-        filters: &[u8],
-        sort_keys: &[(String, bool)],
+        params: KvScanHandlerParams<'_>,
     ) -> Response {
+        let KvScanHandlerParams {
+            tid,
+            collection,
+            cursor,
+            count,
+            match_pattern,
+            filters,
+            sort_keys,
+            surrogate_ceiling,
+        } = params;
+
         debug!(core = self.core_id, %collection, count, "kv scan");
 
         // Scan-quiesce gate: refuse new scans against a draining
@@ -36,16 +53,17 @@ impl CoreLoop {
 
         // Try to extract a single equality filter for index pushdown.
         let (filter_field, filter_value) = extract_eq_filter(filters);
-        let (entries, _next_cursor) = self.kv_engine.scan(
-            tid,
+        let (entries, _next_cursor) = self.kv_engine.scan(KvScanParams {
+            tenant_id: tid,
             collection,
             cursor,
             count,
             now_ms,
             match_pattern,
-            filter_field.as_deref(),
-            filter_value.as_deref(),
-        );
+            filter_field: filter_field.as_deref(),
+            filter_value: filter_value.as_deref(),
+            surrogate_ceiling,
+        });
 
         // Parse filter predicates for post-scan evaluation.
         // Index pushdown handles eq filters on indexed fields, but general

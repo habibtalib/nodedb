@@ -16,7 +16,7 @@ use crate::bridge::envelope::{Priority, Request, Response, Status};
 use crate::control::array_sync::OriginApplyEngine;
 use crate::control::distributed_applier::{ProposeResult, ProposeTracker};
 use crate::control::state::SharedState;
-use crate::types::{ReadConsistency, TraceId};
+use crate::types::{DatabaseId, ReadConsistency, TraceId};
 
 /// Apply a committed `ArrayOp` entry on the local node.
 ///
@@ -35,7 +35,7 @@ pub(crate) async fn apply_array_op(
     use crate::types::{TenantId, VShardId};
     use nodedb_array::sync::op_codec;
     use nodedb_array::types::coord::value::CoordValue;
-    use nodedb_cluster::array_routing::{vshard_for_array_coord, vshard_from_collection};
+    use nodedb_cluster::array_routing::{array_vshard_for_name, vshard_for_array_coord};
 
     let op = match op_codec::decode_op(op_bytes) {
         Ok(op) => op,
@@ -85,7 +85,7 @@ pub(crate) async fn apply_array_op(
             &extents,
         ))
     } else {
-        VShardId::new(vshard_from_collection(&op.header.array))
+        VShardId::new(array_vshard_for_name(&op.header.array))
     };
 
     // Build Data Plane plan.
@@ -169,6 +169,7 @@ pub(crate) async fn apply_array_op(
     let request = Request {
         request_id,
         tenant_id,
+        database_id: DatabaseId::DEFAULT,
         vshard_id: vshard,
         plan,
         deadline: std::time::Instant::now() + Duration::from_secs(30),
@@ -178,6 +179,8 @@ pub(crate) async fn apply_array_op(
         idempotency_key: None,
         event_source: crate::event::EventSource::CrdtSync,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     };
 
     let mut rx = state.tracker.register(request_id);
@@ -267,6 +270,7 @@ async fn ensure_array_open(
     let open_request = Request {
         request_id: open_request_id,
         tenant_id,
+        database_id: DatabaseId::DEFAULT,
         vshard_id: vshard,
         plan: open_plan,
         deadline: std::time::Instant::now() + Duration::from_secs(30),
@@ -276,6 +280,8 @@ async fn ensure_array_open(
         idempotency_key: None,
         event_source: crate::event::EventSource::CrdtSync,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     };
 
     let mut open_rx = state.tracker.register(open_request_id);

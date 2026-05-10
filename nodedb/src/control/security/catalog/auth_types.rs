@@ -35,6 +35,16 @@ pub struct StoredUser {
     /// Defaults to `created_at` for users loaded from pre-T4-C records.
     #[msgpack(default)]
     pub password_changed_at: u64,
+    /// The database this user connects to by default when no database is
+    /// specified at connect time.  `0` means "use the server default"
+    /// (equivalent to `DatabaseId::DEFAULT`).
+    #[msgpack(default)]
+    pub default_database_id: u64,
+    /// Database IDs this account may access. Ignored for regular users
+    /// (they use `_system.database_grants`). For service accounts only:
+    /// authoritative; empty = legacy = treat as `[DatabaseId::DEFAULT]` at auth time.
+    #[msgpack(default)]
+    pub accessible_databases: Vec<u64>,
 }
 
 /// Serializable API key record for redb storage.
@@ -59,6 +69,11 @@ pub struct StoredApiKey {
     /// Format: ["read:collection_name", "write:collection_name", ...]
     #[msgpack(default)]
     pub scope: Vec<String>,
+    /// Database IDs this key may access. Empty = inherit from the owner's
+    /// current database set at bind time. Non-empty = explicit subset; must be
+    /// validated as ⊆ owner_set at CREATE time and intersected at bind time.
+    #[msgpack(default)]
+    pub accessible_databases: Vec<u64>,
 }
 
 /// Serializable tenant record for redb storage.
@@ -78,6 +93,9 @@ pub struct StoredAuditEntry {
     pub timestamp_us: u64,
     pub event: String,
     pub tenant_id: Option<u64>,
+    /// Database context (if applicable). `None` for cluster-scoped events.
+    #[msgpack(default)]
+    pub database_id: Option<u64>,
     pub source: String,
     pub detail: String,
     /// SHA-256 hash of the previous entry (hex). Empty for first entry.

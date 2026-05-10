@@ -9,9 +9,6 @@ use nodedb::bridge::physical_plan::KvOp;
 
 use crate::helpers::*;
 
-const TENANT_A: u64 = 10;
-const TENANT_B: u64 = 20;
-
 #[test]
 fn kv_get_isolated() {
     let (mut core, mut tx, mut rx, _dir) = make_core();
@@ -41,6 +38,7 @@ fn kv_get_isolated() {
             collection: "cache".into(),
             key: b"session_abc".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(resp_a.status, Status::Ok);
@@ -59,6 +57,7 @@ fn kv_get_isolated() {
             collection: "cache".into(),
             key: b"session_abc".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     // KV engine returns Ok with empty payload or NotFound for missing keys.

@@ -13,8 +13,10 @@ pub mod api_key;
 pub mod change_stream;
 pub mod collection;
 pub mod custom_type;
+pub mod database;
 pub mod function;
 pub mod materialized_view;
+pub mod oidc_provider;
 pub mod owner;
 pub mod permission;
 pub mod procedure;
@@ -141,5 +143,35 @@ fn apply_to_inner(entry: &CatalogEntry, catalog: &SystemCatalog) {
         CatalogEntry::DeleteCustomType { tenant_id, name } => {
             custom_type::delete(*tenant_id, name, catalog)
         }
+        CatalogEntry::PutDatabase(descriptor) => database::put(descriptor, catalog),
+        CatalogEntry::DeleteDatabase { db_id } => database::delete(*db_id, catalog),
+        CatalogEntry::PutDatabaseGrant {
+            db_id,
+            user_id,
+            privilege,
+        } => database::put_grant(*db_id, *user_id, privilege, catalog),
+        CatalogEntry::DeleteDatabaseGrant {
+            db_id,
+            user_id,
+            privilege,
+        } => database::delete_grant(*db_id, *user_id, privilege, catalog),
+        CatalogEntry::CloneDatabase {
+            target_descriptor,
+            source_db_id,
+        } => database::clone_apply(target_descriptor, *source_db_id, catalog),
+        CatalogEntry::PutOidcProvider(provider) => oidc_provider::put(provider, catalog),
+        CatalogEntry::DeleteOidcProvider { name } => oidc_provider::delete(name, catalog),
+        CatalogEntry::MoveTenantCutover {
+            tenant_id,
+            source_db_id,
+            target_db_id,
+            collections,
+        } => tenant::move_cutover(
+            *tenant_id,
+            *source_db_id,
+            *target_db_id,
+            collections,
+            catalog,
+        ),
     }
 }

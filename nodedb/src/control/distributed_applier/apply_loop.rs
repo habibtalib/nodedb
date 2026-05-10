@@ -15,7 +15,7 @@ use crate::control::array_sync::raft_apply::{apply_array_op, apply_array_schema}
 use crate::control::cluster::calvin::ReadResultEvent;
 use crate::control::state::SharedState;
 use crate::control::wal_replication::{ReplicatedEntry, ReplicatedWrite, from_replicated_entry};
-use crate::types::{ReadConsistency, TenantId, TraceId, VShardId};
+use crate::types::{DatabaseId, ReadConsistency, TenantId, TraceId, VShardId};
 
 use super::applier::ApplyBatch;
 use super::propose_tracker::ProposeTracker;
@@ -39,6 +39,7 @@ fn build_request(
     Request {
         request_id: state.next_request_id(),
         tenant_id,
+        database_id: DatabaseId::DEFAULT,
         vshard_id,
         plan,
         deadline: Instant::now() + Duration::from_secs(30),
@@ -48,6 +49,8 @@ fn build_request(
         idempotency_key: None,
         event_source,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     }
 }
 

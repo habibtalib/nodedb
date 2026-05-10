@@ -27,6 +27,7 @@
 //! renewal loop is what keeps that map populated past initial
 //! acquisition.
 
+use nodedb_types::DatabaseId;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
@@ -226,7 +227,7 @@ fn lookup_current_version(shared: &SharedState, id: &DescriptorId) -> Option<u64
     let catalog = catalog.as_ref()?;
     match id.kind {
         DescriptorKind::Collection => catalog
-            .get_collection(id.tenant_id, &id.name)
+            .get_collection(DatabaseId::DEFAULT, id.tenant_id, &id.name)
             .ok()
             .flatten()
             .filter(|c| c.is_active)

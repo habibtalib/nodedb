@@ -197,5 +197,38 @@ pub(crate) fn invalidate_gateway_cache_for_entry(entry: &CatalogEntry, shared: &
         CatalogEntry::DeleteCustomType { .. } => {
             // no-op: same as PutCustomType.
         }
+
+        // ── Database: descriptor and grants do not affect plan shape ──────────
+        CatalogEntry::PutDatabase(_) => {
+            // no-op: database descriptors are resolved at session bind, not
+            // baked into cached plans.
+        }
+        CatalogEntry::DeleteDatabase { .. } => {
+            // no-op: same as PutDatabase.
+        }
+        CatalogEntry::PutDatabaseGrant { .. } => {
+            // no-op: database grants are checked at session bind, not in plans.
+        }
+        CatalogEntry::DeleteDatabaseGrant { .. } => {
+            // no-op: same as PutDatabaseGrant.
+        }
+        CatalogEntry::PutOidcProvider(_) => {
+            // no-op: OIDC providers are auth-layer concerns; they do not
+            // affect the gateway plan cache shape.
+        }
+        CatalogEntry::DeleteOidcProvider { .. } => {
+            // no-op: same as PutOidcProvider.
+        }
+        CatalogEntry::CloneDatabase { .. } => {
+            // no-op: the new database has no cached plans yet; the source
+            // database's plans are unaffected by the clone operation.
+        }
+        CatalogEntry::MoveTenantCutover { collections, .. } => {
+            // Invalidate cached plans for each collection that moved databases.
+            // This forces re-planning on the next query touching those collections.
+            for coll in collections.iter() {
+                inv.invalidate(&coll.name, coll.descriptor_version.max(1));
+            }
+        }
     }
 }

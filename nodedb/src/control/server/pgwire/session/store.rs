@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::RwLock;
 
+use nodedb_types::DatabaseId;
+
 use super::state::{PgSession, TransactionState};
 
 /// Concurrent session store — keyed by socket address.
@@ -102,6 +104,46 @@ impl SessionStore {
         let mut sessions = self.sessions.write().unwrap_or_else(|p| p.into_inner());
         if let Some(session) = sessions.get_mut(addr) {
             session.plan_cache.put(sql, tasks, versions);
+        }
+    }
+
+    /// Retrieve the `current_database` for a connection, or `None` if the session
+    /// does not exist or has not had a database bound yet.
+    pub fn get_current_database(&self, addr: &SocketAddr) -> Option<DatabaseId> {
+        let sessions = self.sessions.read().unwrap_or_else(|p| p.into_inner());
+        sessions.get(addr)?.current_database
+    }
+
+    /// Bind a database to a session.  Called at pgwire startup once the database
+    /// name from the StartupMessage has been resolved to a `DatabaseId`.
+    pub fn set_current_database(&self, addr: &SocketAddr, db_id: DatabaseId) {
+        let mut sessions = self.sessions.write().unwrap_or_else(|p| p.into_inner());
+        if let Some(session) = sessions.get_mut(addr) {
+            session.current_database = Some(db_id);
+        }
+    }
+
+    /// Reset per-session state for a `USE DATABASE` switch:
+    ///   1. Aborts any open transaction (discards tx_buffer, resets state to Idle).
+    ///   2. Clears all SQL-level prepared statements.
+    ///   3. Clears the wire-level plan cache.
+    ///   4. Rebinds `current_database` to the new id.
+    pub fn reset_for_database_switch(&self, addr: &SocketAddr, new_db: DatabaseId) {
+        let mut sessions = self.sessions.write().unwrap_or_else(|p| p.into_inner());
+        if let Some(session) = sessions.get_mut(addr) {
+            // Abort open transaction.
+            session.tx_state = TransactionState::Idle;
+            session.tx_buffer.clear();
+            session.tx_snapshot_lsn = None;
+            session.tx_read_set.clear();
+            session.savepoints.clear();
+            session.pending_offset_commits.clear();
+            session.pending_notifies.clear();
+            // Invalidate prepared statements and plan cache.
+            session.prepared_stmts.clear();
+            session.plan_cache.clear();
+            // Rebind database.
+            session.current_database = Some(new_db);
         }
     }
 

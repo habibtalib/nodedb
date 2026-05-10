@@ -29,6 +29,8 @@ fn make_authenticated_session() -> SyncSession {
         auth_method: crate::control::security::identity::AuthMethod::ApiKey,
         roles: vec![crate::control::security::identity::Role::ReadWrite],
         is_superuser: false,
+        default_database: None,
+        accessible_databases: AuthenticatedIdentity::default_database_set(false),
     });
     session
 }
@@ -177,6 +179,8 @@ fn delta_push_rate_limited_silent_drop() {
         auth_method: crate::control::security::identity::AuthMethod::ApiKey,
         roles: vec![crate::control::security::identity::Role::ReadWrite],
         is_superuser: false,
+        default_database: None,
+        accessible_databases: AuthenticatedIdentity::default_database_set(false),
     });
 
     let data = serde_json::json!({"key": "value"});

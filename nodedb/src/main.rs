@@ -186,6 +186,11 @@ async fn main() -> anyhow::Result<()> {
     let quarantine_registry =
         std::sync::Arc::new(nodedb::storage::quarantine::QuarantineRegistry::new());
 
+    // Create once and share with both Data Plane cores and SharedState so
+    // ALTER DATABASE SET QUOTA updates live caps immediately for all cores.
+    let maintenance_budget =
+        Arc::new(nodedb::control::maintenance::MaintenanceBudgetTracker::new());
+
     let _core_handles = bootstrap::data_plane::spawn_data_plane_cores(
         &config,
         data_sides,
@@ -200,6 +205,7 @@ async fn main() -> anyhow::Result<()> {
             array_catalog: Arc::clone(&array_catalog),
             quarantine_registry: Arc::clone(&quarantine_registry),
             system_metrics: Arc::clone(&system_metrics),
+            maintenance_budget: Arc::clone(&maintenance_budget),
         },
     )?;
 
@@ -251,15 +257,55 @@ async fn main() -> anyhow::Result<()> {
             governor: Arc::clone(&governor),
             system_metrics: Arc::clone(&system_metrics),
             array_catalog: Arc::clone(&array_catalog),
+            maintenance_budget: Arc::clone(&maintenance_budget),
         },
         &root_span,
     )?;
+
+    // Wire global quota ceiling from server config so `ALTER DATABASE SET QUOTA`
+    // can validate the sum-of-database-quotas against the cluster's physical
+    // resources. `memory_limit` and `max_connections` are the only dimensions
+    // the server config currently constrains; storage and QPS pass through as
+    // zero (= no ceiling) until [server.storage_limit] / [server.qps_limit]
+    // land. The ALTER handler treats zero on any dimension as "skip that check".
+    {
+        use nodedb::control::security::catalog::GlobalQuotaCeiling;
+        let mem_u64 = u64::try_from(config.server.memory_limit).unwrap_or(u64::MAX);
+        let conn_u64 = u64::try_from(config.server.max_connections).unwrap_or(u64::MAX);
+        shared.set_quota_ceiling(GlobalQuotaCeiling {
+            max_memory_bytes: mem_u64,
+            max_storage_bytes: 0,
+            max_qps: 0,
+            max_connections: conn_u64,
+        });
+    }
+
+    // Apply login rate-limit capacities from cluster config (or defaults).
+    {
+        let (ip_cap, user_cap) = config
+            .cluster
+            .as_ref()
+            .map(|c| {
+                (
+                    c.login_attempts_per_ip_per_min,
+                    c.login_attempts_per_user_per_min,
+                )
+            })
+            .unwrap_or((30, 10));
+        shared.rate_limiter.set_login_capacities(ip_cap, user_cap);
+    }
 
     // System catalog (redb) is open — fire the ClusterCatalogOpen gate.
     catalog_gate.fire();
 
     // Replay surrogate WAL records into the in-memory registry.
     bootstrap::credentials::replay_surrogate_wal(&shared, &wal_records);
+
+    // Recover any in-progress MOVE TENANT operations from the journal.
+    // This runs synchronously before accepting connections so that
+    // in-flight tenant moves are resolved before any client can issue
+    // new ones against the same tenant.
+    nodedb::control::server::pgwire::ddl::tenant::move_tenant::recovery::recover_all(&shared).await;
 
     // Bootstrap superuser credential (or warn about trust mode).
     bootstrap::credentials::bootstrap_superuser(&shared, &config)?;
@@ -358,6 +404,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Create shared connection semaphore — enforced across all listeners.
     let conn_semaphore = Arc::new(tokio::sync::Semaphore::new(config.server.max_connections));
+
+    // Per-database and per-tenant connection semaphore registry.
+    // Populated at runtime when ALTER DATABASE/TENANT SET QUOTA configures max_connections.
+    let admission_registry = Arc::new(nodedb::control::server::admission::AdmissionRegistry::new());
     info!(
         max_connections = config.server.max_connections,
         "connection limit configured"
@@ -448,14 +498,15 @@ async fn main() -> anyhow::Result<()> {
     // Run native listener on main task.
     let native_auth_mode = config.auth.mode.clone();
     listener
-        .run(
-            shared,
-            native_auth_mode,
-            native_tls,
+        .run(nodedb::control::server::listener::ListenerRunParams {
+            state: shared,
+            auth_mode: native_auth_mode,
+            tls_acceptor: native_tls,
             conn_semaphore,
-            Arc::clone(&startup_gate),
-            shutdown_bus.clone(),
-        )
+            startup_gate: Arc::clone(&startup_gate),
+            bus: shutdown_bus.clone(),
+            admission: admission_registry,
+        })
         .await?;
 
     info!("server shutting down");

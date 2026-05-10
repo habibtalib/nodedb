@@ -23,7 +23,7 @@
 //!
 //! # Fallbacks
 //!
-//! - Empty coord or tile_extents: fall back to [`vshard_from_collection`].
+//! - Empty coord or tile_extents: fall back to [`array_vshard_for_name`].
 //! - Zero tile extent in any dimension: same fallback (no division by zero).
 //! - `coord.len() != tile_extents.len()`: fallback.
 
@@ -32,11 +32,14 @@ pub const VSHARD_COUNT: u32 = 1024;
 
 // ─── Collection-level fallback hash ──────────────────────────────────────────
 
-/// Compute a vShard ID from a collection (array) name alone.
+/// Compute a vShard ID from an array name alone.
 ///
-/// Mirrors `VShardId::from_collection` in `nodedb::types::id` so callers
-/// get consistent results when falling back.
-pub fn vshard_from_collection(array_name: &str) -> u32 {
+/// Array-specific name-only fallback used by `array_sync` paths that route
+/// before a coordinate or tile extent is known. Uses the same DJB
+/// multiply-31 hash as `VShardId::from_collection_in_database`, but without
+/// the database scope — array-sync messages carry their own scoping in the
+/// op-log header and route per-array by name.
+pub fn array_vshard_for_name(array_name: &str) -> u32 {
     let hash = array_name
         .as_bytes()
         .iter()
@@ -113,7 +116,7 @@ pub fn tile_id_of_coord(coord: &[u64], tile_extents: &[u64]) -> Option<u64> {
 /// The shard key is `array_name_bytes || tile_id.to_le_bytes()`, hashed via
 /// `vshard_from_key`.
 ///
-/// Falls back to `vshard_from_collection(array_name)` when:
+/// Falls back to `array_vshard_for_name(array_name)` when:
 /// - `coord` / `tile_extents` are empty or mismatched.
 /// - Any `tile_extents[i]` is zero.
 ///
@@ -121,7 +124,7 @@ pub fn tile_id_of_coord(coord: &[u64], tile_extents: &[u64]) -> Option<u64> {
 pub fn vshard_for_array_coord(array_name: &str, coord: &[u64], tile_extents: &[u64]) -> u32 {
     match tile_id_of_coord(coord, tile_extents) {
         Some(tile_id) => vshard_for_array_tile(array_name, tile_id),
-        None => vshard_from_collection(array_name),
+        None => array_vshard_for_name(array_name),
     }
 }
 
@@ -201,12 +204,12 @@ mod tests {
         assert_ne!(t04, t44);
     }
 
-    // ── vshard_from_collection ───────────────────────────────────────────────
+    // ── array_vshard_for_name ───────────────────────────────────────────────
 
     #[test]
     fn collection_fallback_is_deterministic() {
-        let a = vshard_from_collection("prices");
-        let b = vshard_from_collection("prices");
+        let a = array_vshard_for_name("prices");
+        let b = array_vshard_for_name("prices");
         assert_eq!(a, b);
         assert!(a < VSHARD_COUNT);
     }
@@ -256,21 +259,21 @@ mod tests {
     #[test]
     fn fallback_on_empty_coord() {
         let s = vshard_for_array_coord("prices", &[], &[]);
-        let expected = vshard_from_collection("prices");
+        let expected = array_vshard_for_name("prices");
         assert_eq!(s, expected, "empty coord must fall back to from_collection");
     }
 
     #[test]
     fn fallback_on_zero_extent() {
         let s = vshard_for_array_coord("prices", &[5], &[0]);
-        let expected = vshard_from_collection("prices");
+        let expected = array_vshard_for_name("prices");
         assert_eq!(s, expected, "zero extent must fall back to from_collection");
     }
 
     #[test]
     fn fallback_on_mismatched_dims() {
         let s = vshard_for_array_coord("prices", &[1, 2], &[4]);
-        let expected = vshard_from_collection("prices");
+        let expected = array_vshard_for_name("prices");
         assert_eq!(
             s, expected,
             "mismatched dims must fall back to from_collection"

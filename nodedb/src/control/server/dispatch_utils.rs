@@ -8,7 +8,7 @@ use crate::bridge::envelope::Payload;
 use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Response};
 use crate::bridge::physical_plan::{DocumentOp, KvOp, TimeseriesOp};
 use crate::control::state::SharedState;
-use crate::types::{ReadConsistency, TenantId, TraceId, VShardId};
+use crate::types::{DatabaseId, ReadConsistency, TenantId, TraceId, VShardId};
 
 #[derive(Debug)]
 pub(crate) enum DispatchCollectError {
@@ -131,6 +131,7 @@ pub async fn dispatch_to_data_plane_with_source(
     let request = Request {
         request_id,
         tenant_id,
+        database_id: DatabaseId::DEFAULT,
         vshard_id,
         plan,
         deadline: Instant::now() + Duration::from_secs(shared.tuning.network.default_deadline_secs),
@@ -140,6 +141,8 @@ pub async fn dispatch_to_data_plane_with_source(
         idempotency_key: None,
         event_source,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     };
 
     let mut rx = shared.tracker.register(request_id);
@@ -365,7 +368,8 @@ fn extract_write_metadata(
 /// Users opt in via `CREATE TIMESERIES name WITH (cdc = 'true')`.
 fn is_timeseries_cdc_enabled(shared: &SharedState, tenant_id: TenantId, collection: &str) -> bool {
     if let Some(catalog) = shared.credentials.catalog()
-        && let Ok(Some(coll)) = catalog.get_collection(tenant_id.as_u64(), collection)
+        && let Ok(Some(coll)) =
+            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), collection)
         && coll.collection_type.is_timeseries()
     {
         if let Some(config) = coll.get_timeseries_config()

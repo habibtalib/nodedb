@@ -109,7 +109,12 @@ impl NodeDbPgHandler {
                         })?;
                         self.state
                             .wal
-                            .append_transaction(tenant_id, vshard_id, &tx_payload)
+                            .append_transaction(
+                                tenant_id,
+                                vshard_id,
+                                crate::types::DatabaseId::DEFAULT,
+                                &tx_payload,
+                            )
                             .map_err(|e| {
                                 PgWireError::UserError(Box::new(ErrorInfo::new(
                                     "ERROR".to_owned(),
@@ -124,12 +129,13 @@ impl NodeDbPgHandler {
                     let batch_task = crate::control::planner::physical::PhysicalTask {
                         tenant_id,
                         vshard_id,
+                        database_id: crate::types::DatabaseId::DEFAULT,
                         plan: crate::bridge::envelope::PhysicalPlan::Meta(
                             crate::bridge::physical_plan::MetaOp::TransactionBatch { plans },
                         ),
                         post_set_op: crate::control::planner::physical::PostSetOp::None,
                     };
-                    if let Err(e) = self.dispatch_task_no_wal(batch_task).await {
+                    if let Err(e) = self.dispatch_task_no_wal(batch_task, None).await {
                         tracing::warn!(error = %e, "transaction batch dispatch failed");
                         return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),
@@ -239,6 +245,7 @@ impl NodeDbPgHandler {
                                 let batch_task = crate::control::planner::physical::PhysicalTask {
                                     tenant_id,
                                     vshard_id,
+                                    database_id: crate::types::DatabaseId::DEFAULT,
                                     plan: crate::bridge::envelope::PhysicalPlan::Meta(
                                         crate::bridge::physical_plan::MetaOp::TransactionBatch {
                                             plans,
@@ -246,7 +253,7 @@ impl NodeDbPgHandler {
                                     ),
                                     post_set_op: crate::control::planner::physical::PostSetOp::None,
                                 };
-                                if let Err(e) = self.dispatch_task_no_wal(batch_task).await {
+                                if let Err(e) = self.dispatch_task_no_wal(batch_task, None).await {
                                     tracing::warn!(
                                         error = %e,
                                         "best-effort non-atomic multi-shard batch dispatch failed"

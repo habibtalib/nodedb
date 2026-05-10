@@ -138,6 +138,7 @@ mod tests {
             record_lsn,
             tenant,
             0,
+            0,
             payload,
             None,
             None,
@@ -189,12 +190,13 @@ mod tests {
                 11,
                 1,
                 0,
+                0,
                 b"junk".to_vec(),
                 None,
                 None,
             )
             .unwrap(),
-            WalRecord::new(RecordType::Noop as u32, 12, 1, 0, vec![], None, None).unwrap(),
+            WalRecord::new(RecordType::Noop as u32, 12, 1, 0, 0, vec![], None, None).unwrap(),
         ];
         let set = extract_tombstones(&records);
         assert_eq!(set.len(), 1);
@@ -207,6 +209,7 @@ mod tests {
             RecordType::CollectionTombstoned as u32,
             5,
             1,
+            0,
             0,
             vec![0xFF, 0xFF, 0xFF], // truncated name_len, no body
             None,

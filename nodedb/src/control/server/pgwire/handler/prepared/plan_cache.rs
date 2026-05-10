@@ -164,6 +164,7 @@ mod tests {
         vec![PhysicalTask {
             tenant_id: TenantId::new(1),
             vshard_id: VShardId::new(0),
+            database_id: crate::types::DatabaseId::DEFAULT,
             plan: PhysicalPlan::Meta(MetaOp::Checkpoint),
             post_set_op: PostSetOp::None,
         }]

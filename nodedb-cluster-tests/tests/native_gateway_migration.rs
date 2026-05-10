@@ -28,6 +28,7 @@ fn test_ctx() -> QueryContext {
     QueryContext {
         tenant_id: TenantId::new(0),
         trace_id: nodedb_types::TraceId::ZERO,
+        database_id: nodedb_types::id::DatabaseId::DEFAULT,
     }
 }
 
@@ -80,6 +81,7 @@ async fn native_gateway_migration_single_node_select() {
         collection: "native_gw_single".into(),
         key: b"native-key".to_vec(),
         rls_filters: vec![],
+        surrogate_ceiling: None,
     });
     let payloads = gateway
         .execute(&ctx, get_plan)
@@ -142,6 +144,7 @@ async fn native_gateway_migration_cross_node_select() {
         collection: "native_gw_cross".into(),
         key: b"cross-native-key".to_vec(),
         rls_filters: vec![],
+        surrogate_ceiling: None,
     });
     let get_result = follower_gw.execute(&ctx, get_plan).await;
     assert!(

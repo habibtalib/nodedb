@@ -28,6 +28,7 @@ impl CoreLoop {
             // ── Read-only KV ops — no undo needed ───────────────────────────
             KvOp::Get { .. }
             | KvOp::Scan { .. }
+            | KvOp::MaterializeScan { .. }
             | KvOp::BatchGet { .. }
             | KvOp::GetTtl { .. }
             | KvOp::FieldGet { .. }

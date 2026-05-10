@@ -15,7 +15,7 @@ use crate::control::security::catalog::{
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 use super::parse::parse_function_header;
 
 /// Handle `CREATE [OR REPLACE] FUNCTION ... LANGUAGE WASM AS '<base64>'`
@@ -24,7 +24,7 @@ pub fn create_wasm_function(
     identity: &AuthenticatedIdentity,
     sql: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create WASM functions")?;
+    require_tenant_admin(identity, "create WASM functions")?;
 
     let parsed = parse_wasm_create(sql)?;
     let tenant_id = identity.tenant_id.as_u64();

@@ -9,6 +9,7 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{info, warn};
 
+use super::admission::AdmissionRegistry;
 use super::native::session::NativeSession;
 use crate::control::state::SharedState;
 
@@ -27,6 +28,17 @@ use crate::control::state::SharedState;
 pub struct Listener {
     tcp: TcpListener,
     addr: SocketAddr,
+}
+
+/// Parameters for [`Listener::run`].
+pub struct ListenerRunParams {
+    pub state: Arc<SharedState>,
+    pub auth_mode: crate::config::auth::AuthMode,
+    pub tls_acceptor: Option<tokio_rustls::TlsAcceptor>,
+    pub conn_semaphore: Arc<Semaphore>,
+    pub startup_gate: Arc<crate::control::startup::StartupGate>,
+    pub bus: crate::control::shutdown::ShutdownBus,
+    pub admission: Arc<AdmissionRegistry>,
 }
 
 impl Listener {
@@ -51,15 +63,16 @@ impl Listener {
     /// Each session receives a reference to the shared state for dispatching
     /// requests to the Data Plane and accessing the WAL.
     /// Supports optional TLS if a `tls_acceptor` is provided.
-    pub async fn run(
-        self,
-        state: Arc<SharedState>,
-        auth_mode: crate::config::auth::AuthMode,
-        tls_acceptor: Option<tokio_rustls::TlsAcceptor>,
-        conn_semaphore: Arc<Semaphore>,
-        startup_gate: Arc<crate::control::startup::StartupGate>,
-        bus: crate::control::shutdown::ShutdownBus,
-    ) -> crate::Result<()> {
+    pub async fn run(self, params: ListenerRunParams) -> crate::Result<()> {
+        let ListenerRunParams {
+            state,
+            auth_mode,
+            tls_acceptor,
+            conn_semaphore,
+            startup_gate,
+            bus,
+            admission,
+        } = params;
         let drain_guard = bus.register_task(
             crate::control::shutdown::ShutdownPhase::DrainingListeners,
             "native",
@@ -119,6 +132,7 @@ impl Listener {
                             info!(%peer_addr, "new native connection");
                             let state_clone = Arc::clone(&state);
                             let mode = auth_mode.clone();
+                            let admission_clone = Arc::clone(&admission);
                             if let Some(ref acceptor) = tls_acceptor {
                                 let acceptor = acceptor.clone();
                                 connections.spawn(async move {
@@ -129,30 +143,42 @@ impl Listener {
                                     .await
                                     {
                                         Ok(Ok(tls_stream)) => {
-                                            let session = NativeSession::new_tls(tls_stream, peer_addr, state_clone, mode);
+                                            let session = NativeSession::new_tls(
+                                                tls_stream,
+                                                peer_addr,
+                                                state_clone,
+                                                mode,
+                                                admission_clone,
+                                                permit,
+                                            );
                                             if let Err(e) = session.run().await {
                                                 warn!(%peer_addr, error = %e, "TLS session terminated with error");
                                             }
                                         }
                                         Ok(Err(e)) => {
                                             warn!(%peer_addr, error = %e, "native TLS handshake failed");
+                                            // permit is dropped here, releasing global slot
                                         }
                                         Err(_) => {
                                             warn!(%peer_addr, "native TLS handshake timed out");
+                                            // permit is dropped here, releasing global slot
                                         }
                                     }
-                                    // Permit is held for the session's lifetime and
-                                    // released on drop when this future completes.
-                                    drop(permit);
                                     peer_addr
                                 });
                             } else {
-                                let session = NativeSession::new(stream, peer_addr, state_clone, mode);
+                                let session = NativeSession::new(
+                                    stream,
+                                    peer_addr,
+                                    state_clone,
+                                    mode,
+                                    admission_clone,
+                                    permit,
+                                );
                                 connections.spawn(async move {
                                     if let Err(e) = session.run().await {
                                         warn!(%peer_addr, error = %e, "session terminated with error");
                                     }
-                                    drop(permit);
                                     peer_addr
                                 });
                             }

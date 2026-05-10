@@ -8,7 +8,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 /// Handle `DROP SCHEDULE [IF EXISTS] <name>`
 pub fn drop_schedule(
@@ -16,7 +16,7 @@ pub fn drop_schedule(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop schedules")?;
+    require_tenant_admin(identity, "drop schedules")?;
 
     // parts: ["DROP", "SCHEDULE", ...]
     let (if_exists, name) = if parts.len() >= 5

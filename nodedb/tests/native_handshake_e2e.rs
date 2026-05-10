@@ -104,14 +104,17 @@ impl NativeTestServer {
         let bus_listener = shutdown_bus.clone();
         let _listener_handle = tokio::spawn(async move {
             listener
-                .run(
-                    shared_listener,
-                    AuthMode::Trust,
-                    None,
-                    Arc::new(tokio::sync::Semaphore::new(128)),
-                    test_startup_gate,
-                    bus_listener,
-                )
+                .run(nodedb::control::server::listener::ListenerRunParams {
+                    state: shared_listener,
+                    auth_mode: AuthMode::Trust,
+                    tls_acceptor: None,
+                    conn_semaphore: Arc::new(tokio::sync::Semaphore::new(128)),
+                    startup_gate: test_startup_gate,
+                    bus: bus_listener,
+                    admission: Arc::new(
+                        nodedb::control::server::admission::AdmissionRegistry::new(),
+                    ),
+                })
                 .await
                 .unwrap();
         });

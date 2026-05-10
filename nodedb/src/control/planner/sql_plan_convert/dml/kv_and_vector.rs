@@ -23,12 +23,14 @@ pub(in super::super) fn convert_kv_insert(
     tenant_id: TenantId,
     ctx: &ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
+    let coll_qualified = super::super::convert::db_qualified(ctx.database_id, collection);
+    let collection = coll_qualified.as_str();
     let update_values = if on_conflict_updates.is_empty() {
         Vec::new()
     } else {
         assignments_to_update_values(on_conflict_updates)?
     };
-    let vshard = VShardId::from_collection(collection);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, collection);
     let ttl_ms = ttl_secs * 1000;
     let mut tasks = Vec::with_capacity(entries.len());
     for (key_val, value_cols) in entries {
@@ -79,6 +81,7 @@ pub(in super::super) fn convert_kv_insert(
         tasks.push(PhysicalTask {
             tenant_id,
             vshard_id: vshard,
+            database_id: ctx.database_id,
             plan: PhysicalPlan::Kv(op),
             post_set_op: PostSetOp::None,
         });
@@ -95,9 +98,22 @@ pub(in super::super) fn convert_vector_primary_insert(
     tenant_id: TenantId,
     ctx: &ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
-    let vshard = VShardId::from_collection(collection);
+    let coll_qualified = super::super::convert::db_qualified(ctx.database_id, collection);
+    let collection = coll_qualified.as_str();
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, collection);
     let mut tasks = Vec::with_capacity(rows.len());
     for row in rows {
+        // Enforce per-tenant vector dimension quota before building any task.
+        // 0 means unlimited.
+        if ctx.max_vector_dim > 0 {
+            let dim = row.vector.len() as u32;
+            if dim > ctx.max_vector_dim {
+                return Err(crate::Error::TenantVectorDimExceeded {
+                    dim,
+                    limit: ctx.max_vector_dim,
+                });
+            }
+        }
         let pk_bytes: Vec<u8> = row
             .vector
             .iter()
@@ -120,6 +136,7 @@ pub(in super::super) fn convert_vector_primary_insert(
         tasks.push(PhysicalTask {
             tenant_id,
             vshard_id: vshard,
+            database_id: ctx.database_id,
             plan: PhysicalPlan::Vector(VectorOp::DirectUpsert {
                 collection: collection.to_string(),
                 field: field.to_string(),
@@ -133,4 +150,87 @@ pub(in super::super) fn convert_vector_primary_insert(
         });
     }
     Ok(tasks)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::convert::ConvertContext;
+    use nodedb_sql::types::VectorPrimaryRow;
+    use nodedb_types::VectorQuantization;
+
+    fn make_ctx(max_vector_dim: u32) -> ConvertContext {
+        ConvertContext {
+            retention_registry: None,
+            array_catalog: None,
+            credentials: None,
+            wal: None,
+            surrogate_assigner: None,
+            cluster_enabled: false,
+            bitemporal_retention_registry: None,
+            max_vector_dim,
+            database_id: crate::types::DatabaseId::DEFAULT,
+        }
+    }
+
+    fn row(dim: usize) -> VectorPrimaryRow {
+        VectorPrimaryRow {
+            surrogate: nodedb_types::Surrogate::ZERO,
+            vector: vec![0.0f32; dim],
+            payload_fields: std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn tenant_vector_dim_under_bound_succeeds() {
+        let ctx = make_ctx(128);
+        let rows = vec![row(64), row(128)];
+        let result = super::convert_vector_primary_insert(
+            "vecs",
+            "emb",
+            VectorQuantization::None,
+            &[],
+            &rows,
+            crate::types::TenantId::new(1),
+            &ctx,
+        );
+        assert!(result.is_ok(), "dimensions under/at cap must succeed");
+    }
+
+    #[test]
+    fn tenant_vector_dim_exceeded_rejected() {
+        let ctx = make_ctx(64);
+        let rows = vec![row(65)];
+        let result = super::convert_vector_primary_insert(
+            "vecs",
+            "emb",
+            VectorQuantization::None,
+            &[],
+            &rows,
+            crate::types::TenantId::new(1),
+            &ctx,
+        );
+        match result {
+            Err(crate::Error::TenantVectorDimExceeded { dim, limit }) => {
+                assert_eq!(dim, 65);
+                assert_eq!(limit, 64);
+            }
+            other => panic!("expected TenantVectorDimExceeded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tenant_vector_dim_zero_means_unlimited() {
+        let ctx = make_ctx(0); // 0 = unlimited
+        let rows = vec![row(99999)];
+        let result = super::convert_vector_primary_insert(
+            "vecs",
+            "emb",
+            VectorQuantization::None,
+            &[],
+            &rows,
+            crate::types::TenantId::new(1),
+            &ctx,
+        );
+        assert!(result.is_ok(), "limit=0 means unlimited, must succeed");
+    }
 }

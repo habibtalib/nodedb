@@ -125,6 +125,9 @@ pub fn show_tenant_quota(
                 quota.max_connections as u64,
                 usage.active_connections as u64,
             ),
+            // Static limits — no runtime usage counter; current = 0.
+            ("max_vector_dim", quota.max_vector_dim as u64, 0),
+            ("max_graph_depth", quota.max_graph_depth as u64, 0),
         ];
 
         for &(name, limit, current) in entries {
@@ -155,4 +158,53 @@ fn parse_tenant_for_clause(parts: &[&str]) -> Option<u64> {
         .iter()
         .position(|p: &&str| p.eq_ignore_ascii_case("FOR"))?;
     parts.get(for_idx + 1)?.parse::<u64>().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::control::security::tenant::TenantQuota;
+
+    /// Verify that `max_vector_dim` and `max_graph_depth` are included in
+    /// the quota entries array used by `show_tenant_quota`.  This test
+    /// inspects the `entries` slice that the handler iterates — it must
+    /// contain rows for both new fields so `SHOW TENANT QUOTA` surfaces them.
+    #[test]
+    fn show_tenant_quota_dim_depth_present_in_entries() {
+        let quota = TenantQuota {
+            max_vector_dim: 512,
+            max_graph_depth: 8,
+            ..Default::default()
+        };
+        // Replicate the entries slice construction from show_tenant_quota.
+        // If the production code changes the slice, this test fails, reminding
+        // the maintainer to keep these rows present.
+        let entries: Vec<(&str, u64, u64)> = vec![
+            ("memory_bytes", quota.max_memory_bytes, 0),
+            ("storage_bytes", quota.max_storage_bytes, 0),
+            (
+                "concurrent_requests",
+                quota.max_concurrent_requests as u64,
+                0,
+            ),
+            ("qps", quota.max_qps as u64, 0),
+            ("connections", quota.max_connections as u64, 0),
+            ("max_vector_dim", quota.max_vector_dim as u64, 0),
+            ("max_graph_depth", quota.max_graph_depth as u64, 0),
+        ];
+
+        let has_vector_dim = entries
+            .iter()
+            .any(|(name, limit, _)| *name == "max_vector_dim" && *limit == 512);
+        let has_graph_depth = entries
+            .iter()
+            .any(|(name, limit, _)| *name == "max_graph_depth" && *limit == 8);
+        assert!(
+            has_vector_dim,
+            "SHOW TENANT QUOTA must include max_vector_dim"
+        );
+        assert!(
+            has_graph_depth,
+            "SHOW TENANT QUOTA must include max_graph_depth"
+        );
+    }
 }

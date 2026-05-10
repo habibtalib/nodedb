@@ -213,16 +213,16 @@ pub fn plan_graph_split(
 pub fn speculative_prefetch_shards(
     query_vshards: &[u32],
     _routing: &RoutingTable,
-    tenant_collections: &[(u32, String)],
+    tenant_collections: &[(nodedb_types::id::DatabaseId, u32, String)],
 ) -> Vec<u32> {
     let mut prefetch: HashSet<u32> = HashSet::new();
     let queried: HashSet<u32> = query_vshards.iter().copied().collect();
 
-    // For each tenant+collection, find all vShards that might hold
+    // For each (database, tenant, collection), find all vShards that might hold
     // data for the same collection (co-located shards).
-    for (_tenant_id, collection) in tenant_collections {
-        // Hash the collection to find its primary vShard.
-        let primary = crate::routing::vshard_for_collection(collection);
+    for (database_id, _tenant_id, collection) in tenant_collections {
+        // Hash the (database, collection) pair to find its primary vShard.
+        let primary = crate::routing::vshard_for_collection(*database_id, collection);
 
         // Adjacent vShards (±1, ±2) are likely to hold related data
         // due to hash distribution locality.
@@ -291,7 +291,11 @@ mod tests {
     #[test]
     fn speculative_prefetch_limits() {
         let routing = RoutingTable::uniform(4, &[1, 2], 1);
-        let prefetch = speculative_prefetch_shards(&[0, 1], &routing, &[(1, "users".into())]);
+        let prefetch = speculative_prefetch_shards(
+            &[0, 1],
+            &routing,
+            &[(nodedb_types::id::DatabaseId::DEFAULT, 1, "users".into())],
+        );
         assert!(prefetch.len() <= 8); // Max prefetch limit.
     }
 

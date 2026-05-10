@@ -115,7 +115,8 @@ pub fn touched_collections(plan: &PhysicalPlan) -> Vec<String> {
                 | Cas { collection, .. }
                 | GetSet { collection, .. }
                 | Transfer { collection, .. }
-                | RegisterSortedIndex { collection, .. } => out.push(collection.clone()),
+                | RegisterSortedIndex { collection, .. }
+                | MaterializeScan { collection, .. } => out.push(collection.clone()),
 
                 // TransferItem touches two collections.
                 TransferItem {
@@ -158,7 +159,8 @@ pub fn touched_collections(plan: &PhysicalPlan) -> Vec<String> {
                 | EstimateCount { collection, .. }
                 | Upsert { collection, .. }
                 | BulkUpdate { collection, .. }
-                | BulkDelete { collection, .. } => out.push(collection.clone()),
+                | BulkDelete { collection, .. }
+                | MaterializeScan { collection, .. } => out.push(collection.clone()),
 
                 InsertSelect {
                     target_collection,
@@ -258,7 +260,8 @@ pub fn touched_collections(plan: &PhysicalPlan) -> Vec<String> {
                 Scan { collection, .. }
                 | Insert { collection, .. }
                 | Update { collection, .. }
-                | Delete { collection, .. } => out.push(collection.clone()),
+                | Delete { collection, .. }
+                | MaterializeScan { collection, .. } => out.push(collection.clone()),
             }
         }
 
@@ -385,6 +388,7 @@ mod tests {
             collection: "users".into(),
             key: b"key".to_vec(),
             rls_filters: vec![],
+            surrogate_ceiling: None,
         });
         let vs = GatewayVersionSet::from_plan(&plan, |_| 5);
         assert_eq!(vs.len(), 1);
@@ -397,6 +401,7 @@ mod tests {
             collection: "alpha".into(),
             key: vec![],
             rls_filters: vec![],
+            surrogate_ceiling: None,
         });
         let vs1 = GatewayVersionSet::from_plan(&plan, |_| 1);
         let vs2 = GatewayVersionSet::from_plan(&plan, |_| 1);

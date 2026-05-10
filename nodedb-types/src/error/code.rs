@@ -34,6 +34,10 @@ impl ErrorCode {
     pub const DOCUMENT_NOT_FOUND: Self = Self(1101);
     pub const COLLECTION_DRAINING: Self = Self(1102);
     pub const COLLECTION_DEACTIVATED: Self = Self(1103);
+    /// The named database does not exist.
+    pub const DATABASE_NOT_FOUND: Self = Self(1110);
+    /// Attempted to drop the built-in `default` database, which is immutable.
+    pub const CANNOT_DROP_DEFAULT_DATABASE: Self = Self(1111);
 
     // Query (1200–1299)
     pub const PLAN_ERROR: Self = Self(1200);
@@ -43,9 +47,63 @@ impl ErrorCode {
     // Engine ops (1300–1399)
     pub const ARRAY: Self = Self(1300);
 
+    // Quota (1400–1499)
+
+    /// The proposed quota allocation would push the sum of all database quotas
+    /// past the configured global ceiling, or the sum of all tenant quotas past
+    /// the database ceiling.
+    pub const QUOTA_OVERCOMMIT: Self = Self(1400);
+    /// A request was rejected because the calling tenant has exhausted its quota
+    /// (QPS, memory, connections, or storage).
+    pub const TENANT_QUOTA_EXCEEDED: Self = Self(1401);
+    /// A request was rejected because the target database has exhausted its quota.
+    pub const DATABASE_QUOTA_EXCEEDED: Self = Self(1402);
+    /// The server is under global resource pressure and cannot accept new requests.
+    pub const SERVER_OVERLOAD: Self = Self(1403);
+
+    // Clone (1500–1599)
+
+    /// A `CLONE DATABASE` would exceed the maximum clone chain depth of 8.
+    pub const CLONE_DEPTH_EXCEEDED: Self = Self(1500);
+    /// A mirror database cannot be cloned; promote the mirror first.
+    pub const CANNOT_CLONE_MIRROR: Self = Self(1501);
+    /// The source database cannot be dropped while clones depend on it.
+    pub const CLONE_DEPENDENCY: Self = Self(1502);
+    /// A bitemporal `AS OF` query timestamp predates the clone's creation LSN.
+    pub const CLONE_PREDATES_QUERY_TIME: Self = Self(1503);
+
+    // Mirror (1700–1799)
+
+    /// Write attempted on a mirror database that has not yet been promoted.
+    pub const MIRROR_READ_ONLY: Self = Self(1700);
+    /// Strong consistency read requested on a mirror; mirrors cannot serve
+    /// strong reads. The client should retry against the source cluster.
+    pub const STALE_READ_NOT_LEADER: Self = Self(1701);
+    /// Operation requires the mirror to be promoted, but it has not been.
+    pub const MIRROR_NOT_PROMOTED: Self = Self(1702);
+
+    // Move Tenant (1600–1699)
+
+    /// `MOVE TENANT` drain phase timed out; source left unchanged.
+    pub const MOVE_TENANT_DRAIN_TIMEOUT: Self = Self(1600);
+    /// `MOVE TENANT` pre-flight failed; collection schema incompatibility.
+    pub const MOVE_TENANT_PREFLIGHT_FAILED: Self = Self(1601);
+    /// `MOVE TENANT` snapshot phase failed; source left unchanged.
+    pub const MOVE_TENANT_SNAPSHOT_FAILED: Self = Self(1602);
+    /// `MOVE TENANT` cutover phase failed; source still holds the data.
+    pub const MOVE_TENANT_CUTOVER_FAILED: Self = Self(1603);
+    /// Tenant is already at the target database; `MOVE TENANT` was a no-op.
+    pub const MOVE_TENANT_ALREADY_AT_TARGET: Self = Self(1604);
+
     // Auth / Security (2000–2099)
     pub const AUTHORIZATION_DENIED: Self = Self(2000);
     pub const AUTH_EXPIRED: Self = Self(2001);
+    /// Vector insert or index rejected because the vector dimension exceeds the
+    /// tenant's `max_vector_dim` quota.
+    pub const TENANT_VECTOR_DIM_EXCEEDED: Self = Self(2010);
+    /// Graph traversal rejected because the requested depth exceeds the tenant's
+    /// `max_graph_depth` quota.
+    pub const TENANT_GRAPH_DEPTH_EXCEEDED: Self = Self(2011);
 
     // Protocol handshake (2100–2199)
     pub const HANDSHAKE_FAILED: Self = Self(2100);

@@ -11,10 +11,15 @@ use nodedb::control::server::pgwire::ddl;
 async fn show_session() {
     let state = make_state();
     let su = superuser();
-    let result = ddl::dispatch(&state, &su, "SHOW SESSION")
-        .await
-        .unwrap()
-        .unwrap();
+    let result = ddl::dispatch(
+        &state,
+        &su,
+        "SHOW SESSION",
+        nodedb_types::id::DatabaseId::DEFAULT,
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     match &result[0] {
         pgwire::api::results::Response::Query(_) => {}
@@ -34,10 +39,15 @@ async fn show_grants() {
     .await;
     ddl_ok(&state, &su, "GRANT ROLE monitor TO judy").await;
 
-    let result = ddl::dispatch(&state, &su, "SHOW GRANTS FOR judy")
-        .await
-        .unwrap()
-        .unwrap();
+    let result = ddl::dispatch(
+        &state,
+        &su,
+        "SHOW GRANTS FOR judy",
+        nodedb_types::id::DatabaseId::DEFAULT,
+    )
+    .await
+    .unwrap()
+    .unwrap();
     match &result[0] {
         pgwire::api::results::Response::Query(_) => {}
         other => panic!("expected Query response, got: {other:?}"),

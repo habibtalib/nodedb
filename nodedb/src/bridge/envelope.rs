@@ -74,7 +74,7 @@ impl From<Arc<[u8]>> for Payload {
     }
 }
 use crate::event::types::EventSource;
-use crate::types::{Lsn, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
+use crate::types::{DatabaseId, Lsn, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
 
 /// Request envelope: Control Plane -> Data Plane.
 ///
@@ -86,6 +86,10 @@ pub struct Request {
 
     /// Tenant scope — all data access is tenant-scoped by construction.
     pub tenant_id: TenantId,
+
+    /// Database scope — identifies which catalog namespace this request targets.
+    /// `DatabaseId::DEFAULT` (0) is the built-in `default` database.
+    pub database_id: DatabaseId,
 
     /// Target virtual shard.
     pub vshard_id: VShardId,
@@ -120,6 +124,15 @@ pub struct Request {
     /// for role-guarded state transition enforcement (`BY ROLE 'manager'`).
     /// Empty for system-generated writes (triggers, CRDT sync, etc.).
     pub user_roles: Vec<String>,
+
+    /// Authenticated user ID. Propagated to WriteEvents for DML audit attribution.
+    /// `None` for system-generated writes (triggers, CRDT sync, Raft follower).
+    pub user_id: Option<Arc<str>>,
+
+    /// SQL plan digest identifying the statement that produced this request.
+    /// Reuses the plan digest already computed by nodedb-sql. `None` for
+    /// non-user writes.
+    pub statement_digest: Option<Arc<str>>,
 }
 
 /// Response envelope: Data Plane -> Control Plane.
@@ -330,6 +343,7 @@ mod tests {
         Request {
             request_id: RequestId::new(1),
             tenant_id: TenantId::new(1),
+            database_id: DatabaseId::DEFAULT,
             vshard_id: VShardId::new(0),
             plan: PhysicalPlan::Document(DocumentOp::PointGet {
                 collection: "users".into(),
@@ -347,6 +361,8 @@ mod tests {
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         }
     }
 
@@ -400,6 +416,7 @@ mod tests {
         let req = Request {
             request_id: RequestId::new(99),
             tenant_id: TenantId::new(1),
+            database_id: DatabaseId::DEFAULT,
             vshard_id: VShardId::new(0),
             plan: PhysicalPlan::Meta(MetaOp::Cancel {
                 target_request_id: RequestId::new(42),
@@ -411,6 +428,8 @@ mod tests {
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
         match req.plan {
             PhysicalPlan::Meta(MetaOp::Cancel { target_request_id }) => {

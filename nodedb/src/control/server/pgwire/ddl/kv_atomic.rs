@@ -13,7 +13,7 @@ use pgwire::error::PgWireResult;
 use crate::bridge::physical_plan::{KvOp, PhysicalPlan};
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
-use crate::types::{TraceId, VShardId};
+use crate::types::{DatabaseId, TraceId, VShardId};
 
 /// Handle `SELECT KV_INCR(collection, key, delta [, TTL => seconds])`
 ///
@@ -47,7 +47,7 @@ pub async fn kv_incr(
 
     let ttl_ms = parse_optional_ttl(&args[3..])?;
 
-    let vshard = VShardId::from_collection(&collection);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
     let plan = PhysicalPlan::Kv(KvOp::Incr {
         collection,
         key: key.as_bytes().to_vec(),
@@ -84,7 +84,7 @@ pub async fn kv_incr_float(
         )
     })?;
 
-    let vshard = VShardId::from_collection(&collection);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
     let plan = PhysicalPlan::Kv(KvOp::IncrFloat {
         collection,
         key: key.as_bytes().to_vec(),
@@ -116,7 +116,7 @@ pub async fn kv_cas(
     let expected = unquote(&args[2]);
     let new_value = unquote(&args[3]);
 
-    let vshard = VShardId::from_collection(&collection);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
     let plan = PhysicalPlan::Kv(KvOp::Cas {
         collection,
         key: key.as_bytes().to_vec(),
@@ -148,7 +148,7 @@ pub async fn kv_getset(
     let key = unquote(&args[1]);
     let new_value = unquote(&args[2]);
 
-    let vshard = VShardId::from_collection(&collection);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
     let plan = PhysicalPlan::Kv(KvOp::GetSet {
         collection,
         key: key.as_bytes().to_vec(),

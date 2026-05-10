@@ -295,6 +295,8 @@ mod tests {
             auth_method: crate::control::security::identity::AuthMethod::ApiKey,
             roles: vec![crate::control::security::identity::Role::ReadWrite],
             is_superuser: false,
+            default_database: None,
+            accessible_databases: AuthenticatedIdentity::default_database_set(false),
         }
     }
 

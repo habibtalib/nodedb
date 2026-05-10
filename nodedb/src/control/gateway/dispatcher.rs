@@ -25,7 +25,7 @@ use crate::Error;
 use crate::bridge::physical_plan::wire as plan_wire;
 use crate::control::server::dispatch_utils::dispatch_to_data_plane;
 use crate::control::state::SharedState;
-use crate::types::{TenantId, TraceId, VShardId};
+use crate::types::{DatabaseId, TenantId, TraceId, VShardId};
 
 use super::route::{RouteDecision, TaskRoute};
 use super::version_set::GatewayVersionSet;
@@ -40,6 +40,7 @@ pub async fn dispatch_route(
     route: TaskRoute,
     shared: &Arc<SharedState>,
     tenant_id: TenantId,
+    database_id: DatabaseId,
     trace_id: TraceId,
     deadline_ms: u64,
     version_set: &GatewayVersionSet,
@@ -53,6 +54,7 @@ pub async fn dispatch_route(
                 node_id,
                 vshard_id,
                 tenant_id,
+                database_id,
                 trace_id,
                 deadline_ms,
                 version_set,
@@ -101,6 +103,7 @@ struct RemoteDispatchArgs<'a> {
     node_id: u64,
     vshard_id: u64,
     tenant_id: TenantId,
+    database_id: DatabaseId,
     trace_id: TraceId,
     deadline_ms: u64,
     version_set: &'a GatewayVersionSet,
@@ -114,6 +117,7 @@ async fn dispatch_remote(args: RemoteDispatchArgs<'_>) -> Result<Vec<Vec<u8>>, E
         node_id,
         vshard_id,
         tenant_id,
+        database_id,
         trace_id,
         deadline_ms,
         version_set,
@@ -141,6 +145,7 @@ async fn dispatch_remote(args: RemoteDispatchArgs<'_>) -> Result<Vec<Vec<u8>>, E
     let req = RaftRpc::ExecuteRequest(ExecuteRequest {
         plan_bytes,
         tenant_id: tenant_id.as_u64(),
+        database_id: database_id.as_u64(),
         deadline_remaining_ms: deadline_ms,
         trace_id: trace_id.0,
         descriptor_versions,

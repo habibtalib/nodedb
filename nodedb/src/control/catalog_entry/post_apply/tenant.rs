@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use crate::control::security::catalog::StoredTenant;
+use crate::control::security::catalog::{StoredCollection, StoredTenant};
 use crate::control::security::tenant::TenantQuota;
 use crate::control::state::SharedState;
 use crate::types::TenantId;
@@ -43,4 +43,27 @@ pub fn delete(tenant_id: u64, shared: Arc<SharedState>) {
     };
     tenants.remove_quota(tid);
     tracing::debug!(tenant = tenant_id, "post_apply: tenant identity removed");
+}
+
+/// Synchronous in-memory side effects for `MoveTenantCutover`.
+///
+/// Invalidates any cached plans or collection descriptors for the affected
+/// collections in both the source and target database.  The gateway plan
+/// cache is already invalidated unconditionally by
+/// `invalidate_gateway_cache_for_entry`, so this function currently only
+/// emits a trace event.
+pub fn move_cutover_sync(
+    tenant_id: u64,
+    source_db_id: u64,
+    target_db_id: u64,
+    collections: &[StoredCollection],
+    _shared: Arc<SharedState>,
+) {
+    tracing::debug!(
+        tenant = tenant_id,
+        source_db = source_db_id,
+        target_db = target_db_id,
+        collection_count = collections.len(),
+        "post_apply: move_tenant_cutover applied"
+    );
 }

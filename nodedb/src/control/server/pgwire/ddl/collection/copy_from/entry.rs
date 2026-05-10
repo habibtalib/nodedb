@@ -2,6 +2,7 @@
 
 //! Entry point: `copy_from_file`, path validation, and engine-support check.
 
+use nodedb_types::DatabaseId;
 use std::path::Path;
 
 use pgwire::api::results::{Response, Tag};
@@ -14,11 +15,19 @@ use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::types::sqlstate_error;
 use crate::control::state::SharedState;
 
-use super::csv_import::import_csv;
+use super::csv_import::{CsvOptions, import_csv};
 use super::json_import::{import_json_array, import_ndjson};
 
 /// Maximum file size accepted for COPY FROM (16 GiB).
 pub(super) const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024 * 1024;
+
+/// COPY FROM format and delimiter options.
+#[derive(Clone, Copy, Debug)]
+pub struct CopyFromOptions<'a> {
+    pub format: Option<&'a CopyFormat>,
+    pub delimiter: Option<char>,
+    pub header: bool,
+}
 
 /// Execute `COPY <collection> FROM '<path>' [WITH (...)]`.
 pub async fn copy_from_file(
@@ -26,10 +35,14 @@ pub async fn copy_from_file(
     identity: &AuthenticatedIdentity,
     collection: &str,
     path: &str,
-    format: Option<&CopyFormat>,
-    delimiter: Option<char>,
-    header: bool,
+    options: CopyFromOptions<'_>,
+    database_id: DatabaseId,
 ) -> PgWireResult<Vec<Response>> {
+    let CopyFromOptions {
+        format,
+        delimiter,
+        header,
+    } = options;
     validate_path(path)?;
 
     // Check file size before reading.
@@ -64,9 +77,11 @@ pub async fn copy_from_file(
     let tenant_id = identity.tenant_id;
 
     let row_count = match resolved_format {
-        CopyFormat::Ndjson => import_ndjson(state, identity, tenant_id, collection, path).await?,
+        CopyFormat::Ndjson => {
+            import_ndjson(state, identity, tenant_id, collection, path, database_id).await?
+        }
         CopyFormat::JsonArray => {
-            import_json_array(state, identity, tenant_id, collection, path).await?
+            import_json_array(state, identity, tenant_id, collection, path, database_id).await?
         }
         CopyFormat::Csv => {
             import_csv(
@@ -75,8 +90,11 @@ pub async fn copy_from_file(
                 tenant_id,
                 collection,
                 path,
-                delimiter.unwrap_or(','),
-                header,
+                CsvOptions {
+                    delimiter: delimiter.unwrap_or(','),
+                    has_header: header,
+                },
+                database_id,
             )
             .await?
         }
@@ -125,7 +143,7 @@ fn check_engine_support(
         Some(c) => c,
         None => return Ok(()), // No catalog means schemaless fallback — allow.
     };
-    let stored = match catalog.get_collection(tenant_id.as_u64(), collection) {
+    let stored = match catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), collection) {
         Ok(Some(c)) => c,
         Ok(None) => return Ok(()), // Collection doesn't exist yet — will fail at INSERT.
         Err(e) => {

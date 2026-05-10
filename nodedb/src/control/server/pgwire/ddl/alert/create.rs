@@ -2,6 +2,7 @@
 
 //! `CREATE ALERT` DDL handler.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -9,7 +10,7 @@ use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::event::alert::types::{AlertCondition, AlertDef, CompareOp, NotifyTarget};
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 use super::ALERT_RULES_CRDT_COLLECTION;
 
 /// Parsed `CREATE ALERT` request — fields extracted by the nodedb-sql parser.
@@ -48,14 +49,14 @@ pub fn create_alert(
         severity,
         notify_targets_raw,
     } = *req;
-    require_admin(identity, "create alerts")?;
+    require_tenant_admin(identity, "create alerts")?;
 
     let tenant_id = identity.tenant_id.as_u64();
 
     // Validate collection exists.
     if let Some(catalog) = state.credentials.catalog()
         && catalog
-            .get_collection(tenant_id, collection)
+            .get_collection(DatabaseId::DEFAULT, tenant_id, collection)
             .ok()
             .flatten()
             .is_none()

@@ -6,7 +6,7 @@
 //! bodies are database-defined code, not user-submitted queries. The
 //! creator's identity is captured separately on `StoredTrigger.owner`.
 
-use crate::control::security::identity::{AuthMethod, AuthenticatedIdentity, Role};
+use crate::control::security::identity::{AuthMethod, AuthenticatedIdentity, DatabaseSet, Role};
 use crate::types::TenantId;
 
 pub(super) fn trigger_identity(tenant_id: TenantId) -> AuthenticatedIdentity {
@@ -17,6 +17,8 @@ pub(super) fn trigger_identity(tenant_id: TenantId) -> AuthenticatedIdentity {
         auth_method: AuthMethod::Trust,
         roles: vec![Role::Superuser],
         is_superuser: true,
+        default_database: None,
+        accessible_databases: DatabaseSet::All,
     }
 }
 

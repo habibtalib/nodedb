@@ -15,6 +15,7 @@ use std::sync::Arc;
 use nodedb::control::metrics::SystemMetrics;
 use nodedb::data::executor::core_loop::CoreLoop;
 use nodedb_mem::{EngineId, GovernorConfig, MemoryGovernor};
+use nodedb_types::{DatabaseId, TenantId};
 
 /// Baseline SPSC read depth, sourced from the `CoreLoop` public accessor so
 /// the test does not hard-code the value.
@@ -40,8 +41,13 @@ fn make_governor_at(engine: EngineId, utilization_percent: u8) -> Arc<MemoryGove
     })
     .unwrap();
     let fill = (budget_bytes as u64 * utilization_percent as u64 / 100) as usize;
-    if fill > 0 {
-        let _ = gov.try_reserve(engine, fill);
+    if fill > 0
+        && let Ok(tok) = gov.try_reserve(DatabaseId::DEFAULT, TenantId::new(1), engine, fill)
+    {
+        // `ReservationToken` is RAII; binding to `_` would drop it
+        // immediately and reset the engine to 0% utilization. Leak it so
+        // the budget stays charged for the lifetime of the test governor.
+        std::mem::forget(tok);
     }
     Arc::new(gov)
 }
@@ -143,6 +149,7 @@ fn critical_check_engine_pressure_increments_metric() {
         request_id: RequestId::new(1),
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(0),
+        database_id: nodedb::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Vector(VectorOp::Insert {
             collection: "test".into(),
             vector: vec![0.1],
@@ -157,6 +164,8 @@ fn critical_check_engine_pressure_increments_metric() {
         idempotency_key: None,
         event_source: nodedb::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     });
 
     let result = core.check_engine_pressure(&task, EngineId::Vector);
@@ -204,6 +213,7 @@ fn emergency_pressure_suspends_reads_and_increments_metric() {
         request_id: RequestId::new(2),
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(0),
+        database_id: nodedb::types::DatabaseId::DEFAULT,
         plan: PhysicalPlan::Vector(VectorOp::Insert {
             collection: "test".into(),
             vector: vec![0.1],
@@ -218,6 +228,8 @@ fn emergency_pressure_suspends_reads_and_increments_metric() {
         idempotency_key: None,
         event_source: nodedb::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     });
 
     let result = core.check_engine_pressure(&task, EngineId::Vector);

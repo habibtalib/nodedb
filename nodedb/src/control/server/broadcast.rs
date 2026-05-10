@@ -12,7 +12,7 @@ use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Response};
 use crate::bridge::physical_plan::QueryOp;
 use crate::control::arrow_convert;
 use crate::control::state::SharedState;
-use crate::types::{Lsn, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
+use crate::types::{DatabaseId, Lsn, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
 
 /// Total number of `broadcast_to_all_cores` / `broadcast_count_to_all_cores`
 /// invocations since process start. Exposed so callers (including test
@@ -50,6 +50,7 @@ pub async fn broadcast_to_all_cores(
         let request = Request {
             request_id,
             tenant_id,
+            database_id: DatabaseId::DEFAULT,
             vshard_id,
             plan: plan.clone(),
             deadline: Instant::now()
@@ -60,6 +61,8 @@ pub async fn broadcast_to_all_cores(
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
 
         let rx = shared.tracker.register(request_id);
@@ -174,6 +177,7 @@ pub async fn broadcast_count_to_all_cores(
         let request = Request {
             request_id,
             tenant_id,
+            database_id: DatabaseId::DEFAULT,
             vshard_id,
             plan: plan.clone(),
             deadline: Instant::now()
@@ -184,6 +188,8 @@ pub async fn broadcast_count_to_all_cores(
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
 
         let rx = shared.tracker.register(request_id);
@@ -275,6 +281,7 @@ pub async fn broadcast_raw(
         let request = Request {
             request_id,
             tenant_id,
+            database_id: DatabaseId::DEFAULT,
             vshard_id,
             plan: plan.clone(),
             deadline: std::time::Instant::now()
@@ -285,6 +292,8 @@ pub async fn broadcast_raw(
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
 
         let rx = shared.tracker.register(request_id);
@@ -428,6 +437,7 @@ pub async fn broadcast_register_to_all_cores(
         let request = Request {
             request_id,
             tenant_id,
+            database_id: DatabaseId::DEFAULT,
             vshard_id,
             plan: plan.clone(),
             deadline: Instant::now()
@@ -438,6 +448,8 @@ pub async fn broadcast_register_to_all_cores(
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
 
         let rx = shared.tracker.register(request_id);

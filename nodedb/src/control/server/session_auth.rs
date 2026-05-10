@@ -16,10 +16,16 @@
 //! On success, returns `{"status": "ok", "username": "...", "tenant_id": ...}`.
 //! On failure, returns `{"status": "error", "error": "..."}` and closes connection.
 
+use nodedb_types::id::DatabaseId;
+use smallvec::SmallVec;
+
 use crate::config::auth::AuthMode;
-use crate::control::security::audit::AuditEvent;
+use crate::control::security::audit::{
+    ArcAuditEmitter, AuditEmitContext, AuditEmitter, AuditEvent,
+};
 use crate::control::security::auth_context::{AuthContext, generate_session_id};
-use crate::control::security::identity::{AuthMethod, AuthenticatedIdentity, Role};
+use crate::control::security::credential::record::UserRecord;
+use crate::control::security::identity::{AuthMethod, AuthenticatedIdentity, DatabaseSet, Role};
 use crate::control::security::util::base64_url_decode;
 use crate::control::state::SharedState;
 use crate::types::TenantId;
@@ -66,6 +72,30 @@ pub fn resolve_certificate_identity(
 ///
 /// Shared by native protocol and HTTP API authentication paths.
 /// Returns `None` if the token is invalid or the owner user is not found.
+/// Build the owner's `DatabaseSet` from a `UserRecord`.
+///
+/// - Superuser → `DatabaseSet::All`.
+/// - Service account with non-empty `accessible_databases` → `DatabaseSet::Some(...)`.
+/// - Regular user → databases from `_system.database_grants`, always including `DEFAULT`.
+fn build_owner_database_set(state: &SharedState, user: &UserRecord) -> DatabaseSet {
+    if user.is_superuser {
+        return DatabaseSet::All;
+    }
+    if user.is_service_account && !user.accessible_databases.is_empty() {
+        return DatabaseSet::Some(SmallVec::from_iter(
+            user.accessible_databases.iter().copied(),
+        ));
+    }
+    // Regular user or legacy service account: read from database_grants.
+    let db_ids = state
+        .credentials
+        .catalog()
+        .as_ref()
+        .and_then(|cat| cat.list_user_grant_databases(user.user_id).ok())
+        .unwrap_or_else(|| vec![DatabaseId::DEFAULT]);
+    DatabaseSet::Some(SmallVec::from_iter(db_ids))
+}
+
 pub fn verify_api_key_identity(
     state: &SharedState,
     token: &str,
@@ -76,14 +106,24 @@ pub fn verify_api_key_identity(
 
     let user = state.credentials.get_user(&key_record.username)?;
 
-    let identity = AuthenticatedIdentity {
-        user_id: key_record.user_id,
-        username: key_record.username.clone(),
-        tenant_id: key_record.tenant_id,
-        auth_method: AuthMethod::ApiKey,
-        roles: user.roles,
-        is_superuser: user.is_superuser,
+    let owner_set = build_owner_database_set(state, &user);
+
+    // Compute effective database set: owner_set ∩ key_set.
+    // Empty key.accessible_databases means "inherit from owner at this bind" — live,
+    // not a snapshot, so subsequent owner narrowing is automatically honored.
+    let key_set = if key_record.accessible_databases.is_empty() {
+        owner_set.clone()
+    } else {
+        DatabaseSet::Some(SmallVec::from_iter(
+            key_record.accessible_databases.iter().copied(),
+        ))
     };
+    let effective = owner_set.intersect(&key_set);
+
+    let identity =
+        state
+            .api_keys
+            .to_identity(&key_record, user.roles, user.is_superuser, effective);
 
     state.audit_record(
         AuditEvent::AuthSuccess,
@@ -113,16 +153,38 @@ pub fn trust_identity(state: &SharedState, username: &str) -> AuthenticatedIdent
             auth_method: AuthMethod::Trust,
             roles: vec![Role::Superuser],
             is_superuser: true,
+            default_database: None,
+            accessible_databases: crate::control::security::identity::DatabaseSet::All,
         }
     }
 }
+
+/// Minimum wall-clock time for any authentication attempt that ends in failure.
+///
+/// All failed password auth paths (rate-limit, lockout, wrong password, unknown
+/// user) sleep until `auth_start + AUTH_FLOOR` before returning an error.  This
+/// makes the reject latency indistinguishable from a real Argon2 verification,
+/// so an attacker cannot use timing to tell a rate-limit rejection from a
+/// credential rejection — or to probe whether a username exists.
+///
+/// 200 ms matches a conservative Argon2id baseline (m=65536, t=3, p=1 on a
+/// mid-range server core). Operators running faster Argon2 params can accept a
+/// slightly narrower timing envelope; operators running slower params should
+/// increase this constant.
+pub const AUTH_FLOOR: std::time::Duration = std::time::Duration::from_millis(200);
 
 /// Authenticate a native protocol connection from the first JSON frame.
 ///
 /// Returns `(identity, warning)` on success. The `warning` string is non-empty
 /// when the account is in password grace period or `must_change_password` is set
 /// — the caller should forward it to the client as a notice/warning.
-pub fn authenticate(
+///
+/// All failure paths on the `"password"` method enforce a constant-time floor
+/// equal to [`AUTH_FLOOR`]: the function sleeps until `start + AUTH_FLOOR`
+/// before returning any `Err`. This prevents timing oracle attacks that could
+/// distinguish rate-limit rejection from credential rejection or reveal user
+/// existence.
+pub async fn authenticate(
     state: &SharedState,
     auth_mode: &AuthMode,
     body: &serde_json::Value,
@@ -171,14 +233,68 @@ pub fn authenticate(
                     detail: "missing 'password' for password auth".into(),
                 })?;
 
-            // Check lockout.
-            state.credentials.check_lockout(username)?;
+            // Record the auth start time for constant-time floor enforcement.
+            // All failure returns below sleep until `auth_start + AUTH_FLOOR`
+            // so the reject latency is indistinguishable from a real Argon2
+            // verification, regardless of which gate tripped.
+            let auth_start = std::time::Instant::now();
+
+            // Pre-authentication login rate-limit check (before lockout and
+            // Argon2 verification — cheap exit path).  Both the per-IP and
+            // per-username buckets are consulted.
+            use crate::control::security::ratelimit::limiter::LoginRateLimitOutcome;
+            let peer_ip_str = peer_addr
+                .parse::<std::net::SocketAddr>()
+                .map(|s| s.ip().to_string())
+                .unwrap_or_else(|_| peer_addr.to_string());
+            let rl_outcome = state.rate_limiter.check_login(&peer_ip_str, username);
+            if !matches!(rl_outcome, LoginRateLimitOutcome::Allowed) {
+                let emitter = ArcAuditEmitter(std::sync::Arc::clone(&state.audit));
+                let detail = match rl_outcome {
+                    LoginRateLimitOutcome::IpExceeded => {
+                        format!("login rate limited (ip={peer_ip_str}): {username}")
+                    }
+                    LoginRateLimitOutcome::UserExceeded => {
+                        format!("login rate limited (user): {username}")
+                    }
+                    LoginRateLimitOutcome::Allowed => unreachable!(),
+                };
+                emitter.emit(
+                    AuditEvent::LoginRateLimited,
+                    "login_rate_limit",
+                    &detail,
+                    AuditEmitContext::new(None, "", username),
+                );
+                state.auth_metrics.record_auth_failure("password");
+                // Constant-time floor: sleep until auth_start + AUTH_FLOOR
+                // so timing cannot distinguish a rate-limit rejection from a
+                // real Argon2 credential check.
+                enforce_auth_floor(auth_start).await;
+                return Err(crate::Error::RejectedAuthz {
+                    tenant_id: TenantId::new(0),
+                    resource: "authentication failed".into(),
+                });
+            }
+
+            // Check lockout (after rate-limit, before Argon2).
+            if let Err(e) = state.credentials.check_lockout(username) {
+                // Constant-time floor before returning lockout error.
+                enforce_auth_floor(auth_start).await;
+                return Err(e);
+            }
 
             let (verified, pw_warning) = state
                 .credentials
                 .verify_password_with_status(username, password);
             if !verified {
-                state.credentials.record_login_failure(username);
+                let emitter = ArcAuditEmitter(std::sync::Arc::clone(&state.audit));
+                let peer_ip = peer_addr
+                    .parse::<std::net::SocketAddr>()
+                    .ok()
+                    .map(|s| s.ip());
+                state
+                    .credentials
+                    .record_login_failure(username, peer_ip, &emitter);
                 state.audit_record(
                     AuditEvent::AuthFailure,
                     None,
@@ -186,9 +302,12 @@ pub fn authenticate(
                     &format!("native password auth failed: {username}"),
                 );
                 state.auth_metrics.record_auth_failure("password");
+                // Argon2 already ran (≈AUTH_FLOOR elapsed); the sleep is a
+                // no-op when Argon2 was slower than the floor.
+                enforce_auth_floor(auth_start).await;
                 return Err(crate::Error::RejectedAuthz {
                     tenant_id: TenantId::new(0),
-                    resource: format!("authentication failed for user '{username}'"),
+                    resource: "authentication failed".into(),
                 });
             }
 
@@ -240,9 +359,33 @@ pub fn authenticate(
                 .map(|id| (id, None))
         }
 
+        "oidc_bearer" => {
+            let token = body["token"]
+                .as_str()
+                .ok_or_else(|| crate::Error::BadRequest {
+                    detail: "missing 'token' for oidc_bearer auth".into(),
+                })?;
+
+            let identity =
+                crate::control::security::oidc::verify_bearer_token(state, token).await?;
+
+            state.audit_record(
+                AuditEvent::AuthSuccess,
+                Some(identity.tenant_id),
+                peer_addr,
+                &format!(
+                    "OIDC bearer login: sub={} method=oidc_bearer",
+                    identity.username
+                ),
+            );
+            state.auth_metrics.record_auth_success("oidc_bearer");
+
+            Ok((identity, None))
+        }
+
         other => Err(crate::Error::BadRequest {
             detail: format!(
-                "unknown auth method: '{other}'. Use 'trust', 'password', or 'api_key'."
+                "unknown auth method: '{other}'. Use 'trust', 'password', 'api_key', or 'oidc_bearer'."
             ),
         }),
     }
@@ -254,7 +397,11 @@ pub fn authenticate(
 /// API key, certificate, trust). JWT flows can use `AuthContext::from_jwt()`
 /// directly when JWT claims are available for richer context.
 pub fn build_auth_context(identity: &AuthenticatedIdentity) -> AuthContext {
-    AuthContext::from_identity(identity, generate_session_id())
+    let mut ctx = AuthContext::from_identity(identity, generate_session_id());
+    // Stamp the per-user default database so `$auth.database_id` is available
+    // for RLS predicates even before a `USE DATABASE` command.
+    ctx.database_id = identity.default_database;
+    ctx
 }
 
 /// Enrich AuthContext with scope status data from the scope grant store.
@@ -329,6 +476,12 @@ pub fn build_auth_context_with_session(
         && let Ok(mode) = crate::control::security::deny::parse_on_deny(&[&on_deny_val])
     {
         ctx.on_deny_override = Some(mode);
+    }
+
+    // The active session database overrides the per-user default so that
+    // `$auth.database_id` tracks `USE DATABASE` commands within a session.
+    if let Some(db) = sessions.get_current_database(addr) {
+        ctx.database_id = Some(db);
     }
 
     ctx
@@ -459,18 +612,64 @@ pub fn check_blacklist(
 ///
 /// Called after identity and blacklist checks, before query execution.
 /// Returns `Err(RateLimited)` if the request exceeds the rate limit.
+///
+/// Tenant and database QPS caps are read from the quota catalog when available.
+/// Check order: user → org → tenant → database.
 pub fn check_rate_limit(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     auth_ctx: &AuthContext,
     operation: &str,
+    database_id: nodedb_types::DatabaseId,
 ) -> crate::Result<crate::control::security::ratelimit::limiter::RateLimitResult> {
+    use crate::control::security::ratelimit::limiter::QuotaCheckParams;
+
     let plan_tier = auth_ctx.metadata.get("plan").map(|s| s.as_str());
+
+    // Resolve tenant and database QPS caps from the quota catalog if available.
+    let quota_params = state.credentials.catalog().as_ref().and_then(|catalog| {
+        let tenant_max_qps = catalog
+            .get_tenant_quota(database_id, identity.tenant_id)
+            .ok()
+            .flatten()
+            .and_then(|r| {
+                if r.max_qps > 0 {
+                    Some(r.max_qps as u64)
+                } else {
+                    None
+                }
+            });
+
+        let database_max_qps = catalog
+            .get_database_quota(database_id)
+            .ok()
+            .flatten()
+            .and_then(|r| {
+                if r.max_qps > 0 {
+                    Some(r.max_qps as u64)
+                } else {
+                    None
+                }
+            });
+
+        if tenant_max_qps.is_some() || database_max_qps.is_some() {
+            Some(QuotaCheckParams {
+                tenant_max_qps,
+                database_max_qps,
+                tenant_id: identity.tenant_id,
+                database_id,
+            })
+        } else {
+            None
+        }
+    });
+
     let result = state.rate_limiter.check(
         &identity.user_id.to_string(),
         &auth_ctx.org_ids,
         plan_tier,
         operation,
+        quota_params.as_ref(),
     );
 
     if !result.allowed {
@@ -481,6 +680,20 @@ pub fn check_rate_limit(
     }
 
     Ok(result)
+}
+
+/// Sleep until `auth_start + AUTH_FLOOR` to enforce a constant-time error path.
+///
+/// Called on every password-auth failure so that no failure mode (rate-limit,
+/// lockout, wrong password, unknown user) can be distinguished from any other
+/// by wall-clock timing.  When Argon2 already ran, `auth_start` is old enough
+/// that the sleep duration is effectively zero.
+async fn enforce_auth_floor(auth_start: std::time::Instant) {
+    let deadline = auth_start + AUTH_FLOOR;
+    let now = std::time::Instant::now();
+    if deadline > now {
+        tokio::time::sleep(deadline - now).await;
+    }
 }
 
 /// Redact a JWT token for safe logging: show only the first 10 chars.

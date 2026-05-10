@@ -16,6 +16,7 @@
 //! - The top-level [`dispatch`] router only decides which sub-handler
 //!   to call based on whether the second token is `ROLE`.
 
+pub mod database_permission;
 pub mod dispatch;
 pub mod permission;
 pub mod role;

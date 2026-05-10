@@ -35,6 +35,8 @@ fn make_event(source: EventSource, op: WriteOp, collection: &str) -> WriteEvent 
         old_value: None,
         system_time_ms: None,
         valid_time_ms: None,
+        user_id: None,
+        statement_digest: None,
     }
 }
 

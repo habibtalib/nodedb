@@ -9,7 +9,7 @@ use crate::control::security::catalog::StoredFunction;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::super::types::{require_tenant_admin, sqlstate_error};
 use super::super::validate::validate_function_body;
 use super::deps::extract_dependencies;
 use super::parse::{ParsedCreateFunction, parse_create_function};
@@ -25,7 +25,7 @@ pub fn create_function(
     identity: &AuthenticatedIdentity,
     sql: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create functions")?;
+    require_tenant_admin(identity, "create functions")?;
 
     let parsed = parse_create_function(sql)?;
     let tenant_id = identity.tenant_id.as_u64();

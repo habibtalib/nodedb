@@ -25,7 +25,9 @@ use pgwire::messages::PgWireFrontendMessage;
 use crate::bridge::envelope::PhysicalPlan;
 use crate::config::auth::AuthMode;
 use crate::control::planner::context::QueryContext;
-use crate::control::security::audit::AuditEvent;
+use crate::control::security::audit::{
+    AuditEmitContext, AuditEmitter, AuditEvent, NoopAuditEmitter,
+};
 use crate::control::security::identity::{
     AuthMethod, AuthenticatedIdentity, Role, required_permission, role_grants_permission,
 };
@@ -122,6 +124,54 @@ impl NodeDbPgHandler {
         }
     }
 
+    /// Enforce that the identity may access the session's current database.
+    ///
+    /// Called at session bind time (first query on this connection). If the
+    /// resolved `current_database` is not in `identity.accessible_databases`,
+    /// the connection is rejected with `ACCESS_DENIED` (SQLSTATE 42501) before
+    /// any query executes. Superusers bypass this check.
+    ///
+    /// This is the single enforcement point. Every query path goes through
+    /// `do_query` (simple) or `execute` (extended), both of which call this
+    /// immediately after identity resolution.
+    pub(super) fn enforce_database_access(
+        &self,
+        identity: &AuthenticatedIdentity,
+        addr: &std::net::SocketAddr,
+    ) -> PgWireResult<()> {
+        if identity.is_superuser {
+            return Ok(());
+        }
+        let db = self
+            .sessions
+            .get_current_database(addr)
+            .unwrap_or(crate::types::DatabaseId::DEFAULT);
+        if !identity.can_access_database(db) {
+            let emitter = crate::control::security::audit::ArcAuditEmitter(std::sync::Arc::clone(
+                &self.state.audit,
+            ));
+            emitter.emit(
+                AuditEvent::PermissionDenied,
+                &identity.username,
+                &format!("database access denied: db={}", db.as_u64()),
+                AuditEmitContext::new(
+                    Some(identity.tenant_id),
+                    &identity.user_id.to_string(),
+                    &identity.username,
+                ),
+            );
+            return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                "FATAL".to_owned(),
+                "42501".to_owned(),
+                format!(
+                    "permission denied for database: user '{}' does not have access",
+                    identity.username
+                ),
+            ))));
+        }
+        Ok(())
+    }
+
     /// Check if the identity has permission for the given plan.
     ///
     /// Enforcement layers:
@@ -145,11 +195,18 @@ impl NodeDbPgHandler {
         if let Some(coll) = collection
             && coll.starts_with("_system")
         {
-            self.state.audit_record(
-                AuditEvent::AuthzDenied,
-                Some(identity.tenant_id),
+            let emitter = crate::control::security::audit::ArcAuditEmitter(std::sync::Arc::clone(
+                &self.state.audit,
+            ));
+            emitter.emit(
+                AuditEvent::PermissionDenied,
                 &identity.username,
                 &format!("system catalog access denied: {coll}"),
+                AuditEmitContext::new(
+                    Some(identity.tenant_id),
+                    &identity.user_id.to_string(),
+                    &identity.username,
+                ),
             );
             return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
@@ -159,11 +216,15 @@ impl NodeDbPgHandler {
         }
 
         // Check collection-level permissions (ownership + explicit grants + role grants).
+        // Noop emitter here — the role fallback below is the terminal decision point.
         if let Some(coll) = collection
-            && self
-                .state
-                .permissions
-                .check(identity, required, coll, &self.state.roles)
+            && self.state.permissions.check(
+                identity,
+                required,
+                coll,
+                &self.state.roles,
+                &NoopAuditEmitter,
+            )
         {
             return Ok(());
         }
@@ -177,11 +238,23 @@ impl NodeDbPgHandler {
         if has_permission {
             Ok(())
         } else {
-            self.state.audit_record(
-                AuditEvent::AuthzDenied,
-                Some(identity.tenant_id),
+            // Terminal denial — emit PermissionDenied audit row.
+            let emitter = crate::control::security::audit::ArcAuditEmitter(std::sync::Arc::clone(
+                &self.state.audit,
+            ));
+            emitter.emit(
+                AuditEvent::PermissionDenied,
                 &identity.username,
-                &format!("permission {:?} denied", required),
+                &format!(
+                    "permission {:?} denied{}",
+                    required,
+                    collection.map(|c| format!(" on '{c}'")).unwrap_or_default()
+                ),
+                AuditEmitContext::new(
+                    Some(identity.tenant_id),
+                    &identity.user_id.to_string(),
+                    &identity.username,
+                ),
             );
 
             Err(PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -212,6 +285,28 @@ impl SimpleQueryHandler for NodeDbPgHandler {
         self.sessions.ensure_session(addr);
 
         let identity = self.resolve_identity(client)?;
+        self.enforce_database_access(&identity, &addr)?;
+
+        // Emit db.id / db.name trace fields at session bind so that any
+        // downstream spans inherit the database context.
+        let current_db = self
+            .sessions
+            .get_current_database(&addr)
+            .unwrap_or(crate::types::DatabaseId::DEFAULT);
+        let db_name: String = self
+            .state
+            .credentials
+            .catalog()
+            .as_ref()
+            .and_then(|cat| cat.get_database(current_db).ok().flatten())
+            .map(|d| d.name.clone())
+            .unwrap_or_else(|| "default".to_string());
+        tracing::debug!(
+            db.id = current_db.as_u64(),
+            db.name = %db_name,
+            user = %identity.username,
+            "session query dispatch",
+        );
 
         // Send notice if BEGIN is called (advisory transactions).
         let upper = query.trim().to_uppercase();

@@ -9,8 +9,8 @@
 //! matches).
 
 use crate::control::security::catalog::{
-    StoredCollection, StoredCustomType, StoredMaterializedView, StoredRlsPolicy,
-    StoredSynonymGroup,
+    StoredCollection, StoredCustomType, StoredMaterializedView, StoredOidcProvider,
+    StoredRlsPolicy, StoredSynonymGroup,
     auth_types::{
         StoredApiKey, StoredOwner, StoredPermission, StoredRole, StoredTenant, StoredUser,
     },
@@ -205,6 +205,34 @@ pub enum CatalogEntry {
         permission: String,
     },
 
+    // ── Database lifecycle ─────────────────────────────────────────
+    /// Upsert a database descriptor. Used by `CREATE DATABASE` and by
+    /// `ALTER DATABASE RENAME`, `SET QUOTA`, `MATERIALIZE`, `PROMOTE`.
+    /// Followers apply the full updated record verbatim.
+    PutDatabase(Box<crate::control::security::catalog::database_types::DatabaseDescriptor>),
+    /// Hard-delete a database descriptor and its reverse-lookup row from
+    /// `_system.databases` and `_system.databases_by_name`. Used by
+    /// `DROP DATABASE` after all collections have been cascaded. Does not
+    /// touch collection rows — those must be removed before proposing this.
+    DeleteDatabase {
+        /// Numeric database id.
+        db_id: u64,
+    },
+    /// Upsert a database-level permission grant.
+    /// Stored in `_system.database_grants`. Mirrors `PutPermission` for
+    /// collection-level grants but keyed by `(db_id, user_id, privilege)`.
+    PutDatabaseGrant {
+        db_id: u64,
+        user_id: u64,
+        privilege: String,
+    },
+    /// Delete a database-level permission grant.
+    DeleteDatabaseGrant {
+        db_id: u64,
+        user_id: u64,
+        privilege: String,
+    },
+
     // ── Object ownership ───────────────────────────────────────────
     /// Upsert an ownership record. Used by handlers whose object
     /// has no replicated parent variant (indexes, spatial indexes,
@@ -218,6 +246,54 @@ pub enum CatalogEntry {
         object_type: String,
         tenant_id: u64,
         object_name: String,
+    },
+
+    // ── Move Tenant lifecycle ──────────────────────────────────────
+    /// Atomically move a tenant's collections from one database to another.
+    ///
+    /// This is the single Raft proposal that makes the cutover phase of
+    /// `MOVE TENANT` atomic. On apply it:
+    /// 1. Writes each `StoredCollection` in `collections` to `target_db_id`.
+    /// 2. Deletes each collection from `source_db_id`.
+    ///
+    /// The handler builds this entry after snapshot succeeds; the Raft
+    /// proposal is a complete, self-contained mutation that any follower
+    /// can replay without external lookups.
+    MoveTenantCutover {
+        tenant_id: u64,
+        source_db_id: u64,
+        target_db_id: u64,
+        /// The tenant's collections serialized at their source state.
+        /// Each will be re-keyed to `target_db_id` on apply.
+        collections: Vec<StoredCollection>,
+    },
+
+    // ── OIDC provider lifecycle ────────────────────────────────────
+    /// Upsert an OIDC provider. Used by `CREATE / ALTER OIDC PROVIDER`.
+    /// Post-apply refreshes the in-memory `oidc_provider_cache`.
+    PutOidcProvider(Box<StoredOidcProvider>),
+    /// Delete an OIDC provider record by name.
+    DeleteOidcProvider { name: String },
+
+    // ── Clone lifecycle ────────────────────────────────────────────
+    /// Atomically record a new CoW clone database.
+    ///
+    /// On apply this entry does three things as a single unit:
+    /// 1. Writes the target `DatabaseDescriptor` (with `status = Cloning`
+    ///    and `parent_clone` populated) into `_system.databases`.
+    /// 2. Upserts `clone_lineage`: adds `target_db_id` to the children
+    ///    list of `source_db_id`.
+    ///
+    /// The handler builds this entry after resolving `as_of_lsn` and
+    /// allocating `target_db_id` so that the Raft proposal is a complete,
+    /// self-contained mutation that any follower can replay without
+    /// external lookups.
+    CloneDatabase {
+        /// The descriptor for the newly created target database.
+        target_descriptor:
+            Box<crate::control::security::catalog::database_types::DatabaseDescriptor>,
+        /// Numeric id of the source database (for lineage update).
+        source_db_id: u64,
     },
 }
 
@@ -258,10 +334,18 @@ impl CatalogEntry {
             Self::DeletePermission { .. } => "delete_permission",
             Self::PutOwner(_) => "put_owner",
             Self::DeleteOwner { .. } => "delete_owner",
+            Self::PutDatabase(_) => "put_database",
+            Self::DeleteDatabase { .. } => "delete_database",
+            Self::PutDatabaseGrant { .. } => "put_database_grant",
+            Self::DeleteDatabaseGrant { .. } => "delete_database_grant",
             Self::PutSynonymGroup(_) => "put_synonym_group",
             Self::DeleteSynonymGroup { .. } => "delete_synonym_group",
             Self::PutCustomType(_) => "put_custom_type",
             Self::DeleteCustomType { .. } => "delete_custom_type",
+            Self::PutOidcProvider(_) => "put_oidc_provider",
+            Self::DeleteOidcProvider { .. } => "delete_oidc_provider",
+            Self::MoveTenantCutover { .. } => "move_tenant_cutover",
+            Self::CloneDatabase { .. } => "clone_database",
         }
     }
 }

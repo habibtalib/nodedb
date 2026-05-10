@@ -154,6 +154,50 @@ impl SystemCatalog {
             let _ = write_txn
                 .open_table(CUSTOM_TYPES)
                 .map_err(|e| catalog_err("init custom_types table", e))?;
+            let _ = write_txn
+                .open_table(super::lockout::LOCKOUT_STATE_TABLE)
+                .map_err(|e| catalog_err("init lockout_state table", e))?;
+            let _ = write_txn
+                .open_table(DATABASES)
+                .map_err(|e| catalog_err("init databases table", e))?;
+            let _ = write_txn
+                .open_table(DATABASES_BY_NAME)
+                .map_err(|e| catalog_err("init databases_by_name table", e))?;
+            let _ = write_txn
+                .open_table(DATABASE_HWM)
+                .map_err(|e| catalog_err("init database_hwm table", e))?;
+            let _ = write_txn
+                .open_table(DATABASE_QUOTAS)
+                .map_err(|e| catalog_err("init database_quotas table", e))?;
+            let _ = write_txn
+                .open_table(TENANT_QUOTAS)
+                .map_err(|e| catalog_err("init tenant_quotas table", e))?;
+            let _ = write_txn
+                .open_table(CLONE_COPYUPS)
+                .map_err(|e| catalog_err("init clone_copyups table", e))?;
+            let _ = write_txn
+                .open_table(CLONE_TOMBSTONES)
+                .map_err(|e| catalog_err("init clone_tombstones table", e))?;
+            let _ = write_txn
+                .open_table(CLONE_KV_TOMBSTONES)
+                .map_err(|e| catalog_err("init clone_kv_tombstones table", e))?;
+            let _ = write_txn
+                .open_table(CLONE_LINEAGE)
+                .map_err(|e| catalog_err("init clone_lineage table", e))?;
+            let _ = write_txn
+                .open_table(MIRROR_COLLECTION_MAP)
+                .map_err(|e| catalog_err("init mirror_collection_map table", e))?;
+            let _ = write_txn
+                .open_table(MIRROR_LAG)
+                .map_err(|e| catalog_err("init mirror_lag table", e))?;
+            let _ = write_txn
+                .open_table(OIDC_PROVIDERS)
+                .map_err(|e| catalog_err("init oidc_providers table", e))?;
+            let _ = write_txn
+                .open_table(
+                    crate::control::server::pgwire::ddl::tenant::move_tenant::journal::MOVE_TENANT_JOURNAL,
+                )
+                .map_err(|e| catalog_err("init move_tenant_journal table", e))?;
         }
         write_txn
             .commit()
@@ -253,6 +297,8 @@ mod tests {
             password_expires_at: 0,
             must_change_password: false,
             password_changed_at: 0,
+            default_database_id: 0,
+            accessible_databases: vec![],
         };
 
         catalog.put_user(&user).unwrap();
@@ -284,6 +330,8 @@ mod tests {
             password_expires_at: 0,
             must_change_password: false,
             password_changed_at: 0,
+            default_database_id: 0,
+            accessible_databases: vec![],
         };
 
         catalog.put_user(&user).unwrap();
@@ -332,6 +380,8 @@ mod tests {
                     password_expires_at: 0,
                     must_change_password: false,
                     password_changed_at: 0,
+                    default_database_id: 0,
+                    accessible_databases: vec![],
                 })
                 .unwrap();
         }

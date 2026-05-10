@@ -27,6 +27,7 @@ fn test_ctx() -> QueryContext {
     QueryContext {
         tenant_id: TenantId::new(1),
         trace_id: nodedb_types::TraceId::ZERO,
+        database_id: nodedb_types::id::DatabaseId::DEFAULT,
     }
 }
 

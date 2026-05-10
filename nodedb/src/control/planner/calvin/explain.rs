@@ -81,6 +81,7 @@ mod tests {
         PhysicalTask {
             tenant_id: TenantId::new(1),
             vshard_id: VShardId::new(vshard),
+            database_id: crate::types::DatabaseId::DEFAULT,
             plan: PhysicalPlan::Document(DocumentOp::PointInsert {
                 collection: format!("col_{vshard}"),
                 document_id: "id1".to_owned(),
@@ -96,6 +97,7 @@ mod tests {
         PhysicalTask {
             tenant_id: TenantId::new(1),
             vshard_id: VShardId::new(vshard),
+            database_id: crate::types::DatabaseId::DEFAULT,
             plan: PhysicalPlan::Document(DocumentOp::Scan {
                 collection: format!("col_{vshard}"),
                 filters: vec![],

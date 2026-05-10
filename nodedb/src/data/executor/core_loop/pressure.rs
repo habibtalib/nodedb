@@ -203,7 +203,11 @@ mod tests {
         .unwrap();
         let fill = (budget_bytes as u64 * utilization_percent as u64 / 100) as usize;
         if fill > 0 {
-            let _ = gov.try_reserve(engine, fill);
+            // Intentionally leak the token so the engine budget stays allocated
+            // for the lifetime of the test governor. Test-only pattern.
+            if let Ok(tok) = gov.try_reserve(DatabaseId::DEFAULT, TenantId::new(1), engine, fill) {
+                std::mem::forget(tok);
+            }
         }
         Arc::new(gov)
     }
@@ -212,6 +216,7 @@ mod tests {
         ExecutionTask::new(Request {
             request_id: RequestId::new(1),
             tenant_id: TenantId::new(1),
+            database_id: DatabaseId::DEFAULT,
             vshard_id: VShardId::new(0),
             plan: PhysicalPlan::Vector(VectorOp::Insert {
                 collection: "test".into(),
@@ -227,6 +232,8 @@ mod tests {
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         })
     }
 
@@ -351,6 +358,7 @@ mod tests {
         let req = Request {
             request_id: RequestId::new(2),
             tenant_id: TenantId::new(1),
+            database_id: DatabaseId::DEFAULT,
             vshard_id: VShardId::new(0),
             plan: PhysicalPlan::Vector(VectorOp::Insert {
                 collection: "t".into(),
@@ -366,6 +374,8 @@ mod tests {
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
         tx.try_push(BridgeRequest { inner: req }).unwrap();
         // Set suspend flag.
@@ -386,6 +396,7 @@ mod tests {
             let req = Request {
                 request_id: RequestId::new(i + 1),
                 tenant_id: TenantId::new(1),
+                database_id: DatabaseId::DEFAULT,
                 vshard_id: VShardId::new(0),
                 plan: PhysicalPlan::Vector(VectorOp::Insert {
                     collection: "t".into(),
@@ -401,6 +412,8 @@ mod tests {
                 idempotency_key: None,
                 event_source: crate::event::EventSource::User,
                 user_roles: Vec::new(),
+                user_id: None,
+                statement_digest: None,
             };
             tx.try_push(BridgeRequest { inner: req }).unwrap();
         }

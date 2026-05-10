@@ -104,6 +104,7 @@ mod tests {
         PhysicalTask {
             tenant_id: TenantId::new(1),
             vshard_id: VShardId::new(0),
+            database_id: crate::types::DatabaseId::DEFAULT,
             plan: PhysicalPlan::Document(DocumentOp::PointPut {
                 collection: "test".into(),
                 document_id: id.into(),

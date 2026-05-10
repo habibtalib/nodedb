@@ -21,6 +21,7 @@ use nodedb_cluster::rpc_codec::{ExecuteRequest, ExecuteResponse, TypedClusterErr
 use crate::bridge::envelope::{Priority, Request};
 use crate::bridge::physical_plan::wire as plan_wire;
 use crate::control::state::SharedState;
+use crate::types::DatabaseId;
 use crate::types::ReadConsistency;
 
 /// Numeric code for `TypedClusterError::Internal` when plan bytes fail to decode.
@@ -81,7 +82,8 @@ impl LocalPlanExecutor {
         let catalog_ref = self.state.credentials.catalog();
         if let Some(catalog) = catalog_ref.as_ref() {
             for entry in &req.descriptor_versions {
-                match catalog.get_collection(req.tenant_id, &entry.collection) {
+                match catalog.get_collection(DatabaseId::DEFAULT, req.tenant_id, &entry.collection)
+                {
                     Ok(Some(stored)) => {
                         // Version 0 is the pre-B.1 sentinel; treat as 1 (same
                         // floor the drain gate uses).
@@ -136,10 +138,12 @@ impl LocalPlanExecutor {
         // Build a Request, register a oneshot tracker, dispatch, and await the response.
         let request_id = self.state.next_request_id();
         let tenant_id = crate::types::TenantId::new(req.tenant_id);
+        let database_id = crate::types::DatabaseId::from(req.database_id);
 
         let request = Request {
             request_id,
             tenant_id,
+            database_id,
             // Use the first vshard_id from the plan — the sender already routed
             // this to the correct node. Use 0 as the default if the plan doesn't
             // embed vshard info directly; the Data Plane ignores it for local exec.
@@ -152,6 +156,8 @@ impl LocalPlanExecutor {
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
 
         let mut rx = self.state.tracker.register(request_id);

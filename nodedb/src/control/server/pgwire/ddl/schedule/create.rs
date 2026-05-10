@@ -17,7 +17,7 @@ use crate::control::state::SharedState;
 use crate::event::scheduler::cron::CronExpr;
 use crate::event::scheduler::types::{MissedPolicy, ScheduleDef, ScheduleScope};
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 /// Parsed `CREATE SCHEDULE` request.
 ///
@@ -46,7 +46,7 @@ pub fn create_schedule(
         missed_policy,
         allow_overlap,
     } = *req;
-    require_admin(identity, "create schedules")?;
+    require_tenant_admin(identity, "create schedules")?;
 
     let tenant_id = identity.tenant_id.as_u64();
 

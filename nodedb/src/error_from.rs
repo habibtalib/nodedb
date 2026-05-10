@@ -98,6 +98,10 @@ impl From<Error> for NodeDbError {
                 collection,
                 document_id,
             } => NodeDbError::write_conflict(collection, document_id),
+            Error::SourceFrozen { database_id } => NodeDbError::write_conflict(
+                format!("database:{database_id}"),
+                "source database is frozen for clone materialization; retry shortly".to_owned(),
+            ),
             Error::RejectedPrevalidation { constraint, reason } => {
                 NodeDbError::prevalidation_rejected(constraint, reason)
             }
@@ -164,6 +168,9 @@ impl From<Error> for NodeDbError {
 
             // Client input
             Error::BadRequest { detail } => NodeDbError::bad_request(detail),
+            Error::QuotaOvercommit { field, detail } => {
+                NodeDbError::quota_overcommit(field, detail)
+            }
             Error::PlanError { detail } => NodeDbError::plan_error(detail),
             Error::RetryableSchemaChanged { descriptor } => {
                 NodeDbError::plan_error(format!("retryable schema change on {descriptor}"))
@@ -237,6 +244,48 @@ impl From<Error> for NodeDbError {
             Error::OllpExhausted { retries } => NodeDbError::bad_request(format!(
                 "OLLP dependent-read exhausted {retries} retries; the predicate's matching set \
                  kept changing across retries. Consider rephrasing as a static-key UPDATE if possible."
+            )),
+            Error::SessionCapExceeded { cap } => NodeDbError::bad_request(format!(
+                "session cap ({cap}) exceeded — rejecting new login"
+            )),
+            Error::TenantVectorDimExceeded { dim, limit } => {
+                NodeDbError::tenant_vector_dim_exceeded(dim, limit)
+            }
+            Error::TenantGraphDepthExceeded { depth, limit } => {
+                NodeDbError::tenant_graph_depth_exceeded(depth, limit)
+            }
+            Error::RoleInheritanceCycle { child, parent } => NodeDbError::bad_request(format!(
+                "role inheritance cycle: granting '{parent}' as parent of '{child}' would create a cycle"
+            )),
+            Error::RoleInheritanceDepthExceeded { depth, limit } => {
+                NodeDbError::bad_request(format!(
+                    "role inheritance depth {depth} exceeds the maximum allowed depth of {limit}"
+                ))
+            }
+            Error::MirrorReadOnly { database } => NodeDbError::mirror_read_only(database),
+            Error::StaleReadNotLeader {
+                database,
+                source_cluster,
+                ..
+            } => NodeDbError::stale_read_not_leader(database, source_cluster),
+
+            Error::SessionIdleTimeout => {
+                NodeDbError::bad_request("session terminated: idle timeout exceeded".to_owned())
+            }
+            Error::SessionTokenExpired => {
+                NodeDbError::bad_request("session terminated: OIDC token expired".to_owned())
+            }
+            Error::SessionKilledByAdmin => {
+                NodeDbError::bad_request("session terminated by administrator".to_owned())
+            }
+            Error::SessionUserDropped => {
+                NodeDbError::bad_request("session terminated: user account dropped".to_owned())
+            }
+            Error::OidcUnknownProvider { iss } => {
+                NodeDbError::bad_request(format!("OIDC: no provider registered for issuer '{iss}'"))
+            }
+            Error::OidcNoDefaultDatabase { sub } => NodeDbError::bad_request(format!(
+                "OIDC: no default database resolved for sub '{sub}'"
             )),
         }
     }

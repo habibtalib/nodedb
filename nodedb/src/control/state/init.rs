@@ -88,6 +88,26 @@ impl SharedState {
             Arc::clone(&test_credentials),
             Arc::new(crate::control::surrogate::NoopWalAppender),
         ));
+        let shared_audit = Arc::new(Mutex::new(AuditLog::new(10_000)));
+        let test_session_registry =
+            Arc::new(crate::control::security::sessions::SessionRegistry::new());
+        let (si_bus, uc_bus, bus_consumer_task) = super::buses_init::init_security_buses(
+            Arc::clone(&shared_audit),
+            Arc::clone(&test_session_registry),
+        );
+        let bus_consumer_handle = Some(bus_consumer_task);
+        // Wire buses into the credential store so test mutations publish events.
+        test_credentials.set_buses(
+            Arc::new(
+                crate::control::security::buses::SessionInvalidationBus::from_existing(
+                    si_bus.sender(),
+                ),
+            ),
+            Arc::new(
+                crate::control::security::buses::UserChangeBus::from_existing(uc_bus.sender()),
+            ),
+        );
+
         let state = Arc::new(Self {
             dispatcher: Mutex::new(dispatcher),
             tracker: RequestTracker::new(),
@@ -95,7 +115,7 @@ impl SharedState {
             quiesce: crate::bridge::quiesce::CollectionQuiesce::new(),
             http_client: Arc::new(reqwest::Client::new()),
             credentials: Arc::clone(&test_credentials),
-            audit: Arc::new(Mutex::new(AuditLog::new(10_000))),
+            audit: shared_audit,
             api_keys: ApiKeyStore::new(),
             roles: RoleStore::new(),
             permissions: PermissionStore::new(),
@@ -131,7 +151,7 @@ impl SharedState {
             rate_limiter: crate::control::security::ratelimit::limiter::RateLimiter::default(),
             session_handles: crate::control::security::session_handle::SessionHandleStore::default(
             ),
-            session_registry: crate::control::security::session_registry::SessionRegistry::new(),
+            session_registry: test_session_registry,
             escalation: crate::control::security::escalation::EscalationEngine::default(),
             usage_counter: Arc::new(
                 crate::control::security::metering::counter::UsageCounter::new(),
@@ -178,6 +198,9 @@ impl SharedState {
                 std::collections::HashMap::new(),
             )),
             array_gc_handle: None,
+            session_invalidation_bus: si_bus,
+            user_change_bus: uc_bus,
+            bus_consumer_handle,
             array_sync_schemas: {
                 let db = std::sync::Arc::new(
                     redb::Database::builder()
@@ -211,6 +234,8 @@ impl SharedState {
             array_merger_registry: std::sync::Arc::new(
                 crate::control::array_sync::MergerRegistry::new(),
             ),
+            mirror_link_registry: Arc::new(crate::control::mirror::MirrorLinkRegistry::new()),
+            database_registry: crate::control::database::DatabaseRegistry::new(),
             surrogate_registry: Arc::clone(&test_surrogate_registry),
             surrogate_assigner: Arc::clone(&test_surrogate_assigner),
             block_cache: crate::control::planner::procedural::executor::ProcedureBlockCache::new(
@@ -280,10 +305,17 @@ impl SharedState {
             raft_propose_leader_change_retries: AtomicU64::new(0),
             request_id_counter: AtomicU64::new(1),
             system_metrics: Some(Arc::new(crate::control::metrics::SystemMetrics::new())),
+            database_metrics: Arc::new(crate::control::metrics::DatabaseMetricsRegistry::new()),
+            quota_ceiling: Arc::new(std::sync::RwLock::new(
+                crate::control::security::catalog::GlobalQuotaCeiling::default(),
+            )),
             retention_settings: Arc::new(std::sync::RwLock::new(
                 crate::config::server::RetentionSettings::default(),
             )),
             governor: None,
+            maintenance_budget: Arc::new(
+                crate::control::maintenance::MaintenanceBudgetTracker::new(),
+            ),
             epoch_tracker: Mutex::new(std::collections::HashMap::new()),
             ts_partition_registries: Some(Mutex::new(std::collections::HashMap::new())),
             cold_storage: None,
@@ -318,6 +350,18 @@ impl SharedState {
             gateway: None,
             backup_kek: None,
             quarantine_registry: Arc::new(crate::storage::quarantine::QuarantineRegistry::new()),
+            admission_registry: Arc::new(
+                crate::control::server::admission::AdmissionRegistry::new(),
+            ),
+            lsn_ms_map: Arc::new(Mutex::new(nodedb_types::temporal::LsnMsMap::new())),
+            audit_dml_cache: Arc::new(crate::control::state::audit_dml_cache::AuditDmlCache::new()),
+            idle_timeout_cache: Arc::new(
+                crate::control::state::idle_timeout_cache::IdleTimeoutCache::new(),
+            ),
+            collection_to_database: Arc::new(
+                crate::control::state::collection_to_database::CollectionToDatabase::new(),
+            ),
+            materialize_freeze: crate::control::clone::MaterializeFreezeRegistry::new(),
             shutdown: Arc::clone(&shutdown),
             loop_registry: Arc::clone(&loop_registry),
             startup: Arc::clone(&startup_gate),

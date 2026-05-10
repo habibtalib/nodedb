@@ -97,8 +97,14 @@ pub async fn insert_edge(
         dst_surrogate,
     });
 
-    wal_dispatch::wal_append_if_write(&state.wal, tenant_id, vshard_id, &plan)
-        .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
+    wal_dispatch::wal_append_if_write(
+        &state.wal,
+        tenant_id,
+        vshard_id,
+        crate::types::DatabaseId::DEFAULT,
+        &plan,
+    )
+    .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
 
     match dispatch_utils::dispatch_to_data_plane(state, tenant_id, vshard_id, plan, TraceId::ZERO)
         .await
@@ -140,8 +146,14 @@ pub async fn delete_edge(
         dst_id: dst,
     });
 
-    wal_dispatch::wal_append_if_write(&state.wal, tenant_id, vshard_id, &plan)
-        .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
+    wal_dispatch::wal_append_if_write(
+        &state.wal,
+        tenant_id,
+        vshard_id,
+        crate::types::DatabaseId::DEFAULT,
+        &plan,
+    )
+    .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
 
     match dispatch_utils::dispatch_to_data_plane(state, tenant_id, vshard_id, plan, TraceId::ZERO)
         .await
@@ -182,8 +194,14 @@ pub async fn set_node_labels(
         PhysicalPlan::Graph(GraphOp::SetNodeLabels { node_id, labels })
     };
 
-    wal_dispatch::wal_append_if_write(&state.wal, tenant_id, vshard_id, &plan)
-        .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
+    wal_dispatch::wal_append_if_write(
+        &state.wal,
+        tenant_id,
+        vshard_id,
+        crate::types::DatabaseId::DEFAULT,
+        &plan,
+    )
+    .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
 
     match dispatch_utils::dispatch_to_data_plane(state, tenant_id, vshard_id, plan, TraceId::ZERO)
         .await

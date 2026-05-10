@@ -48,8 +48,10 @@ pub(super) fn convert_aggregate(p: ConvertAggregateParams<'_>) -> crate::Result<
         ..
     } = input
     {
-        let mut left_collection = extract_collection_name(left);
-        let mut right_collection = extract_collection_name(right);
+        let mut left_collection =
+            super::convert::db_qualified(ctx.database_id, &extract_collection_name(left));
+        let mut right_collection =
+            super::convert::db_qualified(ctx.database_id, &extract_collection_name(right));
         let mut left_alias = extract_scan_alias(left);
         let mut right_alias = extract_scan_alias(right);
 
@@ -69,11 +71,12 @@ pub(super) fn convert_aggregate(p: ConvertAggregateParams<'_>) -> crate::Result<
             join_type.as_str().to_string()
         };
 
-        let vshard = VShardId::from_collection(&left_collection);
+        let vshard = VShardId::from_collection_in_database(ctx.database_id, &left_collection);
 
         return Ok(vec![PhysicalTask {
             tenant_id,
             vshard_id: vshard,
+            database_id: ctx.database_id,
             plan: PhysicalPlan::Query(QueryOp::HashJoin {
                 left_collection,
                 right_collection,
@@ -96,8 +99,8 @@ pub(super) fn convert_aggregate(p: ConvertAggregateParams<'_>) -> crate::Result<
     }
 
     // Standard aggregate on a single collection.
-    let collection = extract_collection_name(input);
-    let vshard = VShardId::from_collection(&collection);
+    let collection = super::convert::db_qualified(ctx.database_id, &extract_collection_name(input));
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, &collection);
     let (filters_ref, engine) = match input {
         SqlPlan::Scan {
             filters, engine, ..
@@ -117,6 +120,7 @@ pub(super) fn convert_aggregate(p: ConvertAggregateParams<'_>) -> crate::Result<
         return Ok(vec![PhysicalTask {
             tenant_id,
             vshard_id: vshard,
+            database_id: ctx.database_id,
             plan: PhysicalPlan::Timeseries(TimeseriesOp::Scan {
                 collection,
                 time_range,
@@ -146,6 +150,7 @@ pub(super) fn convert_aggregate(p: ConvertAggregateParams<'_>) -> crate::Result<
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Query(QueryOp::Aggregate {
             collection,
             group_by: group_strs,

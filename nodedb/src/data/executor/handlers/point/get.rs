@@ -86,9 +86,10 @@ impl CoreLoop {
                 }
             }
         } else {
+            let database_id = task.request.database_id.as_u64();
             let cached = self
                 .doc_cache
-                .get(tid, collection, row_key)
+                .get(database_id, tid, collection, row_key)
                 .map(|v| v.to_vec());
             if let Some(data) = cached {
                 data
@@ -100,7 +101,8 @@ impl CoreLoop {
                 };
                 match res {
                     Ok(Some(data)) => {
-                        self.doc_cache.put(tid, collection, row_key, &data);
+                        self.doc_cache
+                            .put(database_id, tid, collection, row_key, &data);
                         data
                     }
                     Ok(None) => return self.response_with_payload(task, Vec::new()),

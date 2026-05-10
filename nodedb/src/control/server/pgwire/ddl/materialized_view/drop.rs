@@ -2,6 +2,7 @@
 
 //! `DROP MATERIALIZED VIEW [IF EXISTS]` handler.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -75,7 +76,7 @@ pub fn drop_materialized_view(
     // later CREATE COLLECTION with the same name.
     if let Some(catalog) = state.credentials.catalog()
         && matches!(
-            catalog.get_collection(tenant_id.as_u64(), &name),
+            catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &name),
             Ok(Some(_))
         )
     {

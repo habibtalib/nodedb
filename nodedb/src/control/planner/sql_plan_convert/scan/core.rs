@@ -35,11 +35,14 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_scan(
         window_functions,
         tenant_id,
         temporal,
+        database_id,
     } = p;
+    let coll_qualified = super::super::convert::db_qualified(database_id, collection);
+    let collection = coll_qualified.as_str();
     let filter_bytes = serialize_filters(filters)?;
     let proj_names = extract_projection_names(projection, window_functions);
     let sort = convert_sort_keys(sort_keys);
-    let vshard = VShardId::from_collection(collection);
+    let vshard = VShardId::from_collection_in_database(database_id, collection);
     let computed_bytes = extract_computed_columns(projection, window_functions)?;
     let window_bytes = serialize_window_functions(window_functions)?;
 
@@ -91,6 +94,9 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_scan(
             filters: filter_bytes,
             match_pattern: None,
             sort_keys: sort.clone(),
+            // Original SQL planner output never carries a clone ceiling;
+            // the clone resolver overrides it when delegating to source.
+            surrogate_ceiling: None,
         }),
         EngineType::DocumentSchemaless | EngineType::DocumentStrict => {
             PhysicalPlan::Document(DocumentOp::Scan {
@@ -119,6 +125,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_scan(
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id,
         plan: physical,
         post_set_op: PostSetOp::None,
     }])
@@ -139,10 +146,13 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_document_index_look
     limit: Option<usize>,
     offset: usize,
     tenant_id: TenantId,
+    database_id: crate::types::DatabaseId,
 ) -> crate::Result<Vec<PhysicalTask>> {
+    let coll_qualified = super::super::convert::db_qualified(database_id, collection);
+    let collection = coll_qualified.as_str();
     let filter_bytes = serialize_filters(filters)?;
     let proj_names = extract_projection_names(projection, &[]);
-    let vshard = VShardId::from_collection(collection);
+    let vshard = VShardId::from_collection_in_database(database_id, collection);
     let physical = PhysicalPlan::Document(DocumentOp::IndexedFetch {
         collection: collection.into(),
         path: field.into(),
@@ -155,6 +165,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_document_index_look
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id,
         plan: physical,
         post_set_op: PostSetOp::None,
     }])
@@ -168,12 +179,15 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_point_get(
     tenant_id: TenantId,
     ctx: &super::super::convert::ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
-    let vshard = VShardId::from_collection(collection);
+    let coll_qualified = super::super::convert::db_qualified(ctx.database_id, collection);
+    let collection = coll_qualified.as_str();
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, collection);
     let physical = match engine {
         EngineType::KeyValue => PhysicalPlan::Kv(KvOp::Get {
             collection: collection.into(),
             key: sql_value_to_bytes(key_value),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
         EngineType::DocumentSchemaless | EngineType::DocumentStrict => {
             let pk_string = sql_value_to_string(key_value);
@@ -182,9 +196,13 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_point_get(
                 Some(a) => match a.lookup(collection, &pk_bytes)? {
                     Some(s) => s,
                     None => {
-                        // Row not bound — return zero tasks; the
-                        // dispatcher emits an empty result set.
-                        return Ok(Vec::new());
+                        // No surrogate bound in the target database yet.
+                        // Emit a sentinel task so the clone CoW resolver can
+                        // intercept and fetch the row from the source database.
+                        // For non-clone databases the Data Plane looks up
+                        // the sentinel key, finds nothing, and returns empty
+                        // — identical behaviour to the zero-tasks path.
+                        nodedb_types::Surrogate::ZERO
                     }
                 },
                 None => nodedb_types::Surrogate::ZERO,
@@ -248,6 +266,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_point_get(
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: ctx.database_id,
         plan: physical,
         post_set_op: PostSetOp::None,
     }])

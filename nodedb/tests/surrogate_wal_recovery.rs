@@ -96,12 +96,16 @@ fn kill_restart_recovers_all_bindings_and_hwm() {
     // surrogate. The reverse map agrees too.
     for (coll, pk, surrogate) in &expected {
         assert_eq!(
-            catalog.get_surrogate_for_pk(coll, pk).unwrap(),
+            catalog
+                .get_surrogate_for_pk(nodedb_types::DatabaseId::DEFAULT, coll, pk)
+                .unwrap(),
             Some(*surrogate),
             "binding for ({coll}, {pk:?}) lost across crash",
         );
         assert_eq!(
-            catalog.get_pk_for_surrogate(coll, *surrogate).unwrap(),
+            catalog
+                .get_pk_for_surrogate(nodedb_types::DatabaseId::DEFAULT, coll, *surrogate)
+                .unwrap(),
             Some(pk.clone()),
             "reverse binding for ({coll}, {surrogate:?}) lost across crash",
         );

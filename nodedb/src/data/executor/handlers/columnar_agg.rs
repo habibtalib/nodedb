@@ -43,6 +43,10 @@ pub(super) struct ColumnarAggParams<'a> {
     pub spill_dir: &'a std::path::Path,
     pub spill_cap: usize,
     pub governor: Option<std::sync::Arc<nodedb_mem::MemoryGovernor>>,
+    /// Database the query executes against, for memory governor scoping.
+    pub db: crate::types::DatabaseId,
+    /// Tenant the query executes on behalf of.
+    pub tenant: crate::types::TenantId,
 }
 
 /// Try to execute an aggregate query natively on a columnar memtable.
@@ -59,6 +63,7 @@ pub(super) fn try_columnar_aggregate(p: &ColumnarAggParams<'_>) -> Option<Column
     let (limit, scan_limit, spill_dir, spill_cap) =
         (p.limit, p.scan_limit, p.spill_dir, p.spill_cap);
     let governor = p.governor.clone();
+    let (db, tenant) = (p.db, p.tenant);
     let schema = mt.schema();
     let row_count = (mt.row_count() as usize).min(scan_limit);
 
@@ -188,73 +193,77 @@ pub(super) fn try_columnar_aggregate(p: &ColumnarAggParams<'_>) -> Option<Column
             .map(|&(idx, ty)| (idx, ty, mt.column(idx)))
             .collect();
 
-        let mut spiller =
-            match ColumnarGroupBySpiller::new(spill_dir.to_path_buf(), spill_cap, governor.clone())
-            {
-                Ok(s) => s,
-                Err(_) => {
-                    // If we can't create the spill dir, fall back to no-spill path.
-                    let mut groups: HashMap<GroupKey, Vec<AggAccum>> = HashMap::with_capacity(1024);
-                    let mut process_row = |row_idx: usize| {
-                        let key: GroupKey = if group_by.is_empty() {
-                            Vec::new()
-                        } else {
-                            group_col_data
-                                .iter()
-                                .map(|(_, col_type, col_data)| {
-                                    extract_group_key_part(col_type, col_data, row_idx)
-                                })
-                                .collect()
-                        };
-                        let accums = groups
-                            .entry(key)
-                            .or_insert_with(|| (0..num_aggs).map(|_| AggAccum::new()).collect());
-                        for (agg_idx, (op, _)) in aggregates.iter().enumerate() {
-                            match &agg_col_data[agg_idx] {
-                                None => accums[agg_idx].feed_count_only(),
-                                Some((_, col_data)) => {
-                                    let val = match col_data {
-                                        ColumnData::Float64(vals) => vals[row_idx],
-                                        ColumnData::Int64(vals) => vals[row_idx] as f64,
-                                        ColumnData::Timestamp(vals) => vals[row_idx] as f64,
-                                        _ => return,
-                                    };
-                                    if op == "count" {
-                                        accums[agg_idx].feed_count_only();
-                                    } else {
-                                        accums[agg_idx].feed(val);
-                                    }
-                                }
-                            }
-                        }
+        let mut spiller = match ColumnarGroupBySpiller::new(
+            spill_dir.to_path_buf(),
+            spill_cap,
+            governor.clone(),
+            db,
+            tenant,
+        ) {
+            Ok(s) => s,
+            Err(_) => {
+                // If we can't create the spill dir, fall back to no-spill path.
+                let mut groups: HashMap<GroupKey, Vec<AggAccum>> = HashMap::with_capacity(1024);
+                let mut process_row = |row_idx: usize| {
+                    let key: GroupKey = if group_by.is_empty() {
+                        Vec::new()
+                    } else {
+                        group_col_data
+                            .iter()
+                            .map(|(_, col_type, col_data)| {
+                                extract_group_key_part(col_type, col_data, row_idx)
+                            })
+                            .collect()
                     };
-                    match &filter_result {
-                        FilterResult::Bitmask(bm) => {
-                            for_each_set_bit(bm, row_count, &mut process_row);
-                        }
-                        FilterResult::BoolMask(mask) => {
-                            for (row_idx, &passes) in mask.iter().enumerate().take(row_count) {
-                                if passes {
-                                    process_row(row_idx);
+                    let accums = groups
+                        .entry(key)
+                        .or_insert_with(|| (0..num_aggs).map(|_| AggAccum::new()).collect());
+                    for (agg_idx, (op, _)) in aggregates.iter().enumerate() {
+                        match &agg_col_data[agg_idx] {
+                            None => accums[agg_idx].feed_count_only(),
+                            Some((_, col_data)) => {
+                                let val = match col_data {
+                                    ColumnData::Float64(vals) => vals[row_idx],
+                                    ColumnData::Int64(vals) => vals[row_idx] as f64,
+                                    ColumnData::Timestamp(vals) => vals[row_idx] as f64,
+                                    _ => return,
+                                };
+                                if op == "count" {
+                                    accums[agg_idx].feed_count_only();
+                                } else {
+                                    accums[agg_idx].feed(val);
                                 }
                             }
                         }
-                        FilterResult::None => {
-                            for row_idx in 0..row_count {
+                    }
+                };
+                match &filter_result {
+                    FilterResult::Bitmask(bm) => {
+                        for_each_set_bit(bm, row_count, &mut process_row);
+                    }
+                    FilterResult::BoolMask(mask) => {
+                        for (row_idx, &passes) in mask.iter().enumerate().take(row_count) {
+                            if passes {
                                 process_row(row_idx);
                             }
                         }
                     }
-                    return Some(build_results_from_groups(
-                        &groups,
-                        group_by,
-                        &group_col_info,
-                        aggregates,
-                        mt,
-                        limit,
-                    ));
+                    FilterResult::None => {
+                        for row_idx in 0..row_count {
+                            process_row(row_idx);
+                        }
+                    }
                 }
-            };
+                return Some(build_results_from_groups(
+                    &groups,
+                    group_by,
+                    &group_col_info,
+                    aggregates,
+                    mt,
+                    limit,
+                ));
+            }
+        };
 
         // Spill-aware accumulation loop.
         let mut spill_err: Option<crate::Error> = None;
@@ -495,6 +504,8 @@ mod tests {
             spill_dir: &sd,
             spill_cap: 1_000_000,
             governor: None,
+            db: crate::types::DatabaseId::DEFAULT,
+            tenant: crate::types::TenantId::new(1),
         })
         .unwrap();
 
@@ -519,6 +530,8 @@ mod tests {
             spill_dir: &sd,
             spill_cap: 1_000_000,
             governor: None,
+            db: crate::types::DatabaseId::DEFAULT,
+            tenant: crate::types::TenantId::new(1),
         })
         .unwrap();
 
@@ -546,6 +559,8 @@ mod tests {
             spill_dir: &sd,
             spill_cap: 1_000_000,
             governor: None,
+            db: crate::types::DatabaseId::DEFAULT,
+            tenant: crate::types::TenantId::new(1),
         })
         .unwrap();
 
@@ -571,6 +586,8 @@ mod tests {
             spill_dir: &sd,
             spill_cap: 1_000_000,
             governor: None,
+            db: crate::types::DatabaseId::DEFAULT,
+            tenant: crate::types::TenantId::new(1),
         })
         .unwrap();
 

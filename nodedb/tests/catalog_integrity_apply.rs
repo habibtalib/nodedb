@@ -53,7 +53,12 @@ fn apply_put_trigger_writes_owner_row_to_redb() {
     // Write the parent collection first so Check 4 (trigger →
     // collection) doesn't also fire — this test is about the
     // owner-row gap only.
-    catalog.put_collection(&make_collection("orders")).unwrap();
+    catalog
+        .put_collection(
+            nodedb_types::DatabaseId::DEFAULT,
+            &make_collection("orders"),
+        )
+        .unwrap();
     catalog
         .put_owner(&StoredOwner {
             object_type: "collection".into(),

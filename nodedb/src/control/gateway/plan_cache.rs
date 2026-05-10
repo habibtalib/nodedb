@@ -265,6 +265,7 @@ mod tests {
             collection: collection.into(),
             key: vec![],
             rls_filters: vec![],
+            surrogate_ceiling: None,
         }))
     }
 

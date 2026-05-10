@@ -2,6 +2,7 @@
 
 //! UPDATE, DELETE, and TRUNCATE planning — extracted from `dml.rs`.
 
+use nodedb_types::DatabaseId;
 use sqlparser::ast;
 
 use super::super::ast_helpers::{
@@ -31,7 +32,7 @@ pub fn plan_update(stmt: &ast::Statement, catalog: &dyn SqlCatalog) -> Result<Ve
 
     let table_name = extract_table_name_from_table_with_joins(&update.table)?;
     let info = catalog
-        .get_collection(&table_name)?
+        .get_collection(DatabaseId::DEFAULT, &table_name)?
         .ok_or_else(|| SqlError::UnknownTable {
             name: table_name.clone(),
         })?;
@@ -118,18 +119,16 @@ fn plan_update_from(update: &ast::Update, catalog: &dyn SqlCatalog) -> Result<Ve
     let source_ref = source_alias.as_deref().unwrap_or(source_name.as_str());
 
     // Validate that the target and source collections exist.
-    let target_info =
-        catalog
-            .get_collection(&target_name)?
-            .ok_or_else(|| SqlError::UnknownTable {
-                name: target_name.clone(),
-            })?;
-    let source_info =
-        catalog
-            .get_collection(&source_name)?
-            .ok_or_else(|| SqlError::UnknownTable {
-                name: source_name.clone(),
-            })?;
+    let target_info = catalog
+        .get_collection(DatabaseId::DEFAULT, &target_name)?
+        .ok_or_else(|| SqlError::UnknownTable {
+            name: target_name.clone(),
+        })?;
+    let source_info = catalog
+        .get_collection(DatabaseId::DEFAULT, &source_name)?
+        .ok_or_else(|| SqlError::UnknownTable {
+            name: source_name.clone(),
+        })?;
 
     let assigns = convert_assignments(&update.assignments)?;
 
@@ -315,7 +314,7 @@ pub fn plan_delete(stmt: &ast::Statement, catalog: &dyn SqlCatalog) -> Result<Ve
             }
         })?)?;
     let info = catalog
-        .get_collection(&table_name)?
+        .get_collection(DatabaseId::DEFAULT, &table_name)?
         .ok_or_else(|| SqlError::UnknownTable {
             name: table_name.clone(),
         })?;

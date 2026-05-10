@@ -152,11 +152,15 @@ impl SegmentedWal {
     ///
     /// If the active segment has exceeded the target size, a new segment is
     /// created before appending. The rollover is transparent to the caller.
+    ///
+    /// `database_id` is stored in header bytes 34-41. Pass `0` for the
+    /// default database (backward-compatible with pre-existing records).
     pub fn append(
         &mut self,
         record_type: u32,
         tenant_id: u64,
         vshard_id: u32,
+        database_id: u64,
         payload: &[u8],
     ) -> Result<u64> {
         // Check if we need to roll to a new segment.
@@ -165,7 +169,7 @@ impl SegmentedWal {
         }
 
         self.writer
-            .append(record_type, tenant_id, vshard_id, payload)
+            .append(record_type, tenant_id, vshard_id, database_id, payload)
     }
 
     /// Flush all buffered records and fsync the active segment.
@@ -342,8 +346,12 @@ mod tests {
         let wal_dir = dir.path().join("wal");
 
         let mut wal = SegmentedWal::open(test_config(&wal_dir)).unwrap();
-        let lsn1 = wal.append(RecordType::Put as u32, 1, 0, b"hello").unwrap();
-        let lsn2 = wal.append(RecordType::Put as u32, 1, 0, b"world").unwrap();
+        let lsn1 = wal
+            .append(RecordType::Put as u32, 1, 0, 0, b"hello")
+            .unwrap();
+        let lsn2 = wal
+            .append(RecordType::Put as u32, 1, 0, 0, b"world")
+            .unwrap();
         wal.sync().unwrap();
 
         assert_eq!(lsn1, 1);
@@ -359,10 +367,12 @@ mod tests {
         // Write records.
         {
             let mut wal = SegmentedWal::open(test_config(&wal_dir)).unwrap();
-            wal.append(RecordType::Put as u32, 1, 0, b"first").unwrap();
-            wal.append(RecordType::Delete as u32, 2, 1, b"second")
+            wal.append(RecordType::Put as u32, 1, 0, 0, b"first")
                 .unwrap();
-            wal.append(RecordType::Put as u32, 1, 0, b"third").unwrap();
+            wal.append(RecordType::Delete as u32, 2, 1, 0, b"second")
+                .unwrap();
+            wal.append(RecordType::Put as u32, 1, 0, 0, b"third")
+                .unwrap();
             wal.sync().unwrap();
         }
 
@@ -396,7 +406,7 @@ mod tests {
         // Write enough records to trigger multiple rollovers.
         for i in 0..20u32 {
             let payload = format!("record-{i:04}");
-            wal.append(RecordType::Put as u32, 1, 0, payload.as_bytes())
+            wal.append(RecordType::Put as u32, 1, 0, 0, payload.as_bytes())
                 .unwrap();
             wal.sync().unwrap();
         }
@@ -438,7 +448,7 @@ mod tests {
         // Write records to create multiple segments.
         for i in 0..20u32 {
             let payload = format!("record-{i:04}");
-            wal.append(RecordType::Put as u32, 1, 0, payload.as_bytes())
+            wal.append(RecordType::Put as u32, 1, 0, 0, payload.as_bytes())
                 .unwrap();
             wal.sync().unwrap();
         }
@@ -467,7 +477,7 @@ mod tests {
 
         let mut wal = SegmentedWal::open(test_config(&wal_dir)).unwrap();
         for i in 0..10u32 {
-            wal.append(RecordType::Put as u32, 1, 0, format!("r{i}").as_bytes())
+            wal.append(RecordType::Put as u32, 1, 0, 0, format!("r{i}").as_bytes())
                 .unwrap();
         }
         wal.sync().unwrap();
@@ -485,7 +495,8 @@ mod tests {
         let wal_dir = dir.path().join("wal");
 
         let mut wal = SegmentedWal::open(test_config(&wal_dir)).unwrap();
-        wal.append(RecordType::Put as u32, 1, 0, b"data").unwrap();
+        wal.append(RecordType::Put as u32, 1, 0, 0, b"data")
+            .unwrap();
         wal.sync().unwrap();
 
         let size = wal.total_size_bytes().unwrap();
@@ -499,15 +510,15 @@ mod tests {
 
         {
             let mut wal = SegmentedWal::open(test_config(&wal_dir)).unwrap();
-            wal.append(RecordType::Put as u32, 1, 0, b"a").unwrap();
-            wal.append(RecordType::Put as u32, 1, 0, b"b").unwrap();
+            wal.append(RecordType::Put as u32, 1, 0, 0, b"a").unwrap();
+            wal.append(RecordType::Put as u32, 1, 0, 0, b"b").unwrap();
             wal.sync().unwrap();
         }
 
         {
             let mut wal = SegmentedWal::open(test_config(&wal_dir)).unwrap();
             assert_eq!(wal.next_lsn(), 3);
-            let lsn = wal.append(RecordType::Put as u32, 1, 0, b"c").unwrap();
+            let lsn = wal.append(RecordType::Put as u32, 1, 0, 0, b"c").unwrap();
             assert_eq!(lsn, 3);
             wal.sync().unwrap();
         }
@@ -548,8 +559,14 @@ mod tests {
             wal.set_encryption_ring(ring).unwrap();
 
             for i in 0..10u32 {
-                wal.append(RecordType::Put as u32, 1, 0, format!("enc-{i}").as_bytes())
-                    .unwrap();
+                wal.append(
+                    RecordType::Put as u32,
+                    1,
+                    0,
+                    0,
+                    format!("enc-{i}").as_bytes(),
+                )
+                .unwrap();
                 wal.sync().unwrap();
             }
             assert!(wal.list_segments().unwrap().len() > 1);
@@ -618,6 +635,7 @@ mod tests {
                     RecordType::Put as u32,
                     1,
                     0,
+                    0,
                     format!("restart-{i}").as_bytes(),
                 )
                 .unwrap();
@@ -673,7 +691,7 @@ mod tests {
             let ring = crate::crypto::KeyRing::new(key);
             let mut wal = SegmentedWal::open(config).unwrap();
             wal.set_encryption_ring(ring).unwrap();
-            wal.append(RecordType::Put as u32, 1, 0, b"sensitive payload")
+            wal.append(RecordType::Put as u32, 1, 0, 0, b"sensitive payload")
                 .unwrap();
             wal.sync().unwrap();
         }
@@ -714,7 +732,7 @@ mod tests {
 
         // Append 10 records.
         for i in 0..10u8 {
-            wal.append(RecordType::Put as u32, 1, 0, &[i]).unwrap();
+            wal.append(RecordType::Put as u32, 1, 0, 0, &[i]).unwrap();
         }
         wal.sync().unwrap();
 
@@ -738,7 +756,7 @@ mod tests {
         let mut wal = SegmentedWal::open(config).unwrap();
 
         for i in 0..10u8 {
-            wal.append(RecordType::Put as u32, 1, 0, &[i]).unwrap();
+            wal.append(RecordType::Put as u32, 1, 0, 0, &[i]).unwrap();
         }
         wal.sync().unwrap();
 
@@ -760,7 +778,7 @@ mod tests {
         let config = test_config(dir.path());
         let mut wal = SegmentedWal::open(config).unwrap();
 
-        wal.append(RecordType::Put as u32, 1, 0, b"a").unwrap();
+        wal.append(RecordType::Put as u32, 1, 0, 0, b"a").unwrap();
         wal.sync().unwrap();
 
         // Start from beyond all records.
@@ -777,7 +795,7 @@ mod tests {
 
         // Write 10 records to first segment.
         for i in 0..10u8 {
-            wal.append(RecordType::Put as u32, 1, 0, &[i]).unwrap();
+            wal.append(RecordType::Put as u32, 1, 0, 0, &[i]).unwrap();
         }
         wal.sync().unwrap();
         // Force a segment rollover.
@@ -785,7 +803,7 @@ mod tests {
 
         // Write 10 more records to second segment.
         for i in 10..20u8 {
-            wal.append(RecordType::Put as u32, 1, 0, &[i]).unwrap();
+            wal.append(RecordType::Put as u32, 1, 0, 0, &[i]).unwrap();
         }
         wal.sync().unwrap();
 

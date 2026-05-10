@@ -9,9 +9,6 @@ use nodedb::bridge::physical_plan::TimeseriesOp;
 
 use crate::helpers::*;
 
-const TENANT_A: u64 = 10;
-const TENANT_B: u64 = 20;
-
 #[test]
 fn timeseries_scan_isolated() {
     let (mut core, mut tx, mut rx, _dir) = make_core();

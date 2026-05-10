@@ -6,6 +6,7 @@ use pgwire::error::PgWireResult;
 use crate::bridge::physical_plan::DocumentOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use crate::types::DatabaseId;
 use crate::types::TraceId;
 
 pub(super) async fn dispatch(
@@ -14,6 +15,7 @@ pub(super) async fn dispatch(
     sql: &str,
     upper: &str,
     parts: &[&str],
+    database_id: DatabaseId,
 ) -> Option<PgWireResult<Vec<Response>>> {
     // TYPEGUARD DDL.
     if upper.starts_with("CREATE TYPEGUARD ") || upper.starts_with("CREATE OR REPLACE TYPEGUARD ") {
@@ -139,7 +141,7 @@ pub(super) async fn dispatch(
             .unwrap_or(after_into.len());
         if after_into[coll_end..].trim_start().starts_with('{')
             && let Some(result) =
-                super::super::collection::insert_document(state, identity, sql).await
+                super::super::collection::insert_document(state, identity, database_id, sql).await
         {
             return Some(result);
         }
@@ -155,7 +157,8 @@ pub(super) async fn dispatch(
                 .unwrap_or(after_into.len());
             after_into[coll_end..].trim_start().starts_with('{')
         })
-        && let Some(result) = super::super::collection::upsert_document(state, identity, sql).await
+        && let Some(result) =
+            super::super::collection::upsert_document(state, identity, database_id, sql).await
     {
         return Some(result);
     }
@@ -244,7 +247,8 @@ pub(super) async fn dispatch(
                 let coll = args[0].to_lowercase();
                 let field = args[1].to_string();
                 let tenant_id = identity.tenant_id;
-                let vshard = crate::types::VShardId::from_collection(&coll);
+                let vshard =
+                    crate::types::VShardId::from_collection_in_database(database_id, &coll);
                 let plan =
                     crate::bridge::envelope::PhysicalPlan::Document(DocumentOp::EstimateCount {
                         collection: coll,

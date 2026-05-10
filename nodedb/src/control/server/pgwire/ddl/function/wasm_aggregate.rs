@@ -11,7 +11,7 @@ use crate::control::security::catalog::function_types::*;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 use super::parse::{find_matching_paren, parse_parameters, validate_identifier};
 
 /// Handle `CREATE [OR REPLACE] AGGREGATE FUNCTION <name>(<input_type>)
@@ -21,7 +21,7 @@ pub fn create_wasm_aggregate(
     identity: &AuthenticatedIdentity,
     sql: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create WASM aggregate functions")?;
+    require_tenant_admin(identity, "create WASM aggregate functions")?;
 
     let parsed = parse_aggregate_create(sql)?;
     let tenant_id = identity.tenant_id.as_u64();

@@ -7,6 +7,7 @@
 //! re-encoding is required. The schema version is bumped so the Data Plane
 //! picks up the new name on the next register dispatch.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -36,7 +37,7 @@ pub async fn alter_collection_rename_column(
     };
 
     let coll = catalog
-        .get_collection(tenant_id.as_u64(), name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), name)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
         .filter(|c| c.is_active)
         .ok_or_else(|| sqlstate_error("42P01", &format!("collection '{name}' does not exist")))?;
@@ -88,7 +89,7 @@ pub async fn alter_collection_rename_column(
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     if log_index == 0 {
         catalog
-            .put_collection(&updated)
+            .put_collection(DatabaseId::DEFAULT, &updated)
             .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     }
 

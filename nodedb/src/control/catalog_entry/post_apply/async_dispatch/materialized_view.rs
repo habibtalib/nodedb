@@ -13,7 +13,7 @@ use tracing::debug;
 use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
 use crate::bridge::physical_plan::MetaOp;
 use crate::control::state::SharedState;
-use crate::types::{ReadConsistency, TenantId, TraceId, VShardId};
+use crate::types::{DatabaseId, ReadConsistency, TenantId, TraceId, VShardId};
 
 /// Dispatch `MetaOp::UnregisterMaterializedView` to every core on
 /// this node. Fire-and-forget: any core that fails or times out
@@ -34,6 +34,7 @@ pub async fn delete_async(tenant_id: u64, name: String, shared: Arc<SharedState>
             let request = Request {
                 request_id,
                 tenant_id: TenantId::new(tenant_id),
+                database_id: DatabaseId::DEFAULT,
                 vshard_id: VShardId::new(core_id as u32),
                 plan: PhysicalPlan::Meta(MetaOp::UnregisterMaterializedView {
                     tenant_id,
@@ -46,6 +47,8 @@ pub async fn delete_async(tenant_id: u64, name: String, shared: Arc<SharedState>
                 idempotency_key: None,
                 event_source: crate::event::EventSource::User,
                 user_roles: Vec::new(),
+                user_id: None,
+                statement_digest: None,
             };
             let rx = shared.tracker.register(request_id);
             if d.dispatch_to_core(core_id, request).is_err() {

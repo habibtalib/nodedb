@@ -61,8 +61,8 @@ pub struct SharedState {
     pub rate_limiter: crate::control::security::ratelimit::limiter::RateLimiter,
     /// Opaque session handle store (POST /api/auth/session → UUID).
     pub session_handles: crate::control::security::session_handle::SessionHandleStore,
-    /// Active session registry for KILL SESSIONS.
-    pub session_registry: crate::control::security::session_registry::SessionRegistry,
+    /// Active session registry for KILL SESSIONS and bus-consumer hard-revoke.
+    pub session_registry: Arc<crate::control::security::sessions::SessionRegistry>,
     /// Auto-escalation engine (violations → suspend → ban).
     pub escalation: crate::control::security::escalation::EscalationEngine,
     /// Usage metering counter (per-core atomic, periodic flush).
@@ -169,6 +169,12 @@ pub struct SharedState {
     >,
     /// GC background task handle for shutdown await.
     pub array_gc_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Session-invalidation broadcast bus.  Dropping the sender shuts down the consumer.
+    pub session_invalidation_bus: crate::control::security::buses::SessionInvalidationBus,
+    /// User-change broadcast bus.  Dropping the sender shuts down the consumer.
+    pub user_change_bus: crate::control::security::buses::UserChangeBus,
+    /// Audit-row consumer task for the security buses.  Awaited on graceful shutdown.
+    pub bus_consumer_handle: Option<tokio::task::JoinHandle<()>>,
     /// Per-array schema CRDT registry for array sync (survives restarts).
     pub array_sync_schemas: std::sync::Arc<crate::control::array_sync::OriginSchemaRegistry>,
     /// Per-session outbound array CRDT frame channels for the WebSocket send loop.
@@ -177,6 +183,18 @@ pub struct SharedState {
     pub array_subscriber_cursors: std::sync::Arc<crate::control::array_sync::SubscriberMap>,
     /// Cross-shard merger registry for HLC-ordered multi-shard delivery.
     pub array_merger_registry: std::sync::Arc<crate::control::array_sync::MergerRegistry>,
+    /// Registry of active cross-cluster observer links for mirror databases.
+    ///
+    /// Each mirror database that is actively following a source cluster has
+    /// one entry here. The registry is consulted by `ALTER DATABASE PROMOTE`
+    /// to tear down the source link before the catalog mutation lands. Entries
+    /// are added when a mirror is created or resumes after a restart and
+    /// removed on promotion or `DROP DATABASE`.
+    pub mirror_link_registry: Arc<crate::control::mirror::MirrorLinkRegistry>,
+    /// Database-id allocator. Threadsafe via internal atomics.
+    /// Authoritative allocation is proposed through Raft metadata group 0;
+    /// this counter is the local cache (mirrors `SurrogateAssigner` semantics).
+    pub database_registry: crate::control::database::DatabaseRegistry,
     /// Global surrogate registry for stable cross-engine PK ↔ Surrogate allocation.
     pub surrogate_registry: crate::control::surrogate::SurrogateRegistryHandle,
     /// CP-side surrogate assigner for INSERT/UPSERT paths.
@@ -246,10 +264,26 @@ pub struct SharedState {
     pub request_id_counter: AtomicU64,
     /// System-wide metrics (Prometheus format).
     pub system_metrics: Option<Arc<crate::control::metrics::SystemMetrics>>,
+    /// Per-database quota usage counters for Prometheus scraping.
+    pub database_metrics: Arc<crate::control::metrics::DatabaseMetricsRegistry>,
+    /// Global per-cluster quota ceiling enforced when database quotas are
+    /// written. Populated at startup from `[server]` config (`memory_limit`,
+    /// `max_connections`); a zero on any dimension means "no ceiling for that
+    /// dimension". Read by `ALTER DATABASE … SET QUOTA` to validate that the
+    /// sum of all configured database quotas stays within the cluster's
+    /// physical resources. Wrapped in `RwLock` so a future `ALTER SYSTEM` path
+    /// can mutate it without restarting.
+    pub quota_ceiling: Arc<RwLock<crate::control::security::catalog::GlobalQuotaCeiling>>,
     /// Live retention settings. RwLock-wrapped for runtime ALTER SYSTEM mutation.
     pub retention_settings: Arc<std::sync::RwLock<crate::config::server::RetentionSettings>>,
     /// Memory governor for per-engine budget enforcement.
     pub governor: Option<Arc<nodedb_mem::MemoryGovernor>>,
+    /// Per-database maintenance CPU budget tracker.
+    ///
+    /// Shared with every Data Plane `CoreLoop` so all maintenance tasks
+    /// on all cores draw from the same per-database window. Populated with
+    /// caps from `ALTER DATABASE … SET QUOTA (maintenance_cpu_pct = N)`.
+    pub maintenance_budget: Arc<crate::control::maintenance::MaintenanceBudgetTracker>,
     /// Fork detection: tracks `lite_id → last_seen_epoch`.
     pub epoch_tracker: Mutex<std::collections::HashMap<String, u64>>,
     /// Timeseries partition registries.
@@ -325,4 +359,28 @@ pub struct SharedState {
     pub backup_kek: Option<Arc<[u8; 32]>>,
     /// In-process quarantine registry for corrupt segments.
     pub quarantine_registry: Arc<crate::storage::quarantine::QuarantineRegistry>,
+    /// Per-database and per-tenant connection admission semaphores.
+    pub admission_registry: Arc<crate::control::server::admission::AdmissionRegistry>,
+    /// Per-database DML audit mode cache.
+    /// Updated by `ALTER DATABASE SET AUDIT_DML`; consulted by the Event Plane consumer.
+    pub audit_dml_cache: Arc<super::audit_dml_cache::AuditDmlCache>,
+    /// Per-database idle session timeout cache.
+    /// Updated by `ALTER DATABASE SET IDLE_TIMEOUT`; consulted by the idle-sweep loop.
+    pub idle_timeout_cache: Arc<super::idle_timeout_cache::IdleTimeoutCache>,
+    /// Collection-to-database reverse mapping for DML audit routing.
+    /// Updated on `CREATE COLLECTION` / `DROP COLLECTION`.
+    pub collection_to_database: Arc<super::collection_to_database::CollectionToDatabase>,
+    /// LSN ↔ wall-clock millisecond interpolation map.
+    ///
+    /// Populated from WAL anchor records (`RecordType::LsnMsAnchor`) as they
+    /// are replayed or emitted.  Used by the clone CoW resolver to convert
+    /// `AS OF SYSTEM TIME <ms>` values to LSN for source-delegation clamping.
+    /// Wrapped in `Mutex` because the Control Plane is `Send + Sync`.
+    pub lsn_ms_map: Arc<Mutex<nodedb_types::temporal::LsnMsMap>>,
+    /// Set of database ids temporarily frozen against new user writes because
+    /// a clone materializer is reading from them as the source.  Populated by
+    /// `clone_materializer::walker` for the duration of one sweep over a
+    /// dependent clone; concurrent materializers on different clones of the
+    /// same source nest correctly via an internal reference count.
+    pub materialize_freeze: Arc<crate::control::clone::MaterializeFreezeRegistry>,
 }

@@ -282,6 +282,7 @@ mod tests {
             ),
             session_id: "test".into(),
             on_deny_override: None,
+            database_id: None,
         }
     }
 

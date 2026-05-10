@@ -159,6 +159,7 @@ mod tests {
     impl SqlCatalog for StubCatalog {
         fn get_collection(
             &self,
+            _: nodedb_types::DatabaseId,
             _: &str,
         ) -> std::result::Result<Option<CollectionInfo>, SqlCatalogError> {
             Ok(None)

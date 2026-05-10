@@ -4,6 +4,7 @@
 //! — ADD COLUMN variant that binds a computed balance to another collection's
 //! per-row contribution. Atomically maintained on INSERT into the source side.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -40,7 +41,7 @@ pub fn add_materialized_sum(
     };
 
     let mut coll = catalog
-        .get_collection(tenant_id, target_collection)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, target_collection)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
         .ok_or_else(|| {
             sqlstate_error(
@@ -66,7 +67,7 @@ pub fn add_materialized_sum(
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     if log_index == 0 {
         catalog
-            .put_collection(&coll)
+            .put_collection(DatabaseId::DEFAULT, &coll)
             .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     }
 

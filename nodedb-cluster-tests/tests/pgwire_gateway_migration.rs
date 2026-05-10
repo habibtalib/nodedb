@@ -32,6 +32,7 @@ fn test_ctx() -> QueryContext {
     QueryContext {
         tenant_id: TenantId::new(0),
         trace_id: nodedb_types::TraceId::ZERO,
+        database_id: nodedb_types::id::DatabaseId::DEFAULT,
     }
 }
 
@@ -143,6 +144,7 @@ async fn pgwire_gateway_migration_plan_cache_hits() {
             collection: "pgwire_gw_cache".into(),
             key: b"k".to_vec(),
             rls_filters: vec![],
+            surrogate_ceiling: None,
         }));
 
         assert_eq!(gateway.plan_cache.cache_hit_count(), 0, "start at 0");
@@ -191,6 +193,7 @@ async fn pgwire_gateway_migration_plan_cache_hits() {
                 collection: "pgwire_gw_cache".into(),
                 key: b"cache-key".to_vec(),
                 rls_filters: vec![],
+                surrogate_ceiling: None,
             }))
         };
 

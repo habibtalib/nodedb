@@ -19,7 +19,7 @@ use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::types::{sqlstate_error, text_field};
 use crate::control::state::SharedState;
 use crate::engine::graph::traversal_options::GraphTraversalOptions;
-use crate::types::{TraceId, VShardId};
+use crate::types::{DatabaseId, TraceId, VShardId};
 
 use super::parse::{extract_function_args, extract_number_after, json_to_decimal};
 
@@ -101,7 +101,7 @@ pub async fn tree_sum(
         vec![coll.clone()]
     } else if let Some(catalog) = state.credentials.catalog() {
         catalog
-            .load_collections_for_tenant(tenant_id.as_u64())
+            .load_collections_for_tenant(DatabaseId::DEFAULT, tenant_id.as_u64())
             .unwrap_or_default()
             .iter()
             .map(|c| c.name.clone())
@@ -112,7 +112,7 @@ pub async fn tree_sum(
 
     for node_id in &all_ids {
         for coll_name in &collections_to_search {
-            let coll_vshard = VShardId::from_collection(coll_name);
+            let coll_vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, coll_name);
             let pk_bytes = node_id.as_bytes().to_vec();
             let surrogate = state
                 .surrogate_assigner

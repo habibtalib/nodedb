@@ -22,7 +22,7 @@ use pgwire::error::PgWireResult;
 use crate::bridge::physical_plan::{KvOp, PhysicalPlan};
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
-use crate::types::{TraceId, VShardId};
+use crate::types::{DatabaseId, TraceId, VShardId};
 
 /// Handle `SELECT TRANSFER(collection, source_key, dest_key, field, amount)`
 pub async fn transfer(
@@ -55,7 +55,7 @@ pub async fn transfer(
     }
 
     let tenant_id = identity.tenant_id;
-    let vshard = VShardId::from_collection(&collection);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
 
     // Dispatch to Data Plane — entire read+validate+write is atomic (single TPC core).
     let plan = PhysicalPlan::Kv(KvOp::Transfer {
@@ -106,8 +106,8 @@ pub async fn transfer_item(
 
     // Cross-collection transfers must be on the same vshard.
     // Validate this upfront to prevent silent failures.
-    let vshard_src = VShardId::from_collection(&source_collection);
-    let vshard_dst = VShardId::from_collection(&dest_collection);
+    let vshard_src = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &source_collection);
+    let vshard_dst = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &dest_collection);
     if source_collection != dest_collection && vshard_src != vshard_dst {
         return Err(sqlstate_error(
             "0A000",

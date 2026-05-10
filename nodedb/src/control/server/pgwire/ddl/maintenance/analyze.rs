@@ -7,6 +7,7 @@
 //! min/max computation. Results stored in the system catalog for
 //! DataFusion cost-based optimization.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 
@@ -48,7 +49,7 @@ pub async fn handle_analyze(
     })?;
 
     let coll = catalog
-        .get_collection(tenant_id, &collection)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, &collection)
         .map_err(|e| {
             PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
@@ -73,7 +74,14 @@ pub async fn handle_analyze(
     // Dispatch a scan to the Data Plane to collect all rows.
     let scan_sql = format!("SELECT * FROM {collection}");
     let query_ctx = crate::control::planner::context::QueryContext::for_state(state);
-    let rows = match query_ctx.plan_sql(&scan_sql, identity.tenant_id).await {
+    let rows = match query_ctx
+        .plan_sql(
+            &scan_sql,
+            identity.tenant_id,
+            crate::types::DatabaseId::DEFAULT,
+        )
+        .await
+    {
         Ok(tasks) => {
             let mut json_rows = Vec::new();
             for task in tasks {

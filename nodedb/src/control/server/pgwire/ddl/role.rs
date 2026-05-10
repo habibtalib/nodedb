@@ -8,7 +8,7 @@ use crate::control::security::audit::AuditEvent;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::types::{require_admin, sqlstate_error};
+use super::super::types::{require_tenant_admin, sqlstate_error};
 
 /// CREATE ROLE <name> [INHERIT <parent>]
 pub fn create_role(
@@ -16,7 +16,7 @@ pub fn create_role(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create roles")?;
+    require_tenant_admin(identity, "create roles")?;
 
     if parts.len() < 3 {
         return Err(sqlstate_error(
@@ -70,7 +70,7 @@ pub fn alter_role(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "alter roles")?;
+    require_tenant_admin(identity, "alter roles")?;
 
     // ALTER ROLE <name> SET INHERIT <parent>
     if parts.len() < 6 {
@@ -144,7 +144,7 @@ pub fn drop_role(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop roles")?;
+    require_tenant_admin(identity, "drop roles")?;
 
     if parts.len() < 3 {
         return Err(sqlstate_error("42601", "syntax: DROP ROLE <name>"));
@@ -205,7 +205,7 @@ pub fn alter_role_typed(
     role_name: &str,
     sub_op: &AlterRoleOp,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "alter roles")?;
+    require_tenant_admin(identity, "alter roles")?;
 
     // The role must exist before we mutate it.
     state

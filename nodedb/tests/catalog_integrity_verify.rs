@@ -37,7 +37,12 @@ fn verify_redb_integrity_flags_orphan_procedure() {
 #[test]
 fn verify_redb_integrity_flags_orphan_trigger() {
     let (_dir, catalog) = make_catalog();
-    catalog.put_collection(&make_collection("orders")).unwrap();
+    catalog
+        .put_collection(
+            nodedb_types::DatabaseId::DEFAULT,
+            &make_collection("orders"),
+        )
+        .unwrap();
     catalog
         .put_owner(&StoredOwner {
             object_type: "collection".into(),
@@ -158,5 +163,22 @@ fn classify(entry: &CatalogEntry) -> VariantClass {
         // Custom types are registry-only objects (no owner row required).
         CatalogEntry::PutCustomType(_) => VariantClass::Exempt,
         CatalogEntry::DeleteCustomType { .. } => VariantClass::Exempt,
+
+        // Database descriptors and grants are catalog-level objects with
+        // no per-object owner row — they are exempt from the parent-replicated
+        // ownership invariant.
+        CatalogEntry::PutDatabase(_) => VariantClass::Exempt,
+        CatalogEntry::DeleteDatabase { .. } => VariantClass::Exempt,
+        CatalogEntry::PutDatabaseGrant { .. } => VariantClass::Exempt,
+        CatalogEntry::DeleteDatabaseGrant { .. } => VariantClass::Exempt,
+        // Clone creates a new database descriptor; no per-object owner row needed.
+        CatalogEntry::CloneDatabase { .. } => VariantClass::Exempt,
+        // Move tenant cutover re-keys collections; no ownership object is created.
+        CatalogEntry::MoveTenantCutover { .. } => VariantClass::Exempt,
+
+        // OIDC providers are cluster-level identity-provider config; no
+        // per-object owner row required.
+        CatalogEntry::PutOidcProvider(_) => VariantClass::Exempt,
+        CatalogEntry::DeleteOidcProvider { .. } => VariantClass::Exempt,
     }
 }

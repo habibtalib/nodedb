@@ -14,7 +14,7 @@ use crate::engine::array::wal::{
     ArrayDeleteCell, ArrayDeletePayload, ArrayPutPayload, encode_delete_with_version,
     encode_put_with_version,
 };
-use crate::types::{TenantId, VShardId};
+use crate::types::{DatabaseId, TenantId, VShardId};
 use crate::wal::manager::WalManager;
 
 /// Append a write operation to the WAL for single-node durability.
@@ -25,9 +25,10 @@ pub fn wal_append_if_write(
     wal: &WalManager,
     tenant_id: TenantId,
     vshard_id: VShardId,
+    database_id: DatabaseId,
     plan: &PhysicalPlan,
 ) -> crate::Result<()> {
-    wal_append_if_write_with_creds(wal, tenant_id, vshard_id, plan, None)
+    wal_append_if_write_with_creds(wal, tenant_id, vshard_id, database_id, plan, None)
 }
 
 /// WAL append with optional credential store for timeseries WAL bypass check.
@@ -35,6 +36,7 @@ pub fn wal_append_if_write_with_creds(
     wal: &WalManager,
     tenant_id: TenantId,
     vshard_id: VShardId,
+    database_id: DatabaseId,
     plan: &PhysicalPlan,
     credentials: Option<&CredentialStore>,
 ) -> crate::Result<()> {
@@ -53,7 +55,7 @@ pub fn wal_append_if_write_with_creds(
                         detail: format!("wal point put: {e}"),
                     }
                 })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Document(DocumentOp::PointInsert {
             collection,
@@ -69,7 +71,7 @@ pub fn wal_append_if_write_with_creds(
                         detail: format!("wal point insert: {e}"),
                     }
                 })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Document(DocumentOp::PointDelete {
             collection,
@@ -82,7 +84,7 @@ pub fn wal_append_if_write_with_creds(
                     detail: format!("wal point delete: {e}"),
                 }
             })?;
-            wal.append_delete(tenant_id, vshard_id, &entry)?;
+            wal.append_delete(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Vector(VectorOp::Insert {
             collection,
@@ -109,7 +111,7 @@ pub fn wal_append_if_write_with_creds(
                 format: "msgpack".into(),
                 detail: format!("wal vector insert: {e}"),
             })?;
-            wal.append_vector_put(tenant_id, vshard_id, &entry)?;
+            wal.append_vector_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Vector(VectorOp::BatchInsert {
             collection,
@@ -123,7 +125,7 @@ pub fn wal_append_if_write_with_creds(
                     detail: format!("wal vector batch insert: {e}"),
                 }
             })?;
-            wal.append_vector_put(tenant_id, vshard_id, &entry)?;
+            wal.append_vector_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Vector(VectorOp::Delete {
             collection,
@@ -135,10 +137,10 @@ pub fn wal_append_if_write_with_creds(
                     detail: format!("wal vector delete: {e}"),
                 }
             })?;
-            wal.append_vector_delete(tenant_id, vshard_id, &entry)?;
+            wal.append_vector_delete(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Crdt(CrdtOp::Apply { delta, .. }) => {
-            wal.append_crdt_delta(tenant_id, vshard_id, delta)?;
+            wal.append_crdt_delta(tenant_id, vshard_id, database_id, delta)?;
         }
         PhysicalPlan::Graph(GraphOp::EdgePut {
             collection,
@@ -154,7 +156,7 @@ pub fn wal_append_if_write_with_creds(
                 format: "msgpack".into(),
                 detail: format!("wal edge put: {e}"),
             })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Graph(GraphOp::EdgeDelete {
             collection,
@@ -169,7 +171,7 @@ pub fn wal_append_if_write_with_creds(
                         detail: format!("wal edge delete: {e}"),
                     }
                 })?;
-            wal.append_delete(tenant_id, vshard_id, &entry)?;
+            wal.append_delete(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Vector(VectorOp::SetParams {
             collection,
@@ -195,7 +197,7 @@ pub fn wal_append_if_write_with_creds(
                 format: "msgpack".into(),
                 detail: format!("wal set vector params: {e}"),
             })?;
-            wal.append_vector_params(tenant_id, vshard_id, &entry)?;
+            wal.append_vector_params(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Columnar(crate::bridge::physical_plan::ColumnarOp::Insert {
             collection,
@@ -212,7 +214,7 @@ pub fn wal_append_if_write_with_creds(
                         detail: format!("wal columnar batch: {e}"),
                     }
                 })?;
-            wal.append_timeseries_batch(tenant_id, vshard_id, &wal_payload)?;
+            wal.append_timeseries_batch(tenant_id, vshard_id, database_id, &wal_payload)?;
         }
         PhysicalPlan::Timeseries(TimeseriesOp::Ingest {
             collection,
@@ -223,7 +225,8 @@ pub fn wal_append_if_write_with_creds(
             // WAL bypass: skip WAL if collection has wal=false in timeseries_config.
             if let Some(creds) = credentials
                 && let Some(catalog) = creds.catalog()
-                && let Ok(Some(coll)) = catalog.get_collection(tenant_id.as_u64(), collection)
+                && let Ok(Some(coll)) =
+                    catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), collection)
                 && let Some(config) = coll.get_timeseries_config()
                 && config.get("wal").and_then(|v| v.as_str()) == Some("false")
             {
@@ -236,7 +239,7 @@ pub fn wal_append_if_write_with_creds(
                     format: "msgpack".into(),
                     detail: format!("wal timeseries batch: {e}"),
                 })?;
-            wal.append_timeseries_batch(tenant_id, vshard_id, &wal_payload)?;
+            wal.append_timeseries_batch(tenant_id, vshard_id, database_id, &wal_payload)?;
         }
         // KV write operations.
         PhysicalPlan::Kv(KvOp::Put {
@@ -251,7 +254,7 @@ pub fn wal_append_if_write_with_creds(
                     format: "msgpack".into(),
                     detail: format!("wal kv put: {e}"),
                 })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Kv(KvOp::Insert {
             collection,
@@ -280,7 +283,7 @@ pub fn wal_append_if_write_with_creds(
                     format: "msgpack".into(),
                     detail: format!("wal kv insert-like put: {e}"),
                 })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Kv(KvOp::Delete { collection, keys }) => {
             let entry = zerompk::to_msgpack_vec(&("kv_delete", collection, keys)).map_err(|e| {
@@ -289,7 +292,7 @@ pub fn wal_append_if_write_with_creds(
                     detail: format!("wal kv delete: {e}"),
                 }
             })?;
-            wal.append_delete(tenant_id, vshard_id, &entry)?;
+            wal.append_delete(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Kv(KvOp::BatchPut {
             collection,
@@ -301,7 +304,7 @@ pub fn wal_append_if_write_with_creds(
                     format: "msgpack".into(),
                     detail: format!("wal kv batch put: {e}"),
                 })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Kv(KvOp::Expire {
             collection,
@@ -315,7 +318,7 @@ pub fn wal_append_if_write_with_creds(
                         detail: format!("wal kv expire: {e}"),
                     }
                 })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Kv(KvOp::Persist { collection, key }) => {
             let entry = zerompk::to_msgpack_vec(&("kv_persist", collection, key)).map_err(|e| {
@@ -324,7 +327,7 @@ pub fn wal_append_if_write_with_creds(
                     detail: format!("wal kv persist: {e}"),
                 }
             })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Kv(KvOp::RegisterIndex {
             collection,
@@ -338,7 +341,7 @@ pub fn wal_append_if_write_with_creds(
                         format: "msgpack".into(),
                         detail: format!("wal kv register index: {e}"),
                     })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Kv(KvOp::DropIndex { collection, field }) => {
             let entry =
@@ -348,7 +351,7 @@ pub fn wal_append_if_write_with_creds(
                         detail: format!("wal kv drop index: {e}"),
                     }
                 })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Kv(KvOp::FieldSet {
             collection,
@@ -360,7 +363,7 @@ pub fn wal_append_if_write_with_creds(
                     format: "msgpack".into(),
                     detail: format!("wal kv field set: {e}"),
                 })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         // Atomic KV operations.
         PhysicalPlan::Kv(KvOp::Incr {
@@ -374,7 +377,7 @@ pub fn wal_append_if_write_with_creds(
                     format: "msgpack".into(),
                     detail: format!("wal kv incr: {e}"),
                 })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Kv(KvOp::IncrFloat {
             collection,
@@ -386,7 +389,7 @@ pub fn wal_append_if_write_with_creds(
                     format: "msgpack".into(),
                     detail: format!("wal kv incr_float: {e}"),
                 })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Kv(KvOp::Cas {
             collection,
@@ -399,7 +402,7 @@ pub fn wal_append_if_write_with_creds(
                     format: "msgpack".into(),
                     detail: format!("wal kv cas: {e}"),
                 })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Kv(KvOp::GetSet {
             collection,
@@ -411,7 +414,7 @@ pub fn wal_append_if_write_with_creds(
                     format: "msgpack".into(),
                     detail: format!("wal kv getset: {e}"),
                 })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         // Sorted index DDL — persisted so indexes are rebuilt on recovery.
         PhysicalPlan::Kv(KvOp::RegisterSortedIndex {
@@ -439,7 +442,7 @@ pub fn wal_append_if_write_with_creds(
                 format: "msgpack".into(),
                 detail: format!("wal kv register sorted index: {e}"),
             })?;
-            wal.append_put(tenant_id, vshard_id, &entry)?;
+            wal.append_put(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Kv(KvOp::DropSortedIndex { index_name }) => {
             let entry =
@@ -449,7 +452,7 @@ pub fn wal_append_if_write_with_creds(
                         detail: format!("wal kv drop sorted index: {e}"),
                     }
                 })?;
-            wal.append_delete(tenant_id, vshard_id, &entry)?;
+            wal.append_delete(tenant_id, vshard_id, database_id, &entry)?;
         }
         // Truncate uses append_delete to mark the collection as cleared in the WAL.
         // On recovery, replaying this entry drops all hash table state for the collection.
@@ -460,7 +463,7 @@ pub fn wal_append_if_write_with_creds(
                     detail: format!("wal kv truncate: {e}"),
                 }
             })?;
-            wal.append_delete(tenant_id, vshard_id, &entry)?;
+            wal.append_delete(tenant_id, vshard_id, database_id, &entry)?;
         }
         PhysicalPlan::Array(ArrayOp::Put {
             array_id,
@@ -483,7 +486,7 @@ pub fn wal_append_if_write_with_creds(
                     format: "msgpack".into(),
                     detail: format!("wal array put encode: {e}"),
                 })?;
-            wal.append_array_put(tenant_id, vshard_id, &bytes)?;
+            wal.append_array_put(tenant_id, vshard_id, database_id, &bytes)?;
         }
         PhysicalPlan::Array(ArrayOp::Delete {
             array_id,
@@ -506,7 +509,7 @@ pub fn wal_append_if_write_with_creds(
                     format: "msgpack".into(),
                     detail: format!("wal array delete encode: {e}"),
                 })?;
-            wal.append_array_delete(tenant_id, vshard_id, &bytes)?;
+            wal.append_array_delete(tenant_id, vshard_id, database_id, &bytes)?;
         }
         // Read operations and control commands: no WAL needed.
         _ => {}
@@ -523,6 +526,7 @@ pub fn wal_append_timeseries(
     wal: &WalManager,
     tenant_id: TenantId,
     vshard_id: VShardId,
+    database_id: DatabaseId,
     collection: &str,
     payload: &[u8],
     credentials: Option<&CredentialStore>,
@@ -530,7 +534,7 @@ pub fn wal_append_timeseries(
     // WAL bypass check.
     if let Some(creds) = credentials
         && let Some(catalog) = creds.catalog()
-        && let Ok(Some(coll)) = catalog.get_collection(tenant_id.as_u64(), collection)
+        && let Ok(Some(coll)) = catalog.get_collection(database_id, tenant_id.as_u64(), collection)
         && let Some(config) = coll.get_timeseries_config()
         && config.get("wal").and_then(|v| v.as_str()) == Some("false")
     {
@@ -545,6 +549,6 @@ pub fn wal_append_timeseries(
                 detail: format!("wal timeseries batch: {e}"),
             }
         })?;
-    let lsn = wal.append_timeseries_batch(tenant_id, vshard_id, &wal_payload)?;
+    let lsn = wal.append_timeseries_batch(tenant_id, vshard_id, database_id, &wal_payload)?;
     Ok(Some(lsn))
 }

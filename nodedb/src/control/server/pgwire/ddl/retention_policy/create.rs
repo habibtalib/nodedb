@@ -14,13 +14,14 @@
 //! ) [WITH (EVAL_INTERVAL = '<duration>')]
 //! ```
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 use super::RETENTION_POLICIES_CRDT_COLLECTION;
 use super::parse::parse_create_retention_policy;
 
@@ -36,7 +37,7 @@ pub async fn create_retention_policy(
     body_raw: &str,
     eval_interval_raw: Option<&str>,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create retention policies")?;
+    require_tenant_admin(identity, "create retention policies")?;
 
     // Reconstruct minimal SQL for the existing complex parser.
     let reconstructed = if let Some(eval) = eval_interval_raw {
@@ -51,7 +52,7 @@ pub async fn create_retention_policy(
 
     // Validate collection exists and is timeseries.
     if let Some(catalog) = state.credentials.catalog() {
-        match catalog.get_collection(tenant_id, &parsed.collection) {
+        match catalog.get_collection(DatabaseId::DEFAULT, tenant_id, &parsed.collection) {
             Ok(Some(coll)) if coll.collection_type.is_timeseries() => {}
             Ok(Some(_)) => {
                 return Err(sqlstate_error(

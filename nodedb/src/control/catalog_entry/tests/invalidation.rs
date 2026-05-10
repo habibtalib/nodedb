@@ -80,6 +80,7 @@ fn plant_sentinel(cache: &PlanCache, col: &str) -> PlanCacheKey {
         collection: col.into(),
         key: vec![],
         rls_filters: vec![],
+        surrogate_ceiling: None,
     }));
     cache.insert(key.clone(), plan);
     key
@@ -89,8 +90,8 @@ fn plant_sentinel(cache: &PlanCache, col: &str) -> PlanCacheKey {
 // PutCollection — must evict entries for the changed collection
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn put_collection_evicts_stale_plan_entries() {
+#[tokio::test]
+async fn put_collection_evicts_stale_plan_entries() {
     let (shared, cache) = make_test_state();
     let key = plant_sentinel(&cache, "orders");
     assert_eq!(cache.len(), 1);
@@ -111,8 +112,8 @@ fn put_collection_evicts_stale_plan_entries() {
 // DeactivateCollection — treats collection as gone (version 0)
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn deactivate_collection_evicts_plan_entries() {
+#[tokio::test]
+async fn deactivate_collection_evicts_plan_entries() {
     let (shared, cache) = make_test_state();
     let key = plant_sentinel(&cache, "products");
     assert_eq!(cache.len(), 1);
@@ -159,8 +160,8 @@ fn assert_noop(
     cache.invalidate_descriptor("sentinel_col", 0);
 }
 
-#[test]
-fn no_op_variants_do_not_evict_plan_cache() {
+#[tokio::test]
+async fn no_op_variants_do_not_evict_plan_cache() {
     use crate::control::security::catalog::sequence_types::StoredSequence;
 
     let (shared, cache) = make_test_state();
@@ -337,8 +338,8 @@ fn no_op_variants_do_not_evict_plan_cache() {
 // Verify that when gateway_invalidator is None, the function is a pure no-op
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn no_gateway_invalidator_is_safe_noop() {
+#[tokio::test]
+async fn no_gateway_invalidator_is_safe_noop() {
     // Build SharedState WITHOUT wiring the gateway_invalidator.
     let dir = tempfile::tempdir().expect("tmpdir");
     std::mem::forget(dir); // leak to avoid drop-before-use

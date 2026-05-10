@@ -6,6 +6,7 @@
 //! general CHECK constraints. For UPDATE, fetches the current document
 //! and merges SET values for cross-field CHECK evaluation.
 
+use nodedb_types::DatabaseId;
 use std::collections::HashMap;
 
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
@@ -54,7 +55,8 @@ impl NodeDbPgHandler {
         let Some(catalog) = self.state.credentials.catalog() else {
             return Ok(());
         };
-        let coll = match catalog.get_collection(tenant_id.as_u64(), &coll_name) {
+        let coll = match catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &coll_name)
+        {
             Ok(Some(c)) => c,
             _ => return Ok(()),
         };
@@ -115,7 +117,8 @@ impl NodeDbPgHandler {
         let Some(catalog) = self.state.credentials.catalog() else {
             return Ok(());
         };
-        let coll = match catalog.get_collection(tenant_id.as_u64(), &coll_name) {
+        let coll = match catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &coll_name)
+        {
             Ok(Some(c)) => c,
             _ => return Ok(()),
         };

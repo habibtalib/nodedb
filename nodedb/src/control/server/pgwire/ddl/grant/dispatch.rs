@@ -11,6 +11,7 @@ use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
 use super::super::super::types::sqlstate_error;
+use super::database_permission::{grant_database, revoke_database};
 use super::permission::{grant_permission, revoke_permission};
 use super::role::{grant_role, revoke_role};
 
@@ -36,6 +37,28 @@ pub fn handle_grant(
             ));
         }
         return grant_role(state, identity, parts[2], parts[4]);
+    }
+
+    // GRANT <perm> ON DATABASE <name> TO <grantee>
+    // parts: [GRANT, <perm>, ON, DATABASE, <name>, TO, <grantee>]
+    if parts
+        .get(2)
+        .map(|s| s.eq_ignore_ascii_case("ON"))
+        .unwrap_or(false)
+        && parts
+            .get(3)
+            .map(|s| s.eq_ignore_ascii_case("DATABASE"))
+            .unwrap_or(false)
+    {
+        let privilege = parts[1];
+        let db_name = parts.get(4).copied().unwrap_or("");
+        let grantee = parts
+            .iter()
+            .position(|p| p.eq_ignore_ascii_case("TO"))
+            .and_then(|i| parts.get(i + 1))
+            .copied()
+            .unwrap_or("");
+        return grant_database(state, identity, privilege, db_name, grantee);
     }
 
     // GRANT <perm> ON [FUNCTION] <name> TO <grantee>
@@ -80,6 +103,28 @@ pub fn handle_revoke(
             ));
         }
         return revoke_role(state, identity, parts[2], parts[4]);
+    }
+
+    // REVOKE <perm> ON DATABASE <name> FROM <grantee>
+    // parts: [REVOKE, <perm>, ON, DATABASE, <name>, FROM, <grantee>]
+    if parts
+        .get(2)
+        .map(|s| s.eq_ignore_ascii_case("ON"))
+        .unwrap_or(false)
+        && parts
+            .get(3)
+            .map(|s| s.eq_ignore_ascii_case("DATABASE"))
+            .unwrap_or(false)
+    {
+        let privilege = parts[1];
+        let db_name = parts.get(4).copied().unwrap_or("");
+        let grantee = parts
+            .iter()
+            .position(|p| p.eq_ignore_ascii_case("FROM"))
+            .and_then(|i| parts.get(i + 1))
+            .copied()
+            .unwrap_or("");
+        return revoke_database(state, identity, privilege, db_name, grantee);
     }
 
     // REVOKE <perm> ON [FUNCTION] <name> FROM <grantee>

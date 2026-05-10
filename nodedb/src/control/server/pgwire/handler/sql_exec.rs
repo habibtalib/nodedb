@@ -147,7 +147,7 @@ impl NodeDbPgHandler {
             return self.handle_fetch(addr, sql_trimmed, &upper);
         }
 
-        if upper.starts_with("MOVE ") {
+        if upper.starts_with("MOVE ") && !upper.starts_with("MOVE TENANT ") {
             return self.handle_move(addr, &upper);
         }
 
@@ -244,6 +244,12 @@ impl NodeDbPgHandler {
             && !upper.starts_with("SHOW CONFLICT POLICY")
             && upper != "SHOW SYNONYM GROUPS"
             && upper != "SHOW TYPES"
+            // NodeDB-specific multi-word SHOW commands handled by the AST
+            // router (lineage, quota, usage, mirror status). The session
+            // SHOW handler is for PG runtime parameters only — single-word
+            // identifiers like `SHOW client_encoding` or `SHOW ALL`.
+            && !upper.starts_with("SHOW DATABASE ")
+            && !upper.starts_with("SHOW TENANT ")
         {
             return self.handle_show(addr, sql_trimmed);
         }
@@ -305,6 +311,22 @@ impl NodeDbPgHandler {
                 .await;
         }
 
+        // ── USE DATABASE — session reset ──────────────────────────────
+        // Intercepted before the DDL router because it requires access to both
+        // `self.sessions` and `addr` for the per-connection state reset.
+
+        if upper.starts_with("USE DATABASE ") {
+            let parts: Vec<&str> = sql_trimmed.split_whitespace().collect();
+            let name = parts.get(2).copied().unwrap_or("").trim_matches('"');
+            return super::super::ddl::database::use_database::handle_use_database(
+                &self.state,
+                identity,
+                &self.sessions,
+                addr,
+                name,
+            );
+        }
+
         // ── DDL / Temp tables ─────────────────────────────────────────
 
         if upper.starts_with("CREATE TEMPORARY TABLE ") || upper.starts_with("CREATE TEMP TABLE ") {
@@ -316,10 +338,25 @@ impl NodeDbPgHandler {
             );
         }
 
+        let database_id = self
+            .sessions
+            .get_current_database(addr)
+            .unwrap_or(crate::types::DatabaseId::DEFAULT);
+
+        // Increment per-database QPS counter and per-database metrics registry.
+        if let Some(catalog) = self.state.credentials.catalog().as_ref()
+            && let Ok(Some(desc)) = catalog.get_database(database_id)
+        {
+            if let Some(ref m) = self.state.system_metrics {
+                m.record_database_query(&desc.name);
+            }
+            self.state.database_metrics.record_qps(&desc.name);
+        }
+
         if let Some(rewritten) =
             super::super::system_functions::rewrite_purge_collection(sql_trimmed, &upper)
             && let Some(result) =
-                super::super::ddl::dispatch(&self.state, identity, &rewritten).await
+                super::super::ddl::dispatch(&self.state, identity, &rewritten, database_id).await
         {
             return result;
         }
@@ -331,7 +368,8 @@ impl NodeDbPgHandler {
             return result;
         }
 
-        if let Some(result) = super::super::ddl::dispatch(&self.state, identity, sql_trimmed).await
+        if let Some(result) =
+            super::super::ddl::dispatch(&self.state, identity, sql_trimmed, database_id).await
         {
             return result;
         }
@@ -418,7 +456,7 @@ impl NodeDbPgHandler {
     /// Execute a SELECT query and return results as JSON strings for cursor storage.
     pub(super) async fn execute_query_for_cursor(
         &self,
-        _addr: &std::net::SocketAddr,
+        addr: &std::net::SocketAddr,
         sql: &str,
         identity: &AuthenticatedIdentity,
     ) -> PgWireResult<Vec<String>> {
@@ -426,9 +464,14 @@ impl NodeDbPgHandler {
         let query_ctx =
             crate::control::planner::context::QueryContext::for_state_with_lease(&self.state);
 
-        if let Some(mode) = self.sessions.get_parameter(_addr, "rounding_mode") {
+        if let Some(mode) = self.sessions.get_parameter(addr, "rounding_mode") {
             query_ctx.set_rounding_mode(&mode);
         }
+
+        let database_id = self
+            .sessions
+            .get_current_database(addr)
+            .unwrap_or(crate::types::DatabaseId::DEFAULT);
 
         let auth_ctx = crate::control::server::session_auth::build_auth_context(identity);
         let perm_cache = self.state.permission_cache.read().await;
@@ -441,7 +484,7 @@ impl NodeDbPgHandler {
             permission_cache: Some(&*perm_cache),
         };
         let tasks = query_ctx
-            .plan_sql_with_rls(sql, tenant_id, &sec)
+            .plan_sql_with_rls(sql, tenant_id, database_id, &sec)
             .await
             .map_err(|e| {
                 PgWireError::UserError(Box::new(ErrorInfo::new(

@@ -23,7 +23,7 @@ fn write_records(path: &std::path::Path, count: u32) -> Vec<u64> {
     for i in 0..count {
         let payload = format!("record-{i}");
         let lsn = writer
-            .append(RecordType::Put as u32, 1, 0, payload.as_bytes())
+            .append(RecordType::Put as u32, 1, 0, 0, payload.as_bytes())
             .unwrap();
         lsns.push(lsn);
     }
@@ -49,10 +49,10 @@ fn crash_before_sync_loses_buffered_records() {
     {
         let mut writer = WalWriter::open_without_direct_io(&path).unwrap();
         writer
-            .append(RecordType::Put as u32, 1, 0, b"unsync-1")
+            .append(RecordType::Put as u32, 1, 0, 0, b"unsync-1")
             .unwrap();
         writer
-            .append(RecordType::Put as u32, 1, 0, b"unsync-2")
+            .append(RecordType::Put as u32, 1, 0, 0, b"unsync-2")
             .unwrap();
         // Drop without sync — records are lost (correct behavior).
     }
@@ -100,6 +100,7 @@ fn torn_write_mid_payload() {
             RecordType::Put as u32,
             99,
             1,
+            0,
             0,
             b"full-payload".to_vec(),
             None,
@@ -187,7 +188,7 @@ fn reopen_after_crash_continues_correctly() {
         let mut writer = WalWriter::open_without_direct_io(&path).unwrap();
         assert_eq!(writer.next_lsn(), 6);
         let lsn = writer
-            .append(RecordType::Put as u32, 1, 0, b"after-crash")
+            .append(RecordType::Put as u32, 1, 0, 0, b"after-crash")
             .unwrap();
         assert_eq!(lsn, 6);
         writer.sync().unwrap();

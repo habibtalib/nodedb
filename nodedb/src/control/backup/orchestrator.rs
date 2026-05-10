@@ -24,7 +24,7 @@ use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::{MetaOp, wire as plan_wire};
 use crate::control::server::pgwire::ddl::sync_dispatch;
 use crate::control::state::SharedState;
-use crate::types::{TenantId, TraceId};
+use crate::types::{DatabaseId, TenantId, TraceId};
 
 /// Default per-node snapshot dispatch timeout.
 const NODE_SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -85,7 +85,7 @@ pub async fn backup_tenant(state: &Arc<SharedState>, tenant_id: u64) -> Result<B
     // restore), and a restore whose source has already purged a
     // collection can resurrect rows that were properly reaped.
     if let Some(catalog) = state.credentials.catalog() {
-        if let Ok(all) = catalog.load_all_collections() {
+        if let Ok(all) = catalog.load_all_collections(DatabaseId::DEFAULT) {
             let mut blobs: Vec<nodedb_types::backup_envelope::StoredCollectionBlob> = Vec::new();
             for coll in all.iter().filter(|c| c.tenant_id == tenant_id) {
                 if let Ok(bytes) = zerompk::to_msgpack_vec(coll) {
@@ -217,6 +217,7 @@ async fn snapshot_remote(
     let req = RaftRpc::ExecuteRequest(ExecuteRequest {
         plan_bytes,
         tenant_id,
+        database_id: DatabaseId::DEFAULT.as_u64(),
         deadline_remaining_ms: NODE_SNAPSHOT_TIMEOUT.as_millis() as u64,
         trace_id: TraceId::generate().0,
         descriptor_versions: Vec::new(),

@@ -170,6 +170,9 @@ fn parse_put_record(
         let key_str = String::from_utf8_lossy(&key);
         let (system_time_ms, valid_time_ms) =
             crate::event::bitemporal_extract::extract_stamps(Some(&value));
+        // AUDIT_DML rows replayed from WAL after a crash carry user_id = None and
+        // statement_digest = None; pre-crash audit rows are durable in the catalog.
+        // Widening the WAL record format to carry these fields is tracked separately.
         return Some(WriteEvent {
             sequence: *sequence,
             collection: Arc::from(collection.as_str()),
@@ -183,6 +186,8 @@ fn parse_put_record(
             old_value: None,
             system_time_ms,
             valid_time_ms,
+            user_id: None,
+            statement_digest: None,
         });
     }
 
@@ -208,6 +213,8 @@ fn parse_put_record(
             old_value: None,
             system_time_ms: None,
             valid_time_ms: None,
+            user_id: None,
+            statement_digest: None,
         });
     }
 
@@ -234,6 +241,8 @@ fn parse_put_record(
             old_value: None,
             system_time_ms,
             valid_time_ms,
+            user_id: None,
+            statement_digest: None,
         });
     }
 
@@ -275,6 +284,8 @@ fn parse_delete_record(
             old_value: None,
             system_time_ms: None,
             valid_time_ms: None,
+            user_id: None,
+            statement_digest: None,
         });
     }
 
@@ -294,6 +305,8 @@ fn parse_delete_record(
             old_value: None,
             system_time_ms: None,
             valid_time_ms: None,
+            user_id: None,
+            statement_digest: None,
         });
     }
 
@@ -381,6 +394,7 @@ mod tests {
             lsn,
             tenant_id,
             vshard_id,
+            0,
             payload.to_vec(),
             None,
             None,

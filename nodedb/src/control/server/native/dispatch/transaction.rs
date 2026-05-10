@@ -3,6 +3,7 @@
 //! Transaction control: BEGIN, COMMIT, ROLLBACK.
 
 use nodedb_types::TraceId;
+use nodedb_types::id::DatabaseId;
 use nodedb_types::protocol::NativeResponse;
 
 use crate::bridge::envelope::PhysicalPlan;
@@ -68,11 +69,12 @@ pub(crate) async fn handle_commit(ctx: &DispatchCtx<'_>, seq: u64) -> NativeResp
         if !sub_records.is_empty() {
             match zerompk::to_msgpack_vec(&sub_records) {
                 Ok(tx_payload) => {
-                    if let Err(e) =
-                        ctx.state
-                            .wal
-                            .append_transaction(tenant_id, vshard_id, &tx_payload)
-                    {
+                    if let Err(e) = ctx.state.wal.append_transaction(
+                        tenant_id,
+                        vshard_id,
+                        DatabaseId::DEFAULT,
+                        &tx_payload,
+                    ) {
                         return error_to_native(seq, &e);
                     }
                 }
@@ -95,6 +97,7 @@ pub(crate) async fn handle_commit(ctx: &DispatchCtx<'_>, seq: u64) -> NativeResp
                 let gw_ctx = GatewayQueryContext {
                     tenant_id,
                     trace_id: TraceId::generate(),
+                    database_id: nodedb_types::id::DatabaseId::DEFAULT,
                 };
                 gw.execute(&gw_ctx, batch_plan).await.err().map(|e| {
                     let (_code, msg) = GatewayErrorMap::to_native(&e);
@@ -105,6 +108,7 @@ pub(crate) async fn handle_commit(ctx: &DispatchCtx<'_>, seq: u64) -> NativeResp
                 let batch_task = PhysicalTask {
                     tenant_id,
                     vshard_id,
+                    database_id: DatabaseId::DEFAULT,
                     plan: batch_plan,
                     post_set_op: PostSetOp::None,
                 };

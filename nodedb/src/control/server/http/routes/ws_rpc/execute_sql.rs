@@ -21,7 +21,9 @@ pub async fn execute_sql(
     // Quota enforcement — reject before planning or dispatch.
     shared.check_tenant_quota(tenant_id)?;
 
-    let tasks = query_ctx.plan_sql(sql, tenant_id).await?;
+    let tasks = query_ctx
+        .plan_sql(sql, tenant_id, crate::types::DatabaseId::DEFAULT)
+        .await?;
 
     shared.tenant_request_start(tenant_id);
 
@@ -32,6 +34,7 @@ pub async fn execute_sql(
                 let gw_ctx = QueryContext {
                     tenant_id: task.tenant_id,
                     trace_id,
+                    database_id: nodedb_types::id::DatabaseId::DEFAULT,
                 };
                 gw.execute(&gw_ctx, task.plan).await
             }

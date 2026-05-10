@@ -249,6 +249,7 @@ pub async fn consume_remote(
     let gw_ctx = crate::control::gateway::core::QueryContext {
         tenant_id: crate::types::TenantId::new(tenant_id),
         trace_id: nodedb_types::TraceId::generate(),
+        database_id: nodedb_types::id::DatabaseId::DEFAULT,
     };
 
     let query_ctx = crate::control::planner::context::QueryContext::for_state(state);
@@ -256,8 +257,11 @@ pub async fn consume_remote(
     let payloads = gateway
         .execute_sql(&gw_ctx, &sql, &[], || {
             let tasks = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current()
-                    .block_on(query_ctx.plan_sql(&sql, crate::types::TenantId::new(tenant_id)))
+                tokio::runtime::Handle::current().block_on(query_ctx.plan_sql(
+                    &sql,
+                    crate::types::TenantId::new(tenant_id),
+                    crate::types::DatabaseId::DEFAULT,
+                ))
             })
             .map_err(|e| crate::Error::PlanError {
                 detail: e.to_string(),
@@ -401,8 +405,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn single_node_no_remote() {
+    #[tokio::test]
+    async fn single_node_no_remote() {
         let dir = tempfile::tempdir().unwrap();
         let (_, _, state, _, _) = crate::event::test_utils::event_test_deps(&dir);
         // No cluster_routing → always local.

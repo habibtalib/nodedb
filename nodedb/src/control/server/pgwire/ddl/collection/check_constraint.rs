@@ -107,7 +107,14 @@ async fn enforce_subquery_check(
 
     let query_ctx = crate::control::planner::context::QueryContext::for_state(state);
 
-    let tasks = match query_ctx.plan_sql(&restructured.sql, tenant_id).await {
+    let tasks = match query_ctx
+        .plan_sql(
+            &restructured.sql,
+            tenant_id,
+            crate::types::DatabaseId::DEFAULT,
+        )
+        .await
+    {
         Ok(t) => t,
         Err(e) => {
             return Err(pgwire_err(

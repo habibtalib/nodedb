@@ -106,7 +106,7 @@ async fn execute_select(
 ) -> PgWireResult<Vec<serde_json::Map<String, serde_json::Value>>> {
     let query_ctx = crate::control::planner::context::QueryContext::for_state(state);
     let tasks = query_ctx
-        .plan_sql(sql, tenant_id)
+        .plan_sql(sql, tenant_id, crate::types::DatabaseId::DEFAULT)
         .await
         .map_err(|e| sqlstate_error("XX000", &format!("plan '{sql}': {e}")))?;
 
@@ -219,7 +219,7 @@ async fn dispatch_sql(
 ) -> PgWireResult<()> {
     let query_ctx = crate::control::planner::context::QueryContext::for_state(state);
     let tasks = query_ctx
-        .plan_sql(sql, tenant_id)
+        .plan_sql(sql, tenant_id, crate::types::DatabaseId::DEFAULT)
         .await
         .map_err(|e| sqlstate_error("42P20", &format!("plan '{sql}': {e}")))?;
     for task in tasks {
@@ -227,6 +227,7 @@ async fn dispatch_sql(
             &state.wal,
             tenant_id,
             task.vshard_id,
+            task.database_id,
             &task.plan,
         )
         .map_err(|e| sqlstate_error("58030", &format!("wal append: {e}")))?;

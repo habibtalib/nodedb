@@ -12,6 +12,7 @@
 //! - Columnar → memtable/engine rows → JSON → msgpack
 
 use crate::data::executor::core_loop::CoreLoop;
+use crate::engine::kv::KvScanParams;
 use nodedb_query::msgpack_scan;
 
 impl CoreLoop {
@@ -51,9 +52,17 @@ impl CoreLoop {
     /// Injects the `key` field directly into the msgpack map — no JSON roundtrip.
     fn scan_kv(&self, tid: u64, collection: &str, limit: usize) -> Vec<(String, Vec<u8>)> {
         let now_ms = crate::engine::kv::current_ms();
-        let (entries, _next_cursor) =
-            self.kv_engine
-                .scan(tid, collection, &[], limit, now_ms, None, None, None);
+        let (entries, _next_cursor) = self.kv_engine.scan(KvScanParams {
+            tenant_id: tid,
+            collection,
+            cursor: &[],
+            count: limit,
+            now_ms,
+            match_pattern: None,
+            filter_field: None,
+            filter_value: None,
+            surrogate_ceiling: None,
+        });
         let mut results = Vec::with_capacity(entries.len());
         for (key, value) in entries {
             let key_str = String::from_utf8_lossy(&key).to_string();

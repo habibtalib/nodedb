@@ -30,6 +30,11 @@ pub const NO_DATA: &str = "02000";
 /// `0A000` — `feature_not_supported`
 pub const FEATURE_NOT_SUPPORTED: &str = "0A000";
 
+/// `0A000` — Cannot drop the built-in `default` database, which is immutable.
+/// Aliased to `feature_not_supported` per the PostgreSQL convention for
+/// unsupported DDL operations on reserved objects.
+pub const CANNOT_DROP_DEFAULT_DATABASE: &str = "0A000";
+
 // ── Class 22 — Data Exception ────────────────────────────────────────────────
 
 /// `22003` — `numeric_value_out_of_range`
@@ -135,6 +140,86 @@ pub const CANNOT_CONNECT_NOW: &str = "57P03";
 /// `57P04` — `database_dropped` (not-leader redirect; client should retry elsewhere)
 pub const DATABASE_DROPPED: &str = "57P04";
 
+// ── Quota-specific aliases (Class 53 / 57) ───────────────────────────────────
+//
+// PostgreSQL class 53 "Insufficient Resources" is the closest match for quota
+// exhaustion conditions.  Class 57P03 "cannot_connect_now" covers transient
+// overload situations where the server is running but cannot accept the request.
+
+/// `53400` — `configuration_limit_exceeded`: sum of tenant/database quotas would
+/// exceed the configured global or parent ceiling (`QUOTA_OVERCOMMIT`).
+/// Alias for [`CONFIGURATION_LIMIT_EXCEEDED`].
+pub const QUOTA_OVERCOMMIT: &str = "53400";
+
+/// `53400` — `configuration_limit_exceeded`: tenant or database has exhausted its
+/// configured resource budget (`TENANT_QUOTA_EXCEEDED`, `DATABASE_QUOTA_EXCEEDED`).
+/// Class 53 is preferred over 54 because the limit is a runtime configuration
+/// setting, not a hard-coded program limit.
+pub const QUOTA_EXCEEDED: &str = "53400";
+
+/// `57P03` — `cannot_connect_now`: server is under global resource pressure and
+/// cannot accept new requests (`SERVER_OVERLOAD`). Using `57P03` rather than
+/// `53300` (too_many_connections) because the condition is transient and the
+/// server may accept requests again shortly — clients should retry after backoff.
+pub const SERVER_OVERLOAD: &str = "57P03";
+
+// ── Clone DDL (Class 54 / 55 / 0A) ──────────────────────────────────────────
+
+/// `54011` — NodeDB extension: clone chain depth exceeds `MAX_CLONE_DEPTH`.
+///
+/// Uses Class 54 "Program Limit Exceeded" because the limit is a hard-coded
+/// structural cap (depth 8), not a runtime quota setting.
+pub const CLONE_DEPTH_EXCEEDED: &str = "54011";
+
+/// `0A000` — NodeDB extension: a mirror database cannot be cloned.
+///
+/// Aliased to `feature_not_supported` — cloning a mirror creates ambiguous
+/// lineage; the operator must promote the mirror to a writable database first.
+pub const CANNOT_CLONE_MIRROR: &str = "0A000";
+
+/// `55006` — NodeDB extension: source database has active clone dependents.
+///
+/// Uses Class 55 "Object Not In Prerequisite State" because the source is in
+/// the correct state for normal use but cannot be dropped until dependents are
+/// resolved.
+pub const CLONE_DEPENDENCY: &str = "55006";
+
+/// `22023` — NodeDB extension: `AS OF` timestamp predates the clone's
+/// creation point; the database did not exist at that time.
+///
+/// Uses Class 22 "Data Exception" / `22023` (invalid parameter value) because
+/// the user-supplied timestamp is valid in general but out of range for this
+/// specific clone.
+pub const CLONE_PREDATES_QUERY_TIME: &str = "22023";
+
+/// `55P03` — NodeDB extension: a strong or bounded-staleness read was requested
+/// on a mirror database that cannot satisfy the requested consistency level.
+///
+/// Uses Class 55 "Object Not In Prerequisite State" because the mirror is a
+/// valid database but is not in the state (Raft leader) required to serve the
+/// requested consistency level. The client should redirect to the source cluster.
+pub const STALE_READ_NOT_LEADER: &str = "55P03";
+
+// ── Move Tenant DDL (Class 55 / 57) ─────────────────────────────────────────
+
+/// `57014` — `query_canceled`: drain phase timed out; client should re-try after
+/// ensuring the tenant has no active connections on the source database.
+pub const MOVE_TENANT_DRAIN_TIMEOUT: &str = "57014";
+
+/// `55P02` — `lock_not_available`: pre-flight check found schema incompatibility
+/// between the source and target databases; no state was mutated.
+pub const MOVE_TENANT_PREFLIGHT_FAILED: &str = "55P02";
+
+/// `XX000` — internal error during snapshot phase; source left unchanged.
+pub const MOVE_TENANT_SNAPSHOT_FAILED: &str = "XX000";
+
+/// `XX000` — internal error during cutover phase; source still holds data.
+pub const MOVE_TENANT_CUTOVER_FAILED: &str = "XX000";
+
+/// `02000` — `no_data`: tenant is already present in the target database;
+/// the `MOVE TENANT` is a no-op (idempotent retry of a completed move).
+pub const MOVE_TENANT_ALREADY_AT_TARGET: &str = "02000";
+
 // ── Class XX — Internal Error ────────────────────────────────────────────────
 
 /// `XX000` — `internal_error`
@@ -181,6 +266,15 @@ mod tests {
             CANNOT_CONNECT_NOW,
             DATABASE_DROPPED,
             INTERNAL_ERROR,
+            CANNOT_DROP_DEFAULT_DATABASE,
+            QUOTA_OVERCOMMIT,
+            QUOTA_EXCEEDED,
+            SERVER_OVERLOAD,
+            CLONE_DEPTH_EXCEEDED,
+            CANNOT_CLONE_MIRROR,
+            CLONE_DEPENDENCY,
+            CLONE_PREDATES_QUERY_TIME,
+            STALE_READ_NOT_LEADER,
         ];
         for code in &codes {
             assert_eq!(

@@ -13,6 +13,7 @@
 //! ALTER COLLECTION journal_entries DROP PERIOD LOCK;
 //! ```
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 
@@ -86,14 +87,14 @@ pub fn add_period_lock(
     };
 
     let mut coll = catalog
-        .get_collection(tenant_id, &name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, &name)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
         .ok_or_else(|| sqlstate_error("42P01", &format!("collection '{name}' not found")))?;
 
     coll.period_lock = Some(def);
 
     catalog
-        .put_collection(&coll)
+        .put_collection(DatabaseId::DEFAULT, &coll)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
 
     state.schema_version.bump();
@@ -126,14 +127,14 @@ pub fn drop_period_lock(
     };
 
     let mut coll = catalog
-        .get_collection(tenant_id, &name)
+        .get_collection(DatabaseId::DEFAULT, tenant_id, &name)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
         .ok_or_else(|| sqlstate_error("42P01", &format!("collection '{name}' not found")))?;
 
     coll.period_lock = None;
 
     catalog
-        .put_collection(&coll)
+        .put_collection(DatabaseId::DEFAULT, &coll)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
 
     state.schema_version.bump();

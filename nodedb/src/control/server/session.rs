@@ -12,7 +12,7 @@ use tracing::{debug, instrument, warn};
 use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
 use crate::bridge::physical_plan::{CrdtOp, DocumentOp, GraphOp, VectorOp};
 use crate::control::state::SharedState;
-use crate::types::{ReadConsistency, RequestId, TenantId, TraceId, VShardId};
+use crate::types::{DatabaseId, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
 use nodedb_types::vector_distance::DistanceMetric;
 
 /// Maximum frame size: 16 MiB.
@@ -68,6 +68,19 @@ pub struct Session {
     identity: Option<crate::control::security::identity::AuthenticatedIdentity>,
     /// Wall-clock time when this session was accepted.
     connected_at: std::time::Instant,
+    /// Stable session identifier (UUID allocated at construction).
+    session_id: String,
+    /// Credential version at bind time.  When the store's version for this
+    /// user advances, the session rehydrates `identity` at the next request
+    /// boundary.
+    identity_version: u64,
+    /// Kill signal from `SessionRegistry`.  Set after successful auth.
+    kill_rx: Option<tokio::sync::watch::Receiver<crate::control::security::sessions::KillReason>>,
+    /// Database bound to this session. Set once at first authenticated request;
+    /// immutable for the session lifetime (a `USE DATABASE` issues a session reset).
+    /// Resolution order: explicit (connection-string/handshake) > user default >
+    /// tenant default > `DatabaseId::DEFAULT`.
+    current_database: Option<DatabaseId>,
 }
 
 impl Session {
@@ -84,7 +97,33 @@ impl Session {
             auth_mode,
             identity: None,
             connected_at: std::time::Instant::now(),
+            session_id: uuid::Uuid::new_v4().to_string(),
+            identity_version: 0,
+            kill_rx: None,
+            current_database: None,
         }
+    }
+
+    /// Resolve the database for this session at the first authenticated request.
+    ///
+    /// Resolution order:
+    /// 1. Explicit database from connection-string or handshake.
+    /// 2. Per-user default database from `AuthenticatedIdentity.default_database`
+    ///    (set via `ALTER USER <name> SET DEFAULT DATABASE <db>`).
+    /// 3. Tenant default database (not yet stored; reserved for future use).
+    /// 4. `DatabaseId::DEFAULT` — the built-in `default` database.
+    fn resolve_database(
+        identity: &crate::control::security::identity::AuthenticatedIdentity,
+        explicit: Option<DatabaseId>,
+    ) -> DatabaseId {
+        if let Some(db) = explicit {
+            return db;
+        }
+        if let Some(db) = identity.default_database {
+            return db;
+        }
+        // Tenant default database: not yet stored; falls through to built-in default.
+        DatabaseId::DEFAULT
     }
 
     /// Create a session from a plain TCP stream.
@@ -112,12 +151,139 @@ impl Session {
         self.state.next_request_id()
     }
 
+    /// Register the session in the registry after authentication and store the
+    /// kill receiver.  No-op if the user has `user_id == 0` (trust mode fallback).
+    ///
+    /// `token_expiry_ms` is `Some(exp_epoch_ms)` for OIDC/JWT sessions so the
+    /// idle-sweep loop can enforce token lifetime independently of the TCP session.
+    fn register_session(
+        &mut self,
+        identity: &crate::control::security::identity::AuthenticatedIdentity,
+        token_expiry_ms: Option<u64>,
+    ) {
+        use crate::control::security::sessions::SessionParams;
+
+        if self.kill_rx.is_some() {
+            // Already registered (trust auto-auth path called twice).
+            return;
+        }
+
+        let auth_method = match identity.auth_method {
+            crate::control::security::identity::AuthMethod::ScramSha256 => "scram_sha256",
+            crate::control::security::identity::AuthMethod::CleartextPassword => "password",
+            crate::control::security::identity::AuthMethod::ApiKey => "api_key",
+            crate::control::security::identity::AuthMethod::Certificate => "certificate",
+            crate::control::security::identity::AuthMethod::Trust => "trust",
+            crate::control::security::identity::AuthMethod::OidcBearer => "oidc_bearer",
+        };
+
+        let credential_version = self.state.credentials.current_version(identity.user_id);
+        self.identity_version = credential_version;
+
+        let params = SessionParams {
+            user_id: identity.user_id,
+            username: identity.username.clone(),
+            db_user: identity.username.clone(),
+            peer_addr: self.peer_addr.to_string(),
+            protocol: "native".to_string(),
+            auth_method: auth_method.to_string(),
+            tenant_id: identity.tenant_id.as_u64(),
+            credential_version,
+            current_database: None,
+            token_expiry_ms,
+        };
+
+        match self
+            .state
+            .session_registry
+            .register(&self.session_id, &params)
+        {
+            Ok(kill_rx) => {
+                self.kill_rx = Some(kill_rx);
+            }
+            Err(e) => {
+                // Cap exceeded; kill_rx stays None and the error will surface as
+                // a SessionCapExceeded on the next request that calls check_kill.
+                tracing::warn!(session_id = %self.session_id, cap = e.cap,
+                    "session cap exceeded — session registered without kill channel");
+            }
+        }
+    }
+
+    /// Check whether the kill signal has fired (hard revoke).
+    ///
+    /// Returns `true` if the session should terminate immediately.
+    fn is_killed(&mut self) -> bool {
+        match self.kill_rx.as_mut() {
+            Some(rx) => {
+                rx.has_changed().unwrap_or(false)
+                    && *rx.borrow_and_update()
+                        != crate::control::security::sessions::KillReason::Alive
+            }
+            None => false,
+        }
+    }
+
+    /// If the credential store's version for this user has advanced since we
+    /// last bound, rebuild the identity from the fresh `UserRecord`.
+    ///
+    /// Must be called before every request that reads `self.identity`.
+    fn rehydrate_identity_if_stale(&mut self) {
+        let identity = match self.identity.as_ref() {
+            Some(id) => id,
+            None => return,
+        };
+
+        let user_id = identity.user_id;
+        if user_id == 0 {
+            // Trust-mode anonymous identity — no versioning.
+            return;
+        }
+
+        let current = self.state.credentials.current_version(user_id);
+        if current <= self.identity_version {
+            return;
+        }
+
+        // Version advanced — fetch fresh record and rebuild identity.
+        let auth_method = identity.auth_method.clone();
+        let username = identity.username.clone();
+        if let Some(fresh) = self.state.credentials.to_identity(&username, auth_method) {
+            self.identity_version = current;
+            self.identity = Some(fresh);
+        }
+    }
+
     /// Run the session loop: read frames, parse, dispatch, respond.
     #[instrument(skip(self), fields(peer = %self.peer_addr))]
     pub async fn run(mut self) -> crate::Result<()> {
         let idle_timeout_secs = self.state.idle_timeout_secs();
         let absolute_timeout_secs = self.state.session_absolute_timeout_secs();
+        let result = self
+            .run_inner(idle_timeout_secs, absolute_timeout_secs)
+            .await;
+        // Always unregister on exit regardless of reason.
+        self.state
+            .session_registry
+            .unregister(&self.session_id.clone());
+        result
+    }
+
+    async fn run_inner(
+        &mut self,
+        idle_timeout_secs: u64,
+        absolute_timeout_secs: u64,
+    ) -> crate::Result<()> {
         loop {
+            // Hard-revoke check: bus consumer sent kill signal.
+            if self.is_killed() {
+                let msg = r#"{"status":"error","sqlstate":"57P01","error":"session revoked by administrator"}"#;
+                let resp_len = (msg.len() as u32).to_be_bytes();
+                let _ = self.stream.write_all(&resp_len).await;
+                let _ = self.stream.write_all(msg.as_bytes()).await;
+                return Ok(());
+            }
+
             // Enforce absolute session lifetime (SQLSTATE 57P01 "admin shutdown").
             if absolute_timeout_secs > 0
                 && self.connected_at.elapsed().as_secs() >= absolute_timeout_secs
@@ -217,7 +383,47 @@ impl Session {
                 &self.auth_mode,
                 &body,
                 &self.peer_addr.to_string(),
-            )?;
+            )
+            .await?;
+
+            // Optional `"database"` field in the auth payload — bind the session
+            // database at handshake time. If absent, falls back to the resolution
+            // chain (user-default → tenant-default → DatabaseId::DEFAULT) below.
+            let explicit_db = if let Some(db_name) = body["database"].as_str() {
+                if db_name.is_empty() {
+                    None
+                } else {
+                    // Validate the database name against the catalog.
+                    let resolved = if let Some(cat) = self.state.credentials.catalog().as_ref() {
+                        cat.get_database_id_by_name(db_name).ok().flatten()
+                    } else {
+                        None
+                    };
+                    match resolved {
+                        Some(db_id) => Some(db_id),
+                        None => {
+                            let msg = format!(
+                                r#"{{"status":"error","code":"DATABASE_NOT_FOUND","error":"database '{db_name}' does not exist"}}"#
+                            );
+                            return Ok(msg.into_bytes());
+                        }
+                    }
+                }
+            } else {
+                None
+            };
+
+            let resolved_db = Self::resolve_database(&identity, explicit_db);
+
+            // Enforce accessible_databases at session bind. Superusers bypass
+            // this check (can_access_database returns true for all databases).
+            if !identity.can_access_database(resolved_db) {
+                let msg = r#"{"status":"error","code":"ACCESS_DENIED","error":"access denied to database"}"#;
+                return Ok(msg.as_bytes().to_vec());
+            }
+
+            self.current_database = Some(resolved_db);
+
             let warning_field = match &warning {
                 Some(w) => format!(r#","warning":"{}""#, w.replace('"', "'")),
                 None => String::new(),
@@ -228,6 +434,18 @@ impl Session {
                 identity.tenant_id.as_u64(),
                 warning_field
             );
+
+            // For OIDC bearer sessions, decode the JWT exp claim and store it
+            // so the idle-sweep loop can enforce token lifetime.
+            let token_expiry_ms = if identity.auth_method
+                == crate::control::security::identity::AuthMethod::OidcBearer
+            {
+                body["token"].as_str().and_then(extract_jwt_exp_ms)
+            } else {
+                None
+            };
+
+            self.register_session(&identity, token_expiry_ms);
             self.identity = Some(identity);
             return Ok(resp.into_bytes());
         }
@@ -235,10 +453,9 @@ impl Session {
         // All other ops require auth. In trust mode, auto-authenticate on first frame.
         if self.identity.is_none() {
             if self.auth_mode == crate::config::auth::AuthMode::Trust {
-                self.identity = Some(super::session_auth::trust_identity(
-                    &self.state,
-                    "anonymous",
-                ));
+                let trust_id = super::session_auth::trust_identity(&self.state, "anonymous");
+                self.register_session(&trust_id, None);
+                self.identity = Some(trust_id);
             } else {
                 return Err(crate::Error::RejectedAuthz {
                     tenant_id: TenantId::new(0),
@@ -246,6 +463,9 @@ impl Session {
                 });
             }
         }
+
+        // Check and rehydrate identity if credential version has advanced.
+        self.rehydrate_identity_if_stale();
 
         let identity = match self.identity.as_ref() {
             Some(id) => id,
@@ -259,6 +479,14 @@ impl Session {
 
         // Tenant from authenticated identity, not from client payload.
         let tenant_id = identity.tenant_id;
+
+        // Resolve and bind database on first request. Explicit handshake override
+        // is not yet wired from the native wire protocol; every session uses the
+        // resolution chain default (user default → tenant default → built-in default).
+        if self.current_database.is_none() {
+            self.current_database = Some(Self::resolve_database(identity, None));
+        }
+        let database_id = self.current_database.unwrap_or(DatabaseId::DEFAULT);
 
         let collection = body["collection"].as_str().unwrap_or("default").to_string();
 
@@ -437,6 +665,7 @@ impl Session {
         let request = Request {
             request_id,
             tenant_id,
+            database_id,
             vshard_id,
             plan,
             deadline: Instant::now()
@@ -447,6 +676,8 @@ impl Session {
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
 
         // Register for response routing before dispatching.
@@ -498,6 +729,23 @@ impl Session {
         );
 
         Ok(resp_json.into_bytes())
+    }
+}
+
+/// Decode the `exp` claim from a JWT payload (no signature verification).
+///
+/// Returns `Some(exp_ms)` where `exp_ms = exp * 1000` (milliseconds since epoch),
+/// or `None` if the token is malformed or the exp claim is absent/zero.
+fn extract_jwt_exp_ms(token: &str) -> Option<u64> {
+    let parts: Vec<&str> = token.splitn(3, '.').collect();
+    let payload_b64 = parts.get(1)?;
+    let bytes = crate::control::security::util::base64_url_decode(payload_b64)?;
+    let claims: serde_json::Value = sonic_rs::from_slice(&bytes).ok()?;
+    let exp = claims["exp"].as_u64()?;
+    if exp == 0 {
+        None
+    } else {
+        Some(exp.saturating_mul(1000))
     }
 }
 

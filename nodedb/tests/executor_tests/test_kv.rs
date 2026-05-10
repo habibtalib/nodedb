@@ -38,6 +38,7 @@ fn kv_put_get_delete() {
             collection: "cache".into(),
             key: b"key1".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(payload, b"value1");
@@ -64,6 +65,7 @@ fn kv_put_get_delete() {
             collection: "cache".into(),
             key: b"key1".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(resp.status, Status::Ok);
@@ -108,6 +110,7 @@ fn kv_overwrite_returns_ok() {
             collection: "c".into(),
             key: b"k".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(payload, b"v2");
@@ -183,6 +186,7 @@ fn kv_scan_returns_entries() {
             filters: Vec::new(),
             match_pattern: None,
             sort_keys: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
 
@@ -223,6 +227,7 @@ fn kv_scan_with_match_pattern() {
             filters: Vec::new(),
             match_pattern: Some("user:*".into()),
             sort_keys: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
 
@@ -288,6 +293,7 @@ fn kv_expire_and_persist() {
             collection: "c".into(),
             key: b"k".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     assert_eq!(payload, b"v");
@@ -447,6 +453,7 @@ fn kv_tenant_isolation() {
             collection: "shared".into(),
             key: b"k".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }))
     };
     tx.try_push(nodedb::bridge::dispatch::BridgeRequest { inner: req })

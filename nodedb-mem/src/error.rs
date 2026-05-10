@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+use nodedb_types::{DatabaseId, TenantId};
+
 use crate::engine::EngineId;
 
 /// Errors produced by the memory governor.
@@ -26,6 +28,31 @@ pub enum MemError {
         allocated: usize,
         ceiling: usize,
         requested: usize,
+    },
+
+    /// The per-database memory budget would be exceeded.
+    #[error(
+        "database memory budget exhausted for database {db:?}: \
+         requested {requested} bytes, available {available} bytes (limit: {limit} bytes)"
+    )]
+    DatabaseBudgetExhausted {
+        db: DatabaseId,
+        requested: usize,
+        available: usize,
+        limit: usize,
+    },
+
+    /// The per-tenant memory budget would be exceeded.
+    #[error(
+        "tenant memory budget exhausted for tenant {tenant:?} in database {db:?}: \
+         requested {requested} bytes, available {available} bytes (limit: {limit} bytes)"
+    )]
+    TenantBudgetExhausted {
+        db: DatabaseId,
+        tenant: TenantId,
+        requested: usize,
+        available: usize,
+        limit: usize,
     },
 
     /// Engine is not registered with the governor.

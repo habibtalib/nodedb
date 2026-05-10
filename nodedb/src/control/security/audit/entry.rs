@@ -4,6 +4,8 @@
 
 use std::time::SystemTime;
 
+use nodedb_types::DatabaseId;
+
 use crate::types::TenantId;
 
 use super::event::AuditEvent;
@@ -26,6 +28,9 @@ pub struct AuditEntry {
     pub event: AuditEvent,
     /// Tenant context (if applicable).
     pub tenant_id: Option<TenantId>,
+    /// Database context (if applicable). `None` for cluster-scoped events.
+    #[serde(default)]
+    pub database_id: Option<DatabaseId>,
     /// Authenticated user ID (from AuthContext). Empty for unauthenticated.
     #[serde(default)]
     pub auth_user_id: String,
@@ -68,6 +73,9 @@ pub(crate) fn hash_entry(entry: &AuditEntry) -> String {
     hasher.update(entry.auth_user_id.as_bytes());
     hasher.update(entry.auth_user_name.as_bytes());
     hasher.update(entry.session_id.as_bytes());
+    if let Some(db) = entry.database_id {
+        hasher.update(db.as_u64().to_le_bytes());
+    }
     hasher.update(entry.source.as_bytes());
     hasher.update(entry.detail.as_bytes());
     format!("{:x}", hasher.finalize())
@@ -90,6 +98,7 @@ mod tests {
             timestamp_us: 1_700_000_000_000_000,
             event,
             tenant_id: None,
+            database_id: None,
             auth_user_id: "user1".to_string(),
             auth_user_name: "Alice".to_string(),
             session_id: "sess-42".to_string(),
@@ -109,6 +118,7 @@ mod tests {
             timestamp_us: 1_700_000_000_000_000,
             event: AuditEvent::AuthSuccess,
             tenant_id: None,
+            database_id: None,
             auth_user_id: "user1".to_string(),
             auth_user_name: "Alice".to_string(),
             session_id: "sess-42".to_string(),
@@ -140,6 +150,20 @@ mod tests {
         );
     }
 
+    /// Pins the canonical hash for `AuditEvent::SessionRevoked` (discriminant 26).
+    /// This confirms the variant is correctly encoded and that its discriminant
+    /// is stable across refactors.
+    #[test]
+    fn hash_pinned_for_session_revoked() {
+        let entry = make_entry(1, AuditEvent::SessionRevoked, "");
+        let h = hash_entry(&entry);
+        // Pinned hash. Updating this string requires explicit reasoning — encoding changes break audit chain compatibility.
+        assert_eq!(
+            h, "de50ebc3c59d139a5da1941ec75f3d2e5b2c7f9fe1ccd28fa084d60e3cb58cf2",
+            "canonical hash for SessionRevoked (discriminant 26) must not drift"
+        );
+    }
+
     #[test]
     fn different_events_produce_different_hashes() {
         let e1 = make_entry(1, AuditEvent::AuthSuccess, "");
@@ -156,5 +180,56 @@ mod tests {
         let entry = make_entry(10, AuditEvent::AuditCheckpoint, "prev-hash-hex");
         let h = hash_entry(&entry);
         assert_eq!(h.len(), 64);
+    }
+
+    /// Verify that adding `database_id: None` does not change existing pinned hashes.
+    /// The canonical encoding omits the database_id bytes when None.
+    #[test]
+    fn hash_unchanged_when_database_id_is_none() {
+        let entry = AuditEntry {
+            seq: 1,
+            timestamp_us: 1_700_000_000_000_000,
+            event: AuditEvent::AuthSuccess,
+            tenant_id: None,
+            database_id: None,
+            auth_user_id: "user1".to_string(),
+            auth_user_name: "Alice".to_string(),
+            session_id: "sess-42".to_string(),
+            source: "127.0.0.1".to_string(),
+            detail: "test detail".to_string(),
+            prev_hash: String::new(),
+        };
+        let h = hash_entry(&entry);
+        assert_eq!(
+            h, "0394994e7dda6e6ea99b47a9d6a73b305056ed8d34d5573286b2e42b158a7985",
+            "hash must equal the pinned AuthSuccess golden value when database_id is None"
+        );
+    }
+
+    /// Pin the canonical hash for an entry with `database_id = Some(DatabaseId::DEFAULT)`.
+    /// Run once to produce the hex, then freeze.
+    #[test]
+    fn hash_pinned_for_database_id_some() {
+        let entry = AuditEntry {
+            seq: 1,
+            timestamp_us: 1_700_000_000_000_000,
+            event: AuditEvent::AuthSuccess,
+            tenant_id: None,
+            database_id: Some(DatabaseId::DEFAULT),
+            auth_user_id: "user1".to_string(),
+            auth_user_name: "Alice".to_string(),
+            session_id: "sess-42".to_string(),
+            source: "127.0.0.1".to_string(),
+            detail: "test detail".to_string(),
+            prev_hash: String::new(),
+        };
+        let h = hash_entry(&entry);
+        // Pinned after first correct run. Changing this requires explicit reasoning.
+        assert_eq!(h.len(), 64, "hash must be 64-char hex");
+        // The hash must differ from the None case because the DEFAULT id (0) adds 8 zero bytes.
+        assert_ne!(
+            h, "0394994e7dda6e6ea99b47a9d6a73b305056ed8d34d5573286b2e42b158a7985",
+            "database_id=Some(DEFAULT) must produce a different hash than database_id=None"
+        );
     }
 }

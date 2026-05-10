@@ -43,6 +43,7 @@ pub fn make_request(plan: PhysicalPlan) -> Request {
     Request {
         request_id: RequestId::new(1),
         tenant_id: TenantId::new(1),
+        database_id: nodedb::types::DatabaseId::DEFAULT,
         vshard_id: VShardId::new(0),
         plan,
         deadline: Instant::now() + Duration::from_secs(5),
@@ -52,6 +53,8 @@ pub fn make_request(plan: PhysicalPlan) -> Request {
         idempotency_key: None,
         event_source: nodedb::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     }
 }
 
@@ -209,6 +212,7 @@ pub fn kv_get(key: &[u8]) -> PhysicalPlan {
         collection: "kv_coll".into(),
         key: key.to_vec(),
         rls_filters: Vec::new(),
+        surrogate_ceiling: None,
     })
 }
 

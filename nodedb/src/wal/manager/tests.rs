@@ -3,7 +3,7 @@
 use nodedb_wal::record::RecordType;
 
 use super::core::WalManager;
-use crate::types::{Lsn, TenantId, VShardId};
+use crate::types::{DatabaseId, Lsn, TenantId, VShardId};
 
 #[test]
 fn append_and_replay() {
@@ -14,10 +14,11 @@ fn append_and_replay() {
 
     let t = TenantId::new(1);
     let v = VShardId::new(0);
+    let db = DatabaseId::DEFAULT;
 
-    let lsn1 = wal.append_put(t, v, b"key1=value1").unwrap();
-    let lsn2 = wal.append_put(t, v, b"key2=value2").unwrap();
-    let lsn3 = wal.append_delete(t, v, b"key1").unwrap();
+    let lsn1 = wal.append_put(t, v, db, b"key1=value1").unwrap();
+    let lsn2 = wal.append_put(t, v, db, b"key2=value2").unwrap();
+    let lsn3 = wal.append_delete(t, v, db, b"key1").unwrap();
 
     assert_eq!(lsn1, Lsn::new(1));
     assert_eq!(lsn2, Lsn::new(2));
@@ -40,8 +41,11 @@ fn crdt_delta_roundtrip() {
 
     let t = TenantId::new(5);
     let v = VShardId::new(42);
+    let db = DatabaseId::DEFAULT;
 
-    let lsn = wal.append_crdt_delta(t, v, b"loro-delta-bytes").unwrap();
+    let lsn = wal
+        .append_crdt_delta(t, v, db, b"loro-delta-bytes")
+        .unwrap();
     assert_eq!(lsn, Lsn::new(1));
 
     wal.sync().unwrap();
@@ -61,10 +65,20 @@ fn next_lsn_continues_after_reopen() {
 
     {
         let wal = WalManager::open_for_testing(&path).unwrap();
-        wal.append_put(TenantId::new(1), VShardId::new(0), b"a")
-            .unwrap();
-        wal.append_put(TenantId::new(1), VShardId::new(0), b"b")
-            .unwrap();
+        wal.append_put(
+            TenantId::new(1),
+            VShardId::new(0),
+            DatabaseId::DEFAULT,
+            b"a",
+        )
+        .unwrap();
+        wal.append_put(
+            TenantId::new(1),
+            VShardId::new(0),
+            DatabaseId::DEFAULT,
+            b"b",
+        )
+        .unwrap();
         wal.sync().unwrap();
     }
 
@@ -72,7 +86,12 @@ fn next_lsn_continues_after_reopen() {
     assert_eq!(wal.next_lsn(), Lsn::new(3));
 
     let lsn = wal
-        .append_put(TenantId::new(1), VShardId::new(0), b"c")
+        .append_put(
+            TenantId::new(1),
+            VShardId::new(0),
+            DatabaseId::DEFAULT,
+            b"c",
+        )
         .unwrap();
     assert_eq!(lsn, Lsn::new(3));
 }
@@ -86,9 +105,11 @@ fn truncate_reclaims_space() {
 
     let t = TenantId::new(1);
     let v = VShardId::new(0);
+    let db = DatabaseId::DEFAULT;
 
     for i in 0..10u32 {
-        wal.append_put(t, v, format!("val-{i}").as_bytes()).unwrap();
+        wal.append_put(t, v, db, format!("val-{i}").as_bytes())
+            .unwrap();
     }
     wal.sync().unwrap();
 
@@ -105,8 +126,13 @@ fn total_size_and_list_segments() {
     let path = dir.path().join("wal_dir");
 
     let wal = WalManager::open_for_testing(&path).unwrap();
-    wal.append_put(TenantId::new(1), VShardId::new(0), b"data")
-        .unwrap();
+    wal.append_put(
+        TenantId::new(1),
+        VShardId::new(0),
+        DatabaseId::DEFAULT,
+        b"data",
+    )
+    .unwrap();
     wal.sync().unwrap();
 
     let size = wal.total_size_bytes().unwrap();

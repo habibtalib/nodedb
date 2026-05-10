@@ -11,6 +11,8 @@
 mod calvin_dispatch;
 mod catalog;
 mod check_enforcement;
+mod clone_dispatch;
+mod clone_write_dispatch;
 mod execute;
 mod gateway_dispatch;
 mod kv_wrapping;

@@ -8,7 +8,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 /// Handle `DROP CHANGE STREAM [IF EXISTS] <name>`
 pub fn drop_change_stream(
@@ -16,7 +16,7 @@ pub fn drop_change_stream(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop change streams")?;
+    require_tenant_admin(identity, "drop change streams")?;
 
     // parts: ["DROP", "CHANGE", "STREAM", ...]
     let (if_exists, name) = if parts.len() >= 6

@@ -24,7 +24,10 @@ use nodedb_cluster::calvin::{
     sequencer::{SequencerConfig, new_inbox},
     types::{EngineKeySet, ReadWriteSet, SequencedTxn, SortedVec, TxClass},
 };
-use nodedb_types::{TenantId, id::VShardId};
+use nodedb_types::{
+    TenantId,
+    id::{DatabaseId, VShardId},
+};
 use tokio::sync::mpsc;
 
 use common::{spawn_with_sequencer, wait_for_sequencer_leader};
@@ -37,7 +40,7 @@ fn two_distinct_vshard_collections() -> (String, String) {
     let mut first: Option<(String, u32)> = None;
     for i in 0u32..512 {
         let name = format!("orders_{i}");
-        let vshard = VShardId::from_collection(&name).as_u32();
+        let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &name).as_u32();
         if let Some((ref fname, fv)) = first {
             if fv != vshard {
                 return (fname.clone(), name);
@@ -94,8 +97,8 @@ async fn multi_vshard_insert_via_sequencer_admitted_and_replicated() {
 
     // Wire per-vshard fan-out receivers on every node.
     let (col_a, col_b) = two_distinct_vshard_collections();
-    let va = VShardId::from_collection(&col_a).as_u32();
-    let vb = VShardId::from_collection(&col_b).as_u32();
+    let va = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &col_a).as_u32();
+    let vb = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &col_b).as_u32();
 
     let mut fan_out_rxs_a: Vec<mpsc::Receiver<SequencedTxn>> = Vec::new();
     let mut fan_out_rxs_b: Vec<mpsc::Receiver<SequencedTxn>> = Vec::new();

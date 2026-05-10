@@ -23,7 +23,7 @@ async fn object_literal_insert_schemaless() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM docs WHERE id = 'doc1'")
+        .query_text_joined("SELECT * FROM docs WHERE id = 'doc1'")
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
@@ -43,7 +43,7 @@ async fn object_literal_insert_schemaless_nested() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM nested_docs WHERE id = 'n1'")
+        .query_text_joined("SELECT * FROM nested_docs WHERE id = 'n1'")
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
@@ -63,7 +63,7 @@ async fn object_literal_insert_schemaless_auto_id() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM auto_id_docs")
+        .query_text_joined("SELECT * FROM auto_id_docs")
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
@@ -95,18 +95,21 @@ async fn object_literal_insert_kv() {
 
     // Verify both keys exist and both forms produce the same response shape.
     let r1 = server
-        .query_text("SELECT * FROM kv_cache WHERE key = 'k1'")
+        .query_text_joined("SELECT * FROM kv_cache WHERE key = 'k1'")
         .await
         .unwrap();
     let r2 = server
-        .query_text("SELECT * FROM kv_cache WHERE key = 'k2'")
+        .query_text_joined("SELECT * FROM kv_cache WHERE key = 'k2'")
         .await
         .unwrap();
     assert_eq!(r1.len(), 1, "object literal key lookup: {r1:?}");
     assert_eq!(r2.len(), 1, "VALUES key lookup: {r2:?}");
 
     // Full scan should return individual rows (flat array format).
-    let all = server.query_text("SELECT * FROM kv_cache").await.unwrap();
+    let all = server
+        .query_text_joined("SELECT * FROM kv_cache")
+        .await
+        .unwrap();
     assert_eq!(all.len(), 2, "full scan should return 2 rows, got: {all:?}");
 }
 
@@ -131,7 +134,7 @@ async fn object_literal_insert_strict() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM strict_orders WHERE id = 'o1'")
+        .query_text_joined("SELECT * FROM strict_orders WHERE id = 'o1'")
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
@@ -158,7 +161,10 @@ async fn object_literal_insert_columnar() {
         .await
         .unwrap();
 
-    let rows = server.query_text("SELECT * FROM col_data").await.unwrap();
+    let rows = server
+        .query_text_joined("SELECT * FROM col_data")
+        .await
+        .unwrap();
     assert_eq!(rows.len(), 1);
     assert!(rows[0].contains("us-east"));
 }
@@ -183,7 +189,10 @@ async fn object_literal_insert_timeseries() {
         .await
         .unwrap();
 
-    let rows = server.query_text("SELECT * FROM ts_events").await.unwrap();
+    let rows = server
+        .query_text_joined("SELECT * FROM ts_events")
+        .await
+        .unwrap();
     assert_eq!(rows.len(), 1);
     assert!(rows[0].contains("42"));
 }
@@ -209,7 +218,7 @@ async fn object_literal_insert_spatial() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM sp_locations")
+        .query_text_joined("SELECT * FROM sp_locations")
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
@@ -235,7 +244,7 @@ async fn object_literal_upsert_schemaless() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM upsert_docs WHERE id = 'u1'")
+        .query_text_joined("SELECT * FROM upsert_docs WHERE id = 'u1'")
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
@@ -261,7 +270,10 @@ async fn object_literal_matches_values_form() {
         .await
         .unwrap();
 
-    let rows = server.query_text("SELECT * FROM equiv_docs").await.unwrap();
+    let rows = server
+        .query_text_joined("SELECT * FROM equiv_docs")
+        .await
+        .unwrap();
     assert_eq!(rows.len(), 2);
 }
 
@@ -278,7 +290,10 @@ async fn object_literal_batch_insert() {
         .await
         .unwrap();
 
-    let rows = server.query_text("SELECT * FROM batch_docs").await.unwrap();
+    let rows = server
+        .query_text_joined("SELECT * FROM batch_docs")
+        .await
+        .unwrap();
     assert_eq!(
         rows.len(),
         3,
@@ -299,7 +314,7 @@ async fn object_literal_batch_insert_heterogeneous_keys() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM hetero_docs")
+        .query_text_joined("SELECT * FROM hetero_docs")
         .await
         .unwrap();
     assert_eq!(
@@ -430,11 +445,11 @@ async fn kv_insert_with_ttl() {
 
     // Both should exist immediately.
     let r1 = server
-        .query_text("SELECT * FROM ttl_cache WHERE key = 'ephemeral'")
+        .query_text_joined("SELECT * FROM ttl_cache WHERE key = 'ephemeral'")
         .await
         .unwrap();
     let r2 = server
-        .query_text("SELECT * FROM ttl_cache WHERE key = 'permanent'")
+        .query_text_joined("SELECT * FROM ttl_cache WHERE key = 'permanent'")
         .await
         .unwrap();
     assert_eq!(r1.len(), 1, "ephemeral key should exist immediately");
@@ -445,11 +460,11 @@ async fn kv_insert_with_ttl() {
 
     // Ephemeral key should be gone, permanent should remain.
     let r1 = server
-        .query_text("SELECT * FROM ttl_cache WHERE key = 'ephemeral'")
+        .query_text_joined("SELECT * FROM ttl_cache WHERE key = 'ephemeral'")
         .await
         .unwrap();
     let r2 = server
-        .query_text("SELECT * FROM ttl_cache WHERE key = 'permanent'")
+        .query_text_joined("SELECT * FROM ttl_cache WHERE key = 'permanent'")
         .await
         .unwrap();
     assert_eq!(r1.len(), 0, "ephemeral key should have expired");

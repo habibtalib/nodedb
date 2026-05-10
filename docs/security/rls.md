@@ -53,13 +53,28 @@ CREATE RLS POLICY not_deleted ON docs FOR READ
 
 RLS predicates use `$auth.*` variables populated from the authenticated session (JWT claims, DB user, API key context):
 
-| Variable          | Source                    | Example                               |
-| ----------------- | ------------------------- | ------------------------------------- |
-| `$auth.id`   | JWT `sub` or DB user ID   | `customer_id = $auth.id`         |
-| `$auth.role`      | JWT role claim or DB role | `$auth.role = 'admin'`                |
-| `$auth.org_id`    | JWT org claim             | `org_id = $auth.org_id`               |
-| `$auth.tenant_id` | Tenant context            | `tenant_id = $auth.tenant_id`         |
-| `$auth.scopes`    | JWT scopes                | `$auth.scopes CONTAINS 'read:orders'` |
+| Variable            | Source                    | Example                               |
+| ------------------- | ------------------------- | ------------------------------------- |
+| `$auth.id`          | JWT `sub` or DB user ID   | `customer_id = $auth.id`              |
+| `$auth.role`        | JWT role claim or DB role | `$auth.role = 'admin'`                |
+| `$auth.org_id`      | JWT org claim             | `org_id = $auth.org_id`               |
+| `$auth.tenant_id`   | Tenant context            | `tenant_id = $auth.tenant_id`         |
+| `$auth.database_id` | Current database          | `shard_id = $auth.database_id`        |
+| `$auth.scopes`      | JWT scopes                | `$auth.scopes CONTAINS 'read:orders'` |
+
+**`$auth.database_id`** enables sharding by database:
+
+```sql
+-- Rows visible only if they belong to the session's bound database
+CREATE RLS POLICY database_shard ON documents FOR READ
+    USING (shard = $auth.database_id);
+
+-- Cross-database shards (multi-tenant SaaS)
+CREATE RLS POLICY shard_access ON documents FOR READ
+    USING (tenant_id = $auth.tenant_id AND shard = $auth.database_id);
+```
+
+Substitution is fail-closed: if the session lacks a database ID, the policy evaluation fails and the row is blocked.
 
 ## Managing Policies
 

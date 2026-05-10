@@ -72,6 +72,7 @@ fn test_ctx() -> QueryContext {
     QueryContext {
         tenant_id: TenantId::new(0),
         trace_id: nodedb_types::TraceId::ZERO,
+        database_id: nodedb_types::id::DatabaseId::DEFAULT,
     }
 }
 
@@ -138,6 +139,7 @@ async fn pgwire_not_leader_retry_uses_shared_gateway() {
         collection: "nl_pgwire_shared_gw".into(),
         key: vec![],
         rls_filters: vec![],
+        surrogate_ceiling: None,
     }));
     gateway
         .plan_cache

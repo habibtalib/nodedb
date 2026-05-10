@@ -215,9 +215,11 @@ impl JwtValidator {
             user_id: claims.user_id,
             username,
             tenant_id: TenantId::new(claims.tenant_id),
-            auth_method: AuthMethod::ApiKey, // JWT is a bearer token variant.
+            auth_method: AuthMethod::OidcBearer,
             roles,
             is_superuser: claims.is_superuser,
+            default_database: None,
+            accessible_databases: AuthenticatedIdentity::default_database_set(claims.is_superuser),
         })
     }
 

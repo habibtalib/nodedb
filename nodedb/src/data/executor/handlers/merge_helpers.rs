@@ -36,6 +36,7 @@ pub(super) fn find_arm<'a>(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply_action(
     core: &mut CoreLoop,
+    database_id: u64,
     tid: u64,
     collection: &str,
     doc_id: &str,
@@ -90,7 +91,8 @@ pub(super) fn apply_action(
                     engine: "sparse".into(),
                     detail: format!("merge update {doc_id}: {e}"),
                 })?;
-            core.doc_cache.put(tid, collection, doc_id, &updated_bytes);
+            core.doc_cache
+                .put(database_id, tid, collection, doc_id, &updated_bytes);
             Ok(true)
         }
         MergeActionOp::Insert { .. } => {

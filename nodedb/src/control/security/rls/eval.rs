@@ -11,6 +11,7 @@
 
 use tracing::info;
 
+use crate::control::security::audit::{AuditEmitContext, AuditEmitter, AuditEvent};
 use crate::control::security::auth_context::AuthContext;
 use crate::control::security::predicate::{PolicyMode, RlsPredicate};
 use crate::control::security::predicate_eval::{combine_policies, substitute_to_scan_filters};
@@ -59,12 +60,15 @@ impl RlsPolicyStore {
 
     /// Write-path RLS check with `$auth.*` support. Evaluates compiled
     /// write policies; fail-closed on unresolved auth references.
+    ///
+    /// Emits `AuditEvent::RlsRejected` via `emitter` on every denial.
     pub fn check_write_with_auth(
         &self,
         tenant_id: u64,
         collection: &str,
         document: &serde_json::Value,
         auth: &AuthContext,
+        emitter: &dyn AuditEmitter,
     ) -> crate::Result<()> {
         if auth.is_superuser() {
             return Ok(());
@@ -77,7 +81,9 @@ impl RlsPolicyStore {
 
         for policy in &policies {
             if let Some(ref compiled) = policy.compiled_predicate {
-                check_compiled_write(policy, compiled, document, auth, tenant_id, collection)?;
+                check_compiled_write(
+                    policy, compiled, document, auth, tenant_id, collection, emitter,
+                )?;
             }
         }
 
@@ -92,6 +98,7 @@ fn check_compiled_write(
     auth: &AuthContext,
     tenant_id: u64,
     collection: &str,
+    emitter: &dyn AuditEmitter,
 ) -> crate::Result<()> {
     let filters = match substitute_to_scan_filters(compiled, auth) {
         Some(f) => f,
@@ -101,6 +108,19 @@ fn check_compiled_write(
                 username = %auth.username,
                 %collection,
                 "RLS write policy: unresolved $auth reference → denied"
+            );
+            emitter.emit(
+                AuditEvent::RlsRejected,
+                &auth.username,
+                &format!(
+                    "RLS policy '{}' on '{}': unresolved session variable",
+                    policy.name, collection
+                ),
+                AuditEmitContext::new(
+                    Some(crate::types::TenantId::new(tenant_id)),
+                    &auth.id,
+                    &auth.username,
+                ),
             );
             return Err(crate::Error::RejectedAuthz {
                 tenant_id: crate::types::TenantId::new(tenant_id),
@@ -120,6 +140,19 @@ fn check_compiled_write(
             %collection,
             "RLS write policy rejected (compiled)"
         );
+        emitter.emit(
+            AuditEvent::RlsRejected,
+            &auth.username,
+            &format!(
+                "RLS policy '{}' on collection '{}' rejected write",
+                policy.name, collection
+            ),
+            AuditEmitContext::new(
+                Some(crate::types::TenantId::new(tenant_id)),
+                &auth.id,
+                &auth.username,
+            ),
+        );
         return Err(crate::Error::RejectedAuthz {
             tenant_id: crate::types::TenantId::new(tenant_id),
             resource: format!(
@@ -134,9 +167,12 @@ fn check_compiled_write(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::control::security::audit::NoopAuditEmitter;
     use crate::control::security::auth_context::AuthContext;
     use crate::control::security::predicate::{CompareOp, PredicateValue, RlsPredicate};
     use crate::control::security::rls::types::PolicyType;
+
+    const NOOP: &NoopAuditEmitter = &NoopAuditEmitter;
 
     fn make_policy(name: &str, collection: &str, policy_type: PolicyType) -> RlsPolicy {
         let now = std::time::SystemTime::now()
@@ -167,6 +203,10 @@ mod tests {
             auth_method: AuthMethod::ScramSha256,
             roles: vec![Role::ReadWrite],
             is_superuser: false,
+            default_database: None,
+            accessible_databases: crate::control::security::identity::DatabaseSet::Some(
+                smallvec::smallvec![nodedb_types::id::DatabaseId::DEFAULT],
+            ),
         };
         AuthContext::from_identity(&identity, "s_test".into())
     }
@@ -190,7 +230,7 @@ mod tests {
         let doc_ok = serde_json::json!({"owner_id": "42", "amount": 100});
         assert!(
             store
-                .check_write_with_auth(1, "orders", &doc_ok, &auth)
+                .check_write_with_auth(1, "orders", &doc_ok, &auth, NOOP)
                 .is_ok()
         );
 
@@ -198,7 +238,7 @@ mod tests {
         let doc_bad = serde_json::json!({"owner_id": "99", "amount": 100});
         assert!(
             store
-                .check_write_with_auth(1, "orders", &doc_bad, &auth)
+                .check_write_with_auth(1, "orders", &doc_bad, &auth, NOOP)
                 .is_err()
         );
     }
@@ -210,7 +250,7 @@ mod tests {
         let doc = serde_json::json!({"anything": "goes"});
         assert!(
             store
-                .check_write_with_auth(1, "whatever", &doc, &auth)
+                .check_write_with_auth(1, "whatever", &doc, &auth, NOOP)
                 .is_ok()
         );
     }
@@ -231,7 +271,7 @@ mod tests {
 
         let auth = nonsuper_auth();
         let doc = serde_json::json!({"org_id": "some_org"});
-        let result = store.check_write_with_auth(1, "orders", &doc, &auth);
+        let result = store.check_write_with_auth(1, "orders", &doc, &auth, NOOP);
         assert!(
             result.is_err(),
             "RLS must fail-closed on unresolvable $auth ref; got {result:?}"
@@ -254,11 +294,59 @@ mod tests {
 
         let doc = serde_json::json!({"secret_scope": "admin"});
         let auth = nonsuper_auth();
-        let result = store.check_write_with_auth(1, "orders", &doc, &auth);
+        let result = store.check_write_with_auth(1, "orders", &doc, &auth, NOOP);
         assert!(
             result.is_err(),
             "write path must fail-closed on unresolvable auth ref; got {result:?}"
         );
+    }
+
+    #[test]
+    fn rls_rejection_emits_audit_row() {
+        use crate::control::security::audit::emitter::test_helpers::CapturingEmitter;
+
+        let store = RlsPolicyStore::new();
+        let predicate = RlsPredicate::Compare {
+            field: "owner_id".into(),
+            op: CompareOp::Eq,
+            value: PredicateValue::AuthRef("id".into()),
+        };
+        let mut policy = make_policy("owner_gate", "items", PolicyType::Write);
+        policy.compiled_predicate = Some(predicate);
+        store.create_policy(policy).unwrap();
+
+        let auth = nonsuper_auth();
+        // alice's user_id is 42; owner_id is 99 → denied.
+        let doc_bad = serde_json::json!({"owner_id": "99", "qty": 1});
+        let emitter = CapturingEmitter::new();
+        let result = store.check_write_with_auth(1, "items", &doc_bad, &auth, &emitter);
+        assert!(result.is_err());
+
+        let recorded = emitter.recorded();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, AuditEvent::RlsRejected);
+    }
+
+    #[test]
+    fn rls_allow_does_not_emit_audit_row() {
+        use crate::control::security::audit::emitter::test_helpers::CapturingEmitter;
+
+        let store = RlsPolicyStore::new();
+        let predicate = RlsPredicate::Compare {
+            field: "owner_id".into(),
+            op: CompareOp::Eq,
+            value: PredicateValue::AuthRef("id".into()),
+        };
+        let mut policy = make_policy("owner_gate", "items", PolicyType::Write);
+        policy.compiled_predicate = Some(predicate);
+        store.create_policy(policy).unwrap();
+
+        let auth = nonsuper_auth();
+        let doc_ok = serde_json::json!({"owner_id": "42", "qty": 1});
+        let emitter = CapturingEmitter::new();
+        let result = store.check_write_with_auth(1, "items", &doc_ok, &auth, &emitter);
+        assert!(result.is_ok());
+        assert!(emitter.recorded().is_empty());
     }
 
     /// Read-path: `combined_read_predicate_with_auth` with a policy whose

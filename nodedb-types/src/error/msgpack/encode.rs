@@ -218,6 +218,64 @@ impl ToMessagePack for ErrorDetails {
             ErrorDetails::Internal { component, detail } => {
                 write2(writer, TAG_INTERNAL, component, detail)
             }
+            ErrorDetails::TenantVectorDimExceeded { dim, limit } => {
+                write2(writer, TAG_TENANT_VECTOR_DIM_EXCEEDED, dim, limit)
+            }
+            ErrorDetails::TenantGraphDepthExceeded { depth, limit } => {
+                write2(writer, TAG_TENANT_GRAPH_DEPTH_EXCEEDED, depth, limit)
+            }
+            ErrorDetails::QuotaOvercommit { field } => write1(writer, TAG_QUOTA_OVERCOMMIT, field),
+            ErrorDetails::QuotaExceeded { scope } => write1(writer, TAG_QUOTA_EXCEEDED, scope),
+            ErrorDetails::ServerOverload => write_unit(writer, TAG_SERVER_OVERLOAD),
+            ErrorDetails::CloneDepthExceeded { depth, limit } => {
+                write2(writer, TAG_CLONE_DEPTH_EXCEEDED, depth, limit)
+            }
+            ErrorDetails::CannotCloneMirror { database } => {
+                write1(writer, TAG_CANNOT_CLONE_MIRROR, database)
+            }
+            ErrorDetails::CloneDependency { dependents } => {
+                writer.write_array_len(2)?;
+                writer.write_u16(TAG_CLONE_DEPENDENCY)?;
+                writer.write_array_len(dependents.len())?;
+                for dep in dependents {
+                    dep.write(writer)?;
+                }
+                Ok(())
+            }
+            ErrorDetails::ClonePredatesQueryTime {
+                as_of_lsn,
+                created_at_lsn,
+            } => write2(
+                writer,
+                TAG_CLONE_PREDATES_QUERY_TIME,
+                as_of_lsn,
+                created_at_lsn,
+            ),
+            ErrorDetails::MoveTenantDrainTimeout { tenant, source_db } => {
+                write2(writer, TAG_MOVE_TENANT_DRAIN_TIMEOUT, tenant, source_db)
+            }
+            ErrorDetails::MoveTenantPreflightFailed { tenant, detail } => {
+                write2(writer, TAG_MOVE_TENANT_PREFLIGHT_FAILED, tenant, detail)
+            }
+            ErrorDetails::MoveTenantSnapshotFailed { tenant, detail } => {
+                write2(writer, TAG_MOVE_TENANT_SNAPSHOT_FAILED, tenant, detail)
+            }
+            ErrorDetails::MoveTenantCutoverFailed { tenant, detail } => {
+                write2(writer, TAG_MOVE_TENANT_CUTOVER_FAILED, tenant, detail)
+            }
+            ErrorDetails::MoveTenantAlreadyAtTarget { tenant, target_db } => {
+                write2(writer, TAG_MOVE_TENANT_ALREADY_AT_TARGET, tenant, target_db)
+            }
+            ErrorDetails::MirrorReadOnly { database } => {
+                write1(writer, TAG_MIRROR_READ_ONLY, database)
+            }
+            ErrorDetails::StaleReadNotLeader {
+                database,
+                source_cluster,
+            } => write2(writer, TAG_STALE_READ_NOT_LEADER, database, source_cluster),
+            ErrorDetails::MirrorNotPromoted { database } => {
+                write1(writer, TAG_MIRROR_NOT_PROMOTED, database)
+            }
         }
     }
 }

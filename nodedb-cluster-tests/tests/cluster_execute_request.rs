@@ -46,6 +46,7 @@ fn make_kv_put_request(
     ExecuteRequest {
         plan_bytes,
         tenant_id: 0,
+        database_id: 0,
         deadline_remaining_ms,
         trace_id: [0u8; 16],
         descriptor_versions: vec![DescriptorVersionEntry {
@@ -201,6 +202,7 @@ async fn execute_request_cross_node_dispatch() {
             plan_wire::encode(&plan).expect("encode plan")
         },
         tenant_id: 0,
+        database_id: 0,
         deadline_remaining_ms: 5000,
         trace_id: [0u8; 16],
         descriptor_versions: vec![DescriptorVersionEntry {

@@ -184,7 +184,7 @@ async fn object_literal_with_escaped_quote_parses_correctly() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM esc_test WHERE id = 'e1'")
+        .query_text_joined("SELECT * FROM esc_test WHERE id = 'e1'")
         .await
         .unwrap();
     assert_eq!(
@@ -212,7 +212,7 @@ async fn object_literal_escaped_quote_near_brace() {
         .unwrap();
 
     let rows = server
-        .query_text("SELECT * FROM esc_test2 WHERE id = 'e2'")
+        .query_text_joined("SELECT * FROM esc_test2 WHERE id = 'e2'")
         .await
         .unwrap();
     assert_eq!(

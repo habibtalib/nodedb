@@ -239,6 +239,8 @@ impl CoreLoop {
                         spill_dir: &columnar_spill_dir,
                         spill_cap: columnar_spill_cap,
                         governor: self.governor.clone(),
+                        db: task.request.database_id,
+                        tenant: task.request.tenant_id,
                     },
                 )
             }) {

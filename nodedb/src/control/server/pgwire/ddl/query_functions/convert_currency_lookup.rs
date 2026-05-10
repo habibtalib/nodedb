@@ -16,7 +16,7 @@ use crate::bridge::envelope::PhysicalPlan;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::dispatch_utils;
 use crate::control::state::SharedState;
-use crate::types::{TraceId, VShardId};
+use crate::types::{DatabaseId, TraceId, VShardId};
 
 use super::super::super::types::{sqlstate_error, text_field};
 use super::helpers::clean_arg;
@@ -65,7 +65,7 @@ pub async fn convert_currency_lookup(
     let key_value = format!("{from_ccy}/{to_ccy}");
 
     // Scan rate table to find latest rate where key_column == key_value AND time_column <= as_of.
-    let vshard = VShardId::from_collection(&rate_table);
+    let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &rate_table);
     let scan_plan = PhysicalPlan::Document(crate::bridge::physical_plan::DocumentOp::Scan {
         collection: rate_table.clone(),
         limit: usize::MAX,

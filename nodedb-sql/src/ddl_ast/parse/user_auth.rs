@@ -42,7 +42,34 @@ fn try_parse_inner(upper: &str, parts: &[&str], trimmed: &str) -> Option<NodedbS
         let username = parts.get(4).map(|s| s.to_string()).unwrap_or_default();
         return Some(NodedbStatement::RevokeRole { role, username });
     }
-    if upper.starts_with("GRANT ") {
+    if upper.starts_with("GRANT ") && !upper.starts_with("GRANT ROLE ") {
+        // GRANT <perm> ON DATABASE <name> TO <grantee> — must be checked before
+        // the generic collection/function path so that DATABASE is not mistaken
+        // for a collection name.
+        if parts
+            .get(2)
+            .map(|s| s.eq_ignore_ascii_case("ON"))
+            .unwrap_or(false)
+            && parts
+                .get(3)
+                .map(|s| s.eq_ignore_ascii_case("DATABASE"))
+                .unwrap_or(false)
+        {
+            let permission = parts.get(1).map(|s| s.to_string()).unwrap_or_default();
+            let db_name = parts.get(4).map(|s| s.to_string()).unwrap_or_default();
+            let grantee = parts
+                .iter()
+                .position(|p| p.eq_ignore_ascii_case("TO"))
+                .and_then(|i| parts.get(i + 1))
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            return Some(NodedbStatement::GrantDatabasePermission {
+                permission,
+                db_name,
+                grantee,
+            });
+        }
+
         // GRANT <perm> ON [FUNCTION] <name> TO <grantee>
         let permission = parts.get(1).map(|s| s.to_string()).unwrap_or_default();
         // ON is at index 2
@@ -79,6 +106,33 @@ fn try_parse_inner(upper: &str, parts: &[&str], trimmed: &str) -> Option<NodedbS
         && !upper.starts_with("REVOKE SCOPE")
         && !upper.starts_with("REVOKE DELEGATION")
     {
+        // REVOKE <perm> ON DATABASE <name> FROM <grantee> — must be
+        // checked before the generic collection/function path so that
+        // `DATABASE` is not mistaken for a collection name.
+        if parts
+            .get(2)
+            .map(|s| s.eq_ignore_ascii_case("ON"))
+            .unwrap_or(false)
+            && parts
+                .get(3)
+                .map(|s| s.eq_ignore_ascii_case("DATABASE"))
+                .unwrap_or(false)
+        {
+            let permission = parts.get(1).map(|s| s.to_string()).unwrap_or_default();
+            let db_name = parts.get(4).map(|s| s.to_string()).unwrap_or_default();
+            let grantee = parts
+                .iter()
+                .position(|p| p.eq_ignore_ascii_case("FROM"))
+                .and_then(|i| parts.get(i + 1))
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            return Some(NodedbStatement::RevokeDatabasePermission {
+                permission,
+                db_name,
+                grantee,
+            });
+        }
+
         // REVOKE <perm> ON [FUNCTION] <name> FROM <grantee>
         let permission = parts.get(1).map(|s| s.to_string()).unwrap_or_default();
         let (target_type, target_name) = if parts
@@ -222,6 +276,11 @@ fn parse_alter_user(parts: &[&str], _trimmed: &str) -> NodedbStatement {
                 "ROLE" => {
                     let role = parts.get(5).map(|s| s.to_string()).unwrap_or_default();
                     AlterUserOp::SetRole { role }
+                }
+                "DEFAULT" => {
+                    // SET DEFAULT DATABASE <name>
+                    let db_name = parts.get(6).map(|s| s.to_string()).unwrap_or_default();
+                    AlterUserOp::SetDefaultDatabase { db_name }
                 }
                 _ => AlterUserOp::SetRole {
                     role: String::new(),

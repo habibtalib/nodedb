@@ -1,0 +1,248 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Document indexing and removal for the inverted index.
+//!
+//! All writes bypass the LSM memtable and go directly to the persistent
+//! POSTINGS / DOC_LENGTHS / STATS tables so they can participate in the
+//! caller's redb write transaction (Origin transactional indexing).
+
+use std::collections::HashMap;
+
+use redb::{ReadableTable as _, WriteTransaction};
+use tracing::debug;
+
+use nodedb_fts::posting::Posting;
+use nodedb_types::{Surrogate, TenantId};
+
+use super::core::InvertedIndex;
+use super::errors::inverted_err;
+use crate::engine::sparse::fts_redb::tables::{DOC_LENGTHS, POSTINGS, STATS};
+
+impl InvertedIndex {
+    /// Index a document's text content.
+    pub fn index_document(
+        &self,
+        tid: TenantId,
+        collection: &str,
+        surrogate: Surrogate,
+        text: &str,
+    ) -> crate::Result<()> {
+        let tokens = nodedb_fts::analyze(text);
+        if tokens.is_empty() {
+            return Ok(());
+        }
+
+        let db = self.inner.backend().db();
+        let write_txn = db.begin_write().map_err(|e| inverted_err("write txn", e))?;
+        self.write_index_data(&write_txn, tid, collection, surrogate, &tokens)?;
+        write_txn
+            .commit()
+            .map_err(|e| inverted_err("commit index", e))?;
+        Ok(())
+    }
+
+    /// Index a document within an externally-owned write transaction.
+    pub fn index_document_in_txn(
+        &self,
+        txn: &WriteTransaction,
+        tid: TenantId,
+        collection: &str,
+        surrogate: Surrogate,
+        text: &str,
+    ) -> crate::Result<()> {
+        let tokens = nodedb_fts::analyze(text);
+        if tokens.is_empty() {
+            return Ok(());
+        }
+        self.write_index_data(txn, tid, collection, surrogate, &tokens)
+    }
+
+    /// Core indexing logic: writes postings, doc length, and stats within
+    /// a transaction. Bypasses the LSM memtable so Origin transactions can
+    /// stay atomic with the document write.
+    fn write_index_data(
+        &self,
+        txn: &WriteTransaction,
+        tid: TenantId,
+        collection: &str,
+        surrogate: Surrogate,
+        tokens: &[String],
+    ) -> crate::Result<()> {
+        let t = tid.as_u64();
+
+        let mut term_postings: HashMap<&str, (u32, Vec<u32>)> = HashMap::new();
+        for (pos, token) in tokens.iter().enumerate() {
+            let entry = term_postings
+                .entry(token.as_str())
+                .or_insert((0, Vec::new()));
+            entry.0 += 1;
+            entry.1.push(pos as u32);
+        }
+
+        let doc_len = tokens.len() as u32;
+
+        let mut postings_table = txn
+            .open_table(POSTINGS)
+            .map_err(|e| inverted_err("open postings", e))?;
+
+        for (term, (freq, positions)) in &term_postings {
+            let posting = Posting {
+                doc_id: surrogate,
+                term_freq: *freq,
+                positions: positions.clone(),
+            };
+
+            let mut existing: Vec<Posting> = postings_table
+                .get((t, collection, *term))
+                .ok()
+                .flatten()
+                .and_then(|v| zerompk::from_msgpack(v.value()).ok())
+                .unwrap_or_default();
+
+            existing.retain(|p| p.doc_id != surrogate);
+            existing.push(posting);
+
+            let bytes = zerompk::to_msgpack_vec(&existing)
+                .map_err(|e| inverted_err("serialize postings", e))?;
+            postings_table
+                .insert((t, collection, *term), bytes.as_slice())
+                .map_err(|e| inverted_err("insert posting", e))?;
+        }
+        drop(postings_table);
+
+        let mut lengths = txn
+            .open_table(DOC_LENGTHS)
+            .map_err(|e| inverted_err("open doc_lengths", e))?;
+        let len_bytes =
+            zerompk::to_msgpack_vec(&doc_len).map_err(|e| inverted_err("serialize doc_len", e))?;
+        lengths
+            .insert((t, collection, surrogate.as_u32()), len_bytes.as_slice())
+            .map_err(|e| inverted_err("insert doc_len", e))?;
+        drop(lengths);
+
+        Self::update_stats_in_txn(txn, tid, collection, doc_len as i64)?;
+
+        debug!(tid = t, %collection, surrogate = surrogate.as_u32(), tokens = tokens.len(), terms = term_postings.len(), "indexed document");
+        Ok(())
+    }
+
+    /// Atomically update `(doc_count, total_token_sum)` in STATS.
+    pub(super) fn update_stats_in_txn(
+        txn: &WriteTransaction,
+        tid: TenantId,
+        collection: &str,
+        delta: i64,
+    ) -> crate::Result<()> {
+        let t = tid.as_u64();
+        let mut stats = txn
+            .open_table(STATS)
+            .map_err(|e| inverted_err("open stats", e))?;
+        let (mut count, mut total) = stats
+            .get((t, collection))
+            .ok()
+            .flatten()
+            .and_then(|v| zerompk::from_msgpack::<(u32, u64)>(v.value()).ok())
+            .unwrap_or((0, 0));
+
+        if delta > 0 {
+            count += 1;
+            total += delta as u64;
+        } else {
+            count = count.saturating_sub(1);
+            total = total.saturating_sub((-delta) as u64);
+        }
+
+        let bytes = zerompk::to_msgpack_vec(&(count, total))
+            .map_err(|e| inverted_err("serialize stats", e))?;
+        stats
+            .insert((t, collection), bytes.as_slice())
+            .map_err(|e| inverted_err("insert stats", e))?;
+        Ok(())
+    }
+
+    /// Remove a document from the inverted index.
+    pub fn remove_document(
+        &self,
+        tid: TenantId,
+        collection: &str,
+        surrogate: Surrogate,
+    ) -> crate::Result<()> {
+        let t = tid.as_u64();
+
+        let db = self.inner.backend().db();
+        let write_txn = db.begin_write().map_err(|e| inverted_err("write txn", e))?;
+        {
+            let mut postings_table = write_txn
+                .open_table(POSTINGS)
+                .map_err(|e| inverted_err("open postings", e))?;
+
+            let terms: Vec<String> = postings_table
+                .range((t, collection, "")..=(t, collection, "\u{10ffff}"))
+                .map_err(|e| inverted_err("range", e))?
+                .filter_map(|r| r.ok().map(|(k, _)| k.value().2.to_string()))
+                .collect();
+
+            let mut updates: Vec<(String, Option<Vec<u8>>)> = Vec::new();
+            for term in &terms {
+                if let Ok(Some(val)) = postings_table.get((t, collection, term.as_str())) {
+                    let mut list: Vec<Posting> =
+                        zerompk::from_msgpack(val.value()).unwrap_or_default();
+                    let before = list.len();
+                    list.retain(|p| p.doc_id != surrogate);
+                    if list.len() != before {
+                        if list.is_empty() {
+                            updates.push((term.clone(), None));
+                        } else {
+                            let bytes = zerompk::to_msgpack_vec(&list).unwrap_or_default();
+                            updates.push((term.clone(), Some(bytes)));
+                        }
+                    }
+                }
+            }
+
+            for (term, new_val) in &updates {
+                match new_val {
+                    None => {
+                        postings_table
+                            .remove((t, collection, term.as_str()))
+                            .map_err(|e| inverted_err("remove posting", e))?;
+                    }
+                    Some(bytes) => {
+                        postings_table
+                            .insert((t, collection, term.as_str()), bytes.as_slice())
+                            .map_err(|e| inverted_err("update posting", e))?;
+                    }
+                }
+            }
+
+            let mut lengths = write_txn
+                .open_table(DOC_LENGTHS)
+                .map_err(|e| inverted_err("open doc_lengths", e))?;
+
+            let old_len = lengths
+                .get((t, collection, surrogate.as_u32()))
+                .ok()
+                .flatten()
+                .and_then(|v| zerompk::from_msgpack::<u32>(v.value()).ok())
+                .unwrap_or(0);
+
+            lengths
+                .remove((t, collection, surrogate.as_u32()))
+                .map_err(|e| inverted_err("remove doc length", e))?;
+            drop(lengths);
+
+            if old_len > 0 {
+                Self::update_stats_in_txn(&write_txn, tid, collection, -(old_len as i64))?;
+            }
+
+            // Note: the docmap sub-key in INDEX_META (previously maintained by the
+            // old DocIdMap abstraction) is no longer updated. Searches filter via
+            // Surrogate prefilter bitmaps instead.
+        }
+        write_txn
+            .commit()
+            .map_err(|e| inverted_err("commit remove", e))?;
+
+        Ok(())
+    }
+}

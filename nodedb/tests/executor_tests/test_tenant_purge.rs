@@ -10,9 +10,6 @@ use nodedb::bridge::physical_plan::{DocumentOp, GraphOp, KvOp, MetaOp, Timeserie
 
 use crate::helpers::*;
 
-const TENANT_A: u64 = 10;
-const TENANT_B: u64 = 20;
-
 #[test]
 fn purge_removes_all_tenant_data() {
     let (mut core, mut tx, mut rx, _dir) = make_core();
@@ -177,6 +174,7 @@ fn purge_removes_all_tenant_data() {
             collection: "sessions".into(),
             key: b"sess_1".to_vec(),
             rls_filters: Vec::new(),
+            surrogate_ceiling: None,
         }),
     );
     let kv_empty = kv_resp.payload.is_empty()

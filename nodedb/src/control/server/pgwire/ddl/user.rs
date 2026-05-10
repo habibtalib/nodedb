@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -10,7 +11,7 @@ use crate::control::security::identity::{AuthenticatedIdentity, Role};
 use crate::control::state::SharedState;
 use crate::types::TenantId;
 
-use super::super::types::{parse_role, require_admin, sqlstate_error};
+use super::super::types::{parse_role, require_tenant_admin, sqlstate_error};
 
 /// CREATE USER <name> WITH PASSWORD '<password>' [ROLE <role>] [TENANT <id>]
 pub fn create_user(
@@ -21,7 +22,7 @@ pub fn create_user(
     role_name: Option<&str>,
     tenant_id_override: Option<u64>,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create users")?;
+    require_tenant_admin(identity, "create users")?;
 
     if username.is_empty() {
         return Err(sqlstate_error(
@@ -72,7 +73,8 @@ pub fn create_user(
                 .put_user(&stored)
                 .map_err(|e| sqlstate_error("XX000", &format!("catalog write: {e}")))?;
         }
-        state.credentials.install_replicated_user(&stored);
+        // CREATE USER: no open sessions exist for a brand-new user.
+        state.credentials.install_replicated_user(&stored, None);
     } else {
         // Cluster mode: `propose_catalog_entry` waits for the
         // entry to be applied on THIS node, which runs the
@@ -142,7 +144,8 @@ pub fn alter_user(
                 .credentials
                 .prepare_user_update(username, Some(password.as_str()), None)
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-            propose_and_install(state, stored)?;
+            // Password change — no role/access change; no invalidation.
+            propose_and_install(state, stored, None)?;
 
             state.audit_record(
                 AuditEvent::PrivilegeChange,
@@ -157,7 +160,7 @@ pub fn alter_user(
             if is_self && !identity.is_superuser {
                 return Err(sqlstate_error("42501", "cannot change your own role"));
             }
-            require_admin(identity, "change roles")?;
+            require_tenant_admin(identity, "change roles")?;
             if role.is_empty() {
                 return Err(sqlstate_error("42601", "expected role name after SET ROLE"));
             }
@@ -166,7 +169,11 @@ pub fn alter_user(
                 .credentials
                 .prepare_user_update(username, None, Some(vec![parsed_role.clone()]))
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-            propose_and_install(state, stored)?;
+            propose_and_install(
+                state,
+                stored,
+                Some(crate::control::security::buses::SessionInvalidationReason::RoleAltered),
+            )?;
 
             state.audit_record(
                 AuditEvent::PrivilegeChange,
@@ -178,12 +185,12 @@ pub fn alter_user(
         }
 
         AlterUserOp::MustChangePassword => {
-            require_admin(identity, "set must_change_password")?;
+            require_tenant_admin(identity, "set must_change_password")?;
             let stored = state
                 .credentials
                 .prepare_set_must_change_password(username, true)
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-            propose_and_install(state, stored)?;
+            propose_and_install(state, stored, None)?;
 
             state.audit_record(
                 AuditEvent::PrivilegeChange,
@@ -195,12 +202,12 @@ pub fn alter_user(
         }
 
         AlterUserOp::PasswordNeverExpires => {
-            require_admin(identity, "set password expiry")?;
+            require_tenant_admin(identity, "set password expiry")?;
             let stored = state
                 .credentials
                 .prepare_set_password_expires_at(username, 0)
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-            propose_and_install(state, stored)?;
+            propose_and_install(state, stored, None)?;
 
             state.audit_record(
                 AuditEvent::PrivilegeChange,
@@ -212,7 +219,7 @@ pub fn alter_user(
         }
 
         AlterUserOp::PasswordExpiresAt { iso8601 } => {
-            require_admin(identity, "set password expiry")?;
+            require_tenant_admin(identity, "set password expiry")?;
             let expires_at = parse_iso8601_to_unix(iso8601).map_err(|e| {
                 sqlstate_error(
                     "22007",
@@ -223,7 +230,7 @@ pub fn alter_user(
                 .credentials
                 .prepare_set_password_expires_at(username, expires_at)
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-            propose_and_install(state, stored)?;
+            propose_and_install(state, stored, None)?;
 
             state.audit_record(
                 AuditEvent::PrivilegeChange,
@@ -235,7 +242,7 @@ pub fn alter_user(
         }
 
         AlterUserOp::PasswordExpiresInDays { days } => {
-            require_admin(identity, "set password expiry")?;
+            require_tenant_admin(identity, "set password expiry")?;
             if *days == 0 {
                 return Err(sqlstate_error(
                     "22003",
@@ -247,7 +254,7 @@ pub fn alter_user(
                 .credentials
                 .prepare_set_password_expires_at(username, expires_at)
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-            propose_and_install(state, stored)?;
+            propose_and_install(state, stored, None)?;
 
             state.audit_record(
                 AuditEvent::PrivilegeChange,
@@ -257,13 +264,59 @@ pub fn alter_user(
             );
             Ok(vec![Response::Execution(Tag::new("ALTER USER"))])
         }
+
+        AlterUserOp::SetDefaultDatabase { db_name } => {
+            // Users can set their own default database; admin may set for others.
+            if !can_alter {
+                return Err(sqlstate_error(
+                    "42501",
+                    "permission denied: can only alter your own user, or be superuser/tenant_admin",
+                ));
+            }
+            if db_name.is_empty() {
+                return Err(sqlstate_error(
+                    "42601",
+                    "syntax: ALTER USER <name> SET DEFAULT DATABASE <db_name>",
+                ));
+            }
+            // Resolve the database name to an ID via the system catalog.
+            let catalog = state
+                .credentials
+                .catalog()
+                .as_ref()
+                .ok_or_else(|| sqlstate_error("XX000", "system catalog unavailable"))?;
+            let db_id = catalog
+                .get_database_id_by_name(db_name)
+                .map_err(|e| sqlstate_error("XX000", &format!("catalog lookup: {e}")))?
+                .ok_or_else(|| {
+                    sqlstate_error("42704", &format!("database '{db_name}' does not exist"))
+                })?;
+            let stored = state
+                .credentials
+                .prepare_set_default_database(username, db_id.as_u64())
+                .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
+            propose_and_install(state, stored, None)?;
+
+            state.audit_record(
+                AuditEvent::PrivilegeChange,
+                Some(identity.tenant_id),
+                &identity.username,
+                &format!("set default database '{db_name}' for user '{username}'"),
+            );
+            Ok(vec![Response::Execution(Tag::new("ALTER USER"))])
+        }
     }
 }
 
 /// Propose a `StoredUser` via Raft and install it locally on single-node.
+///
+/// `invalidation` is passed to `install_replicated_user` for in-process
+/// session notification in single-node mode.  Cluster-mode notifications
+/// arrive via `post_apply::user::put` after Raft commit.
 fn propose_and_install(
     state: &SharedState,
     stored: crate::control::security::catalog::StoredUser,
+    invalidation: Option<crate::control::security::buses::SessionInvalidationReason>,
 ) -> PgWireResult<()> {
     let entry = crate::control::catalog_entry::CatalogEntry::PutUser(Box::new(stored.clone()));
     let log_index = crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
@@ -274,7 +327,9 @@ fn propose_and_install(
                 .put_user(&stored)
                 .map_err(|e| sqlstate_error("XX000", &format!("catalog write: {e}")))?;
         }
-        state.credentials.install_replicated_user(&stored);
+        state
+            .credentials
+            .install_replicated_user(&stored, invalidation);
     }
     Ok(())
 }
@@ -372,7 +427,7 @@ pub fn drop_user(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop users")?;
+    require_tenant_admin(identity, "drop users")?;
 
     if parts.len() < 3 {
         return Err(sqlstate_error("42601", "syntax: DROP USER <name>"));
@@ -444,7 +499,11 @@ pub fn drop_user(
                 {
                     continue;
                 }
-                let mut stored = match catalog.get_collection(user_tenant.as_u64(), owner_obj) {
+                let mut stored = match catalog.get_collection(
+                    DatabaseId::DEFAULT,
+                    user_tenant.as_u64(),
+                    owner_obj,
+                ) {
                     Ok(Some(c)) => c,
                     _ => continue,
                 };
@@ -456,7 +515,7 @@ pub fn drop_user(
                     crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
                     && idx == 0
                 {
-                    let _ = catalog.put_collection(&stored);
+                    let _ = catalog.put_collection(DatabaseId::DEFAULT, &stored);
                     state.permissions.install_replicated_owner(
                         &crate::control::security::catalog::StoredOwner {
                             object_type: "collection".into(),

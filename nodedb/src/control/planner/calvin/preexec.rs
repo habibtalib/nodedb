@@ -28,7 +28,6 @@ use crate::types::{TraceId, VShardId};
 /// filter bytes. Returns the sorted list of matching surrogate u32 values.
 ///
 /// The scan is dispatched as a single-shard read to the vshard determined
-/// by `VShardId::from_collection(collection)`. This matches the same vshard
 /// routing used by the actual BulkUpdate/BulkDelete, so the comparison is
 /// consistent.
 ///
@@ -37,10 +36,11 @@ use crate::types::{TraceId, VShardId};
 pub async fn run_preexec_scan(
     shared: &SharedState,
     tenant_id: TenantId,
+    database_id: crate::types::DatabaseId,
     collection: &str,
     filter_bytes: Vec<u8>,
 ) -> crate::Result<Vec<u32>> {
-    let vshard_id = VShardId::from_collection(collection);
+    let vshard_id = VShardId::from_collection_in_database(database_id, collection);
 
     let scan_plan = PhysicalPlan::Document(DocumentOp::Scan {
         collection: collection.to_owned(),

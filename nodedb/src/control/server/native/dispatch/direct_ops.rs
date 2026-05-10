@@ -59,8 +59,13 @@ pub(crate) async fn handle_direct_op(
     // WAL append for writes (local path; gateway handles its own WAL on the
     // target node, but we still append locally for the boot/single-node path).
     if ctx.state.gateway.is_none()
-        && let Err(e) =
-            wal_dispatch::wal_append_if_write(&ctx.state.wal, tenant_id, vshard_id, &plan)
+        && let Err(e) = wal_dispatch::wal_append_if_write(
+            &ctx.state.wal,
+            tenant_id,
+            vshard_id,
+            crate::types::DatabaseId::DEFAULT,
+            &plan,
+        )
     {
         return error_to_native(seq, &e);
     }
@@ -71,6 +76,7 @@ pub(crate) async fn handle_direct_op(
             let gw_ctx = GatewayQueryContext {
                 tenant_id,
                 trace_id: TraceId::generate(),
+                database_id: nodedb_types::id::DatabaseId::DEFAULT,
             };
             match gw.execute(&gw_ctx, plan).await {
                 Ok(payloads) => {

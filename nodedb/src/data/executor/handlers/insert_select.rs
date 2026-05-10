@@ -7,6 +7,7 @@ use tracing::debug;
 use crate::bridge::envelope::{ErrorCode, Response};
 use crate::bridge::scan_filter::ScanFilter;
 use crate::data::executor::core_loop::CoreLoop;
+use crate::data::executor::handlers::point::apply_put::PointPutParams;
 use crate::data::executor::response_codec;
 use crate::data::executor::task::ExecutionTask;
 
@@ -80,11 +81,14 @@ impl CoreLoop {
                 .unwrap_or(nodedb_types::Surrogate::ZERO);
             if let Err(e) = self.apply_point_put(
                 &txn,
-                tid,
-                target_collection,
-                source_id,
-                source_surrogate,
-                value,
+                PointPutParams {
+                    database_id: task.request.database_id.as_u64(),
+                    tid,
+                    collection: target_collection,
+                    document_id: source_id,
+                    surrogate: source_surrogate,
+                    value,
+                },
             ) {
                 return self.response_error(
                     task,

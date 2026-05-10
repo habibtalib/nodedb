@@ -15,7 +15,9 @@ use super::super::value::sql_value_to_nodedb_value as sql_value_to_value;
 pub(in crate::control::planner::sql_plan_convert) fn convert_vector_search(
     p: VectorSearchParams<'_>,
 ) -> crate::Result<Vec<PhysicalTask>> {
-    let vshard = VShardId::from_collection(p.collection);
+    let coll_qualified = super::super::convert::db_qualified(p.ctx.database_id, p.collection);
+    let collection = coll_qualified.as_str();
+    let vshard = VShardId::from_collection_in_database(p.ctx.database_id, collection);
     let filter_bytes = serialize_filters(p.filters)?;
     let inline_prefilter_plan = match p.array_prefilter {
         Some(pref) => Some(Box::new(build_array_prefilter_plan(
@@ -34,8 +36,9 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_vector_search(
     Ok(vec![PhysicalTask {
         tenant_id: p.tenant_id,
         vshard_id: vshard,
+        database_id: p.ctx.database_id,
         plan: PhysicalPlan::Vector(VectorOp::Search {
-            collection: p.collection.into(),
+            collection: collection.into(),
             query_vector: p.query_vector.to_vec(),
             top_k: *p.top_k,
             ef_search: *p.ef_search,
@@ -150,10 +153,13 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_text_search(
     top_k: &usize,
     score_alias: Option<&str>,
     tenant_id: TenantId,
+    database_id: crate::types::DatabaseId,
 ) -> crate::Result<Vec<PhysicalTask>> {
     use nodedb_sql::fts_types::FtsQuery;
 
-    let vshard = VShardId::from_collection(collection);
+    let coll_qualified = super::super::convert::db_qualified(database_id, collection);
+    let collection = coll_qualified.as_str();
+    let vshard = VShardId::from_collection_in_database(database_id, collection);
 
     // Phrase queries emit a dedicated PhraseSearch op rather than going
     // through the BM25 plain-string path. Score alias is not meaningful
@@ -167,6 +173,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_text_search(
             return Ok(vec![PhysicalTask {
                 tenant_id,
                 vshard_id: vshard,
+                database_id,
                 plan: PhysicalPlan::Text(TextOp::Search {
                     collection: collection.into(),
                     query: String::new(),
@@ -181,6 +188,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_text_search(
         return Ok(vec![PhysicalTask {
             tenant_id,
             vshard_id: vshard,
+            database_id,
             plan: PhysicalPlan::Text(TextOp::PhraseSearch {
                 collection: collection.into(),
                 terms: analyzed_terms,
@@ -225,6 +233,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_text_search(
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id,
         plan: PhysicalPlan::Text(op),
         post_set_op: PostSetOp::None,
     }])
@@ -243,11 +252,15 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_hybrid_search(
         fuzzy,
         score_alias,
         tenant_id,
+        database_id,
     } = p;
-    let vshard = VShardId::from_collection(collection);
+    let coll_qualified = super::super::convert::db_qualified(database_id, collection);
+    let collection = coll_qualified.as_str();
+    let vshard = VShardId::from_collection_in_database(database_id, collection);
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id,
         plan: PhysicalPlan::Text(TextOp::HybridSearch {
             collection: collection.into(),
             query_vector: query_vector.to_vec(),
@@ -280,11 +293,15 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_hybrid_search_tripl
         rrf_k,
         score_alias,
         tenant_id,
+        database_id,
     } = p;
-    let vshard = VShardId::from_collection(collection);
+    let coll_qualified = super::super::convert::db_qualified(database_id, collection);
+    let collection = coll_qualified.as_str();
+    let vshard = VShardId::from_collection_in_database(database_id, collection);
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id,
         plan: PhysicalPlan::Text(TextOp::HybridSearchTriple {
             collection: collection.into(),
             query_vector: query_vector.to_vec(),

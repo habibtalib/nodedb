@@ -79,6 +79,8 @@ impl CredentialStore {
             password_expires_at: self.compute_expiry(),
             must_change_password: false,
             password_changed_at: now,
+            default_database_id: 0,
+            accessible_databases: vec![],
         })
     }
 
@@ -173,29 +175,73 @@ impl CredentialStore {
         Ok(stored)
     }
 
-    /// Install a replicated `StoredUser` into the in-memory cache.
-    /// Called by the production `MetadataCommitApplier` post-apply
-    /// hook after the applier has written the record to local
-    /// redb. Never errors — a poisoned lock falls through to
-    /// in-place recovery so a single bad user write doesn't stall
-    /// raft.
-    pub fn install_replicated_user(&self, stored: &StoredUser) {
-        let record = UserRecord::from_stored(stored.clone());
-        let mut users = self.users.write().unwrap_or_else(|p| p.into_inner());
-        users.insert(stored.username.clone(), record);
-        let mut next = self.next_user_id.write().unwrap_or_else(|p| p.into_inner());
-        if stored.user_id + 1 > *next {
-            *next = stored.user_id + 1;
+    /// Build an updated `StoredUser` that sets `default_database_id`.
+    /// Used by `ALTER USER <name> SET DEFAULT DATABASE <db>`.
+    pub fn prepare_set_default_database(
+        &self,
+        username: &str,
+        database_id: u64,
+    ) -> crate::Result<StoredUser> {
+        let users = read_lock(&self.users)?;
+        let existing = users
+            .get(username)
+            .ok_or_else(|| crate::Error::BadRequest {
+                detail: format!("user '{username}' not found"),
+            })?;
+        if !existing.is_active {
+            return Err(crate::Error::BadRequest {
+                detail: format!("user '{username}' is inactive"),
+            });
         }
+        let mut stored = existing.to_stored();
+        drop(users);
+        stored.default_database_id = database_id;
+        stored.updated_at = now_secs();
+        Ok(stored)
     }
 
-    /// Mark a replicated user as inactive in the in-memory cache.
-    /// Symmetric partner to `install_replicated_user` for the
-    /// `CatalogEntry::DeactivateUser` variant.
+    /// Install a replicated `StoredUser` into the in-memory cache and
+    /// trigger bus publishes.
+    ///
+    /// `invalidation` carries the reason that the Raft proposer attached to
+    /// the log entry (e.g. `RoleGranted`, `UserDropped`).  Pass `None` for
+    /// plain `CREATE USER` entries where no open sessions exist.
+    ///
+    /// Never errors — a poisoned lock falls through to in-place recovery so a
+    /// single bad user write doesn't stall raft.
+    pub fn install_replicated_user(
+        &self,
+        stored: &StoredUser,
+        invalidation: Option<super::super::super::buses::SessionInvalidationReason>,
+    ) {
+        let mut record = UserRecord::from_stored(stored.clone());
+
+        // Bump next_user_id to stay ahead of replicated ids.
+        {
+            let mut next = self.next_user_id.write().unwrap_or_else(|p| p.into_inner());
+            if stored.user_id + 1 > *next {
+                *next = stored.user_id + 1;
+            }
+        }
+
+        // Persist + version bump + bus publishes (errors are swallowed so
+        // that a single bad write doesn't stall Raft).
+        let _ = self.commit_user_mutation(&mut record, invalidation);
+
+        let mut users = self.users.write().unwrap_or_else(|p| p.into_inner());
+        users.insert(stored.username.clone(), record);
+    }
+
+    /// Mark a replicated user as inactive in the in-memory cache and publish
+    /// `UserDeactivated` so open sessions are hard-revoked.
     pub fn install_replicated_deactivate(&self, username: &str) {
         let mut users = self.users.write().unwrap_or_else(|p| p.into_inner());
         if let Some(record) = users.get_mut(username) {
             record.is_active = false;
+            let _ = self.commit_user_mutation(
+                record,
+                Some(super::super::super::buses::SessionInvalidationReason::UserDeactivated),
+            );
         }
     }
 }

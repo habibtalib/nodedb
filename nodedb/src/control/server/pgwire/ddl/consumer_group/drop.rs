@@ -10,7 +10,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 /// Handle `DROP CONSUMER GROUP <name> ON <stream>`
 pub fn drop_consumer_group(
@@ -18,7 +18,7 @@ pub fn drop_consumer_group(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop consumer groups")?;
+    require_tenant_admin(identity, "drop consumer groups")?;
 
     // parts: ["DROP", "CONSUMER", "GROUP", "<name>", "ON", "<stream>"]
     if parts.len() < 6 || !parts[4].eq_ignore_ascii_case("ON") {

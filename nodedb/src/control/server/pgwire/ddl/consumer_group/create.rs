@@ -11,7 +11,7 @@ use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::event::cdc::consumer_group::ConsumerGroupDef;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 /// Handle `CREATE CONSUMER GROUP <name> ON <stream>`.
 ///
@@ -23,7 +23,7 @@ pub fn create_consumer_group(
     group_name: &str,
     stream_name: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create consumer groups")?;
+    require_tenant_admin(identity, "create consumer groups")?;
 
     let group_name = group_name.to_lowercase();
     let stream_name = stream_name.to_lowercase();

@@ -129,13 +129,13 @@ mod tests {
         {
             let mut writer = WalWriter::open_without_direct_io(&path).unwrap();
             writer
-                .append(RecordType::Put as u32, 1, 0, b"first")
+                .append(RecordType::Put as u32, 1, 0, 0, b"first")
                 .unwrap();
             writer
-                .append(RecordType::Put as u32, 1, 0, b"second")
+                .append(RecordType::Put as u32, 1, 0, 0, b"second")
                 .unwrap();
             writer
-                .append(RecordType::Delete as u32, 2, 1, b"third")
+                .append(RecordType::Delete as u32, 2, 1, 0, b"third")
                 .unwrap();
             writer.sync().unwrap();
         }
@@ -155,10 +155,10 @@ mod tests {
         {
             let mut writer = WalWriter::open_without_direct_io(&path).unwrap();
             writer
-                .append(RecordType::Put as u32, 1, 0, b"good")
+                .append(RecordType::Put as u32, 1, 0, 0, b"good")
                 .unwrap();
             writer
-                .append(RecordType::Put as u32, 1, 0, b"also-good")
+                .append(RecordType::Put as u32, 1, 0, 0, b"also-good")
                 .unwrap();
             writer.sync().unwrap();
         }

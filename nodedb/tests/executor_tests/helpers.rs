@@ -77,6 +77,7 @@ pub fn make_request(plan: PhysicalPlan) -> Request {
         request_id: RequestId::new(1),
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(0),
+        database_id: nodedb::types::DatabaseId::DEFAULT,
         plan,
         deadline: Instant::now() + Duration::from_secs(5),
         priority: Priority::Normal,
@@ -85,6 +86,8 @@ pub fn make_request(plan: PhysicalPlan) -> Request {
         idempotency_key: None,
         event_source: nodedb::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     }
 }
 
@@ -144,6 +147,12 @@ pub fn payload_value(payload: &[u8]) -> serde_json::Value {
 }
 
 // ── Tenant-aware helpers ────────────────────────────────────────────
+
+/// Canonical tenant IDs used across tenant-isolation integration tests.
+/// Two distinct, non-zero IDs suffice to exercise every isolation boundary;
+/// keep them stable so test output is comparable across files.
+pub const TENANT_A: u64 = 10;
+pub const TENANT_B: u64 = 20;
 
 pub fn make_request_for_tenant(tenant_id: u64, plan: PhysicalPlan) -> Request {
     Request {

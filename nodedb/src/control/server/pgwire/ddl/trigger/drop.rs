@@ -8,7 +8,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 /// Handle `DROP TRIGGER [IF EXISTS] <name>`
 pub fn drop_trigger(
@@ -16,7 +16,7 @@ pub fn drop_trigger(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop triggers")?;
+    require_tenant_admin(identity, "drop triggers")?;
 
     let (name, if_exists) = parse_drop_trigger(parts)?;
     let tenant_id = identity.tenant_id.as_u64();
@@ -77,7 +77,7 @@ pub fn alter_trigger(
     action: &str,
     new_owner: Option<&str>,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "alter triggers")?;
+    require_tenant_admin(identity, "alter triggers")?;
 
     if action == "OWNER" {
         return alter_trigger_owner(state, identity, name, new_owner);

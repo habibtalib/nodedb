@@ -313,7 +313,12 @@ fn should_fire_on_this_node(sched: &ScheduleDef, state: &SharedState) -> bool {
 
     if let Some(ref collection) = sched.target_collection {
         // Collection-targeted schedule: fire only on the shard leader.
-        let vshard_id = nodedb_cluster::routing::vshard_for_collection(collection);
+        // Schedules are scoped to `DatabaseId::DEFAULT` today; when
+        // ScheduleDef gains a database_id field, plumb it through here.
+        let vshard_id = nodedb_cluster::routing::vshard_for_collection(
+            nodedb_types::id::DatabaseId::DEFAULT,
+            collection,
+        );
         let routing = routing_lock.read().unwrap_or_else(|p| p.into_inner());
         match routing.leader_for_vshard(vshard_id) {
             Ok(leader) => leader == node_id,
@@ -358,7 +363,11 @@ fn is_raft_group_healthy(sched: &ScheduleDef, state: &SharedState) -> bool {
     let vshard_id = sched
         .target_collection
         .as_ref()
-        .map(|c| nodedb_cluster::routing::vshard_for_collection(c))
+        .map(|c| {
+            // Schedules are scoped to `DatabaseId::DEFAULT` today; when
+            // ScheduleDef gains a database_id field, plumb it through here.
+            nodedb_cluster::routing::vshard_for_collection(nodedb_types::id::DatabaseId::DEFAULT, c)
+        })
         .unwrap_or(0); // Cross-collection → coordinator vShard 0.
 
     let group_id = {
@@ -472,6 +481,8 @@ fn scheduler_identity(tenant_id: TenantId, owner: &str) -> AuthenticatedIdentity
         auth_method: AuthMethod::Trust,
         roles: vec![Role::Superuser],
         is_superuser: true,
+        default_database: None,
+        accessible_databases: crate::control::security::identity::DatabaseSet::All,
     }
 }
 
@@ -503,8 +514,8 @@ mod tests {
         assert_eq!(id.username, "admin");
     }
 
-    #[test]
-    fn local_scope_always_fires() {
+    #[tokio::test]
+    async fn local_scope_always_fires() {
         let sched = make_schedule("local_job", Some("orders"), ScheduleScope::Local);
         // Even if we had cluster routing, LOCAL always fires.
         let dir = tempfile::tempdir().unwrap();
@@ -512,8 +523,8 @@ mod tests {
         assert!(should_fire_on_this_node(&sched, &state));
     }
 
-    #[test]
-    fn single_node_always_fires() {
+    #[tokio::test]
+    async fn single_node_always_fires() {
         let sched = make_schedule("normal_job", Some("orders"), ScheduleScope::Normal);
         let dir = tempfile::tempdir().unwrap();
         let (_, _, state, _, _) = crate::event::test_utils::event_test_deps(&dir);
@@ -522,16 +533,16 @@ mod tests {
         assert!(should_fire_on_this_node(&sched, &state));
     }
 
-    #[test]
-    fn local_scope_healthy_without_raft() {
+    #[tokio::test]
+    async fn local_scope_healthy_without_raft() {
         let sched = make_schedule("local_job", None, ScheduleScope::Local);
         let dir = tempfile::tempdir().unwrap();
         let (_, _, state, _, _) = crate::event::test_utils::event_test_deps(&dir);
         assert!(is_raft_group_healthy(&sched, &state));
     }
 
-    #[test]
-    fn single_node_healthy_without_raft() {
+    #[tokio::test]
+    async fn single_node_healthy_without_raft() {
         let sched = make_schedule("job", Some("orders"), ScheduleScope::Normal);
         let dir = tempfile::tempdir().unwrap();
         let (_, _, state, _, _) = crate::event::test_utils::event_test_deps(&dir);

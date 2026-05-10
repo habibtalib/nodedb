@@ -34,12 +34,25 @@ pub struct RaftConfig {
     /// are not counted in the commit quorum. They are promoted to voters
     /// once they catch up — see `RaftNode::promote_learner`.
     pub learners: Vec<u64>,
+    /// IDs of cross-cluster observer peers tracked by this leader.
+    ///
+    /// Observers receive log entries and send advisory acks, but they never
+    /// participate in leader election and are never counted in the commit
+    /// quorum. A slow observer does not stall source commits.
+    pub observers: Vec<u64>,
     /// Whether this node itself starts in the `Learner` role (boot-time).
     ///
     /// Set `true` when a new node joins an existing cluster and is
     /// created as a learner for a given group; cleared when the node is
     /// promoted to voter via `promote_self_to_voter`.
     pub starts_as_learner: bool,
+    /// Whether this node itself starts in the `Observer` role (boot-time).
+    ///
+    /// Set `true` when this node is a cross-cluster mirror replica observing
+    /// a source cluster's Raft group. An observer never participates in
+    /// elections and never contributes to the commit quorum. Acks it sends
+    /// to the source leader are advisory only.
+    pub starts_as_observer: bool,
     /// Minimum election timeout.
     pub election_timeout_min: Duration,
     /// Maximum election timeout.
@@ -74,7 +87,9 @@ mod tests {
             group_id: 0,
             peers,
             learners,
+            observers: vec![],
             starts_as_learner: false,
+            starts_as_observer: false,
             election_timeout_min: Duration::from_millis(150),
             election_timeout_max: Duration::from_millis(300),
             heartbeat_interval: Duration::from_millis(50),

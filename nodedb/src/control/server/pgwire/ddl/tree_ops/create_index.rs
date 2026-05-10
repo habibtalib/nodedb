@@ -40,7 +40,7 @@ use crate::control::server::broadcast::broadcast_to_all_cores;
 use crate::control::server::pgwire::types::{sqlstate_error, text_field};
 use crate::control::server::{dispatch_utils, wal_dispatch};
 use crate::control::state::SharedState;
-use crate::types::{TraceId, VShardId};
+use crate::types::{DatabaseId, TraceId, VShardId};
 
 use super::parse::parse_edge_columns;
 
@@ -74,7 +74,7 @@ pub async fn create_graph_index(
         return Err(sqlstate_error("XX000", "no catalog available"));
     };
     if catalog
-        .get_collection(tenant_id.as_u64(), &collection)
+        .get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &collection)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
         .is_none()
     {
@@ -188,7 +188,13 @@ pub async fn create_graph_index(
         let plan = PhysicalPlan::Graph(GraphOp::EdgePutBatch {
             edges: edges.clone(),
         });
-        if let Err(e) = wal_dispatch::wal_append_if_write(&state.wal, tenant_id, shard, &plan) {
+        if let Err(e) = wal_dispatch::wal_append_if_write(
+            &state.wal,
+            tenant_id,
+            shard,
+            crate::types::DatabaseId::DEFAULT,
+            &plan,
+        ) {
             return surface_failure(
                 state,
                 tenant_id,

@@ -27,20 +27,41 @@ fn delete_collection_is_idempotent_and_reflected_in_get() {
     let (_tmp, catalog) = make_catalog();
     let mut coll = make_collection("users");
     coll.is_active = true;
-    catalog.put_collection(&coll).unwrap();
+    catalog
+        .put_collection(nodedb_types::DatabaseId::DEFAULT, &coll)
+        .unwrap();
 
-    assert!(catalog.get_collection(TENANT, "users").unwrap().is_some());
-
-    catalog.delete_collection(TENANT, "users").unwrap();
     assert!(
-        catalog.get_collection(TENANT, "users").unwrap().is_none(),
+        catalog
+            .get_collection(nodedb_types::DatabaseId::DEFAULT, TENANT, "users")
+            .unwrap()
+            .is_some()
+    );
+
+    catalog
+        .delete_collection(nodedb_types::DatabaseId::DEFAULT, TENANT, "users")
+        .unwrap();
+    assert!(
+        catalog
+            .get_collection(nodedb_types::DatabaseId::DEFAULT, TENANT, "users")
+            .unwrap()
+            .is_none(),
         "post-delete get_collection must return None"
     );
 
     // Second call: must not error, still returns None.
-    catalog.delete_collection(TENANT, "users").unwrap();
-    catalog.delete_collection(TENANT, "users").unwrap();
-    assert!(catalog.get_collection(TENANT, "users").unwrap().is_none());
+    catalog
+        .delete_collection(nodedb_types::DatabaseId::DEFAULT, TENANT, "users")
+        .unwrap();
+    catalog
+        .delete_collection(nodedb_types::DatabaseId::DEFAULT, TENANT, "users")
+        .unwrap();
+    assert!(
+        catalog
+            .get_collection(nodedb_types::DatabaseId::DEFAULT, TENANT, "users")
+            .unwrap()
+            .is_none()
+    );
 }
 
 /// Soft-delete flips `is_active` without removing the row — this is
@@ -51,15 +72,25 @@ fn soft_delete_preserves_row_and_clears_active_flag() {
     let (_tmp, catalog) = make_catalog();
     let mut coll = make_collection("logs");
     coll.is_active = true;
-    catalog.put_collection(&coll).unwrap();
+    catalog
+        .put_collection(nodedb_types::DatabaseId::DEFAULT, &coll)
+        .unwrap();
 
     // Simulate the applier's `DeactivateCollection` path: flip
     // `is_active` in place and re-put.
-    let mut stored = catalog.get_collection(TENANT, "logs").unwrap().unwrap();
+    let mut stored = catalog
+        .get_collection(nodedb_types::DatabaseId::DEFAULT, TENANT, "logs")
+        .unwrap()
+        .unwrap();
     stored.is_active = false;
-    catalog.put_collection(&stored).unwrap();
+    catalog
+        .put_collection(nodedb_types::DatabaseId::DEFAULT, &stored)
+        .unwrap();
 
-    let after = catalog.get_collection(TENANT, "logs").unwrap().unwrap();
+    let after = catalog
+        .get_collection(nodedb_types::DatabaseId::DEFAULT, TENANT, "logs")
+        .unwrap()
+        .unwrap();
     assert!(
         !after.is_active,
         "is_active must be false after soft-delete"
@@ -68,7 +99,9 @@ fn soft_delete_preserves_row_and_clears_active_flag() {
 
     // `load_dropped_collections` must surface the soft-deleted row
     // so the GC sweeper + `_system.dropped_collections` view see it.
-    let dropped = catalog.load_dropped_collections().unwrap();
+    let dropped = catalog
+        .load_dropped_collections(nodedb_types::DatabaseId::DEFAULT)
+        .unwrap();
     assert!(
         dropped.iter().any(|c| c.name == "logs"),
         "soft-deleted row must appear in load_dropped_collections"

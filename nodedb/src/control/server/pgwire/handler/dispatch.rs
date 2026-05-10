@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use crate::bridge::envelope::{Priority, Request, Response};
 use crate::control::planner::physical::PhysicalTask;
-use crate::types::{Lsn, ReadConsistency, TraceId};
+use crate::types::{DatabaseId, Lsn, ReadConsistency, TraceId};
 use sonic_rs;
 
 use super::core::NodeDbPgHandler;
@@ -17,9 +17,16 @@ impl NodeDbPgHandler {
     ///
     /// In cluster mode, write operations are proposed to Raft first and only
     /// executed on the Data Plane after quorum commit. Reads bypass Raft.
-    pub(super) async fn dispatch_task(&self, task: PhysicalTask) -> crate::Result<Response> {
+    ///
+    /// `user_id` is forwarded to the `Request` for DML audit attribution.
+    /// Pass `None` for system-generated tasks (triggers, maintenance, etc.).
+    pub(super) async fn dispatch_task(
+        &self,
+        task: PhysicalTask,
+        user_id: Option<Arc<str>>,
+    ) -> crate::Result<Response> {
         let tenant_id = task.tenant_id;
-        let result = self.dispatch_task_inner(task).await;
+        let result = self.dispatch_task_inner(task, user_id).await;
         // Advance per-tenant observed write-HLC high-water on any
         // successful dispatch (local, raft-replicated, or broadcast).
         // Used by RESTORE's staleness gate. Backup captures envelope
@@ -33,7 +40,67 @@ impl NodeDbPgHandler {
         result
     }
 
-    async fn dispatch_task_inner(&self, task: PhysicalTask) -> crate::Result<Response> {
+    async fn dispatch_task_inner(
+        &self,
+        task: PhysicalTask,
+        user_id: Option<Arc<str>>,
+    ) -> crate::Result<Response> {
+        // Reject user writes against a source database that is currently
+        // frozen by a clone materializer sweep.  Reads and DDL pass through
+        // unchanged.  The materializer uses `dispatch_local` (a free function
+        // in `clone_materializer/dispatch.rs`) and is never routed through
+        // this method, so there is no risk of blocking the materializer itself.
+        use crate::control::security::identity::{Permission, required_permission};
+        let perm = required_permission(&task.plan);
+        if matches!(perm, Permission::Write | Permission::Admin)
+            && self.state.materialize_freeze.is_frozen(task.database_id)
+        {
+            return Err(crate::Error::SourceFrozen {
+                database_id: task.database_id,
+            });
+        }
+
+        // Mirror enforcement:
+        // - Writes are rejected on non-promoted mirrors (MIRROR_READ_ONLY).
+        // - Reads are gated by the session's ReadConsistency level:
+        //     Strong        → STALE_READ_NOT_LEADER (mirrors are never the source leader)
+        //     BoundedStaleness(d) → serve locally if lag ≤ d, else STALE_READ_NOT_LEADER
+        //     Eventual      → serve locally unconditionally
+        // The catalog lookup is skipped for the default database (id=0) to keep the
+        // hot path allocation-free in the single-database case.
+        if task.database_id.as_u64() != 0
+            && let Some(catalog) = self.state.credentials.catalog()
+            && let Ok(Some(descriptor)) = catalog.get_database(task.database_id)
+            && let Some(origin) = descriptor.mirror_origin.as_ref()
+            && !matches!(origin.status, nodedb_types::MirrorStatus::Promoted)
+        {
+            if matches!(perm, Permission::Write | Permission::Admin) {
+                return Err(crate::Error::MirrorReadOnly {
+                    database: descriptor.name.clone(),
+                });
+            }
+
+            use crate::control::server::pgwire::ddl::database::{
+                MirrorReadOutcome, check_mirror_read_consistency,
+            };
+            // Consistency defaults to Strong: mirrors are not the source leader,
+            // so reads are rejected unless the session has explicitly opted into
+            // BoundedStaleness or Eventual.
+            let outcome = check_mirror_read_consistency(
+                catalog,
+                task.database_id,
+                origin,
+                ReadConsistency::Strong,
+            );
+            if let MirrorReadOutcome::Reject { message, .. } = outcome {
+                return Err(crate::Error::StaleReadNotLeader {
+                    database: descriptor.name.clone(),
+                    source_cluster: origin.source_cluster.clone(),
+                    detail: message,
+                });
+            }
+        }
+
         if matches!(
             task.plan,
             crate::bridge::envelope::PhysicalPlan::Document(
@@ -108,10 +175,11 @@ impl NodeDbPgHandler {
                 let inner_task = crate::control::planner::physical::PhysicalTask {
                     tenant_id: task.tenant_id,
                     vshard_id: task.vshard_id,
+                    database_id: task.database_id,
                     plan: inner_plan.as_ref().clone(),
                     post_set_op: crate::control::planner::physical::PostSetOp::None,
                 };
-                let inner_resp = Box::pin(self.dispatch_task(inner_task)).await?;
+                let inner_resp = Box::pin(self.dispatch_task(inner_task, None)).await?;
                 let left_data: Vec<u8> = inner_resp.payload.as_ref().to_vec();
 
                 // Step 2: Broadcast-scan the right collection.
@@ -158,10 +226,11 @@ impl NodeDbPgHandler {
                 let join_task = crate::control::planner::physical::PhysicalTask {
                     tenant_id: task.tenant_id,
                     vshard_id: task.vshard_id,
+                    database_id: task.database_id,
                     plan: join_plan,
                     post_set_op: crate::control::planner::physical::PostSetOp::None,
                 };
-                let mut resp = self.dispatch_local(join_task).await?;
+                let mut resp = self.dispatch_local(join_task, None).await?;
 
                 let has_post_agg = !post_group_by.is_empty() || !post_aggregates.is_empty();
                 if has_post_agg {
@@ -176,8 +245,13 @@ impl NodeDbPgHandler {
             // Phase 1: broadcast scan the right collection across all cores.
             // Uses broadcast_raw to get raw binary payloads (no JSON wrapping).
             let broadcast_data = if let Some(right_plan) = inline_right {
-                self.materialize_inline_join_side(task.tenant_id, task.vshard_id, right_plan)
-                    .await?
+                self.materialize_inline_join_side(
+                    task.tenant_id,
+                    task.vshard_id,
+                    task.database_id,
+                    right_plan,
+                )
+                .await?
             } else {
                 let right_scan = crate::bridge::envelope::PhysicalPlan::Document(
                     crate::bridge::physical_plan::DocumentOp::Scan {
@@ -267,7 +341,7 @@ impl NodeDbPgHandler {
             return self.dispatch_replicated_write(entry, async_proposer).await;
         }
 
-        self.dispatch_local(task).await
+        self.dispatch_local(task, user_id).await
     }
 
     /// Dispatch a write through Raft: propose → register waiter → await apply.
@@ -352,10 +426,20 @@ impl NodeDbPgHandler {
     /// Data Plane. This ensures durability: if the process crashes after WAL
     /// append but before Data Plane execution, the write is replayed on recovery.
     /// Reads bypass the WAL entirely.
-    async fn dispatch_local(&self, task: PhysicalTask) -> crate::Result<Response> {
-        self.wal_append_if_write(task.tenant_id, task.vshard_id, &task.plan)?;
-        self.submit_to_data_plane(task.tenant_id, task.vshard_id, task.plan)
-            .await
+    async fn dispatch_local(
+        &self,
+        task: PhysicalTask,
+        user_id: Option<Arc<str>>,
+    ) -> crate::Result<Response> {
+        self.wal_append_if_write(task.tenant_id, task.vshard_id, task.database_id, &task.plan)?;
+        self.submit_to_data_plane(
+            task.tenant_id,
+            task.vshard_id,
+            task.database_id,
+            task.plan,
+            user_id,
+        )
+        .await
     }
 
     /// Dispatch a task to the Data Plane WITHOUT individual WAL append.
@@ -363,9 +447,37 @@ impl NodeDbPgHandler {
     /// Used by COMMIT to dispatch buffered transaction tasks after the
     /// entire transaction has been written as a single `RecordType::Transaction`
     /// WAL record. Skipping per-task WAL avoids double-writing.
-    pub(super) async fn dispatch_task_no_wal(&self, task: PhysicalTask) -> crate::Result<Response> {
-        self.submit_to_data_plane(task.tenant_id, task.vshard_id, task.plan)
-            .await
+    pub(super) async fn dispatch_task_no_wal(
+        &self,
+        task: PhysicalTask,
+        user_id: Option<Arc<str>>,
+    ) -> crate::Result<Response> {
+        // Same materialize-freeze gate as `dispatch_task_inner`. Without this,
+        // a transaction that began before the freeze could COMMIT writes
+        // *during* the freeze window — the materializer would already be
+        // mid-scan, so those committed rows would either leak into target
+        // (if scan hadn't reached them) or stay only in source (if past).
+        // Both outcomes break the as-of contract; reject with
+        // `SourceFrozen` so the client retries the COMMIT after the freeze
+        // releases. Pre-freeze transactions remain consistent because their
+        // staged tasks are buffered in the session, not yet visible to source.
+        use crate::control::security::identity::{Permission, required_permission};
+        let perm = required_permission(&task.plan);
+        if matches!(perm, Permission::Write | Permission::Admin)
+            && self.state.materialize_freeze.is_frozen(task.database_id)
+        {
+            return Err(crate::Error::SourceFrozen {
+                database_id: task.database_id,
+            });
+        }
+        self.submit_to_data_plane(
+            task.tenant_id,
+            task.vshard_id,
+            task.database_id,
+            task.plan,
+            user_id,
+        )
+        .await
     }
 
     /// Build a `Request`, register with the tracker, dispatch to the Data Plane,
@@ -374,12 +486,15 @@ impl NodeDbPgHandler {
         &self,
         tenant_id: crate::types::TenantId,
         vshard_id: crate::types::VShardId,
+        database_id: DatabaseId,
         plan: crate::bridge::envelope::PhysicalPlan,
+        user_id: Option<Arc<str>>,
     ) -> crate::Result<Response> {
         let request_id = self.next_request_id();
         let request = Request {
             request_id,
             tenant_id,
+            database_id,
             vshard_id,
             plan,
             deadline: Instant::now()
@@ -390,6 +505,8 @@ impl NodeDbPgHandler {
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id,
+            statement_digest: None,
         };
 
         let mut rx = self.state.tracker.register(request_id);
@@ -414,18 +531,20 @@ impl NodeDbPgHandler {
         &self,
         tenant_id: crate::types::TenantId,
         fallback_vshard_id: crate::types::VShardId,
+        database_id: DatabaseId,
         plan: &crate::bridge::envelope::PhysicalPlan,
     ) -> crate::Result<Vec<u8>> {
         let vshard_id = super::plan::extract_collection(plan)
-            .map(crate::types::VShardId::from_collection)
+            .map(|c| crate::types::VShardId::from_collection_in_database(database_id, c))
             .unwrap_or(fallback_vshard_id);
         let task = crate::control::planner::physical::PhysicalTask {
             tenant_id,
             vshard_id,
+            database_id,
             plan: plan.clone(),
             post_set_op: crate::control::planner::physical::PostSetOp::None,
         };
-        let resp = Box::pin(self.dispatch_task(task)).await?;
+        let resp = Box::pin(self.dispatch_task(task, None)).await?;
         normalize_join_broadcast_payload(resp.payload.as_ref())
     }
 }

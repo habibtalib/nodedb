@@ -27,7 +27,7 @@ use tracing::{Instrument, debug, info_span};
 use crate::Error;
 use crate::bridge::physical_plan::PhysicalPlan;
 use crate::control::state::SharedState;
-use crate::types::{TenantId, TraceId};
+use crate::types::{DatabaseId, TenantId, TraceId};
 
 use super::dispatcher::{default_deadline_ms, dispatch_route};
 use super::fuser::fuse_payloads;
@@ -41,6 +41,11 @@ use super::version_set::GatewayVersionSet;
 pub struct QueryContext {
     pub tenant_id: TenantId,
     pub trace_id: TraceId,
+    /// Database scope for the query. Used to route collections to vShards
+    /// (the database id is folded into the routing hash) and to scope
+    /// catalog lookups. Single-database deployments pass
+    /// [`DatabaseId::DEFAULT`].
+    pub database_id: DatabaseId,
 }
 
 /// The gateway: routes, dispatches, retries, and caches physical plans.
@@ -89,7 +94,7 @@ impl Gateway {
             tenant_id = ctx.tenant_id.as_u64()
         );
         let start = SystemTime::now();
-        let version_set = self.collect_version_set(&plan, ctx.tenant_id.as_u64());
+        let version_set = self.collect_version_set(&plan, ctx.tenant_id.as_u64(), ctx.database_id);
         let result = self
             .execute_with_version_set(ctx, plan, version_set)
             .instrument(span)
@@ -158,7 +163,8 @@ impl Gateway {
         if let Some(stored_vs) = self.plan_cache.lookup_version_set(&sql_key) {
             // Verify the stored version set is still current by cross-checking
             // each collection's current descriptor version.
-            let current_vs = self.verify_version_set(&stored_vs, ctx.tenant_id.as_u64());
+            let current_vs =
+                self.verify_version_set(&stored_vs, ctx.tenant_id.as_u64(), ctx.database_id);
             if current_vs == stored_vs {
                 // Version set is still current — try the full plan cache.
                 let full_key = PlanCacheKey {
@@ -182,7 +188,7 @@ impl Gateway {
 
         // Compute the actual version set from the plan (contains the real
         // collection names and their current descriptor versions).
-        let actual_vs = self.collect_version_set(&plan, ctx.tenant_id.as_u64());
+        let actual_vs = self.collect_version_set(&plan, ctx.tenant_id.as_u64(), ctx.database_id);
         let actual_key = PlanCacheKey {
             sql_text_hash: sql_hash,
             placeholder_types_hash: ph_hash,
@@ -213,7 +219,7 @@ impl Gateway {
                 .as_ref()
                 .map(|rw| rw.read().unwrap_or_else(|p| p.into_inner()));
             let routing = routing_guard.as_deref();
-            route_plan(plan, self.shared.node_id, routing)
+            route_plan(plan, self.shared.node_id, routing, ctx.database_id)
             // routing_guard dropped here
         };
 
@@ -243,6 +249,7 @@ impl Gateway {
                 let plan = plan_for_retry.clone();
                 let shared = Arc::clone(&self.shared);
                 let tenant_id = ctx.tenant_id;
+                let database_id = ctx.database_id;
                 let trace_id = ctx.trace_id;
                 let version_set = version_set_for_route.clone();
                 async move {
@@ -285,6 +292,7 @@ impl Gateway {
                         route,
                         &shared,
                         tenant_id,
+                        database_id,
                         trace_id,
                         deadline_ms,
                         &version_set,
@@ -333,13 +341,21 @@ impl Gateway {
     /// correct descriptor version. Using tenant 0 here would return version 0
     /// for every collection stored under any other tenant, causing spurious
     /// `DescriptorMismatch` rejections at the leader.
-    fn collect_version_set(&self, plan: &PhysicalPlan, tenant_id: u64) -> GatewayVersionSet {
+    ///
+    /// `database_id` scopes the catalog lookup to the session's current database
+    /// so that a plan from one database cannot be served under another.
+    fn collect_version_set(
+        &self,
+        plan: &PhysicalPlan,
+        tenant_id: u64,
+        database_id: DatabaseId,
+    ) -> GatewayVersionSet {
         let catalog_ref = self.shared.credentials.catalog();
         let catalog = catalog_ref.as_ref();
 
         GatewayVersionSet::from_plan(plan, |name| {
             catalog
-                .and_then(|c| c.get_collection(tenant_id, name).ok())
+                .and_then(|c| c.get_collection(database_id, tenant_id, name).ok())
                 .flatten()
                 .map(|col| col.descriptor_version.max(1))
                 .unwrap_or(0)
@@ -356,6 +372,7 @@ impl Gateway {
         &self,
         stored_vs: &GatewayVersionSet,
         tenant_id: u64,
+        database_id: DatabaseId,
     ) -> GatewayVersionSet {
         let catalog_ref = self.shared.credentials.catalog();
         let catalog = catalog_ref.as_ref();
@@ -364,7 +381,7 @@ impl Gateway {
             .iter()
             .map(|(name, _)| {
                 let current_version = catalog
-                    .and_then(|c| c.get_collection(tenant_id, name).ok())
+                    .and_then(|c| c.get_collection(database_id, tenant_id, name).ok())
                     .flatten()
                     .map(|col| col.descriptor_version.max(1))
                     .unwrap_or(0);
@@ -387,6 +404,7 @@ mod tests {
             collection: col.into(),
             key: b"k".to_vec(),
             rls_filters: vec![],
+            surrogate_ceiling: None,
         })
     }
 

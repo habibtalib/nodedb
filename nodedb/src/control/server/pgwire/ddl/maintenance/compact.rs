@@ -5,6 +5,7 @@
 //! Dispatches a MetaOp::Compact to the Data Plane via the standard
 //! dispatch path. The Data Plane merges segments for the receiving core.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 
@@ -31,7 +32,7 @@ pub fn handle_compact(
     // Verify collection exists.
     if let Some(catalog) = state.credentials.catalog()
         && catalog
-            .get_collection(tenant_id.as_u64(), &collection)
+            .get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &collection)
             .ok()
             .flatten()
             .is_none()

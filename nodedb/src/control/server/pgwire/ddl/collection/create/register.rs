@@ -20,6 +20,7 @@ use crate::control::security::catalog::StoredCollection;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::types::TraceId;
+use nodedb_types::DatabaseId;
 
 use super::enforcement::{build_generated_column_specs, find_materialized_sum_bindings};
 
@@ -43,7 +44,8 @@ pub async fn dispatch_register_if_needed(
     let Some(catalog) = state.credentials.catalog() else {
         return Ok(());
     };
-    let Ok(Some(coll)) = catalog.get_collection(tenant_id.as_u64(), &name) else {
+    let Ok(Some(coll)) = catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &name)
+    else {
         return Ok(());
     };
     let (fields, _serial_fields) =
@@ -58,18 +60,22 @@ pub async fn dispatch_register_if_needed(
 /// after collection creation when the collection name is known but
 /// no raw SQL parts are available (typed AST path).
 ///
+/// `database_id` must match the database the collection was created in so the
+/// catalog lookup succeeds in non-default databases.
+///
 /// Returns an error if any Data Plane core fails to acknowledge the
 /// registration.
 pub async fn dispatch_register_by_name(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     name: &str,
+    database_id: DatabaseId,
 ) -> crate::Result<()> {
     let tenant_id = identity.tenant_id;
     let Some(catalog) = state.credentials.catalog() else {
         return Ok(());
     };
-    let Ok(Some(coll)) = catalog.get_collection(tenant_id.as_u64(), name) else {
+    let Ok(Some(coll)) = catalog.get_collection(database_id, tenant_id.as_u64(), name) else {
         return Ok(());
     };
     let mut indexes = derive_auto_indexes(coll.fields.iter().map(|(n, _)| n.as_str()));
@@ -156,7 +162,10 @@ async fn dispatch_register_from_stored_inner(
     coll: &StoredCollection,
     indexes: Vec<crate::bridge::physical_plan::RegisteredIndex>,
 ) -> crate::Result<()> {
-    let name = coll.name.clone();
+    let name = crate::control::planner::sql_plan_convert::convert::db_qualified(
+        coll.database_id,
+        &coll.name,
+    );
     let Some(catalog) = state.credentials.catalog() else {
         return Ok(());
     };

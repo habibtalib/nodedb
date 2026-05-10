@@ -8,7 +8,7 @@ use crate::bridge::physical_plan::{
 };
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;
-use crate::types::{TenantId, TraceId};
+use crate::types::{DatabaseId, TenantId, TraceId};
 
 use super::undo::UndoEntry;
 
@@ -34,6 +34,7 @@ impl CoreLoop {
         let dummy_task = ExecutionTask::new(crate::bridge::envelope::Request {
             request_id: crate::types::RequestId::new(0),
             tenant_id: TenantId::new(tid),
+            database_id: DatabaseId::DEFAULT,
             vshard_id: crate::types::VShardId::new(0),
             plan: PhysicalPlan::Meta(MetaOp::Cancel {
                 target_request_id: crate::types::RequestId::new(0),
@@ -46,6 +47,8 @@ impl CoreLoop {
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         });
 
         match plan {
@@ -325,6 +328,7 @@ impl CoreLoop {
                 let resp = self.execute(&ExecutionTask::new(crate::bridge::envelope::Request {
                     request_id: crate::types::RequestId::new(0),
                     tenant_id: TenantId::new(tid),
+                    database_id: DatabaseId::DEFAULT,
                     vshard_id: crate::types::VShardId::new(0),
                     plan: plan.clone(),
                     // no-determinism: sub-plan deadline is ephemeral, not written to WAL
@@ -335,6 +339,8 @@ impl CoreLoop {
                     idempotency_key: None,
                     event_source: crate::event::EventSource::User,
                     user_roles: Vec::new(),
+                    user_id: None,
+                    statement_digest: None,
                 }));
                 if resp.status == Status::Error {
                     return Err(resp.error_code.unwrap_or(ErrorCode::Internal {

@@ -2,19 +2,24 @@
 
 //! Per-engine memory budget tracking.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A memory budget for a single engine.
 ///
 /// Tracks current allocation against a configurable limit using atomic
 /// counters (safe to read from any thread — metrics exporter, governor, etc.).
+///
+/// The `allocated` counter is stored behind an `Arc` so that
+/// [`ReservationToken`](crate::reservation_token::ReservationToken) can hold a
+/// reference to it without requiring a back-reference to the governor.
 #[derive(Debug)]
 pub struct Budget {
     /// Hard limit in bytes. Allocations beyond this are rejected.
     limit: AtomicUsize,
 
-    /// Current allocated bytes.
-    allocated: AtomicUsize,
+    /// Current allocated bytes. Arc-wrapped so tokens can release on drop.
+    allocated: Arc<AtomicUsize>,
 
     /// Peak allocated bytes (high-water mark).
     peak: AtomicUsize,
@@ -28,7 +33,7 @@ impl Budget {
     pub fn new(limit: usize) -> Self {
         Self {
             limit: AtomicUsize::new(limit),
-            allocated: AtomicUsize::new(0),
+            allocated: Arc::new(AtomicUsize::new(0)),
             peak: AtomicUsize::new(0),
             rejection_count: AtomicUsize::new(0),
         }
@@ -74,6 +79,18 @@ impl Budget {
                 }
                 Err(_) => continue, // Retry CAS.
             }
+        }
+    }
+
+    /// Try to reserve `size` bytes and return a shared `Arc` to the allocated
+    /// counter so the caller can decrement it on drop.
+    ///
+    /// Returns `Some(arc)` on success, `None` on budget exhaustion.
+    pub fn try_reserve_arc(&self, size: usize) -> Option<Arc<AtomicUsize>> {
+        if self.try_reserve(size) {
+            Some(Arc::clone(&self.allocated))
+        } else {
+            None
         }
     }
 
@@ -226,6 +243,16 @@ mod tests {
         // Decrease limit — but not below current allocation.
         budget.set_limit(100);
         assert_eq!(budget.limit(), 1600); // max(100, 1600 allocated)
+    }
+
+    #[test]
+    fn try_reserve_arc_returns_shared_counter() {
+        let budget = Budget::new(1024);
+        let arc = budget.try_reserve_arc(512).expect("within budget");
+        assert_eq!(arc.load(Ordering::Relaxed), 512);
+        // Release via the arc.
+        arc.fetch_sub(512, Ordering::Relaxed);
+        assert_eq!(budget.allocated(), 0);
     }
 
     #[test]

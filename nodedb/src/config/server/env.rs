@@ -506,6 +506,9 @@ mod tests {
             replication_factor: 3,
             force_bootstrap: false,
             tls: None,
+            max_active_sessions: 0,
+            login_attempts_per_ip_per_min: 30,
+            login_attempts_per_user_per_min: 10,
             insecure_transport: false,
         }
     }

@@ -26,7 +26,9 @@ pub(in super::super) fn convert_update(
     tenant_id: TenantId,
     ctx: &ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
-    let vshard = VShardId::from_collection(collection);
+    let coll_qualified = super::super::convert::db_qualified(ctx.database_id, collection);
+    let collection = coll_qualified.as_str();
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, collection);
     let filter_bytes = serialize_filters(filters)?;
     let updates = assignments_to_update_values(assignments)?;
 
@@ -57,6 +59,7 @@ pub(in super::super) fn convert_update(
             tasks.push(PhysicalTask {
                 tenant_id,
                 vshard_id: vshard,
+                database_id: ctx.database_id,
                 plan: PhysicalPlan::Kv(KvOp::FieldSet {
                     collection: collection.into(),
                     key: sql_value_to_bytes(key),
@@ -83,6 +86,7 @@ pub(in super::super) fn convert_update(
             tasks.push(PhysicalTask {
                 tenant_id,
                 vshard_id: vshard,
+                database_id: ctx.database_id,
                 plan: PhysicalPlan::Document(DocumentOp::PointUpdate {
                     collection: collection.into(),
                     document_id: pk_string,
@@ -99,6 +103,7 @@ pub(in super::super) fn convert_update(
         Ok(vec![PhysicalTask {
             tenant_id,
             vshard_id: vshard,
+            database_id: ctx.database_id,
             plan: PhysicalPlan::Document(DocumentOp::BulkUpdate {
                 collection: collection.into(),
                 filters: filter_bytes,
@@ -119,13 +124,16 @@ pub(in super::super) fn convert_delete(
     tenant_id: TenantId,
     ctx: &ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
-    let vshard = VShardId::from_collection(collection);
+    let coll_qualified = super::super::convert::db_qualified(ctx.database_id, collection);
+    let collection = coll_qualified.as_str();
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, collection);
 
     if matches!(engine, EngineType::KeyValue) && !target_keys.is_empty() {
         let keys: Vec<Vec<u8>> = target_keys.iter().map(sql_value_to_bytes).collect();
         return Ok(vec![PhysicalTask {
             tenant_id,
             vshard_id: vshard,
+            database_id: ctx.database_id,
             plan: PhysicalPlan::Kv(KvOp::Delete {
                 collection: collection.into(),
                 keys,
@@ -149,6 +157,7 @@ pub(in super::super) fn convert_delete(
             tasks.push(PhysicalTask {
                 tenant_id,
                 vshard_id: vshard,
+                database_id: ctx.database_id,
                 plan: PhysicalPlan::Document(DocumentOp::PointDelete {
                     collection: collection.into(),
                     document_id: pk_string,
@@ -165,6 +174,7 @@ pub(in super::super) fn convert_delete(
         Ok(vec![PhysicalTask {
             tenant_id,
             vshard_id: vshard,
+            database_id: ctx.database_id,
             plan: PhysicalPlan::Document(DocumentOp::BulkDelete {
                 collection: collection.into(),
                 filters: filter_bytes,
@@ -191,20 +201,25 @@ pub(in super::super) fn convert_update_from(
     target_filters: &[Filter],
     _returning: bool,
     tenant_id: TenantId,
+    ctx: &super::super::convert::ConvertContext,
 ) -> crate::Result<Vec<PhysicalTask>> {
+    let coll_qualified = super::super::convert::db_qualified(ctx.database_id, collection);
+    let collection = coll_qualified.as_str();
     // Extract source collection name and alias from the source scan plan.
     let (source_collection, source_alias) = match source {
         SqlPlan::Scan {
             collection, alias, ..
         } => {
+            let qualified = super::super::convert::db_qualified(ctx.database_id, collection);
             let alias_str = alias.as_deref().unwrap_or(collection.as_str()).to_string();
-            (collection.clone(), alias_str)
+            (qualified, alias_str)
         }
         SqlPlan::DocumentIndexLookup {
             collection, alias, ..
         } => {
+            let qualified = super::super::convert::db_qualified(ctx.database_id, collection);
             let alias_str = alias.as_deref().unwrap_or(collection.as_str()).to_string();
-            (collection.clone(), alias_str)
+            (qualified, alias_str)
         }
         other => {
             return Err(crate::Error::PlanError {
@@ -215,11 +230,12 @@ pub(in super::super) fn convert_update_from(
 
     let updates = assignments_to_update_values_qualified(assignments)?;
     let target_filter_bytes = serialize_filters(target_filters)?;
-    let vshard = VShardId::from_collection(collection);
+    let vshard = VShardId::from_collection_in_database(ctx.database_id, collection);
 
     Ok(vec![PhysicalTask {
         tenant_id,
         vshard_id: vshard,
+        database_id: ctx.database_id,
         plan: PhysicalPlan::Document(DocumentOp::UpdateFromJoin {
             target_collection: collection.into(),
             source_collection,

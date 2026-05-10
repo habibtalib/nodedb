@@ -79,7 +79,10 @@ fn handle_blacklist_user(
     let kill_sessions = parts.iter().any(|p| p.to_uppercase() == "KILL");
     let mut killed = 0;
     if kill_sessions {
-        killed = state.session_registry.kill_sessions_for_user(user_id);
+        killed = state.session_registry.kill_sessions_for_username(
+            user_id,
+            crate::control::security::sessions::KillReason::AdminKill,
+        );
     }
 
     let kill_msg = if killed > 0 {

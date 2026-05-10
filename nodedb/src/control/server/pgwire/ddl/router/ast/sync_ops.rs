@@ -13,6 +13,9 @@ use crate::control::server::pgwire::ddl::alert::{CreateAlertRequest, create_aler
 use crate::control::server::pgwire::ddl::change_stream::alter_change_stream;
 use crate::control::server::pgwire::ddl::cluster::alter_raft_group;
 use crate::control::server::pgwire::ddl::consumer_group::create_consumer_group;
+use crate::control::server::pgwire::ddl::grant::database_permission::{
+    grant_database, revoke_database,
+};
 use crate::control::server::pgwire::ddl::grant::permission::{grant_permission, revoke_permission};
 use crate::control::server::pgwire::ddl::grant::role::{grant_role, revoke_role};
 use crate::control::server::pgwire::ddl::inspect::show_permissions;
@@ -25,6 +28,8 @@ use crate::control::server::pgwire::ddl::trigger::alter_trigger;
 use crate::control::server::pgwire::ddl::user::{alter_user, create_user};
 use crate::control::state::SharedState;
 
+use super::database_ops::try_dispatch_database;
+
 /// Try to dispatch synchronous (non-async) DDL statement variants.
 /// Returns `Some(result)` if handled, `None` to fall through.
 pub(super) fn try_dispatch_sync(
@@ -32,6 +37,11 @@ pub(super) fn try_dispatch_sync(
     identity: &AuthenticatedIdentity,
     stmt: &NodedbStatement,
 ) -> Option<PgWireResult<Vec<Response>>> {
+    // Database DDL (all synchronous — catalog reads/writes only).
+    if let Some(result) = try_dispatch_database(state, identity, stmt) {
+        return Some(result);
+    }
+
     match stmt {
         NodedbStatement::GrantRole { role, username } => {
             Some(grant_role(state, identity, role, username))
@@ -95,6 +105,14 @@ pub(super) fn try_dispatch_sync(
             grantee,
         )),
 
+        NodedbStatement::GrantDatabasePermission {
+            permission,
+            db_name,
+            grantee,
+        } => Some(grant_database(
+            state, identity, permission, db_name, grantee,
+        )),
+
         NodedbStatement::RevokePermission {
             permission,
             target_type,
@@ -107,6 +125,14 @@ pub(super) fn try_dispatch_sync(
             target_type,
             target_name,
             grantee,
+        )),
+
+        NodedbStatement::RevokeDatabasePermission {
+            permission,
+            db_name,
+            grantee,
+        } => Some(revoke_database(
+            state, identity, permission, db_name, grantee,
         )),
 
         NodedbStatement::AlterSchedule {

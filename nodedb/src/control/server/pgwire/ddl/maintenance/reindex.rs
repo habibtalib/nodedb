@@ -13,6 +13,7 @@
 //! `NodedbStatement::Reindex { .. }`; this handler receives the already-parsed
 //! fields and never re-tokenises the SQL string.
 
+use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 
@@ -36,7 +37,7 @@ pub async fn handle_reindex(
     // Verify the collection exists.
     if let Some(catalog) = state.credentials.catalog()
         && catalog
-            .get_collection(tenant_id.as_u64(), &collection)
+            .get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), &collection)
             .ok()
             .flatten()
             .is_none()

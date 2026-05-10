@@ -15,46 +15,45 @@ impl SharedState {
         }
     }
 
-    /// Record an audit event (best-effort).
+    /// Record an audit event (best-effort) with full database context.
     ///
     /// Writes to both the in-memory cache and the durable audit WAL (if available).
-    /// On audit WAL failure, logs an error but does not propagate it. Use
-    /// [`audit_record_strict`] when the caller must abort on audit failure
-    /// (e.g. data-modifying DDL where the accounting standard requires atomic
-    /// audit + data durability).
-    pub fn audit_record(
+    /// On audit WAL failure, logs an error but does not propagate it.
+    pub fn audit_record_with_db(
         &self,
         event: crate::control::security::audit::AuditEvent,
         tenant_id: Option<crate::types::TenantId>,
+        database_id: Option<nodedb_types::DatabaseId>,
         source: &str,
         detail: &str,
     ) {
-        if let Err(e) = self.audit_record_strict(event, tenant_id, source, detail) {
+        if let Err(e) =
+            self.audit_record_with_db_strict(event, tenant_id, database_id, source, detail)
+        {
             error!(error = %e, "audit WAL write failed — entry recorded in-memory only");
         }
     }
 
-    /// Record an audit event with strict durability.
+    /// Record an audit event with strict durability and full database context.
     ///
-    /// Returns an error if the durable audit WAL write fails. Callers that
-    /// guard data mutations MUST use this and abort on failure — the accounting
-    /// standard requires: "If the audit write fails, the data write also fails."
-    pub fn audit_record_strict(
+    /// Returns an error if the durable audit WAL write fails.
+    pub fn audit_record_with_db_strict(
         &self,
         event: crate::control::security::audit::AuditEvent,
         tenant_id: Option<crate::types::TenantId>,
+        database_id: Option<nodedb_types::DatabaseId>,
         source: &str,
         detail: &str,
     ) -> crate::Result<()> {
         let entry = match self.audit.lock() {
             Ok(mut log) => {
-                log.record(event, tenant_id, source, detail);
+                log.record_with_database(event, tenant_id, database_id, source, detail);
                 log.all().back().cloned()
             }
             Err(poisoned) => {
                 warn!("audit log mutex poisoned, recovering");
                 let mut log = poisoned.into_inner();
-                log.record(event, tenant_id, source, detail);
+                log.record_with_database(event, tenant_id, database_id, source, detail);
                 log.all().back().cloned()
             }
         };
@@ -70,6 +69,38 @@ impl SharedState {
             self.wal.append_audit_durable(&bytes, data_lsn)?;
         }
         Ok(())
+    }
+
+    /// Record an audit event (best-effort).
+    ///
+    /// Writes to both the in-memory cache and the durable audit WAL (if available).
+    /// On audit WAL failure, logs an error but does not propagate it. Use
+    /// [`audit_record_strict`] when the caller must abort on audit failure
+    /// (e.g. data-modifying DDL where the accounting standard requires atomic
+    /// audit + data durability).
+    pub fn audit_record(
+        &self,
+        event: crate::control::security::audit::AuditEvent,
+        tenant_id: Option<crate::types::TenantId>,
+        source: &str,
+        detail: &str,
+    ) {
+        self.audit_record_with_db(event, tenant_id, None, source, detail);
+    }
+
+    /// Record an audit event with strict durability.
+    ///
+    /// Returns an error if the durable audit WAL write fails. Callers that
+    /// guard data mutations MUST use this and abort on failure — the accounting
+    /// standard requires: "If the audit write fails, the data write also fails."
+    pub fn audit_record_strict(
+        &self,
+        event: crate::control::security::audit::AuditEvent,
+        tenant_id: Option<crate::types::TenantId>,
+        source: &str,
+        detail: &str,
+    ) -> crate::Result<()> {
+        self.audit_record_with_db_strict(event, tenant_id, None, source, detail)
     }
 
     /// Update per-tenant memory estimates.
@@ -130,6 +161,7 @@ impl SharedState {
                     timestamp_us: e.timestamp_us,
                     event: format!("{:?}", e.event),
                     tenant_id: e.tenant_id.map(|t| t.as_u64()),
+                    database_id: e.database_id.map(|d| d.as_u64()),
                     source: e.source.clone(),
                     detail: e.detail.clone(),
                     prev_hash: e.prev_hash.clone(),
@@ -140,7 +172,13 @@ impl SharedState {
                 warn!(error = %e, count = stored.len(), "failed to persist audit entries");
                 if let Ok(mut log) = self.audit.lock() {
                     for entry in entries {
-                        log.record(entry.event, entry.tenant_id, &entry.source, &entry.detail);
+                        log.record_with_database(
+                            entry.event,
+                            entry.tenant_id,
+                            entry.database_id,
+                            &entry.source,
+                            &entry.detail,
+                        );
                     }
                 }
             } else {
@@ -190,6 +228,7 @@ impl SharedState {
                                     event:
                                         crate::control::security::audit::AuditEvent::AuditCheckpoint,
                                     tenant_id: None,
+                                    database_id: None,
                                     auth_user_id: String::new(),
                                     auth_user_name: String::new(),
                                     session_id: String::new(),

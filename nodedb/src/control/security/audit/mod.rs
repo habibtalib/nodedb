@@ -14,6 +14,7 @@
 
 pub mod auth;
 pub mod ddl_detail;
+pub mod emitter;
 pub mod entry;
 pub mod event;
 pub mod level;
@@ -22,6 +23,7 @@ pub mod undrop_detail;
 
 pub use auth::AuditAuth;
 pub use ddl_detail::DdlAuditDetail;
+pub use emitter::{ArcAuditEmitter, AuditEmitContext, AuditEmitter, NoopAuditEmitter};
 pub use entry::AuditEntry;
 pub use event::AuditEvent;
 pub use level::AuditLevel;

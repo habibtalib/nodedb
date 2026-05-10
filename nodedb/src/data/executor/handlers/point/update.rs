@@ -249,7 +249,13 @@ impl CoreLoop {
                 };
                 match write_result {
                     Ok(_prior) => {
-                        self.doc_cache.put(tid, collection, row_key, &updated_bytes);
+                        self.doc_cache.put(
+                            task.request.database_id.as_u64(),
+                            tid,
+                            collection,
+                            row_key,
+                            &updated_bytes,
+                        );
 
                         // Emit update event to Event Plane. `current_bytes`
                         // is the pre-update row already read above; the

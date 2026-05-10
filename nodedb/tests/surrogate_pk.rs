@@ -42,11 +42,13 @@ fn assign_is_idempotent_for_same_pk() {
     assert_eq!(s2, s3);
     let cat = creds.catalog().as_ref().unwrap();
     assert_eq!(
-        cat.get_surrogate_for_pk("users", b"alice").unwrap(),
+        cat.get_surrogate_for_pk(nodedb_types::DatabaseId::DEFAULT, "users", b"alice")
+            .unwrap(),
         Some(s1)
     );
     assert_eq!(
-        cat.get_pk_for_surrogate("users", s1).unwrap(),
+        cat.get_pk_for_surrogate(nodedb_types::DatabaseId::DEFAULT, "users", s1)
+            .unwrap(),
         Some(b"alice".to_vec())
     );
 }
@@ -76,18 +78,22 @@ fn drop_collection_wipes_surrogate_map() {
     let s_other = a.assign("orders", b"o1").unwrap();
     let cat = creds.catalog().as_ref().unwrap();
     assert_eq!(
-        cat.scan_surrogates_for_collection("users").unwrap().len(),
+        cat.scan_surrogates_for_collection(nodedb_types::DatabaseId::DEFAULT, "users")
+            .unwrap()
+            .len(),
         2
     );
 
-    cat.delete_all_surrogates_for_collection("users").unwrap();
+    cat.delete_all_surrogates_for_collection(nodedb_types::DatabaseId::DEFAULT, "users")
+        .unwrap();
     assert!(
-        cat.scan_surrogates_for_collection("users")
+        cat.scan_surrogates_for_collection(nodedb_types::DatabaseId::DEFAULT, "users")
             .unwrap()
             .is_empty()
     );
     assert_eq!(
-        cat.get_surrogate_for_pk("orders", b"o1").unwrap(),
+        cat.get_surrogate_for_pk(nodedb_types::DatabaseId::DEFAULT, "orders", b"o1")
+            .unwrap(),
         Some(s_other)
     );
 }
@@ -177,11 +183,13 @@ fn assigns_persist_across_reopen() {
     let creds = CredentialStore::open(&path).unwrap();
     let cat = creds.catalog().as_ref().unwrap();
     assert_eq!(
-        cat.get_surrogate_for_pk("users", b"alice").unwrap(),
+        cat.get_surrogate_for_pk(nodedb_types::DatabaseId::DEFAULT, "users", b"alice")
+            .unwrap(),
         Some(s_persisted)
     );
     assert_eq!(
-        cat.get_pk_for_surrogate("users", s_persisted).unwrap(),
+        cat.get_pk_for_surrogate(nodedb_types::DatabaseId::DEFAULT, "users", s_persisted)
+            .unwrap(),
         Some(b"alice".to_vec())
     );
 }

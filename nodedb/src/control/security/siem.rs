@@ -227,6 +227,7 @@ mod tests {
             timestamp_us: 0,
             event: super::super::audit::AuditEvent::AuthSuccess,
             tenant_id: None,
+            database_id: None,
             auth_user_id: "u1".into(),
             auth_user_name: "alice".into(),
             session_id: "s1".into(),

@@ -9,10 +9,20 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use nodedb::bridge::dispatch::Dispatcher;
+
+/// Generate a short hex string suitable for unique test name suffixes.
+fn uuid_v4_hex() -> String {
+    let id = uuid::Uuid::new_v4();
+    let bytes = id.as_bytes();
+    // Use the first 8 bytes (16 hex chars) — enough entropy for test isolation.
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]
+    )
+}
 use nodedb::config::auth::AuthMode;
 use nodedb::control::server::pgwire::listener::PgListener;
 use nodedb::control::state::SharedState;
-use nodedb::data::executor::core_loop::CoreLoop;
 use nodedb::event::{EventPlane, create_event_bus};
 use nodedb::types::TenantId;
 use nodedb::wal::WalManager;
@@ -105,6 +115,12 @@ impl TestServer {
             nodedb::types::TenantId::new(1),
             vec![nodedb::control::security::identity::Role::Superuser],
         );
+        // Ensure the built-in `default` database (id 0) is present in the
+        // catalog so `USE DATABASE default` and `\c default` work in tests.
+        // Idempotent: no-op if the descriptor is already there.
+        if let Some(cat) = credentials.catalog() {
+            let _ = cat.bootstrap_default_database();
+        }
         let mut shared =
             SharedState::new_with_credentials(dispatcher, Arc::clone(&wal), credentials);
         // Inject a fixed test KEK so backup tests produce encrypted envelopes.
@@ -123,28 +139,18 @@ impl TestServer {
         for (idx, (data_side, event_producer)) in
             data_sides.into_iter().zip(event_producers).enumerate()
         {
-            let core_dir = dir.path().to_path_buf();
-            let core_array_catalog = shared.array_catalog.clone();
             let (core_stop_tx, core_stop_rx) = std::sync::mpsc::channel::<()>();
-            let core_handle = tokio::task::spawn_blocking(move || {
-                let mut core = CoreLoop::open_with_array_catalog(
+            let core_handle =
+                crate::core_loop_runner::spawn_core_loop(crate::core_loop_runner::CoreLoopSpawn {
                     idx,
-                    data_side.request_rx,
-                    data_side.response_tx,
-                    &core_dir,
-                    std::sync::Arc::new(nodedb_types::OrdinalClock::new()),
-                    core_array_catalog,
-                )
-                .unwrap();
-                core.set_event_producer(event_producer);
-                while matches!(
-                    core_stop_rx.try_recv(),
-                    Err(std::sync::mpsc::TryRecvError::Empty)
-                ) {
-                    core.tick();
-                    std::thread::sleep(Duration::from_millis(1));
-                }
-            });
+                    data_side,
+                    core_dir: dir.path().to_path_buf(),
+                    core_array_catalog: shared.array_catalog.clone(),
+                    event_producer,
+                    core_metrics: None,
+                    replay: None,
+                    stop_rx: core_stop_rx,
+                });
             core_stop_txs.push(core_stop_tx);
             core_handles.push(core_handle);
         }
@@ -387,7 +393,10 @@ impl TestServer {
                     }
                 }
                 catalog
-                    .load_collections_for_tenant(TenantId::new(1).as_u64())
+                    .load_collections_for_tenant(
+                        nodedb_types::DatabaseId::DEFAULT,
+                        TenantId::new(1).as_u64(),
+                    )
                     .ok()
             })
             .unwrap_or_default();
@@ -397,36 +406,22 @@ impl TestServer {
         for (idx, (data_side, event_producer)) in
             data_sides.into_iter().zip(event_producers).enumerate()
         {
-            let core_dir = dir_path.to_path_buf();
-            let core_array_catalog = shared.array_catalog.clone();
-            let core_wal_records = Arc::clone(&wal_records);
-            let core_tombstones = replay_tombstones.clone();
             let (core_stop_tx, core_stop_rx) = std::sync::mpsc::channel::<()>();
-            let core_handle = tokio::task::spawn_blocking(move || {
-                let mut core = CoreLoop::open_with_array_catalog(
-                    idx,
-                    data_side.request_rx,
-                    data_side.response_tx,
-                    &core_dir,
-                    std::sync::Arc::new(nodedb_types::OrdinalClock::new()),
-                    core_array_catalog,
-                )
-                .unwrap();
-                core.set_event_producer(event_producer);
-                if !core_wal_records.is_empty() {
-                    core.replay_vector_wal(&core_wal_records, 1, &core_tombstones);
-                    core.replay_kv_wal(&core_wal_records, 1, &core_tombstones);
-                    core.replay_timeseries_wal(&core_wal_records, 1, &core_tombstones);
-                    core.replay_array_wal(&core_wal_records, 1, &core_tombstones);
-                }
-                while matches!(
-                    core_stop_rx.try_recv(),
-                    Err(std::sync::mpsc::TryRecvError::Empty)
-                ) {
-                    core.tick();
-                    std::thread::sleep(Duration::from_millis(1));
-                }
+            let replay = (!wal_records.is_empty()).then(|| crate::core_loop_runner::WalReplay {
+                records: Arc::clone(&wal_records),
+                tombstones: replay_tombstones.clone(),
             });
+            let core_handle =
+                crate::core_loop_runner::spawn_core_loop(crate::core_loop_runner::CoreLoopSpawn {
+                    idx,
+                    data_side,
+                    core_dir: dir_path.to_path_buf(),
+                    core_array_catalog: shared.array_catalog.clone(),
+                    event_producer,
+                    core_metrics: None,
+                    replay,
+                    stop_rx: core_stop_rx,
+                });
             core_stop_txs.push(core_stop_tx);
             core_handles.push(core_handle);
         }
@@ -562,28 +557,18 @@ impl TestServer {
         for (idx, (data_side, event_producer)) in
             data_sides.into_iter().zip(event_producers).enumerate()
         {
-            let core_dir = dir.path().to_path_buf();
-            let core_array_catalog = shared.array_catalog.clone();
             let (core_stop_tx, core_stop_rx) = std::sync::mpsc::channel::<()>();
-            let core_handle = tokio::task::spawn_blocking(move || {
-                let mut core = CoreLoop::open_with_array_catalog(
+            let core_handle =
+                crate::core_loop_runner::spawn_core_loop(crate::core_loop_runner::CoreLoopSpawn {
                     idx,
-                    data_side.request_rx,
-                    data_side.response_tx,
-                    &core_dir,
-                    std::sync::Arc::new(nodedb_types::OrdinalClock::new()),
-                    core_array_catalog,
-                )
-                .unwrap();
-                core.set_event_producer(event_producer);
-                while matches!(
-                    core_stop_rx.try_recv(),
-                    Err(std::sync::mpsc::TryRecvError::Empty)
-                ) {
-                    core.tick();
-                    std::thread::sleep(Duration::from_millis(1));
-                }
-            });
+                    data_side,
+                    core_dir: dir.path().to_path_buf(),
+                    core_array_catalog: shared.array_catalog.clone(),
+                    event_producer,
+                    core_metrics: None,
+                    replay: None,
+                    stop_rx: core_stop_rx,
+                });
             core_stop_txs.push(core_stop_tx);
             core_handles.push(core_handle);
         }
@@ -686,6 +671,66 @@ impl TestServer {
         }
     }
 
+    /// Execute a SQL statement, returning each row's columns joined by tab.
+    ///
+    /// Useful for `SELECT *` assertions like `rows[0].contains(value)`
+    /// where the value may live in any column.  Single-column SELECTs
+    /// degrade to the column value directly (no separator emitted).
+    pub async fn query_text_joined(&self, sql: &str) -> Result<Vec<String>, String> {
+        let client = self.client.as_ref();
+        match client.simple_query(sql).await {
+            Ok(msgs) => {
+                let mut rows = Vec::new();
+                for msg in msgs {
+                    if let tokio_postgres::SimpleQueryMessage::Row(row) = msg {
+                        let n = row.len();
+                        let mut joined = String::new();
+                        for i in 0..n {
+                            if i > 0 {
+                                joined.push('\t');
+                            }
+                            joined.push_str(row.get(i).unwrap_or(""));
+                        }
+                        rows.push(joined);
+                    }
+                }
+                Ok(rows)
+            }
+            Err(e) => Err(pg_error_detail(&e)),
+        }
+    }
+
+    /// Execute a SQL statement, returning every row as a `HashMap` keyed by
+    /// the column name reported in the row description. Useful for tests
+    /// that need to assert on specific projected columns regardless of
+    /// projection order. NULL columns are stored as the empty string.
+    pub async fn query_named_rows(
+        &self,
+        sql: &str,
+    ) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
+        let client = self.client.as_ref();
+        match client.simple_query(sql).await {
+            Ok(msgs) => {
+                let mut rows: Vec<std::collections::HashMap<String, String>> = Vec::new();
+                for msg in msgs {
+                    if let tokio_postgres::SimpleQueryMessage::Row(row) = msg {
+                        // `SimpleColumn` is not `Clone`; collect names by
+                        // borrowing the column slice directly.
+                        let names: Vec<String> =
+                            row.columns().iter().map(|c| c.name().to_string()).collect();
+                        let mut map = std::collections::HashMap::with_capacity(names.len());
+                        for (i, name) in names.into_iter().enumerate() {
+                            map.insert(name, row.get(i).unwrap_or("").to_string());
+                        }
+                        rows.push(map);
+                    }
+                }
+                Ok(rows)
+            }
+            Err(e) => Err(pg_error_detail(&e)),
+        }
+    }
+
     /// Execute a SQL statement, returning every row as a Vec of its column
     /// values (in projection order). Column count is taken from the first
     /// row received.
@@ -737,6 +782,32 @@ impl TestServer {
             let _ = connection.await;
         });
         Ok((client, handle))
+    }
+
+    /// Spawn a server and connect to a named database.
+    ///
+    /// The database is created inside the running server after startup. A
+    /// UUID suffix is appended to `name` to guarantee uniqueness across
+    /// parallel test runs (e.g. `emp_prod_<uuid>`). The returned name is
+    /// the full suffixed name so callers can reference it in subsequent
+    /// queries.
+    ///
+    /// Existing tests that do not call this method pin implicitly to the
+    /// built-in `default` database — no behavior change.
+    pub async fn with_database(name: &str) -> (Self, String) {
+        let server = Self::start().await;
+        let unique_name = format!("{}_{}", name, uuid_v4_hex());
+        server
+            .client
+            .simple_query(&format!("CREATE DATABASE {unique_name}"))
+            .await
+            .unwrap_or_else(|e| panic!("with_database: CREATE DATABASE {unique_name} failed: {e}"));
+        server
+            .client
+            .simple_query(&format!("USE DATABASE {unique_name}"))
+            .await
+            .unwrap_or_else(|e| panic!("with_database: USE DATABASE {unique_name} failed: {e}"));
+        (server, unique_name)
     }
 
     /// Execute a SQL statement expecting an error containing the given substring.

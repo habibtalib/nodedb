@@ -154,6 +154,168 @@ Single-shard writes bypass the sequencer entirely and go directly through the re
 
 All engines share the same snapshot, transaction context, and memory budget. A query that combines vector similarity, graph traversal, spatial filtering, and document field access executes inside one process — no network hops between engines, no application-level joins.
 
+## Resource Governance
+
+NodeDB enforces multi-tier resource isolation to prevent a single tenant or database from starving others. Resource governance encompasses memory, connections, request rate, storage I/O scheduling, WAL commit priority, document cache allocation, background task CPU budgets, and compute bounds.
+
+### Three-Tier Resource Hierarchy
+
+All request-path resource decisions follow a **global ceiling → database budget → tenant budget → engine internal usage** hierarchy:
+
+- **Global ceiling**: Cluster-wide configuration (e.g., `cluster.max_memory_bytes`). Applies to all databases.
+- **Database budget**: Per-database quotas set via `ALTER DATABASE name SET QUOTA (...)`. Applies to all tenants within that database.
+- **Tenant budget**: Per-tenant quotas within a database set via `ALTER TENANT name IN DATABASE db SET QUOTA (...)`. Applies within the narrowest scope.
+- **Engine internal usage**: Governed by `MemoryGovernor`; descends the hierarchy to reserve bytes.
+
+Admission ordering for requests:
+
+1. Identity & database access (established during authentication)
+2. **Tenant** rate/concurrency check → `TENANT_QUOTA_EXCEEDED`
+3. **Database** rate/concurrency check → `DATABASE_QUOTA_EXCEEDED`
+4. **Global** pressure check → `SERVER_OVERLOAD`
+
+Memory reservation flips the order (largest scope first to fail fast): global → database → tenant → engine. Failure at any layer aborts before the next is consulted.
+
+### Memory Governor
+
+Located in `nodedb-mem/src/governor.rs`, the `MemoryGovernor` enforces hierarchical memory reservations:
+
+```rust
+pub struct MemoryGovernor {
+    global_ceiling: usize,
+    database_budgets: HashMap<DatabaseId, Budget>,
+    tenant_budgets: HashMap<(DatabaseId, TenantId), Budget>,
+    engine_budgets: HashMap<EngineId, Budget>,
+}
+
+impl MemoryGovernor {
+    pub fn try_reserve(
+        &self,
+        db: DatabaseId,
+        tenant: TenantId,
+        engine: EngineId,
+        size: usize,
+    ) -> Result<ReservationToken, BudgetError>
+    // Reserves across all four levels: global → database → tenant → engine
+}
+```
+
+`ReservationToken` is RAII — dropping it releases against all four levels atomically. This prevents leaks across plane boundaries. Every allocation site walks all four levels before touching memory.
+
+### Connection Semaphore
+
+Defined in `nodedb/src/control/server/listener.rs`, connection admission occurs in two phases:
+
+**Phase 1 (at TLS accept):** Acquire a temporary global permit from `cluster.max_connections`.
+
+**Phase 2 (post-auth):** After SCRAM/Argon2 handshake succeeds and `database_id`/`tenant_id` are known, convert the temporary permit into a database-bucketed + tenant-bucketed permit (3-level ref-counted). Verify both `database.quota.max_connections` and `tenant.quota.max_connections`.
+
+On disconnect, all three ref-counted permits are released atomically. If Phase 2 fails, the temporary permit is dropped and an error is returned.
+
+### SPSC Bridge — Weighted-Fair Queue
+
+The lock-free SPSC bridge between Control and Data Planes (`nodedb-bridge/src/wfq.rs`) implements **Weighted Fair Queueing (WFQ)** via **Deficit Round-Robin (DRR)**.
+
+Each Data Plane core's request ring contains a set of virtual sub-queues, one per active `DatabaseId` on that core. The dispatcher schedules these sub-queues fairly by:
+
+- Assigning each database a weight proportional to `database.quota.priority_class` (three tiers: `critical`, `standard`, `bulk`).
+- Running deficit round-robin: on each dispatcher tick, the next database with deficit > 0 is chosen; its requests are dequeued until deficit exhausts, then the next database is selected.
+- Computing backpressure (85% / 95%) per virtual queue (not globally), so one saturated database never throttles another's enqueue rate.
+- Preserving total ring capacity (bounded).
+
+A database saturating its deficit on a core throttles only its own writes; co-resident databases continue flowing.
+
+### WAL Group Commit — Priority-Aware
+
+Write-ahead log group commit in `nodedb-wal/src/group_commit.rs` separates commits into three independent priority-based fsync groups:
+
+| Class      | Behavior                                           |
+| ---------- | -------------------------------------------------- |
+| `critical` | Dedicated fsync group, committed first             |
+| `standard` | Default; batched with other standard-class commits |
+| `bulk`     | Extended timeout, lower fsync rate                 |
+
+Three groups maximum to avoid fsync amplification. The `priority_class` field is set per database via `WITH (priority_class='...')` on `CREATE` / `ALTER DATABASE SET QUOTA`. Critical-class databases' writes are flushed to durable storage first; bulk writes extend the timeout window and reduce fsync frequency.
+
+### Document Cache — Per-Database Weighted LRU
+
+The document cache in `nodedb/src/engine/sparse/doc_cache.rs` is a weighted LRU sharded by `DatabaseId`. Each shard's capacity share is proportional to `database.quota.cache_weight` (default 1).
+
+`CacheKey` includes both `database_id` and `tenant_id`. Eviction prefers the database with the highest current-vs-weight overshoot, ensuring hot databases do not evict cold databases below their proportional share.
+
+### Background Tasks — Per-Database CPU-Seconds Budget
+
+The maintenance scheduler in `nodedb/src/control/maintenance/budget.rs` tracks per-database CPU-seconds spent in background tasks (compaction, index maintenance, cleanup) per minute and enforces a cap of `database.quota.maintenance_cpu_pct` (default 25%) of core time. Databases that exceed the cap defer their maintenance to the next minute window.
+
+The following maintenance tasks acquire `MaintenanceLease` from the budget tracker (RAII handle):
+
+- **Vector** — HNSW node removal + neighbour-link remapping (compact operation)
+- **Graph** — CSR compaction (level-based reorganization) + dangling edge sweep
+- **Timeseries** — Segment compaction + continuous aggregation refresh
+- **Spatial** — R-tree rebalancing
+- **Array** — Tile compaction and version cleanup
+- **Full-Text Search** — LSM level compaction via `run_fts_compaction()` in `nodedb/src/data/executor/handlers/compact_fts.rs`
+
+All sites using `acquire_maintenance_lease(db, force)` observe the per-database budget.
+
+### Rate Limiter
+
+The rate limiter in `nodedb/src/control/security/ratelimit/limiter.rs` enforces request-rate caps using token buckets. Buckets are consulted in order of specificity — first-deny wins:
+
+```
+user:{id} → org:{id} → tenant:{id} → database:{id}
+```
+
+The database bucket capacity is `database.quota.max_qps`. Additionally, pre-auth login rate limits are enforced:
+
+- `login_ip:{addr}` — capacity `cluster.login_attempts_per_ip_per_min` (default 30)
+- `login_user:{username}` — capacity `cluster.login_attempts_per_user_per_min` (default 10)
+
+These pre-auth buckets are consulted before SCRAM/Argon2 verification (cheap exit path) and run in constant time with a uniform delay on any denial to prevent timing leaks.
+
+### Per-Tenant Compute Caps
+
+Two per-tenant compute bounds are enforced at planner time via `nodedb/src/control/planner/sql_plan_convert/`:
+
+- **`max_vector_dim`**: Maximum vector dimensionality. Vector inserts / index operations above this bound are rejected with `TENANT_VECTOR_DIM_EXCEEDED`.
+- **`max_graph_depth`**: Maximum graph traversal depth. MATCH queries / graph traversals declaring depth > this bound are rejected with `TENANT_GRAPH_DEPTH_EXCEEDED`.
+
+Both are surfaced in `SHOW TENANT QUOTA` output.
+
+### Metrics & Observability
+
+All resource consumption is observable via Prometheus metrics prefixed `nodedb_`:
+
+**Per-Database Metrics** (`nodedb_database_*{database="<name"}`):
+
+- `qps` — Requests per second
+- `memory_bytes` — Total memory reserved
+- `storage_bytes` — Cumulative storage on-disk
+- `connections` — Open connections
+- `bridge_queue_depth` — Pending requests in SPSC bridge virtual queue
+- `wal_commit_latency_p99` — 99th percentile WAL fsync latency (milliseconds)
+- `maintenance_cpu_seconds` — CPU seconds spent in background tasks (per minute, reset window)
+- `mirror_lag_ms` — Replication lag to follower replicas (distributed deployments)
+
+**Per-Tenant Metrics** (`nodedb_tenant_*{database="<name>", tenant="<tenant>"}`):
+
+- `qps` — Requests per second
+- `memory_bytes` — Total memory reserved
+- `storage_bytes` — Cumulative storage on-disk
+
+Counters are incremented at the sites where resources are consumed:
+
+- **QPS**: Request dispatcher (Control Plane)
+- **Memory**: `MemoryGovernor::try_reserve()` success path
+- **Storage**: WAL append + segment compaction commit
+- **Connections**: Connection listener (Accept + Disconnect)
+- **Bridge queue depth**: SPSC enqueue / dequeue
+- **WAL latency**: Group commit fsync completion
+- **Maintenance CPU**: Lease acquisition / release
+- **Replication lag**: Raft follower log application
+
+All metrics are dimensionalized by database and tenant to enable per-customer tracking and alerting.
+
 ## Cross-Engine Identity
 
 All engines use a unified, distributed identity space called **surrogate identity**. Each row, cell, node, and document has a surrogate ID (u64) that is globally unique within a database. Surrogates enable fused queries that combine filtering across all engines in a single bitmap.

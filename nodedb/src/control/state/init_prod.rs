@@ -2,6 +2,7 @@
 
 //! SharedState::open — production constructor loading from disk.
 
+use nodedb_types::DatabaseId;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
@@ -116,6 +117,19 @@ impl SharedState {
         let mut audit_log = AuditLog::new(10_000);
         audit_log.set_next_seq(audit_start_seq);
 
+        // Bootstrap the database-id registry from the persisted hwm.
+        // On a fresh server this starts at USER_DB_START (1024); on restart
+        // it seeds from the persisted hwm so post-restart allocations cannot
+        // collide with pre-restart ones.
+        let database_registry = {
+            let hwm = if let Some(catalog) = credentials.catalog() {
+                catalog.get_database_hwm().unwrap_or(0)
+            } else {
+                0
+            };
+            crate::control::database::DatabaseRegistry::from_persisted_hwm(hwm)
+        };
+
         // Bootstrap the global surrogate registry from the persisted
         // hwm. On a fresh database this seeds `next = 1`; on restart
         // it seeds `next = persisted_hwm + 1` so post-restart
@@ -148,7 +162,7 @@ impl SharedState {
         let mut permission_cache =
             crate::control::security::permission_tree::PermissionCache::new();
         if let Some(catalog) = credentials.catalog()
-            && let Ok(collections) = catalog.load_all_collections()
+            && let Ok(collections) = catalog.load_all_collections(DatabaseId::DEFAULT)
         {
             for coll in &collections {
                 if let Some(ref def_json) = coll.permission_tree_def
@@ -171,6 +185,29 @@ impl SharedState {
         // per-stream drop counters into the same registry that the HTTP
         // /metrics endpoint reads.
         let system_metrics = Arc::new(crate::control::metrics::SystemMetrics::new());
+
+        let shared_audit = Arc::new(Mutex::new(audit_log));
+        let prod_session_registry =
+            Arc::new(crate::control::security::sessions::SessionRegistry::new());
+        let (si_bus, uc_bus, bus_consumer_task) = super::buses_init::init_security_buses(
+            Arc::clone(&shared_audit),
+            Arc::clone(&prod_session_registry),
+        );
+        let bus_consumer_handle = Some(bus_consumer_task);
+
+        // Wire the security buses into the credential store so mutations
+        // automatically publish to the in-process channels.
+        credentials.set_buses(
+            Arc::new(
+                crate::control::security::buses::SessionInvalidationBus::from_existing(
+                    si_bus.sender(),
+                ),
+            ),
+            Arc::new(
+                crate::control::security::buses::UserChangeBus::from_existing(uc_bus.sender()),
+            ),
+        );
+
         let state = Arc::new(Self {
             dispatcher: Mutex::new(dispatcher),
             tracker: RequestTracker::new(),
@@ -178,7 +215,7 @@ impl SharedState {
             quiesce,
             http_client: Arc::new(reqwest::Client::new()),
             credentials: Arc::clone(&credentials),
-            audit: Arc::new(Mutex::new(audit_log)),
+            audit: shared_audit,
             api_keys,
             roles,
             permissions,
@@ -200,6 +237,9 @@ impl SharedState {
                 std::collections::HashMap::new(),
             )),
             array_gc_handle: None,
+            session_invalidation_bus: si_bus,
+            user_change_bus: uc_bus,
+            bus_consumer_handle,
             array_sync_schemas: {
                 let data_dir = catalog_path.parent().unwrap_or(std::path::Path::new("."));
                 let schema_db = {
@@ -248,6 +288,8 @@ impl SharedState {
             array_merger_registry: std::sync::Arc::new(
                 crate::control::array_sync::MergerRegistry::new(),
             ),
+            mirror_link_registry: Arc::new(crate::control::mirror::MirrorLinkRegistry::new()),
+            database_registry,
             surrogate_registry: surrogate_registry_handle,
             surrogate_assigner,
             block_cache: crate::control::planner::procedural::executor::ProcedureBlockCache::new(
@@ -324,7 +366,7 @@ impl SharedState {
                 crate::control::security::session_handle::SessionHandleStore::from_config(
                     &auth_config.session,
                 ),
-            session_registry: crate::control::security::session_registry::SessionRegistry::new(),
+            session_registry: prod_session_registry,
             escalation: crate::control::security::escalation::EscalationEngine::default(),
             usage_counter: Arc::new(
                 crate::control::security::metering::counter::UsageCounter::new(),
@@ -358,10 +400,17 @@ impl SharedState {
             // Use the pre-created Arc so the CdcRouter (above) and this
             // metrics endpoint share the same SystemMetrics registry.
             system_metrics: Some(Arc::clone(&system_metrics)),
+            database_metrics: Arc::new(crate::control::metrics::DatabaseMetricsRegistry::new()),
+            quota_ceiling: Arc::new(std::sync::RwLock::new(
+                crate::control::security::catalog::GlobalQuotaCeiling::default(),
+            )),
             retention_settings: Arc::new(std::sync::RwLock::new(
                 crate::config::server::RetentionSettings::default(),
             )),
             governor: None,
+            maintenance_budget: Arc::new(
+                crate::control::maintenance::MaintenanceBudgetTracker::new(),
+            ),
             epoch_tracker: Mutex::new(std::collections::HashMap::new()),
             ts_partition_registries: Some(Mutex::new(std::collections::HashMap::new())),
             cold_storage: None,
@@ -394,12 +443,45 @@ impl SharedState {
             gateway: None,
             backup_kek: None,
             quarantine_registry: Arc::new(crate::storage::quarantine::QuarantineRegistry::new()),
+            admission_registry: Arc::new(
+                crate::control::server::admission::AdmissionRegistry::new(),
+            ),
+            audit_dml_cache: Arc::new(crate::control::state::audit_dml_cache::AuditDmlCache::new()),
+            idle_timeout_cache: Arc::new(
+                crate::control::state::idle_timeout_cache::IdleTimeoutCache::new(),
+            ),
+            collection_to_database: Arc::new(
+                crate::control::state::collection_to_database::CollectionToDatabase::new(),
+            ),
+            lsn_ms_map: Arc::new(Mutex::new(nodedb_types::temporal::LsnMsMap::new())),
+            materialize_freeze: crate::control::clone::MaterializeFreezeRegistry::new(),
             shutdown: Arc::clone(&shutdown),
             loop_registry: Arc::clone(&loop_registry),
             startup: Arc::clone(&startup_gate),
         });
 
         Self::wire_session_handle_audit(&state);
+
+        // Populate per-database DML audit cache and collection→database reverse
+        // map from the catalog so the Event Plane consumer has accurate data
+        // from the first write after startup.
+        if let Some(catalog) = state.credentials.catalog() {
+            if let Err(e) = state.audit_dml_cache.load_from_catalog(catalog) {
+                tracing::warn!(error = %e, "boot: failed to populate audit_dml_cache from catalog");
+            }
+            if let Err(e) = state.collection_to_database.load_from_catalog(catalog) {
+                tracing::warn!(
+                    error = %e,
+                    "boot: failed to populate collection_to_database cache from catalog"
+                );
+            }
+            if let Err(e) = state.idle_timeout_cache.load_from_catalog(catalog) {
+                tracing::warn!(
+                    error = %e,
+                    "boot: failed to populate idle_timeout_cache from catalog"
+                );
+            }
+        }
 
         // Spawn the array GC background task. The handle is stored by the caller
         // (main.rs) which has mutable access at that point via Arc::get_mut.

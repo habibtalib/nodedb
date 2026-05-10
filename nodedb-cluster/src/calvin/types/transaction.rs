@@ -6,7 +6,7 @@
 //! representation submitted to the sequencer.
 
 use nodedb_types::TenantId;
-use nodedb_types::id::VShardId;
+use nodedb_types::id::{DatabaseId, VShardId};
 use serde::{Deserialize, Serialize};
 
 use crate::error::CalvinError;
@@ -57,7 +57,8 @@ impl ReadWriteSet {
         let mut seen = std::collections::HashSet::new();
         let mut result = Vec::new();
         for engine_set in &self.0 {
-            let vshard = VShardId::from_collection(engine_set.collection());
+            let vshard =
+                VShardId::from_collection_in_database(DatabaseId::DEFAULT, engine_set.collection());
             if seen.insert(vshard.as_u32()) {
                 result.push(vshard);
             }
