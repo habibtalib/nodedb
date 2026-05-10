@@ -139,6 +139,7 @@ async fn pgwire_not_leader_retry_uses_shared_gateway() {
         collection: "nl_pgwire_shared_gw".into(),
         key: vec![],
         rls_filters: vec![],
+        surrogate_ceiling: None,
     }));
     gateway
         .plan_cache

@@ -80,6 +80,7 @@ async fn resp_gateway_migration_single_node_set_get() {
         collection: "resp_gw_single".into(),
         key: b"mykey".to_vec(),
         rls_filters: vec![],
+        surrogate_ceiling: None,
     });
     let get_result = gateway.execute(&ctx, get_plan).await;
     assert!(
@@ -142,6 +143,7 @@ async fn resp_gateway_migration_cross_node_get() {
         collection: "resp_gw_cross".into(),
         key: b"cross-key".to_vec(),
         rls_filters: vec![],
+        surrogate_ceiling: None,
     });
     let get_result = follower_gw.execute(&ctx, get_plan).await;
     assert!(

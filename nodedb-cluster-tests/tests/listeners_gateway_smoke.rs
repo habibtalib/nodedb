@@ -80,6 +80,7 @@ async fn pgwire_gateway_smoke_cache_hit() {
         collection: "gw_smoke_pgwire".into(),
         key: b"pgwire-smoke-key".to_vec(),
         rls_filters: vec![],
+        surrogate_ceiling: None,
     }));
     let cache_key = PlanCacheKey {
         sql_text_hash: hash_sql("GET gw_smoke_pgwire pgwire-smoke-key"),
@@ -139,6 +140,7 @@ async fn http_gateway_smoke_cache_hit() {
         collection: "gw_smoke_http".into(),
         key: b"http-smoke-key".to_vec(),
         rls_filters: vec![],
+        surrogate_ceiling: None,
     }));
     let cache_key = PlanCacheKey {
         sql_text_hash: hash_sql("GET gw_smoke_http http-smoke-key"),
@@ -193,6 +195,7 @@ async fn resp_gateway_smoke_cache_hit() {
         collection: "gw_smoke_resp".into(),
         key: b"resp-smoke-key".to_vec(),
         rls_filters: vec![],
+        surrogate_ceiling: None,
     }));
     let cache_key = PlanCacheKey {
         sql_text_hash: hash_sql("GET gw_smoke_resp resp-smoke-key"),
@@ -250,6 +253,7 @@ async fn ilp_gateway_smoke_cache_hit() {
         collection: "gw_smoke_ilp".into(),
         key: b"ilp-smoke-key".to_vec(),
         rls_filters: vec![],
+        surrogate_ceiling: None,
     }));
     let cache_key = PlanCacheKey {
         sql_text_hash: hash_sql("GET gw_smoke_ilp ilp-smoke-key"),
@@ -304,6 +308,7 @@ async fn native_gateway_smoke_cache_hit() {
         collection: "gw_smoke_native".into(),
         key: b"native-smoke-key".to_vec(),
         rls_filters: vec![],
+        surrogate_ceiling: None,
     }));
     let cache_key = PlanCacheKey {
         sql_text_hash: hash_sql("GET gw_smoke_native native-smoke-key"),

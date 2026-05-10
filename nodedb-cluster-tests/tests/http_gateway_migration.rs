@@ -83,6 +83,7 @@ async fn http_gateway_migration_single_node_query() {
         collection: "http_gw_single_node".into(),
         key: b"row-1".to_vec(),
         rls_filters: vec![],
+        surrogate_ceiling: None,
     });
     let get_result = gateway.execute(&ctx, get_plan).await;
     assert!(
@@ -165,6 +166,7 @@ async fn http_gateway_migration_cross_node_query() {
                     collection: "http_gw_cross_node".into(),
                     key: b"cross-key".to_vec(),
                     rls_filters: vec![],
+                    surrogate_ceiling: None,
                 }))
             })
             .await;
