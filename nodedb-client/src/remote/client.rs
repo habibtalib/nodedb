@@ -38,6 +38,26 @@ pub struct NodeDbRemote {
     client: Arc<Mutex<Client>>,
 }
 
+/// Extract a useful detail string from a `tokio_postgres::Error`.
+///
+/// Without this, `Display` returns the literal `"db error"` and the
+/// SQLSTATE + server message are dropped — every failure surfaces as the
+/// same opaque string and is impossible to diagnose without a debug
+/// rebuild. Mirrors the harness's `pg_error_detail` so client and test
+/// reports look identical.
+fn pg_error_detail(e: &tokio_postgres::Error) -> String {
+    if let Some(db_err) = e.as_db_error() {
+        format!(
+            "{}: {} (SQLSTATE {})",
+            db_err.severity(),
+            db_err.message(),
+            db_err.code().code()
+        )
+    } else {
+        format!("{e}")
+    }
+}
+
 impl NodeDbRemote {
     /// Connect to a NodeDB Origin instance.
     ///
@@ -67,10 +87,9 @@ impl NodeDbRemote {
         params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
     ) -> NodeDbResult<(Vec<String>, Vec<Vec<Value>>)> {
         let client = self.client.lock().await;
-        let rows = client
-            .query(sql, params)
-            .await
-            .map_err(|e| NodeDbError::storage(format!("pgwire query failed: {e}")))?;
+        let rows = client.query(sql, params).await.map_err(|e| {
+            NodeDbError::storage(format!("pgwire query failed: {}", pg_error_detail(&e)))
+        })?;
 
         if rows.is_empty() {
             return Ok((Vec::new(), Vec::new()));
@@ -102,10 +121,9 @@ impl NodeDbRemote {
         params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
     ) -> NodeDbResult<u64> {
         let client = self.client.lock().await;
-        client
-            .execute(sql, params)
-            .await
-            .map_err(|e| NodeDbError::storage(format!("pgwire execute failed: {e}")))
+        client.execute(sql, params).await.map_err(|e| {
+            NodeDbError::storage(format!("pgwire execute failed: {}", pg_error_detail(&e)))
+        })
     }
 
     /// Execute a parameterless statement via the simple-query protocol
@@ -123,10 +141,12 @@ impl NodeDbRemote {
         use tokio_postgres::SimpleQueryMessage;
 
         let client = self.client.lock().await;
-        let messages = client
-            .simple_query(sql)
-            .await
-            .map_err(|e| NodeDbError::storage(format!("pgwire simple_query failed: {e}")))?;
+        let messages = client.simple_query(sql).await.map_err(|e| {
+            NodeDbError::storage(format!(
+                "pgwire simple_query failed: {}",
+                pg_error_detail(&e)
+            ))
+        })?;
 
         let mut columns: Vec<String> = Vec::new();
         let mut rows: Vec<Vec<Value>> = Vec::new();
@@ -204,6 +224,90 @@ impl NodeDb for NodeDbRemote {
         Ok(results)
     }
 
+    async fn vector_insert_field(
+        &self,
+        collection: &str,
+        field_name: &str,
+        id: &str,
+        embedding: &[f32],
+        metadata: Option<Document>,
+    ) -> NodeDbResult<()> {
+        // Field-aware path: emit `INSERT INTO <coll> (id, <field>[,
+        // metadata]) VALUES ($1, ARRAY[...]<, $2>)` so the vector lands
+        // on the column named by the trait — not on whichever vector
+        // column the planner picks when the column name is omitted.
+        let coll = quote_identifier(collection);
+        let field = quote_identifier(field_name);
+        let vec_lit = format_vector_array(embedding);
+
+        let sql = match metadata {
+            Some(_) => {
+                format!("INSERT INTO {coll} (id, {field}, metadata) VALUES ($1, {vec_lit}, $2)")
+            }
+            None => format!("INSERT INTO {coll} (id, {field}) VALUES ($1, {vec_lit})"),
+        };
+
+        if let Some(d) = metadata {
+            let meta_json = sonic_rs::to_string(&d)
+                .map_err(|e| NodeDbError::storage(format!("metadata serialization: {e}")))?;
+            self.execute_raw(&sql, &[&id, &meta_json]).await?;
+        } else {
+            self.execute_raw(&sql, &[&id]).await?;
+        }
+        Ok(())
+    }
+
+    async fn vector_search_field(
+        &self,
+        collection: &str,
+        field_name: &str,
+        query: &[f32],
+        k: usize,
+        filter: Option<&MetadataFilter>,
+    ) -> NodeDbResult<Vec<SearchResult>> {
+        // Field-aware path: use the 2-arg form of `vector_distance` so
+        // the planner scopes the HNSW lookup to the named column. The
+        // single-arg form `vector_distance(ARRAY[...])` only works on
+        // collections that have exactly one vector column.
+        let coll = quote_identifier(collection);
+        let field = quote_identifier(field_name);
+        let vec_lit = format_vector_array(query);
+        let where_clause = match filter {
+            Some(f) => {
+                let rendered = super::sql::render_metadata_filter_public(f)?;
+                format!(" WHERE {rendered}")
+            }
+            None => String::new(),
+        };
+        let sql = format!(
+            "SELECT id, vector_distance({field}, {vec_lit}) AS distance \
+             FROM {coll}{where_clause} \
+             ORDER BY vector_distance({field}, {vec_lit}) \
+             LIMIT {k}"
+        );
+
+        let (columns, rows) = self.query_raw(&sql, &[]).await?;
+        let id_idx = columns.iter().position(|c| c == "id").unwrap_or(0);
+        let dist_idx = columns.iter().position(|c| c == "distance").unwrap_or(1);
+
+        let mut results = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let id = row
+                .get(id_idx)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let distance = row.get(dist_idx).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+            results.push(SearchResult {
+                id,
+                node_id: None,
+                distance,
+                metadata: HashMap::new(),
+            });
+        }
+        Ok(results)
+    }
+
     async fn vector_insert(
         &self,
         collection: &str,
@@ -235,18 +339,28 @@ impl NodeDb for NodeDbRemote {
 
     async fn graph_traverse(
         &self,
+        collection: &str,
         start: &NodeId,
         depth: u8,
         edge_filter: Option<&EdgeFilter>,
     ) -> NodeDbResult<SubGraph> {
+        // Server-side DSL: `GRAPH TRAVERSE FROM '<start>' DEPTH <n>
+        // [LABEL '<l>']`. The Origin graph overlay is tenant-scoped
+        // (the dispatcher routes on `identity.tenant_id`), so the
+        // `collection` argument is accepted for trait symmetry with
+        // `graph_insert_edge` and Lite parity but is not threaded into
+        // the wire DSL — every edge in the tenant participates in the
+        // traversal regardless of which collection it was inserted
+        // into.
+        let _ = collection;
         let label_clause = edge_filter
             .and_then(|f| f.labels.first())
-            .map(|l| format!(", '{l}'"))
+            .map(|l| format!(" LABEL '{}'", l.replace('\'', "''")))
             .unwrap_or_default();
+        let start_str = start.as_str().replace('\'', "''");
+        let sql = format!("GRAPH TRAVERSE FROM '{start_str}' DEPTH {depth}{label_clause}");
 
-        let sql = format!("SELECT * FROM graph_traverse('{start}', {depth}{label_clause})");
-
-        let (columns, rows) = self.query_raw(&sql, &[]).await?;
+        let (columns, rows) = self.simple_query_raw(&sql).await?;
 
         if columns.len() == 1 && columns[0] == "result" {
             if let Some(row) = rows.first()
@@ -299,37 +413,98 @@ impl NodeDb for NodeDbRemote {
 
     async fn graph_insert_edge(
         &self,
+        collection: &str,
         from: &NodeId,
         to: &NodeId,
         edge_type: &str,
         properties: Option<Document>,
     ) -> NodeDbResult<EdgeId> {
-        let props_json = match properties {
-            Some(d) => sonic_rs::to_string(&d)
-                .map_err(|e| NodeDbError::storage(format!("properties serialization: {e}")))?,
-            None => "{}".into(),
+        // `GRAPH INSERT EDGE IN '<collection>' FROM '<src>' TO '<dst>'
+        // TYPE '<label>' [PROPERTIES '<json>']`. The DSL handler lives
+        // in `pgwire/ddl/graph_ops/edge.rs` and registers the edge in
+        // the collection's graph overlay. simple_query is required
+        // because the DSL doesn't fit the extended-query row-description
+        // shape (it returns CommandComplete only).
+        let props_clause = match properties {
+            Some(d) => {
+                let json = sonic_rs::to_string(&d)
+                    .map_err(|e| NodeDbError::storage(format!("properties serialization: {e}")))?;
+                format!(" PROPERTIES '{}'", json.replace('\'', "''"))
+            }
+            None => String::new(),
         };
+        let coll = collection.replace('\'', "''");
+        let from_s = from.as_str().replace('\'', "''");
+        let to_s = to.as_str().replace('\'', "''");
+        let label_s = edge_type.replace('\'', "''");
+        let sql = format!(
+            "GRAPH INSERT EDGE IN '{coll}' FROM '{from_s}' TO '{to_s}' TYPE '{label_s}'{props_clause}"
+        );
 
-        let from_str = from.as_str();
-        let to_str = to.as_str();
-        let sql = "INSERT INTO edges (src, dst, label, properties) VALUES ($1, $2, $3, $4::jsonb)";
-        self.execute_raw(sql, &[&from_str, &to_str, &edge_type, &props_json])
-            .await?;
+        self.simple_query_raw(&sql).await?;
 
         EdgeId::try_first(from.clone(), to.clone(), edge_type)
             .map_err(|e| NodeDbError::storage(format!("invalid edge label: {e}")))
     }
 
-    async fn graph_delete_edge(&self, edge_id: &EdgeId) -> NodeDbResult<()> {
-        // Structured fields are passed so the server can match on
-        // (src, label, dst, seq) without relying on the Display form.
-        let src = edge_id.src.as_str();
-        let dst = edge_id.dst.as_str();
-        let label = edge_id.label.as_str();
-        let seq = edge_id.seq as i64;
-        let sql = "DELETE FROM edges WHERE src = $1 AND dst = $2 AND label = $3 AND seq = $4";
-        self.execute_raw(sql, &[&src, &dst, &label, &seq]).await?;
+    async fn graph_delete_edge(&self, collection: &str, edge_id: &EdgeId) -> NodeDbResult<()> {
+        // `GRAPH DELETE EDGE IN '<collection>' FROM '<src>' TO '<dst>'
+        // TYPE '<label>'`. The (src, dst, label) tuple identifies a
+        // unique edge in the overlay — `seq` is part of `EdgeId` for
+        // multi-edge disambiguation, but the server DSL keys on the
+        // tuple alone today, so we drop seq here.
+        let coll = collection.replace('\'', "''");
+        let src = edge_id.src.as_str().replace('\'', "''");
+        let dst = edge_id.dst.as_str().replace('\'', "''");
+        let label = edge_id.label.replace('\'', "''");
+        let sql = format!("GRAPH DELETE EDGE IN '{coll}' FROM '{src}' TO '{dst}' TYPE '{label}'");
+        self.simple_query_raw(&sql).await?;
         Ok(())
+    }
+
+    async fn graph_shortest_path(
+        &self,
+        collection: &str,
+        from: &NodeId,
+        to: &NodeId,
+        max_depth: u8,
+        edge_filter: Option<&EdgeFilter>,
+    ) -> NodeDbResult<Option<Vec<NodeId>>> {
+        // Use the server's `GRAPH PATH` operator instead of the trait
+        // default's per-hop BFS — one round-trip vs O(path_length).
+        // Like `graph_traverse`, the Origin graph overlay is
+        // tenant-scoped, so `collection` is accepted for symmetry but
+        // not threaded into the DSL.
+        let _ = collection;
+        let label_clause = edge_filter
+            .and_then(|f| f.labels.first())
+            .map(|l| format!(" LABEL '{}'", l.replace('\'', "''")))
+            .unwrap_or_default();
+        let from_s = from.as_str().replace('\'', "''");
+        let to_s = to.as_str().replace('\'', "''");
+        let sql =
+            format!("GRAPH PATH FROM '{from_s}' TO '{to_s}' MAX_DEPTH {max_depth}{label_clause}");
+
+        let (_columns, rows) = self.simple_query_raw(&sql).await?;
+        // Server emits a single `result` column carrying a JSON array
+        // of node ids — empty array means unreachable.
+        let Some(row) = rows.first() else {
+            return Ok(None);
+        };
+        let Some(Value::String(json_text)) = row.first() else {
+            return Ok(None);
+        };
+        let parsed: Vec<String> = sonic_rs::from_str(json_text)
+            .map_err(|e| NodeDbError::storage(format!("graph shortest path response: {e}")))?;
+        if parsed.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(
+            parsed
+                .into_iter()
+                .map(NodeId::from_validated)
+                .collect::<Vec<_>>(),
+        ))
     }
 
     async fn document_get(&self, collection: &str, id: &str) -> NodeDbResult<Option<Document>> {
@@ -370,9 +545,15 @@ impl NodeDb for NodeDbRemote {
         let collection = quote_identifier(collection);
         let data_json = sonic_rs::to_string(&doc.fields)
             .map_err(|e| NodeDbError::storage(format!("document serialization: {e}")))?;
+        // NodeDB's SQL planner accepts JSON text values directly into
+        // the document `data` column — no `::jsonb` cast on the
+        // expression side, which the planner currently rejects as an
+        // "unsupported value expression". The server interprets the
+        // string literal as document JSON when the target column is the
+        // doc-engine `data` column.
         let sql = format!(
-            "INSERT INTO {collection} (id, data) VALUES ($1, $2::jsonb) \
-             ON CONFLICT (id) DO UPDATE SET data = $2::jsonb"
+            "INSERT INTO {collection} (id, data) VALUES ($1, $2) \
+             ON CONFLICT (id) DO UPDATE SET data = $2"
         );
         self.execute_raw(&sql, &[&doc.id, &data_json]).await?;
         Ok(())
@@ -433,6 +614,72 @@ impl NodeDb for NodeDbRemote {
         let sql = format!("DROP COLLECTION {} PURGE", quote_identifier(name));
         self.execute_raw(&sql, &[]).await?;
         Ok(())
+    }
+
+    async fn text_search(
+        &self,
+        collection: &str,
+        field: &str,
+        query: &str,
+        top_k: usize,
+        params: nodedb_types::text_search::TextSearchParams,
+    ) -> NodeDbResult<Vec<SearchResult>> {
+        // Server-side FTS query SQL: `text_match(<field>, '<query>')` in
+        // a WHERE clause selects matching ids; `bm25_score(<field>,
+        // '<query>')` in the SELECT list exposes the score so callers
+        // can order/rank. The planner pattern-matches this shape and
+        // dispatches `SqlPlan::TextSearch`.
+        //
+        // `params` (mode, fuzzy, prefix, etc.) is intentionally ignored
+        // for now — every supported option is also expressible in the
+        // SQL form, but threading them through the DSL string is its
+        // own widening. The defaults (Plain query with fuzzy=true) cover
+        // the common case the trait's spec calls out.
+        let _ = params;
+        let coll = quote_identifier(collection);
+        let field_quoted = quote_identifier(field);
+        let q_escaped = query.replace('\'', "''");
+        let sql = format!(
+            "SELECT id, bm25_score({field_quoted}, '{q_escaped}') AS score \
+             FROM {coll} \
+             WHERE text_match({field_quoted}, '{q_escaped}') \
+             LIMIT {top_k}"
+        );
+
+        let (columns, rows) = self.simple_query_raw(&sql).await?;
+        let id_idx = columns.iter().position(|c| c == "id").unwrap_or(0);
+        let score_idx = columns.iter().position(|c| c == "score").unwrap_or(1);
+
+        let mut results = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let id = row
+                .get(id_idx)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            // simple_query returns text — score arrives as a stringified
+            // float. Parse defensively so a missing/malformed score does
+            // not torpedo the whole result set; callers prefer ordered
+            // ids with score 0.0 over an Err.
+            let score = row
+                .get(score_idx)
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<f32>().ok())
+                .or_else(|| {
+                    row.get(score_idx)
+                        .and_then(|v| v.as_f64())
+                        .map(|f| f as f32)
+                })
+                .unwrap_or(0.0);
+
+            results.push(SearchResult {
+                id,
+                node_id: None,
+                distance: score,
+                metadata: HashMap::new(),
+            });
+        }
+        Ok(results)
     }
 
     async fn list_dropped_collections(&self) -> NodeDbResult<Vec<DroppedCollection>> {

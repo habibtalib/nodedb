@@ -40,6 +40,15 @@ pub(super) fn build_vector_search_sql(
     ))
 }
 
+/// Crate-internal accessor so peer modules (e.g. the field-aware
+/// `vector_search_field` override in `client.rs`) can reuse the same
+/// `MetadataFilter` → SQL renderer without duplicating the variant
+/// match. Kept private to the `remote` module — outside callers should
+/// drive vector_search through the trait, not poke at the renderer.
+pub(super) fn render_metadata_filter_public(filter: &MetadataFilter) -> NodeDbResult<String> {
+    render_metadata_filter(filter)
+}
+
 /// Render a `MetadataFilter` tree into a SQL boolean expression.
 ///
 /// Field names go through `quote_identifier` so reserved words and
