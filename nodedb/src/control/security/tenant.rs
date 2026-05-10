@@ -409,4 +409,63 @@ mod tests {
         // Tenant 2 is unaffected.
         assert!(isolation.check(t(2)).is_allowed());
     }
+
+    // Fresh-boot single-tenant INSERT must not trip the default memory quota.
+    //
+    // The 1-second `update_tenant_memory_estimates` background loop on
+    // `SharedState` reads `tikv_jemalloc_ctl::stats::allocated::read()` and
+    // proportions the result across active tenants by `total_requests`. With
+    // one tenant doing all the work, that tenant inherits 100% of the process
+    // allocation. The default `max_memory_bytes` cap must stay large enough
+    // that a typical fresh-boot footprint never trips it — otherwise routine
+    // INSERTs against an empty collection start failing with `MemoryExceeded`
+    // on a quiet single-tenant deployment.
+
+    const MIB: u64 = 1024 * 1024;
+
+    #[test]
+    fn default_cap_clears_typical_fresh_boot_footprint() {
+        // Single-tenant attribution at ~113 MiB (typical post-boot jemalloc
+        // footprint on a 2-core data plane) must clear the default cap.
+        let mut iso = TenantIsolation::new(TenantQuota::default());
+        iso.request_start(t(1));
+        iso.request_end(t(1));
+        iso.update_memory(t(1), 113 * MIB);
+
+        let check = iso.check(t(1));
+        assert!(
+            check.is_allowed(),
+            "default tenant quota must clear a 113 MiB fresh-boot footprint; got {check:?}"
+        );
+    }
+
+    #[test]
+    fn default_cap_clears_quarter_gibibyte_footprint() {
+        // 256 MiB attributed to a single tenant — still well under the cap.
+        let mut iso = TenantIsolation::new(TenantQuota::default());
+        iso.request_start(t(1));
+        iso.request_end(t(1));
+        iso.update_memory(t(1), 256 * MIB);
+        assert!(
+            iso.check(t(1)).is_allowed(),
+            "default tenant quota must clear a 256 MiB attribution; got {:?}",
+            iso.check(t(1))
+        );
+    }
+
+    #[test]
+    fn default_cap_remains_at_least_one_gib() {
+        // Pin the lower bound of the default memory cap. Lowering this value
+        // would re-introduce the class of fresh-boot quota failures: the
+        // proportional estimator hands the active tenant ~all of the process
+        // jemalloc footprint, so the cap must stay above typical post-boot
+        // allocation. A tighter envelope must come from deriving the cap from
+        // `server.memory_limit`, not from shrinking the universal default.
+        let q = TenantQuota::default();
+        assert!(
+            q.max_memory_bytes >= 1024 * MIB,
+            "default tenant memory cap must remain >= 1 GiB; got {} bytes",
+            q.max_memory_bytes
+        );
+    }
 }
