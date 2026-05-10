@@ -21,7 +21,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error, text_field};
+use super::super::super::types::{require_tenant_admin, sqlstate_error, text_field};
 
 /// One row in the lineage result set.
 struct LineageRow {
@@ -40,7 +40,7 @@ pub fn handle_show_database_lineage(
     identity: &AuthenticatedIdentity,
     name: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "show database lineage")?;
+    require_tenant_admin(identity, "show database lineage")?;
 
     let catalog = state
         .credentials

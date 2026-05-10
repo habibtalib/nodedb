@@ -21,7 +21,7 @@ pub fn alter_service_account_set_databases(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_superuser(identity, "ALTER SERVICE ACCOUNT SET DATABASES")?;
+    require_superuser(state, identity, None, "ALTER SERVICE ACCOUNT SET DATABASES")?;
 
     // parts: ["ALTER", "SERVICE", "ACCOUNT", <name>, "SET", "DATABASES", "(db1,", "db2", ...)"]
     if parts.len() < 7 {

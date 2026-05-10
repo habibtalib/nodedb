@@ -21,7 +21,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 use super::RETENTION_POLICIES_CRDT_COLLECTION;
 use super::parse::parse_create_retention_policy;
 
@@ -37,7 +37,7 @@ pub async fn create_retention_policy(
     body_raw: &str,
     eval_interval_raw: Option<&str>,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create retention policies")?;
+    require_tenant_admin(identity, "create retention policies")?;
 
     // Reconstruct minimal SQL for the existing complex parser.
     let reconstructed = if let Some(eval) = eval_interval_raw {

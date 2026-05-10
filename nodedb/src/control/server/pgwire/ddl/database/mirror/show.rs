@@ -27,7 +27,7 @@ use crate::control::security::catalog::database_types::DatabaseStatus;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::super::types::{require_admin, sqlstate_error, text_field};
+use super::super::super::super::types::{require_tenant_admin, sqlstate_error, text_field};
 
 /// Handle `SHOW DATABASE MIRROR STATUS [FOR <name>]`.
 pub fn handle_show_database_mirror_status(
@@ -35,7 +35,7 @@ pub fn handle_show_database_mirror_status(
     identity: &AuthenticatedIdentity,
     name: Option<&str>,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "show database mirror status")?;
+    require_tenant_admin(identity, "show database mirror status")?;
 
     let catalog = state.credentials.catalog();
     let catalog = catalog

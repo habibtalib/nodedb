@@ -8,7 +8,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 /// Handle `ALTER FUNCTION <name> OWNER TO <new_owner>`
 pub fn alter_function(
@@ -16,7 +16,7 @@ pub fn alter_function(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "alter functions")?;
+    require_tenant_admin(identity, "alter functions")?;
 
     if parts.len() < 4 {
         return Err(sqlstate_error(

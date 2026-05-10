@@ -10,7 +10,7 @@ use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::event::alert::types::{AlertCondition, AlertDef, CompareOp, NotifyTarget};
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 use super::ALERT_RULES_CRDT_COLLECTION;
 
 /// Parsed `CREATE ALERT` request — fields extracted by the nodedb-sql parser.
@@ -49,7 +49,7 @@ pub fn create_alert(
         severity,
         notify_targets_raw,
     } = *req;
-    require_admin(identity, "create alerts")?;
+    require_tenant_admin(identity, "create alerts")?;
 
     let tenant_id = identity.tenant_id.as_u64();
 

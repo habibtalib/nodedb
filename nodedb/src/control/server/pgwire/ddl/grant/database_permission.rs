@@ -22,7 +22,7 @@ use crate::control::security::audit::AuditEvent;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 /// Handle `GRANT <privilege> ON DATABASE <name> TO <user>`.
 ///
@@ -34,7 +34,7 @@ pub fn grant_database(
     db_name: &str,
     grantee: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "GRANT ON DATABASE")?;
+    require_tenant_admin(identity, "GRANT ON DATABASE")?;
 
     let catalog = state
         .credentials
@@ -95,7 +95,7 @@ pub fn revoke_database(
     db_name: &str,
     grantee: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "REVOKE ON DATABASE")?;
+    require_tenant_admin(identity, "REVOKE ON DATABASE")?;
 
     let catalog = state
         .credentials

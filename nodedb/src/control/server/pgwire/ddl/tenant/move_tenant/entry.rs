@@ -11,7 +11,7 @@ use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
 use crate::control::security::identity::AuthenticatedIdentity;
-use crate::control::server::pgwire::types::{require_admin, sqlstate_error};
+use crate::control::server::pgwire::types::{require_superuser, sqlstate_error};
 use crate::control::state::SharedState;
 use crate::types::TenantId;
 use nodedb_types::error::sqlstate;
@@ -27,6 +27,8 @@ const DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Entry point for `MOVE TENANT <name> FROM <source_db> TO <target_db>`.
+///
+/// Required role: `Superuser`.
 pub async fn handle_move_tenant(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
@@ -34,13 +36,28 @@ pub async fn handle_move_tenant(
     from_db: &str,
     to_db: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "move tenants")?;
-
     let catalog = state
         .credentials
         .catalog()
         .as_ref()
         .ok_or_else(|| sqlstate_error("XX000", "system catalog unavailable"))?;
+
+    // Resolve source database id first so the privilege gate can carry it
+    // in the audit record. The gate runs BEFORE tenant / target lookup so an
+    // unauthorized caller never learns whether the tenant or target db exists.
+    let source_db_id = catalog
+        .get_database_id_by_name(from_db)
+        .map_err(|e| sqlstate_error("XX000", &format!("catalog lookup: {e}")))?
+        .ok_or_else(|| {
+            sqlstate_error("42P01", &format!("source database '{from_db}' not found"))
+        })?;
+
+    require_superuser(
+        state,
+        identity,
+        Some(source_db_id),
+        &format!("MOVE TENANT {tenant_name} FROM {from_db} TO {to_db}"),
+    )?;
 
     // Resolve tenant by name (catalog stores all tenants; linear scan is acceptable
     // for administrative DDL operations).
@@ -51,14 +68,6 @@ pub async fn handle_move_tenant(
         .find(|t| t.name == tenant_name)
         .ok_or_else(|| sqlstate_error("42P01", &format!("tenant '{tenant_name}' not found")))?;
     let tenant_id = TenantId::new(tenant_record.tenant_id);
-
-    // Resolve source and target database IDs.
-    let source_db_id = catalog
-        .get_database_id_by_name(from_db)
-        .map_err(|e| sqlstate_error("XX000", &format!("catalog lookup: {e}")))?
-        .ok_or_else(|| {
-            sqlstate_error("42P01", &format!("source database '{from_db}' not found"))
-        })?;
 
     let target_db_id = catalog
         .get_database_id_by_name(to_db)

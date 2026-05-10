@@ -19,7 +19,7 @@ use crate::control::security::audit::AuditEvent;
 use crate::control::security::identity::{AuthenticatedIdentity, Role};
 use crate::control::state::SharedState;
 
-use super::super::super::types::{parse_role, require_admin, sqlstate_error};
+use super::super::super::types::{parse_role, require_tenant_admin, sqlstate_error};
 
 fn current_roles(state: &SharedState, username: &str) -> PgWireResult<Vec<Role>> {
     state
@@ -61,7 +61,7 @@ pub fn grant_role(
     role_name: &str,
     username: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "grant roles")?;
+    require_tenant_admin(identity, "grant roles")?;
 
     let role = parse_role(role_name);
 
@@ -99,7 +99,7 @@ pub fn revoke_role(
     role_name: &str,
     username: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "revoke roles")?;
+    require_tenant_admin(identity, "revoke roles")?;
 
     let role = parse_role(role_name);
 

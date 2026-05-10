@@ -21,14 +21,14 @@ use crate::control::security::catalog::database_types::DatabaseStatus;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error, text_field};
+use super::super::super::types::{require_tenant_admin, sqlstate_error, text_field};
 
 /// Handle `SHOW DATABASES`.
 pub fn handle_show_databases(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "show databases")?;
+    require_tenant_admin(identity, "show databases")?;
 
     let catalog = match state.credentials.catalog() {
         Some(c) => c,

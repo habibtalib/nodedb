@@ -26,7 +26,7 @@ use crate::control::security::catalog::StoredSynonymGroup;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::types::{require_admin, sqlstate_error, text_field};
+use super::super::types::{require_tenant_admin, sqlstate_error, text_field};
 use super::sync_dispatch::dispatch_async;
 
 /// Handle `CREATE SYNONYM GROUP <name> AS ('term1', ...)`.
@@ -36,7 +36,7 @@ pub async fn create_synonym_group(
     name: &str,
     terms: &[String],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create synonym groups")?;
+    require_tenant_admin(identity, "create synonym groups")?;
 
     let tenant_id = identity.tenant_id;
     let tenant_id_u64 = tenant_id.as_u64();
@@ -110,7 +110,7 @@ pub async fn drop_synonym_group(
     name: &str,
     if_exists: bool,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop synonym groups")?;
+    require_tenant_admin(identity, "drop synonym groups")?;
 
     let tenant_id = identity.tenant_id;
     let tenant_id_u64 = tenant_id.as_u64();

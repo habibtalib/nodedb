@@ -8,7 +8,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 /// Handle `DROP MATERIALIZED VIEW <name>` for streaming MVs.
 ///
@@ -18,7 +18,7 @@ pub fn drop_streaming_mv(
     identity: &AuthenticatedIdentity,
     name: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop streaming materialized views")?;
+    require_tenant_admin(identity, "drop streaming materialized views")?;
 
     let tenant_id = identity.tenant_id.as_u64();
     let name = name.to_lowercase();

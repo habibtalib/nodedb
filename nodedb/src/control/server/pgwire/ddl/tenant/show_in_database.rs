@@ -14,7 +14,7 @@ use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::types::TenantId;
 
-use super::super::super::types::{require_admin, sqlstate_error, text_field};
+use super::super::super::types::{require_tenant_admin, sqlstate_error, text_field};
 
 /// Handle `SHOW TENANT QUOTA FOR <name> IN DATABASE <db>`.
 ///
@@ -25,7 +25,7 @@ pub fn handle_show_tenant_quota_in_database(
     name: &str,
     database: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "show tenant quota")?;
+    require_tenant_admin(identity, "show tenant quota")?;
 
     let (db_id, tenant_id, record) = resolve_tenant_quota(state, name, database)?;
     let _ = db_id; // used only for resolution
@@ -88,7 +88,7 @@ pub fn handle_show_tenant_usage_in_database(
     name: &str,
     database: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "show tenant usage")?;
+    require_tenant_admin(identity, "show tenant usage")?;
 
     let (db_id, tenant_id, record) = resolve_tenant_quota(state, name, database)?;
     let _ = (db_id, tenant_id);

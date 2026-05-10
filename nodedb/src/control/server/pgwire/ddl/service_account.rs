@@ -7,7 +7,7 @@ use crate::control::security::audit::AuditEvent;
 use crate::control::security::identity::{AuthenticatedIdentity, Role};
 use crate::control::state::SharedState;
 
-use super::super::types::{parse_role, require_admin, sqlstate_error};
+use super::super::types::{parse_role, require_tenant_admin, sqlstate_error};
 
 /// CREATE SERVICE ACCOUNT <name> [ROLE <role>] [TENANT <id>]
 ///                                [FOR DATABASE <db>]
@@ -20,7 +20,7 @@ pub fn create_service_account(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create service accounts")?;
+    require_tenant_admin(identity, "create service accounts")?;
 
     if parts.len() < 4 {
         return Err(sqlstate_error(
@@ -149,7 +149,7 @@ pub fn drop_service_account(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop service accounts")?;
+    require_tenant_admin(identity, "drop service accounts")?;
 
     if parts.len() < 4 {
         return Err(sqlstate_error(

@@ -18,14 +18,14 @@ use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::event::streaming_mv::types::{AggDef, AggFunction, StreamingMvDef};
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 pub fn create_streaming_mv(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     sql: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create streaming materialized views")?;
+    require_tenant_admin(identity, "create streaming materialized views")?;
 
     let parsed = parse_streaming_mv(sql)?;
     let tenant_id = identity.tenant_id.as_u64();

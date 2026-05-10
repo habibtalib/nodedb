@@ -8,7 +8,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 /// Handle `DROP PROCEDURE [IF EXISTS] <name>`
 pub fn drop_procedure(
@@ -16,7 +16,7 @@ pub fn drop_procedure(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop procedures")?;
+    require_tenant_admin(identity, "drop procedures")?;
 
     if parts.len() < 3 {
         return Err(sqlstate_error(

@@ -12,7 +12,7 @@ use crate::control::security::audit::AuditEvent;
 use crate::control::security::identity::{AuthenticatedIdentity, DatabaseSet};
 use crate::control::state::SharedState;
 
-use super::super::types::{int8_field, require_admin, sqlstate_error, text_field};
+use super::super::types::{int8_field, require_tenant_admin, sqlstate_error, text_field};
 
 /// CREATE API KEY FOR <user> [EXPIRES <seconds>] [WITH SCOPES ...] [WITH DATABASES (db1, db2)]
 ///
@@ -43,7 +43,7 @@ pub fn create_api_key(
 
     // Users can create keys for themselves; admin required for others.
     if target_username != identity.username {
-        require_admin(identity, "create API keys for other users")?;
+        require_tenant_admin(identity, "create API keys for other users")?;
     }
 
     // Look up the target user.
@@ -168,7 +168,7 @@ pub fn revoke_api_key(
     let keys = state.api_keys.list_keys_for_user(&identity.username);
     let owns_key = keys.iter().any(|k| k.key_id == key_id);
     if !owns_key {
-        require_admin(identity, "revoke API keys for other users")?;
+        require_tenant_admin(identity, "revoke API keys for other users")?;
     }
 
     // Pre-check existence locally so "key not found" doesn't touch raft.
@@ -225,7 +225,7 @@ pub fn list_api_keys(
     let target_username = if parts.len() >= 5 && parts[3].eq_ignore_ascii_case("FOR") {
         let target = parts[4];
         if target != identity.username {
-            require_admin(identity, "list API keys for other users")?;
+            require_tenant_admin(identity, "list API keys for other users")?;
         }
         target.to_string()
     } else if parts.len() >= 4 && parts[3].eq_ignore_ascii_case("FOR") {

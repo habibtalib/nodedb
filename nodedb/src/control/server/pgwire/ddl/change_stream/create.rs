@@ -18,7 +18,7 @@ use crate::event::cdc::stream_def::{
 };
 use crate::event::webhook::WebhookConfig;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 /// Handle `CREATE CHANGE STREAM <name> ON <collection> [WITH (...)]`
 ///
@@ -30,7 +30,7 @@ pub fn create_change_stream(
     collection: &str,
     with_clause_raw: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create change streams")?;
+    require_tenant_admin(identity, "create change streams")?;
 
     if state.event_plane_budget.should_reject_new_streams() {
         return Err(sqlstate_error(

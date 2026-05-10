@@ -19,7 +19,9 @@ use crate::control::server::pgwire::ddl::tenant::{
 };
 use crate::control::state::SharedState;
 
-use super::super::super::super::types::sqlstate_error;
+use super::super::super::super::types::{
+    require_database_owner_or_higher, require_superuser, sqlstate_error,
+};
 
 /// Try to dispatch a database DDL statement that does NOT require session-store
 /// access (i.e. everything except `USE DATABASE`).
@@ -135,15 +137,65 @@ pub(super) fn try_dispatch_database(
             None
         }
 
-        NodedbStatement::BackupDatabase { .. } => Some(Err(sqlstate_error(
-            "0A000",
-            "BACKUP DATABASE is not yet implemented",
-        ))),
+        NodedbStatement::BackupDatabase { name, .. } => {
+            // Gate: DatabaseOwner(db) or higher before the placeholder return.
+            // Resolve db_id first; unknown name returns 3D000, not 42501.
+            let catalog = match state.credentials.catalog() {
+                Some(c) => c,
+                None => {
+                    return Some(Err(sqlstate_error("XX000", "system catalog unavailable")));
+                }
+            };
+            let db_id = match catalog.get_database_id_by_name(name) {
+                Ok(Some(id)) => id,
+                Ok(None) => {
+                    return Some(Err(sqlstate_error(
+                        "3D000",
+                        &format!("database '{name}' does not exist"),
+                    )));
+                }
+                Err(e) => {
+                    return Some(Err(sqlstate_error(
+                        "XX000",
+                        &format!("catalog lookup failed: {e}"),
+                    )));
+                }
+            };
+            if let Err(e) = require_database_owner_or_higher(
+                state,
+                identity,
+                db_id,
+                &format!("BACKUP DATABASE {name}"),
+            ) {
+                return Some(Err(e));
+            }
+            Some(Err(sqlstate_error(
+                "0A000",
+                "BACKUP DATABASE is not yet implemented",
+            )))
+        }
 
-        NodedbStatement::RestoreDatabase { .. } => Some(Err(sqlstate_error(
-            "0A000",
-            "RESTORE DATABASE is not yet implemented",
-        ))),
+        NodedbStatement::RestoreDatabase { name, .. } => {
+            // Gate: Superuser required before the placeholder return.
+            // The target database may not exist yet; if it doesn't, pass db_id=None.
+            let db_id_opt = state
+                .credentials
+                .catalog()
+                .as_ref()
+                .and_then(|c| c.get_database_id_by_name(name).ok().flatten());
+            if let Err(e) = require_superuser(
+                state,
+                identity,
+                db_id_opt,
+                &format!("RESTORE DATABASE {name}"),
+            ) {
+                return Some(Err(e));
+            }
+            Some(Err(sqlstate_error(
+                "0A000",
+                "RESTORE DATABASE is not yet implemented",
+            )))
+        }
 
         _ => None,
     }

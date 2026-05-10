@@ -16,7 +16,7 @@ use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::types::TenantId;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 /// Handle `ALTER TENANT <name> IN DATABASE <db> SET QUOTA (...)`.
 pub fn handle_alter_tenant_quota(
@@ -26,7 +26,7 @@ pub fn handle_alter_tenant_quota(
     database: &str,
     operation: &AlterTenantOperation,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "alter tenant quota")?;
+    require_tenant_admin(identity, "alter tenant quota")?;
 
     let catalog = match state.credentials.catalog() {
         Some(c) => c,

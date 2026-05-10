@@ -26,17 +26,17 @@ use crate::control::metadata_proposer::propose_catalog_entry;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_cluster_admin, require_database_owner, sqlstate_error};
 
 /// Handle `ALTER DATABASE <name> <operation>`.
+///
+/// Required role varies by operation (see per-arm gates below).
 pub fn handle_alter_database(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     name: &str,
     operation: &AlterDatabaseOperation,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "alter databases")?;
-
     let catalog = match state.credentials.catalog() {
         Some(c) => c,
         None => {
@@ -56,6 +56,13 @@ pub fn handle_alter_database(
 
     match operation {
         AlterDatabaseOperation::Rename { new_name } => {
+            // Required role: DatabaseOwner(db) or Superuser.
+            require_database_owner(
+                state,
+                identity,
+                db_id,
+                &format!("ALTER DATABASE {name} RENAME"),
+            )?;
             // Reject rename if a different database already holds the target name.
             match catalog.get_database_id_by_name(new_name) {
                 Ok(Some(existing_id)) if existing_id != db_id => {
@@ -94,6 +101,13 @@ pub fn handle_alter_database(
         }
 
         AlterDatabaseOperation::SetQuota(spec) => {
+            // Required role: ClusterAdmin or Superuser.
+            require_cluster_admin(
+                state,
+                identity,
+                Some(db_id),
+                &format!("ALTER DATABASE {name} SET QUOTA"),
+            )?;
             // Load existing record (or DEFAULT) — kept verbatim for the audit
             // before/after diff so operators can reconstruct what changed.
             let before = catalog
@@ -137,6 +151,13 @@ pub fn handle_alter_database(
         }
 
         AlterDatabaseOperation::SetDefault => {
+            // Required role: ClusterAdmin or Superuser.
+            require_cluster_admin(
+                state,
+                identity,
+                Some(db_id),
+                &format!("ALTER DATABASE {name} SET DEFAULT"),
+            )?;
             // The per-user default database field lives on AuthenticatedIdentity;
             // the canonical wiring is `ALTER USER <name> SET DEFAULT DATABASE <db>`,
             // which is owned by the user-management DDL path, not this one.
@@ -148,6 +169,13 @@ pub fn handle_alter_database(
         }
 
         AlterDatabaseOperation::SetAuditDml(mode) => {
+            // Required role: ClusterAdmin or Superuser.
+            require_cluster_admin(
+                state,
+                identity,
+                Some(db_id),
+                &format!("ALTER DATABASE {name} SET AUDIT_DML"),
+            )?;
             // Update the descriptor's `audit_dml` field and persist it.
             descriptor.audit_dml = *mode;
             let proposed = propose_catalog_entry(

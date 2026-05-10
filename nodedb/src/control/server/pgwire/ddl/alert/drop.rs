@@ -10,7 +10,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 use super::ALERT_RULES_CRDT_COLLECTION;
 
 pub fn drop_alert(
@@ -18,7 +18,7 @@ pub fn drop_alert(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop alerts")?;
+    require_tenant_admin(identity, "drop alerts")?;
 
     if parts.len() < 3 {
         return Err(sqlstate_error("42601", "syntax: DROP ALERT <name>"));

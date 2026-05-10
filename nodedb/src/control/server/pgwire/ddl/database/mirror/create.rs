@@ -24,9 +24,11 @@ use crate::control::security::catalog::database_types::{DatabaseDescriptor, Data
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::super::types::sqlstate_error;
+use super::super::super::super::types::{require_superuser, sqlstate_error};
 
 /// Handle `MIRROR DATABASE <local_name> FROM <source_cluster>.<source_database> [MODE = ...]`.
+///
+/// Required role: `Superuser`.
 pub fn handle_mirror_database(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
@@ -35,13 +37,8 @@ pub fn handle_mirror_database(
     source_database: &str,
     mode: MirrorMode,
 ) -> PgWireResult<Vec<Response>> {
-    // Mirrors require Superuser (per 50.D privilege matrix).
-    if !identity.is_superuser {
-        return Err(sqlstate_error(
-            nodedb_types::error::sqlstate::INSUFFICIENT_PRIVILEGE,
-            "permission denied: MIRROR DATABASE requires superuser",
-        ));
-    }
+    // db_id=None — local mirror does not exist yet at gate time.
+    require_superuser(state, identity, None, "MIRROR DATABASE")?;
 
     let catalog = state.credentials.catalog();
     let catalog = catalog

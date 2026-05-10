@@ -15,7 +15,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 /// Handle `ALTER RETENTION POLICY <name> ENABLE | DISABLE | SET <key> = <value>`.
 ///
@@ -29,7 +29,7 @@ pub fn alter_retention_policy(
     set_key: Option<&str>,
     set_value: Option<&str>,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "alter retention policies")?;
+    require_tenant_admin(identity, "alter retention policies")?;
 
     let tenant_id = identity.tenant_id.as_u64();
 

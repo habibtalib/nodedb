@@ -16,7 +16,7 @@ use crate::control::security::catalog::database_types::{DatabaseDescriptor, Data
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_cluster_admin, sqlstate_error};
 
 /// Options accepted in `CREATE DATABASE ... WITH (...)`. Resolving them here
 /// up front makes the unknown-key error path explicit and keeps the descriptor
@@ -51,6 +51,8 @@ fn parse_create_options(options: &[(String, String)]) -> PgWireResult<CreateData
 }
 
 /// Handle `CREATE [IF NOT EXISTS] DATABASE <name> [WITH (...)]`.
+///
+/// Required role: `ClusterAdmin` or `Superuser`.
 pub fn handle_create_database(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
@@ -58,7 +60,7 @@ pub fn handle_create_database(
     if_not_exists: bool,
     options: &[(String, String)],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create databases")?;
+    require_cluster_admin(state, identity, None, &format!("CREATE DATABASE {name}"))?;
 
     let opts = parse_create_options(options)?;
 

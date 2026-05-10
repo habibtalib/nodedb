@@ -12,7 +12,7 @@ use crate::control::state::SharedState;
 use crate::event::cdc::stream_def::RetentionConfig;
 use crate::event::topic::TopicDef;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 pub fn create_topic(
     state: &SharedState,
@@ -20,7 +20,7 @@ pub fn create_topic(
     parts: &[&str],
     sql: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create topics")?;
+    require_tenant_admin(identity, "create topics")?;
 
     // parts: ["CREATE", "TOPIC", "<name>", ...]
     if parts.len() < 3 {

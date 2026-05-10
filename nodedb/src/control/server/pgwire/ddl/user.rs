@@ -11,7 +11,7 @@ use crate::control::security::identity::{AuthenticatedIdentity, Role};
 use crate::control::state::SharedState;
 use crate::types::TenantId;
 
-use super::super::types::{parse_role, require_admin, sqlstate_error};
+use super::super::types::{parse_role, require_tenant_admin, sqlstate_error};
 
 /// CREATE USER <name> WITH PASSWORD '<password>' [ROLE <role>] [TENANT <id>]
 pub fn create_user(
@@ -22,7 +22,7 @@ pub fn create_user(
     role_name: Option<&str>,
     tenant_id_override: Option<u64>,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "create users")?;
+    require_tenant_admin(identity, "create users")?;
 
     if username.is_empty() {
         return Err(sqlstate_error(
@@ -160,7 +160,7 @@ pub fn alter_user(
             if is_self && !identity.is_superuser {
                 return Err(sqlstate_error("42501", "cannot change your own role"));
             }
-            require_admin(identity, "change roles")?;
+            require_tenant_admin(identity, "change roles")?;
             if role.is_empty() {
                 return Err(sqlstate_error("42601", "expected role name after SET ROLE"));
             }
@@ -185,7 +185,7 @@ pub fn alter_user(
         }
 
         AlterUserOp::MustChangePassword => {
-            require_admin(identity, "set must_change_password")?;
+            require_tenant_admin(identity, "set must_change_password")?;
             let stored = state
                 .credentials
                 .prepare_set_must_change_password(username, true)
@@ -202,7 +202,7 @@ pub fn alter_user(
         }
 
         AlterUserOp::PasswordNeverExpires => {
-            require_admin(identity, "set password expiry")?;
+            require_tenant_admin(identity, "set password expiry")?;
             let stored = state
                 .credentials
                 .prepare_set_password_expires_at(username, 0)
@@ -219,7 +219,7 @@ pub fn alter_user(
         }
 
         AlterUserOp::PasswordExpiresAt { iso8601 } => {
-            require_admin(identity, "set password expiry")?;
+            require_tenant_admin(identity, "set password expiry")?;
             let expires_at = parse_iso8601_to_unix(iso8601).map_err(|e| {
                 sqlstate_error(
                     "22007",
@@ -242,7 +242,7 @@ pub fn alter_user(
         }
 
         AlterUserOp::PasswordExpiresInDays { days } => {
-            require_admin(identity, "set password expiry")?;
+            require_tenant_admin(identity, "set password expiry")?;
             if *days == 0 {
                 return Err(sqlstate_error(
                     "22003",
@@ -427,7 +427,7 @@ pub fn drop_user(
     identity: &AuthenticatedIdentity,
     parts: &[&str],
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop users")?;
+    require_tenant_admin(identity, "drop users")?;
 
     if parts.len() < 3 {
         return Err(sqlstate_error("42601", "syntax: DROP USER <name>"));

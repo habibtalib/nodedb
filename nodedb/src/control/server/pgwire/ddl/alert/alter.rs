@@ -14,7 +14,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
 pub fn alter_alert(
     state: &SharedState,
@@ -22,7 +22,7 @@ pub fn alter_alert(
     name: &str,
     action: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "alter alerts")?;
+    require_tenant_admin(identity, "alter alerts")?;
 
     let tenant_id = identity.tenant_id.as_u64();
 

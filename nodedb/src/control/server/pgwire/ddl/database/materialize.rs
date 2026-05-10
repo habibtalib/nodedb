@@ -16,9 +16,11 @@ use crate::control::maintenance::clone_materializer::{
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_database_owner_or_higher, sqlstate_error};
 
 /// Handle `ALTER DATABASE <name> MATERIALIZE`.
+///
+/// Required role: `DatabaseOwner(db)`, `ClusterAdmin`, or `Superuser`.
 ///
 /// Forces synchronous full materialization of all clone collections in the
 /// named database.  Returns once all collections are in `Materialized` state.
@@ -27,8 +29,6 @@ pub fn handle_alter_database_materialize(
     identity: &AuthenticatedIdentity,
     name: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "materialize databases")?;
-
     let catalog = state
         .credentials
         .catalog()
@@ -39,6 +39,13 @@ pub fn handle_alter_database_materialize(
         .get_database_id_by_name(name)
         .map_err(|e| sqlstate_error("XX000", &format!("catalog lookup failed: {e}")))?
         .ok_or_else(|| sqlstate_error("3D000", &format!("database '{name}' does not exist")))?;
+
+    require_database_owner_or_higher(
+        state,
+        identity,
+        db_id,
+        &format!("ALTER DATABASE {name} MATERIALIZE"),
+    )?;
 
     // Build a completion handle so callers can observe progress if needed.
     let handle = CloneMaterializerHandle::new(db_id);

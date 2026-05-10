@@ -16,7 +16,7 @@ use pgwire::error::PgWireResult;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error, text_field};
+use super::super::super::types::{require_tenant_admin, sqlstate_error, text_field};
 
 /// Handle `SHOW DATABASE QUOTA FOR <name>`.
 pub fn handle_show_database_quota(
@@ -24,7 +24,7 @@ pub fn handle_show_database_quota(
     identity: &AuthenticatedIdentity,
     name: &str,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "show database quota")?;
+    require_tenant_admin(identity, "show database quota")?;
 
     let catalog = match state.credentials.catalog() {
         Some(c) => c,

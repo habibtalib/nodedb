@@ -29,9 +29,11 @@ use crate::control::security::catalog::{StoredCollection, SystemCatalog};
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_superuser, sqlstate_error};
 
 /// Handle `DROP [IF EXISTS] DATABASE <name> [CASCADE | FORCE]`.
+///
+/// Required role: `Superuser`.
 ///
 /// `CASCADE` and `FORCE` are conflated into a single `cascade = true` flag at
 /// the parser level: both drop child collections AND attempt to materialize
@@ -49,8 +51,6 @@ pub fn handle_drop_database(
     if_exists: bool,
     cascade: bool,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "drop databases")?;
-
     // `default` is immutable — cannot be dropped.
     if name.eq_ignore_ascii_case("default") {
         return Err(sqlstate_error(
@@ -70,6 +70,7 @@ pub fn handle_drop_database(
     {
         Some(id) => id,
         None => {
+            // If the database does not exist and if_exists=true, no actor to record.
             if if_exists {
                 return Ok(vec![Response::Execution(Tag::new("DROP DATABASE"))]);
             }
@@ -79,6 +80,15 @@ pub fn handle_drop_database(
             ));
         }
     };
+
+    // Gate: Superuser required. Resolving db_id first so we can include it in the
+    // audit record on denial.
+    require_superuser(
+        state,
+        identity,
+        Some(db_id),
+        &format!("DROP DATABASE {name}"),
+    )?;
 
     // Guard: `default` identity check by id (rename resilience).
     if db_id == DatabaseId::DEFAULT {

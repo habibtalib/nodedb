@@ -26,7 +26,7 @@ use crate::control::security::catalog::database_types::{
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::types::{require_admin, sqlstate_error};
+use super::super::super::types::{require_superuser, sqlstate_error};
 
 /// Parameters for `handle_clone_database`, extracted from the parsed AST.
 pub struct CloneDatabaseParams<'a> {
@@ -36,13 +36,13 @@ pub struct CloneDatabaseParams<'a> {
 }
 
 /// Handle `CLONE DATABASE <new_name> FROM <source_name> [AS OF …]`.
+///
+/// Required role: `Superuser`.
 pub fn handle_clone_database(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     params: CloneDatabaseParams<'_>,
 ) -> PgWireResult<Vec<Response>> {
-    require_admin(identity, "clone databases")?;
-
     let catalog = state.credentials.catalog();
     let catalog = catalog
         .as_ref()
@@ -58,6 +58,9 @@ pub fn handle_clone_database(
                 &format!("source database '{}' not found", params.source_name),
             )
         })?;
+
+    // Gate after source_db_id resolution so the audit record carries the source db.
+    require_superuser(state, identity, Some(source_db_id), "CLONE DATABASE")?;
 
     let source_descriptor = catalog
         .get_database(source_db_id)

@@ -36,22 +36,16 @@ use crate::control::security::catalog::database_types::DatabaseStatus;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
-use super::super::super::super::types::sqlstate_error;
+use super::super::super::super::types::{require_superuser, sqlstate_error};
 
 /// Handle `ALTER DATABASE <name> PROMOTE`.
+///
+/// Required role: `Superuser`.
 pub fn handle_promote_database(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     name: &str,
 ) -> PgWireResult<Vec<Response>> {
-    // Superuser required (same privilege gate as MIRROR DATABASE).
-    if !identity.is_superuser {
-        return Err(sqlstate_error(
-            nodedb_types::error::sqlstate::INSUFFICIENT_PRIVILEGE,
-            "permission denied: ALTER DATABASE PROMOTE requires superuser",
-        ));
-    }
-
     let catalog = state.credentials.catalog();
     let catalog = catalog
         .as_ref()
@@ -61,6 +55,14 @@ pub fn handle_promote_database(
         .get_database_id_by_name(name)
         .map_err(|e| sqlstate_error("XX000", &format!("catalog lookup failed: {e}")))?
         .ok_or_else(|| sqlstate_error("3D000", &format!("database '{name}' does not exist")))?;
+
+    // Gate after db_id resolution so the audit record carries the database id.
+    require_superuser(
+        state,
+        identity,
+        Some(db_id),
+        &format!("ALTER DATABASE {name} PROMOTE"),
+    )?;
 
     let mut descriptor = catalog
         .get_database(db_id)
