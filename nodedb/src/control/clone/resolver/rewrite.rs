@@ -20,17 +20,41 @@ use crate::control::state::SharedState;
 /// `state` is used to resolve the source surrogate for `DocumentOp::PointGet`
 /// rewrites — the target surrogate is not valid in the source database, so we
 /// perform a read-only catalog lookup against the source-qualified collection.
-pub fn rewrite_plan_for_source(
-    plan: &PhysicalPlan,
-    target_db_id: DatabaseId,
-    source_db_id: DatabaseId,
-    target_coll: &str,
-    source_coll: &str,
-    effective_source_ms: Option<i64>,
-    state: &Arc<SharedState>,
-) -> Option<PhysicalPlan> {
+/// Per-call inputs for [`rewrite_plan_for_source`].
+///
+/// Bundled into a struct so the function stays under the clippy
+/// `too_many_arguments` cap as snapshot-isolation knobs are added.
+pub struct RewriteForSourceParams<'a> {
+    pub plan: &'a PhysicalPlan,
+    pub target_db_id: DatabaseId,
+    pub source_db_id: DatabaseId,
+    pub target_coll: &'a str,
+    pub source_coll: &'a str,
+    /// Effective source system-time-ms for `AS OF` rewrites (Document /
+    /// Columnar / Timeseries scans).  `None` leaves any pre-existing
+    /// `system_as_of_ms` on the plan untouched.
+    pub effective_source_ms: Option<i64>,
+    /// Source surrogate high-water captured at clone-create time.
+    /// Threaded into rewritten KV plans so the source-side scan/get
+    /// filters out bindings allocated AFTER the clone's AS-OF
+    /// (snapshot isolation for the lazy KV read path).
+    pub kv_surrogate_ceiling: Option<u32>,
+    pub state: &'a Arc<SharedState>,
+}
+
+pub fn rewrite_plan_for_source(params: RewriteForSourceParams<'_>) -> Option<PhysicalPlan> {
     use crate::control::planner::sql_plan_convert::convert::db_qualified;
 
+    let RewriteForSourceParams {
+        plan,
+        target_db_id,
+        source_db_id,
+        target_coll,
+        source_coll,
+        effective_source_ms,
+        kv_surrogate_ceiling,
+        state,
+    } = params;
     let target_qualified = db_qualified(target_db_id, target_coll);
     let source_qualified = db_qualified(source_db_id, source_coll);
 
@@ -126,6 +150,10 @@ pub fn rewrite_plan_for_source(
             filters,
             match_pattern,
             sort_keys,
+            // The original target-side scan never carries a ceiling
+            // (clones-of-clones still funnel through here per-level);
+            // the resolver overrides it for source delegation below.
+            surrogate_ceiling: _,
         }) if collection == &target_qualified => Some(PhysicalPlan::Kv(KvOp::Scan {
             collection: source_qualified,
             cursor: cursor.clone(),
@@ -133,16 +161,19 @@ pub fn rewrite_plan_for_source(
             filters: filters.clone(),
             match_pattern: match_pattern.clone(),
             sort_keys: sort_keys.clone(),
+            surrogate_ceiling: kv_surrogate_ceiling,
         })),
 
         PhysicalPlan::Kv(KvOp::Get {
             collection,
             key,
             rls_filters,
+            surrogate_ceiling: _,
         }) if collection == &target_qualified => Some(PhysicalPlan::Kv(KvOp::Get {
             collection: source_qualified,
             key: key.clone(),
             rls_filters: rls_filters.clone(),
+            surrogate_ceiling: kv_surrogate_ceiling,
         })),
 
         PhysicalPlan::Columnar(ColumnarOp::Scan {

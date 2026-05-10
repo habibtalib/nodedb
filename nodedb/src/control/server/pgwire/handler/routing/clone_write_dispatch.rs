@@ -434,6 +434,9 @@ async fn probe_kv_key_in_target(
         collection: collection_qualified.to_string(),
         key: kv_key.to_vec(),
         rls_filters: Vec::new(),
+        // Internal probe of the clone's own target collection — never
+        // delegated to source, so no isolation ceiling applies.
+        surrogate_ceiling: None,
     });
     let vshard_id = VShardId::from_collection_in_database(db_id, collection_qualified);
     let resp = dispatch_data_plane_raw(state, tenant_id, vshard_id, db_id, plan).await?;
@@ -454,6 +457,10 @@ async fn fetch_kv_source_value(
         collection: source_coll_qualified.to_string(),
         key: kv_key.to_vec(),
         rls_filters: Vec::new(),
+        // Copy-up reads must see every binding in the source — the
+        // post-copy target write reflects the latest source state, and
+        // a missed source row would silently drop data on the clone.
+        surrogate_ceiling: None,
     });
     let vshard_id = VShardId::from_collection_in_database(source_db_id, source_coll_qualified);
     let resp = dispatch_data_plane_raw(state, tenant_id, vshard_id, source_db_id, plan).await?;

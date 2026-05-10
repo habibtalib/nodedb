@@ -72,6 +72,18 @@ impl SurrogateAssigner {
         let _ = self.shared.set(shared);
     }
 
+    /// Highest surrogate ever issued by this assigner.  Used by `CLONE
+    /// DATABASE` to capture the source's surrogate high-water at the
+    /// AS-OF point — every binding allocated *after* this value belongs
+    /// strictly to source-side writes that must NOT be visible from the
+    /// resulting clone.  Returns `0` on a fresh assigner.
+    pub fn current_hwm(&self) -> u32 {
+        self.registry
+            .read()
+            .map(|reg| reg.current_hwm())
+            .unwrap_or_else(|p| p.into_inner().current_hwm())
+    }
+
     /// Resolve `(collection, pk_bytes)` to a stable surrogate.
     ///
     /// - If the credential store has no catalog (in-memory test fixture),

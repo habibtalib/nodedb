@@ -86,6 +86,16 @@ pub struct ParentCloneRef {
     pub as_of_lsn: u64,
     /// System-time milliseconds at the `AS OF` point.
     pub as_of_ms: u64,
+    /// Surrogate high-water captured from the source's `SurrogateAssigner`
+    /// at clone-create time.  Used by the lazy KV read path to filter out
+    /// source rows whose binding was allocated AFTER the clone — those
+    /// rows belong strictly to post-clone writes and must not leak through
+    /// source delegation.  `None` on legacy clones created before this
+    /// field existed (treated as "no ceiling" — i.e. no isolation enforced
+    /// for those clones, matching the prior behaviour).
+    #[serde(default)]
+    #[msgpack(default)]
+    pub kv_surrogate_ceiling: Option<u32>,
 }
 
 impl DatabaseDescriptor {

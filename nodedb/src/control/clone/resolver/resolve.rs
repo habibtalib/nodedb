@@ -153,15 +153,18 @@ pub fn resolve_read(
         let mut this_level_tasks: Vec<PhysicalTask> = Vec::new();
 
         for task in &prev_level_tasks {
-            if let Some(source_plan) = rewrite_plan_for_source(
-                &task.plan,
-                cur_db_id,
-                src_db_id,
-                cur_coll_str,
-                src_coll_name,
-                cur_effective_ms,
-                state,
-            ) {
+            if let Some(source_plan) =
+                rewrite_plan_for_source(super::rewrite::RewriteForSourceParams {
+                    plan: &task.plan,
+                    target_db_id: cur_db_id,
+                    source_db_id: src_db_id,
+                    target_coll: cur_coll_str,
+                    source_coll: src_coll_name,
+                    effective_source_ms: cur_effective_ms,
+                    kv_surrogate_ceiling: cur_origin.kv_surrogate_ceiling,
+                    state,
+                })
+            {
                 let source_vshard = VShardId::from_collection_in_database(
                     src_db_id,
                     &crate::control::planner::sql_plan_convert::convert::db_qualified(

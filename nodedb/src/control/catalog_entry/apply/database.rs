@@ -78,10 +78,12 @@ pub fn clone_apply(
 
     // Determine the as_of and clone_created_at LSN values from the target
     // descriptor's parent_clone reference.
-    let (as_of_lsn, clone_created_at) = match &target_descriptor.parent_clone {
+    let (as_of_lsn, clone_created_at, kv_surrogate_ceiling) = match &target_descriptor.parent_clone
+    {
         Some(pc) => (
             nodedb_types::Lsn::new(pc.as_of_lsn),
             nodedb_types::Lsn::new(target_descriptor.created_at_lsn),
+            pc.kv_surrogate_ceiling,
         ),
         None => {
             // No parent clone ref — nothing to stamp. Descriptor was written
@@ -120,6 +122,7 @@ pub fn clone_apply(
             source_collection: coll.name.clone(),
             as_of_lsn,
             clone_created_at,
+            kv_surrogate_ceiling,
         });
         coll.clone_status = nodedb_types::CloneStatus::Shadowed;
         // Reset versioning so the new clone descriptor starts fresh.

@@ -158,6 +158,12 @@ pub fn handle_clone_database(
             source_db_id,
             as_of_lsn: as_of_lsn.as_u64(),
             as_of_ms: as_of_ms as u64,
+            // Capture the surrogate high-water at clone-create time.
+            // Source bindings allocated AFTER this point belong to writes
+            // that happened after the clone's AS-OF and must not be
+            // visible from the clone — the lazy KV read path uses this
+            // ceiling to filter source-delegated rows.
+            kv_surrogate_ceiling: Some(state.surrogate_assigner.current_hwm()),
         }),
         mirror_origin: None,
     };
@@ -213,6 +219,7 @@ pub fn handle_clone_database(
                 &format!("clone: enumerate source collections: {e}"),
             )
         })?;
+        let kv_surrogate_ceiling = Some(state.surrogate_assigner.current_hwm());
         for mut coll in source_colls.into_iter().filter(|c| c.is_active) {
             coll.database_id = target_db_id;
             coll.cloned_from = Some(nodedb_types::CloneOrigin {
@@ -220,6 +227,7 @@ pub fn handle_clone_database(
                 source_collection: coll.name.clone(),
                 as_of_lsn,
                 clone_created_at,
+                kv_surrogate_ceiling,
             });
             coll.clone_status = nodedb_types::CloneStatus::Shadowed;
             coll.descriptor_version = 0;

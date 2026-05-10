@@ -268,6 +268,10 @@ async fn probe_target_key(
         collection: target_qualified.to_string(),
         key: key.to_vec(),
         rls_filters: Vec::new(),
+        // Materializer is the writer that COPIES rows from source into
+        // target — it must see every source binding regardless of clone
+        // ceiling, so reads against the target stay unbounded here.
+        surrogate_ceiling: None,
     });
     let resp = dispatch_local(state, tenant_id, db_id, target_qualified, plan).await?;
     Ok(resp.status == Status::Ok && !resp.payload.is_empty())
