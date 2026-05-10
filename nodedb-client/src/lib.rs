@@ -14,6 +14,11 @@
 pub mod capabilities;
 pub mod traits;
 
+/// Shared row decoders used by both the trait default impls and the
+/// feature-gated clients. Feature-agnostic on purpose — one parser per
+/// row shape regardless of which transport delivered the row.
+mod row_decode;
+
 #[cfg(feature = "remote")]
 pub mod remote;
 #[cfg(feature = "remote")]

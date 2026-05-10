@@ -3,10 +3,12 @@
 //! Value conversion and SQL formatting helpers for the remote client.
 //!
 //! Extracts pgwire row/column conversion, JSON-to-Value mapping, and
-//! SQL identifier quoting into a focused module.
+//! SQL identifier quoting into a focused module. Shared row decoders
+//! (column-level `value_as_*`, `_system.dropped_collections` parsing)
+//! live in [`crate::row_decode`] instead so the trait default impls can
+//! reuse them without dragging in pgwire types.
 
 use nodedb_types::Value;
-use nodedb_types::error::{NodeDbError, NodeDbResult};
 
 /// Convert a `tokio_postgres` column value to `nodedb_types::Value`.
 pub(crate) fn pg_value_to_value(
@@ -91,31 +93,43 @@ pub(crate) fn quote_identifier(name: &str) -> String {
     format!("\"{escaped}\"")
 }
 
-/// Decode a pgwire-decoded integer column as `u64`.
-pub(crate) fn value_as_u64(v: &Value) -> NodeDbResult<u64> {
-    match v {
-        Value::Integer(i) => Ok(*i as u64),
-        other => Err(NodeDbError::storage(format!(
-            "expected integer for u64 column, got {other:?}"
-        ))),
-    }
-}
-
-/// Decode a pgwire-decoded string column. `Null` projects to the
-/// empty string so downstream callers don't have to special-case
-/// nullable text columns for owner lookups.
-pub(crate) fn value_as_string(v: &Value) -> NodeDbResult<String> {
-    match v {
-        Value::String(s) => Ok(s.clone()),
-        Value::Null => Ok(String::new()),
-        other => Err(NodeDbError::storage(format!(
-            "expected string column, got {other:?}"
-        ))),
-    }
-}
-
 /// Format an f32 slice as a SQL ARRAY literal: `ARRAY[0.1,0.2,0.3]`.
 pub(crate) fn format_vector_array(v: &[f32]) -> String {
     let inner: Vec<String> = v.iter().map(|f| format!("{f}")).collect();
     format!("ARRAY[{}]", inner.join(","))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_vector_array_works() {
+        let arr = format_vector_array(&[0.1, 0.2, 0.3]);
+        assert_eq!(arr, "ARRAY[0.1,0.2,0.3]");
+    }
+
+    #[test]
+    fn format_vector_array_empty() {
+        let arr = format_vector_array(&[]);
+        assert_eq!(arr, "ARRAY[]");
+    }
+
+    #[test]
+    fn json_to_value_primitives() {
+        assert_eq!(json_to_value(&serde_json::json!(null)), Value::Null);
+        assert_eq!(json_to_value(&serde_json::json!(true)), Value::Bool(true));
+        assert_eq!(json_to_value(&serde_json::json!(42)), Value::Integer(42));
+        assert_eq!(json_to_value(&serde_json::json!(2.5)), Value::Float(2.5));
+        assert_eq!(
+            json_to_value(&serde_json::json!("hello")),
+            Value::String("hello".into())
+        );
+    }
+
+    #[test]
+    fn json_to_value_nested() {
+        let v = json_to_value(&serde_json::json!({"a": [1, 2]}));
+        assert!(matches!(v, Value::Object(_)));
+    }
 }
