@@ -199,6 +199,10 @@ pub fn apply_post_apply_side_effects_sync(entry: &CatalogEntry, shared: &Arc<Sha
         } => {
             database::delete_grant(*db_id, *user_id, privilege.clone(), Arc::clone(shared));
         }
+        CatalogEntry::PutOidcProvider(_) | CatalogEntry::DeleteOidcProvider { .. } => {
+            // No in-memory cache to update yet; the OIDC verify path reads from
+            // catalog on each request. A runtime cache can be added when needed.
+        }
         CatalogEntry::CloneDatabase {
             target_descriptor, ..
         } => {

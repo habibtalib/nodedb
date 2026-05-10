@@ -222,6 +222,12 @@ pub(super) const AUTH_USERS: TableDefinition<&str, &[u8]> =
 /// Table: org_id -> MessagePack-serialized org record.
 pub(super) const ORGS: TableDefinition<&str, &[u8]> = TableDefinition::new("_system.orgs");
 
+// ── OIDC providers ───────────────────────────────────────────────────
+
+/// Table: provider_name (string) -> MessagePack-serialized `StoredOidcProvider`.
+pub(super) const OIDC_PROVIDERS: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("_system.oidc_providers");
+
 /// Table: "{org_id}:{user_id}" -> MessagePack-serialized org membership.
 pub(super) const ORG_MEMBERS: TableDefinition<&str, &[u8]> =
     TableDefinition::new("_system.org_members");

@@ -15,6 +15,7 @@ mod helpers;
 mod index;
 mod maintenance;
 mod materialized_view;
+mod oidc_provider;
 mod retention;
 mod rls;
 mod schedule;

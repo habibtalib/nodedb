@@ -27,4 +27,7 @@ pub use graph_types::{GraphDirection, GraphProperties};
 pub use nodedb_types::QuotaSpec;
 pub use nodedb_types::{MirrorMode, MirrorStatus};
 pub use parse::parse;
-pub use statement::{AlterDatabaseOperation, AlterTenantOperation, CloneAsOf, NodedbStatement};
+pub use statement::{
+    AlterDatabaseOperation, AlterTenantOperation, CloneAsOf, NodedbStatement,
+    OidcClaimMappingClause,
+};

@@ -9,8 +9,8 @@
 //! matches).
 
 use crate::control::security::catalog::{
-    StoredCollection, StoredCustomType, StoredMaterializedView, StoredRlsPolicy,
-    StoredSynonymGroup,
+    StoredCollection, StoredCustomType, StoredMaterializedView, StoredOidcProvider,
+    StoredRlsPolicy, StoredSynonymGroup,
     auth_types::{
         StoredApiKey, StoredOwner, StoredPermission, StoredRole, StoredTenant, StoredUser,
     },
@@ -268,6 +268,13 @@ pub enum CatalogEntry {
         collections: Vec<StoredCollection>,
     },
 
+    // ── OIDC provider lifecycle ────────────────────────────────────
+    /// Upsert an OIDC provider. Used by `CREATE / ALTER OIDC PROVIDER`.
+    /// Post-apply refreshes the in-memory `oidc_provider_cache`.
+    PutOidcProvider(Box<StoredOidcProvider>),
+    /// Delete an OIDC provider record by name.
+    DeleteOidcProvider { name: String },
+
     // ── Clone lifecycle ────────────────────────────────────────────
     /// Atomically record a new CoW clone database.
     ///
@@ -335,6 +342,8 @@ impl CatalogEntry {
             Self::DeleteSynonymGroup { .. } => "delete_synonym_group",
             Self::PutCustomType(_) => "put_custom_type",
             Self::DeleteCustomType { .. } => "delete_custom_type",
+            Self::PutOidcProvider(_) => "put_oidc_provider",
+            Self::DeleteOidcProvider { .. } => "delete_oidc_provider",
             Self::MoveTenantCutover { .. } => "move_tenant_cutover",
             Self::CloneDatabase { .. } => "clone_database",
         }

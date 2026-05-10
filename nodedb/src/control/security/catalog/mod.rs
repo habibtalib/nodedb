@@ -30,6 +30,7 @@ pub mod materialized_views;
 pub mod metadata;
 pub mod mirror;
 pub mod move_tenant_journal;
+pub mod oidc_providers;
 pub mod orgs;
 pub mod procedure_types;
 pub mod procedures;
@@ -72,6 +73,7 @@ pub use function_types::{
 };
 pub use l2_cleanup_queue::StoredL2CleanupEntry;
 pub use lockout::StoredLockoutRecord;
+pub use oidc_providers::{StoredClaimMappingRule, StoredOidcProvider};
 pub use orgs::{StoredOrg, StoredOrgMember};
 pub use procedure_types::StoredProcedure;
 pub use rls::StoredRlsPolicy;

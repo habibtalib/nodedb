@@ -72,6 +72,12 @@ pub struct DatabaseDescriptor {
     #[msgpack(default)]
     #[serde(default)]
     pub audit_dml: AuditDmlMode,
+    /// Idle session timeout in seconds for sessions in this database.
+    /// `0` means no per-database timeout (falls back to global `idle_timeout_secs`).
+    /// Set via `ALTER DATABASE <name> SET IDLE_TIMEOUT = <secs>`.
+    #[msgpack(default)]
+    #[serde(default)]
+    pub idle_session_timeout_secs: u64,
 }
 
 /// Reference to a clone's origin. Populated by the clone subsystem; stored
@@ -115,6 +121,7 @@ impl DatabaseDescriptor {
             parent_clone: None,
             mirror_origin: None,
             audit_dml: AuditDmlMode::None,
+            idle_session_timeout_secs: 0,
         }
     }
 }

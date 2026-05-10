@@ -16,6 +16,7 @@ pub mod custom_type;
 pub mod database;
 pub mod function;
 pub mod materialized_view;
+pub mod oidc_provider;
 pub mod owner;
 pub mod permission;
 pub mod procedure;
@@ -158,6 +159,8 @@ fn apply_to_inner(entry: &CatalogEntry, catalog: &SystemCatalog) {
             target_descriptor,
             source_db_id,
         } => database::clone_apply(target_descriptor, *source_db_id, catalog),
+        CatalogEntry::PutOidcProvider(provider) => oidc_provider::put(provider, catalog),
+        CatalogEntry::DeleteOidcProvider { name } => oidc_provider::delete(name, catalog),
         CatalogEntry::MoveTenantCutover {
             tenant_id,
             source_db_id,

@@ -50,6 +50,10 @@ pub enum AlterDatabaseOperation {
     Promote,
     /// `ALTER DATABASE <name> SET AUDIT_DML = <mode>` — sets the DML audit level.
     SetAuditDml(AuditDmlMode),
+    /// `ALTER DATABASE <name> SET IDLE_TIMEOUT = <secs>` — sets the idle session
+    /// timeout in seconds for sessions in this database. `0` disables the per-database
+    /// timeout (falls back to the global `idle_timeout_secs` setting).
+    SetIdleTimeout(u64),
 }
 
 /// Operations available on `ALTER TENANT <name> IN DATABASE <db> <operation>`.
@@ -581,6 +585,34 @@ pub enum NodedbStatement {
         username: Option<String>,
     },
 
+    // ── OIDC providers ───────────────────────────────────────────
+    /// `CREATE OIDC PROVIDER <name> ISSUER '<iss>' JWKS_URI '<uri>'
+    ///  [AUDIENCE '<aud>'] [CLAIM MAPPING WHEN <claim_name> = '<value>'
+    ///  SET DEFAULT_DATABASE = <id>, ADD DATABASES [<ids>], ADD ROLES ['<role>', ...]]`
+    CreateOidcProvider {
+        name: String,
+        issuer: String,
+        jwks_uri: String,
+        audience: Option<String>,
+        /// `(claim_name, claim_value, default_database, add_databases, add_roles)` tuples.
+        claim_mappings: Vec<OidcClaimMappingClause>,
+    },
+    /// `ALTER OIDC PROVIDER <name> SET CLAIM MAPPING WHEN <claim_name> = '<value>'
+    ///  SET DEFAULT_DATABASE = <id>, ADD DATABASES [<ids>], ADD ROLES ['<role>', ...]`
+    ///
+    /// Replaces the entire claim-mapping list for the named provider.
+    AlterOidcProviderClaimMapping {
+        name: String,
+        claim_mappings: Vec<OidcClaimMappingClause>,
+    },
+    /// `DROP OIDC PROVIDER [IF EXISTS] <name>`
+    DropOidcProvider {
+        name: String,
+        if_exists: bool,
+    },
+    /// `SHOW OIDC PROVIDERS`
+    ShowOidcProviders,
+
     // ── CRDT conflict policy ─────────────────────────────────────
     /// `SHOW CONFLICT POLICY ON <collection>`
     ShowConflictPolicy {
@@ -721,6 +753,20 @@ pub enum NodedbStatement {
         delimiter: Option<char>,
         header: bool,
     },
+}
+
+/// One `WHEN <claim_name> = '<value>' SET ...` clause inside a
+/// `CREATE OIDC PROVIDER` or `ALTER OIDC PROVIDER` statement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OidcClaimMappingClause {
+    pub claim_name: String,
+    pub claim_value: String,
+    /// Optional default database ID to grant for matching tokens.
+    pub default_database: Option<u64>,
+    /// Additional database IDs accessible to matching tokens.
+    pub add_databases: Vec<u64>,
+    /// Role names to grant to matching tokens.
+    pub add_roles: Vec<String>,
 }
 
 /// Source for `COPY ... TO`.

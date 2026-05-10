@@ -191,6 +191,9 @@ impl SystemCatalog {
                 .open_table(MIRROR_LAG)
                 .map_err(|e| catalog_err("init mirror_lag table", e))?;
             let _ = write_txn
+                .open_table(OIDC_PROVIDERS)
+                .map_err(|e| catalog_err("init oidc_providers table", e))?;
+            let _ = write_txn
                 .open_table(
                     crate::control::server::pgwire::ddl::tenant::move_tenant::journal::MOVE_TENANT_JOURNAL,
                 )
