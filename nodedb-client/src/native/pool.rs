@@ -153,8 +153,10 @@ impl Pool {
         .await
         .map_err(|_| NodeDbError::sync_connection_failed("connect timeout"))??;
 
-        // Perform the native protocol handshake.
-        conn.perform_client_handshake().await?;
+        // `NativeConnection::connect` already performed the handshake.
+        // Calling it a second time here would write a stale HelloFrame
+        // into the post-handshake stream and confuse the framed read
+        // path (the bytes get mis-parsed as a regular response frame).
 
         // Authenticate — pass the optional database name for handshake binding.
         conn.authenticate(self.config.auth.clone(), self.config.database.as_deref())

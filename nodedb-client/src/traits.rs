@@ -180,7 +180,11 @@ pub trait NodeDb: NodeDbMarker {
     ///
     /// Enables multiple embeddings per collection (e.g., "title_embedding",
     /// "body_embedding") with independent HNSW indexes.
-    /// Default: delegates to `vector_insert()` ignoring field_name.
+    ///
+    /// Default returns `Err` — silently delegating to `vector_insert` and
+    /// dropping `field_name` would land the vector in the wrong field.
+    /// Implementations that route through to a server with field-aware
+    /// support must override.
     async fn vector_insert_field(
         &self,
         collection: &str,
@@ -189,14 +193,19 @@ pub trait NodeDb: NodeDbMarker {
         embedding: &[f32],
         metadata: Option<Document>,
     ) -> NodeDbResult<()> {
-        let _ = field_name;
-        self.vector_insert(collection, id, embedding, metadata)
-            .await
+        let _ = (collection, id, embedding, metadata);
+        Err(NodeDbError::storage(format!(
+            "vector_insert_field is not implemented on this client; \
+             field_name={field_name} would have been silently dropped"
+        )))
     }
 
     /// Search a named vector field.
     ///
-    /// Default: delegates to `vector_search()` ignoring field_name.
+    /// Default returns `Err` — silently delegating to `vector_search`
+    /// and dropping `field_name` would search the wrong field.
+    /// Implementations that route through to a server with field-aware
+    /// support must override.
     async fn vector_search_field(
         &self,
         collection: &str,
@@ -205,16 +214,28 @@ pub trait NodeDb: NodeDbMarker {
         k: usize,
         filter: Option<&MetadataFilter>,
     ) -> NodeDbResult<Vec<SearchResult>> {
-        let _ = field_name;
-        self.vector_search(collection, query, k, filter).await
+        let _ = (collection, query, k, filter);
+        Err(NodeDbError::storage(format!(
+            "vector_search_field is not implemented on this client; \
+             field_name={field_name} would have been silently dropped"
+        )))
     }
 
     // ─── Graph Shortest Path ────────────────────────────────────────
 
     /// Find the shortest path between two nodes.
     ///
-    /// Returns the path as a list of node IDs, or None if no path exists
-    /// within `max_depth` hops. Uses bidirectional BFS.
+    /// Returns the path as a list of node IDs (`from` first, `to` last),
+    /// or `None` if no path exists within `max_depth` hops.
+    ///
+    /// Default: forward breadth-first search built on `graph_traverse`.
+    /// Each frontier expansion calls `graph_traverse(node, 1,
+    /// edge_filter)` to discover outgoing neighbors. Inherits the
+    /// underlying impl's edge direction semantics. Implementations with
+    /// a server-side shortest-path operator (e.g. NodeDB's
+    /// `GRAPH PATH FROM <src> TO <dst>` DSL) should override for
+    /// performance — round-tripping per-hop is O(path_length) wire
+    /// hops.
     async fn graph_shortest_path(
         &self,
         from: &NodeId,
@@ -222,7 +243,57 @@ pub trait NodeDb: NodeDbMarker {
         max_depth: u8,
         edge_filter: Option<&EdgeFilter>,
     ) -> NodeDbResult<Option<Vec<NodeId>>> {
-        let _ = (from, to, max_depth, edge_filter);
+        if from == to {
+            return Ok(Some(vec![from.clone()]));
+        }
+        if max_depth == 0 {
+            return Ok(None);
+        }
+
+        // Map of `node -> parent` used to reconstruct the path once the
+        // target is reached. The source has no parent entry.
+        let mut parent: std::collections::HashMap<NodeId, NodeId> =
+            std::collections::HashMap::new();
+        let mut frontier: Vec<NodeId> = vec![from.clone()];
+
+        for _ in 0..max_depth {
+            let mut next_frontier: Vec<NodeId> = Vec::new();
+            for node in &frontier {
+                let sg = self.graph_traverse(node, 1, edge_filter).await?;
+                for edge in &sg.edges {
+                    // Only follow edges originating from the current
+                    // node — `graph_traverse` may include adjacent
+                    // edges that don't extend the BFS frontier.
+                    if &edge.from != node {
+                        continue;
+                    }
+                    let dst = &edge.to;
+                    if dst == from || parent.contains_key(dst) {
+                        continue;
+                    }
+                    parent.insert(dst.clone(), node.clone());
+                    if dst == to {
+                        let mut path = vec![to.clone()];
+                        let mut cur = to.clone();
+                        while &cur != from {
+                            let p = parent
+                                .get(&cur)
+                                .expect("BFS reached `to` so all ancestors are tracked")
+                                .clone();
+                            path.push(p.clone());
+                            cur = p;
+                        }
+                        path.reverse();
+                        return Ok(Some(path));
+                    }
+                    next_frontier.push(dst.clone());
+                }
+            }
+            if next_frontier.is_empty() {
+                return Ok(None);
+            }
+            frontier = next_frontier;
+        }
         Ok(None)
     }
 
@@ -232,6 +303,11 @@ pub trait NodeDb: NodeDbMarker {
     ///
     /// Returns document IDs with relevance scores, ordered by descending score.
     /// Pass [`TextSearchParams::default()`] for standard OR-mode non-fuzzy search.
+    ///
+    /// Default returns `Err` — `Ok(Vec::new())` is indistinguishable
+    /// from a real "no matches" answer and would silently mask the
+    /// missing implementation. Implementations must override (e.g., a
+    /// `SEARCH ... USING TEXT(...)` round-trip via `execute_sql`).
     async fn text_search(
         &self,
         collection: &str,
@@ -240,7 +316,9 @@ pub trait NodeDb: NodeDbMarker {
         params: TextSearchParams,
     ) -> NodeDbResult<Vec<SearchResult>> {
         let _ = (collection, query, top_k, params);
-        Ok(Vec::new())
+        Err(NodeDbError::storage(
+            "text_search is not implemented on this client",
+        ))
     }
 
     // ─── Batch Operations ───────────────────────────────────────────
@@ -353,7 +431,7 @@ pub trait NodeDb: NodeDbMarker {
                    deactivated_at_ns, retention_expires_at_ns \
                    FROM _system.dropped_collections";
         let result = self.execute_sql(sql, &[]).await?;
-        parse_dropped_collection_rows(&result)
+        crate::row_decode::parse_dropped_collection_rows(&result.rows)
     }
 
     /// Register a handler fired when a collection the caller has
@@ -374,10 +452,15 @@ pub trait NodeDb: NodeDbMarker {
     }
 }
 
-/// Quote a SQL identifier. Mirrors the pgwire-side rule used by
-/// `remote_parse::quote_identifier`: wrap in double-quotes only if
-/// the name contains anything other than `[A-Za-z0-9_]` or starts
-/// with a digit. Unquoted fast-path keeps the usual case cheap.
+/// Quote a SQL identifier. Wraps in double-quotes only if the name
+/// contains anything other than `[A-Za-z0-9_]` or starts with a digit —
+/// the unquoted fast-path keeps the usual case cheap. Doubles any
+/// internal double-quotes per the SQL identifier-escape rule.
+///
+/// Lives next to the trait default impls (rather than in the remote
+/// client's `quote_identifier`) because the trait defaults for
+/// `undrop_collection` / `drop_collection_purge` build SQL without any
+/// feature-gated transport in scope.
 fn quote_ident(name: &str) -> String {
     let needs_quote = name.is_empty()
         || name.chars().next().is_some_and(|c| c.is_ascii_digit())
@@ -387,54 +470,6 @@ fn quote_ident(name: &str) -> String {
         format!("\"{escaped}\"")
     } else {
         name.to_string()
-    }
-}
-
-/// Decode `_system.dropped_collections` rows into
-/// `Vec<DroppedCollection>`. Each row is a `Vec<Value>` aligned with
-/// the column order declared in the SELECT list above.
-fn parse_dropped_collection_rows(result: &QueryResult) -> NodeDbResult<Vec<DroppedCollection>> {
-    let mut out = Vec::with_capacity(result.rows.len());
-    for row in &result.rows {
-        if row.len() < 6 {
-            return Err(NodeDbError::storage(format!(
-                "dropped_collections row has {} columns; expected 6 \
-                 (tenant_id, name, owner, engine_type, deactivated_at_ns, \
-                 retention_expires_at_ns)",
-                row.len()
-            )));
-        }
-        out.push(DroppedCollection {
-            tenant_id: value_as_u64(&row[0])?,
-            name: value_as_string(&row[1])?,
-            owner: value_as_string(&row[2])?,
-            engine_type: value_as_string(&row[3])?,
-            deactivated_at_ns: value_as_u64(&row[4])?,
-            retention_expires_at_ns: value_as_u64(&row[5])?,
-        });
-    }
-    Ok(out)
-}
-
-fn value_as_u64(v: &Value) -> NodeDbResult<u64> {
-    match v {
-        Value::Integer(i) => Ok(*i as u64),
-        Value::String(s) => s
-            .parse::<u64>()
-            .map_err(|e| NodeDbError::storage(format!("parse u64 from '{s}': {e}"))),
-        _ => Err(NodeDbError::storage(format!(
-            "expected integer for u64 column, got {v:?}"
-        ))),
-    }
-}
-
-fn value_as_string(v: &Value) -> NodeDbResult<String> {
-    match v {
-        Value::String(s) => Ok(s.clone()),
-        Value::Null => Ok(String::new()),
-        other => Err(NodeDbError::storage(format!(
-            "expected string column, got {other:?}"
-        ))),
     }
 }
 
