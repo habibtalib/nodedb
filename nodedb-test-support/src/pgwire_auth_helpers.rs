@@ -94,9 +94,72 @@ pub async fn ddl_err(state: &SharedState, identity: &AuthenticatedIdentity, sql:
     err.to_string()
 }
 
+/// Run DDL and return the result without panicking on either branch. Useful
+/// when the gate test only cares whether the privilege check fired (look for
+/// "42501" in the error string) and the underlying handler may legitimately
+/// succeed or fail with a non-privilege error depending on cluster state.
+pub async fn try_ddl(
+    state: &SharedState,
+    identity: &AuthenticatedIdentity,
+    sql: &str,
+) -> Result<(), String> {
+    let result = ddl::dispatch(state, identity, sql, nodedb_types::id::DatabaseId::DEFAULT).await;
+    let result = result.expect("DDL not recognized");
+    result.map(|_| ()).map_err(|e| e.to_string())
+}
+
 /// Run DDL as a readonly identity and assert it is denied with `permission denied`.
 pub async fn assert_readonly_denied(state: &SharedState, sql: &str) {
     let viewer = readonly_user();
     let err = ddl_err(state, &viewer, sql).await;
     assert!(err.contains("permission denied"), "{err}");
+}
+
+/// Cluster-admin identity (no implicit RLS bypass, no cross-DB data access).
+pub fn cluster_admin_user() -> AuthenticatedIdentity {
+    AuthenticatedIdentity {
+        user_id: 100,
+        username: "cluster_admin".into(),
+        tenant_id: nodedb::types::TenantId::new(1),
+        auth_method: AuthMethod::Trust,
+        roles: vec![Role::ClusterAdmin],
+        is_superuser: false,
+        default_database: None,
+        accessible_databases: DatabaseSet::Some(smallvec::smallvec![
+            nodedb_types::id::DatabaseId::DEFAULT
+        ]),
+    }
+}
+
+/// Database-owner identity for `db_id`.
+pub fn database_owner_user(db_id: nodedb_types::id::DatabaseId) -> AuthenticatedIdentity {
+    AuthenticatedIdentity {
+        user_id: 101,
+        username: "db_owner".into(),
+        tenant_id: nodedb::types::TenantId::new(1),
+        auth_method: AuthMethod::Trust,
+        roles: vec![Role::DatabaseOwner(db_id)],
+        is_superuser: false,
+        default_database: None,
+        accessible_databases: DatabaseSet::Some(smallvec::smallvec![db_id]),
+    }
+}
+
+/// Assert that the audit log contains at least one entry with `event` and `db_id`.
+pub fn assert_audit_has(
+    state: &SharedState,
+    event: nodedb::control::security::audit::AuditEvent,
+    db_id: Option<nodedb_types::id::DatabaseId>,
+) {
+    let log = state.audit.lock().unwrap_or_else(|p| p.into_inner());
+    assert!(
+        log.all()
+            .iter()
+            .any(|e| e.event == event && e.database_id == db_id),
+        "expected audit event {event:?} for db {db_id:?}, got {:?}",
+        log.all()
+            .iter()
+            .map(|e| (e.event.clone(), e.database_id))
+            .collect::<Vec<_>>()
+    );
 }
