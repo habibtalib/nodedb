@@ -36,9 +36,24 @@ For service-to-service communication without passwords.
 -- Create an API key (returns the key once — store it securely)
 CREATE API KEY 'my-service' ROLE readwrite;
 
+-- Create a key scoped to specific databases
+CREATE API KEY 'analytics-svc' FOR service_account WITH DATABASES (analytics, logs);
+
 -- Revoke
 DROP API KEY 'my-service';
 ```
+
+**Database scoping:**
+
+```sql
+-- Create a key accessible only to the 'prod' database
+CREATE API KEY 'prod-reader' FOR alice WITH DATABASES (prod);
+
+-- Attempt to use key on a different database is rejected
+-- Error: DATABASE_NOT_AUTHORIZED
+```
+
+API keys default to the owner's accessible databases. Narrow with `WITH DATABASES (db1, db2)` to restrict to a subset.
 
 Use in HTTP requests:
 
@@ -46,9 +61,46 @@ Use in HTTP requests:
 curl -H "Authorization: Bearer <api-key>" http://localhost:6480/v1/query
 ```
 
-## JWKS (JWT Auto-Discovery)
+## Service Accounts
 
-Multi-provider support for Auth0, Clerk, Supabase, Firebase, Keycloak, and Cognito.
+Credentials for daemons, batch jobs, and application backends. Service accounts are scoped to a database.
+
+```sql
+-- Create a service account for a database
+CREATE SERVICE ACCOUNT 'batch-processor' FOR DATABASE analytics;
+
+-- Create an API key on the service account
+CREATE API KEY 'batch-key' FOR 'batch-processor' WITH DATABASES (analytics);
+
+-- Adjust accessible databases
+ALTER SERVICE ACCOUNT 'batch-processor' SET DATABASES (analytics, logs);
+
+-- View all service accounts
+SHOW SERVICE ACCOUNTS;
+```
+
+Service accounts are isolated from user accounts and cannot authenticate via password.
+
+## OIDC Single Sign-On
+
+Authenticate via external identity providers (Auth0, Okta, Keycloak) using JWT bearer tokens. One-time setup per provider, then users authenticate directly with the provider.
+
+```sql
+-- Admin registers provider
+CREATE OIDC PROVIDER auth0 WITH (
+    issuer = 'https://your-domain.auth0.com/',
+    jwks_url = 'https://your-domain.auth0.com/.well-known/jwks.json',
+    audience = 'nodedb-api'
+);
+```
+
+**Supported on:** Native protocol and HTTP. **Not on pgwire** — the Postgres wire protocol has no standard bearer-token framing; pgwire stays SCRAM-SHA-256 only.
+
+See [OIDC Single Sign-On](oidc.md) for full setup and claim mapping.
+
+## JWKS (JWT Auto-Discovery) — Legacy
+
+Multi-provider support for Auth0, Clerk, Supabase, Firebase, Keycloak, and Cognito via `nodedb.toml` configuration.
 
 Configure in `nodedb.toml`:
 
@@ -69,6 +121,8 @@ JWT claims map to `$auth.*` session variables:
 | `scope`           | `$auth.scopes`   | RLS: `WHERE $auth.scopes CONTAINS 'read:orders'` |
 
 Supported algorithms: ES256, ES384, RS256. Built-in JWKS cache with disk fallback and circuit breaker for provider outages.
+
+**Note:** The OIDC provider mechanism (above) is the recommended approach for modern SSO; this `nodedb.toml` method is supported for backward compatibility.
 
 ## mTLS (Mutual TLS)
 

@@ -2,6 +2,37 @@
 
 Each tenant has fully isolated storage, indexes, and security policies. Cross-tenant data access is impossible by design.
 
+## Database vs Tenant
+
+These are distinct concepts:
+
+| Concept      | Scope                                      | Usage                                                                                               |
+| ------------ | ------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| **Database** | Deployment unit; namespace for collections | Multi-database deployments (prod, staging, analytics); clone/mirror/backup unit; quota/audit parent |
+| **Tenant**   | Row-level scoping within a database        | Multi-tenant SaaS; billing/usage isolation; logical separation within a namespace                   |
+
+One database hosts **many tenants**. A tenant's data **does not span databases** — use `MOVE TENANT` to reassign a tenant to a different database. Cross-database queries are forbidden.
+
+**Example: SaaS with three customers**
+
+```sql
+-- Database: deployment unit (one per region/cluster)
+CREATE DATABASE us_west;
+
+-- Tenants: customers in that database
+CREATE TENANT acme_corp;
+CREATE TENANT bigcorp_inc;
+CREATE TENANT startup_xyz;
+
+-- RLS filters rows by tenant_id within each collection
+CREATE RLS POLICY tenant_isolation ON orders FOR ALL
+    USING (tenant_id = $auth.tenant_id);
+
+-- Audit is per-database; RLS is per-tenant
+ALTER DATABASE us_west SET AUDIT_DML = 'writes';
+SHOW AUDIT IN DATABASE us_west WHERE event_type = 'DmlAudit';
+```
+
 ## Creating Tenants
 
 ```sql
