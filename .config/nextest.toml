@@ -54,7 +54,6 @@ slow-timeout = { period = "30s", terminate-after = 6 }
 [test-groups]
 cluster = { max-threads = 1 }
 
-
 [profile.ci]
 # CI inherits the default profile (cluster group, threads-required,
 # slow-timeout) and adds:
