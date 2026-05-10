@@ -124,6 +124,15 @@ pub struct Request {
     /// for role-guarded state transition enforcement (`BY ROLE 'manager'`).
     /// Empty for system-generated writes (triggers, CRDT sync, etc.).
     pub user_roles: Vec<String>,
+
+    /// Authenticated user ID. Propagated to WriteEvents for DML audit attribution.
+    /// `None` for system-generated writes (triggers, CRDT sync, Raft follower).
+    pub user_id: Option<Arc<str>>,
+
+    /// SQL plan digest identifying the statement that produced this request.
+    /// Reuses the plan digest already computed by nodedb-sql. `None` for
+    /// non-user writes.
+    pub statement_digest: Option<Arc<str>>,
 }
 
 /// Response envelope: Data Plane -> Control Plane.
@@ -352,6 +361,8 @@ mod tests {
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         }
     }
 
@@ -417,6 +428,8 @@ mod tests {
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
         match req.plan {
             PhysicalPlan::Meta(MetaOp::Cancel { target_request_id }) => {

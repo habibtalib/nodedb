@@ -383,7 +383,9 @@ impl NodeDbPgHandler {
             }
 
             // --- Normal dispatch ---
-            let resp = self.dispatch_task(task).await.map_err(|e| {
+            let user_id: Option<std::sync::Arc<str>> =
+                Some(std::sync::Arc::from(identity.username.as_str()));
+            let resp = self.dispatch_task(task, user_id).await.map_err(|e| {
                 let (severity, code, message) = error_to_sqlstate(&e);
                 PgWireError::UserError(Box::new(ErrorInfo::new(
                     severity.to_owned(),

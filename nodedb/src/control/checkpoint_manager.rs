@@ -101,6 +101,8 @@ pub async fn run_checkpoint_cycle(
                 idempotency_key: None,
                 event_source: crate::event::EventSource::User,
                 user_roles: Vec::new(),
+                user_id: None,
+                statement_digest: None,
             };
 
             let rx = tracker.register(request_id);

@@ -179,6 +179,8 @@ pub(crate) async fn apply_array_op(
         idempotency_key: None,
         event_source: crate::event::EventSource::CrdtSync,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     };
 
     let mut rx = state.tracker.register(request_id);
@@ -278,6 +280,8 @@ async fn ensure_array_open(
         idempotency_key: None,
         event_source: crate::event::EventSource::CrdtSync,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     };
 
     let mut open_rx = state.tracker.register(open_request_id);

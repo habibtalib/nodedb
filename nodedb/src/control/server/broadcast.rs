@@ -61,6 +61,8 @@ pub async fn broadcast_to_all_cores(
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
 
         let rx = shared.tracker.register(request_id);
@@ -186,6 +188,8 @@ pub async fn broadcast_count_to_all_cores(
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
 
         let rx = shared.tracker.register(request_id);
@@ -288,6 +292,8 @@ pub async fn broadcast_raw(
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
 
         let rx = shared.tracker.register(request_id);
@@ -442,6 +448,8 @@ pub async fn broadcast_register_to_all_cores(
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
 
         let rx = shared.tracker.register(request_id);

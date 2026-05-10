@@ -135,7 +135,7 @@ impl NodeDbPgHandler {
                         ),
                         post_set_op: crate::control::planner::physical::PostSetOp::None,
                     };
-                    if let Err(e) = self.dispatch_task_no_wal(batch_task).await {
+                    if let Err(e) = self.dispatch_task_no_wal(batch_task, None).await {
                         tracing::warn!(error = %e, "transaction batch dispatch failed");
                         return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),
@@ -253,7 +253,7 @@ impl NodeDbPgHandler {
                                     ),
                                     post_set_op: crate::control::planner::physical::PostSetOp::None,
                                 };
-                                if let Err(e) = self.dispatch_task_no_wal(batch_task).await {
+                                if let Err(e) = self.dispatch_task_no_wal(batch_task, None).await {
                                     tracing::warn!(
                                         error = %e,
                                         "best-effort non-atomic multi-shard batch dispatch failed"

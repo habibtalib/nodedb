@@ -131,6 +131,7 @@ mod tests {
                 last_applied,
                 status,
             }),
+            audit_dml: nodedb_types::AuditDmlMode::None,
         }
     }
 

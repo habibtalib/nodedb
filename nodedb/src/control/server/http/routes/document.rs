@@ -61,6 +61,8 @@ pub(super) async fn dispatch_plan_with_trace(
         idempotency_key: None,
         event_source: crate::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     };
 
     let mut rx = state.shared.tracker.register(request_id);

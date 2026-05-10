@@ -52,7 +52,7 @@ pub(super) async fn execute_facet_counts_sql(
         post_set_op: PostSetOp::None,
     };
 
-    let resp = handler.dispatch_task(task).await.map_err(|e| {
+    let resp = handler.dispatch_task(task, None).await.map_err(|e| {
         PgWireError::UserError(Box::new(ErrorInfo::new(
             "ERROR".to_owned(),
             "XX000".to_owned(),
@@ -108,7 +108,7 @@ pub(super) async fn execute_search_with_facets_sql(
         post_set_op: PostSetOp::None,
     };
 
-    let facet_resp = handler.dispatch_task(facet_task).await.map_err(|e| {
+    let facet_resp = handler.dispatch_task(facet_task, None).await.map_err(|e| {
         PgWireError::UserError(Box::new(ErrorInfo::new(
             "ERROR".to_owned(),
             "XX000".to_owned(),

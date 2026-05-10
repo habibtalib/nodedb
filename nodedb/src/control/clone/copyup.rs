@@ -92,6 +92,8 @@ pub async fn perform_kv_clone_copyup(params: KvCopyUpParams<'_>) -> crate::Resul
         idempotency_key: None,
         event_source: crate::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     };
 
     let mut rx = state.tracker.register(req_id);
@@ -241,6 +243,8 @@ pub async fn perform_clone_copyup(params: CopyUpParams<'_>) -> crate::Result<Sur
         idempotency_key: None,
         event_source: crate::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     };
 
     let mut rx = state.tracker.register(req_id);

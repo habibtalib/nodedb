@@ -114,7 +114,7 @@ impl NodeDbPgHandler {
                 // Dispatch target tasks (these are the primary tasks).
                 let mut responses = Vec::with_capacity(target_tasks.len());
                 for task in target_tasks {
-                    let resp = self.dispatch_task(task.clone()).await.map_err(|e| {
+                    let resp = self.dispatch_task(task.clone(), None).await.map_err(|e| {
                         let (severity, code, message) = error_to_sqlstate(&e);
                         PgWireError::UserError(Box::new(ErrorInfo::new(
                             severity.to_owned(),
@@ -172,8 +172,10 @@ impl NodeDbPgHandler {
                 let target_count = target_tasks.len().max(1);
                 for (source_idx, source_task) in source_tasks.iter().enumerate() {
                     let response_idx = source_idx % target_count;
-                    let source_resp =
-                        self.dispatch_task(source_task.clone()).await.map_err(|e| {
+                    let source_resp = self
+                        .dispatch_task(source_task.clone(), None)
+                        .await
+                        .map_err(|e| {
                             let (severity, code, message) = error_to_sqlstate(&e);
                             PgWireError::UserError(Box::new(ErrorInfo::new(
                                 severity.to_owned(),

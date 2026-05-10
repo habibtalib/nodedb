@@ -147,6 +147,8 @@ async fn query_collection_size(
         idempotency_key: None,
         event_source: crate::event::EventSource::User,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     };
     let mut rx = state.tracker.register(request_id);
     {

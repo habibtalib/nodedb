@@ -17,9 +17,16 @@ impl NodeDbPgHandler {
     ///
     /// In cluster mode, write operations are proposed to Raft first and only
     /// executed on the Data Plane after quorum commit. Reads bypass Raft.
-    pub(super) async fn dispatch_task(&self, task: PhysicalTask) -> crate::Result<Response> {
+    ///
+    /// `user_id` is forwarded to the `Request` for DML audit attribution.
+    /// Pass `None` for system-generated tasks (triggers, maintenance, etc.).
+    pub(super) async fn dispatch_task(
+        &self,
+        task: PhysicalTask,
+        user_id: Option<Arc<str>>,
+    ) -> crate::Result<Response> {
         let tenant_id = task.tenant_id;
-        let result = self.dispatch_task_inner(task).await;
+        let result = self.dispatch_task_inner(task, user_id).await;
         // Advance per-tenant observed write-HLC high-water on any
         // successful dispatch (local, raft-replicated, or broadcast).
         // Used by RESTORE's staleness gate. Backup captures envelope
@@ -33,7 +40,11 @@ impl NodeDbPgHandler {
         result
     }
 
-    async fn dispatch_task_inner(&self, task: PhysicalTask) -> crate::Result<Response> {
+    async fn dispatch_task_inner(
+        &self,
+        task: PhysicalTask,
+        user_id: Option<Arc<str>>,
+    ) -> crate::Result<Response> {
         // Reject user writes against a source database that is currently
         // frozen by a clone materializer sweep.  Reads and DDL pass through
         // unchanged.  The materializer uses `dispatch_local` (a free function
@@ -168,7 +179,7 @@ impl NodeDbPgHandler {
                     plan: inner_plan.as_ref().clone(),
                     post_set_op: crate::control::planner::physical::PostSetOp::None,
                 };
-                let inner_resp = Box::pin(self.dispatch_task(inner_task)).await?;
+                let inner_resp = Box::pin(self.dispatch_task(inner_task, None)).await?;
                 let left_data: Vec<u8> = inner_resp.payload.as_ref().to_vec();
 
                 // Step 2: Broadcast-scan the right collection.
@@ -219,7 +230,7 @@ impl NodeDbPgHandler {
                     plan: join_plan,
                     post_set_op: crate::control::planner::physical::PostSetOp::None,
                 };
-                let mut resp = self.dispatch_local(join_task).await?;
+                let mut resp = self.dispatch_local(join_task, None).await?;
 
                 let has_post_agg = !post_group_by.is_empty() || !post_aggregates.is_empty();
                 if has_post_agg {
@@ -330,7 +341,7 @@ impl NodeDbPgHandler {
             return self.dispatch_replicated_write(entry, async_proposer).await;
         }
 
-        self.dispatch_local(task).await
+        self.dispatch_local(task, user_id).await
     }
 
     /// Dispatch a write through Raft: propose → register waiter → await apply.
@@ -415,10 +426,20 @@ impl NodeDbPgHandler {
     /// Data Plane. This ensures durability: if the process crashes after WAL
     /// append but before Data Plane execution, the write is replayed on recovery.
     /// Reads bypass the WAL entirely.
-    async fn dispatch_local(&self, task: PhysicalTask) -> crate::Result<Response> {
+    async fn dispatch_local(
+        &self,
+        task: PhysicalTask,
+        user_id: Option<Arc<str>>,
+    ) -> crate::Result<Response> {
         self.wal_append_if_write(task.tenant_id, task.vshard_id, task.database_id, &task.plan)?;
-        self.submit_to_data_plane(task.tenant_id, task.vshard_id, task.database_id, task.plan)
-            .await
+        self.submit_to_data_plane(
+            task.tenant_id,
+            task.vshard_id,
+            task.database_id,
+            task.plan,
+            user_id,
+        )
+        .await
     }
 
     /// Dispatch a task to the Data Plane WITHOUT individual WAL append.
@@ -426,7 +447,11 @@ impl NodeDbPgHandler {
     /// Used by COMMIT to dispatch buffered transaction tasks after the
     /// entire transaction has been written as a single `RecordType::Transaction`
     /// WAL record. Skipping per-task WAL avoids double-writing.
-    pub(super) async fn dispatch_task_no_wal(&self, task: PhysicalTask) -> crate::Result<Response> {
+    pub(super) async fn dispatch_task_no_wal(
+        &self,
+        task: PhysicalTask,
+        user_id: Option<Arc<str>>,
+    ) -> crate::Result<Response> {
         // Same materialize-freeze gate as `dispatch_task_inner`. Without this,
         // a transaction that began before the freeze could COMMIT writes
         // *during* the freeze window — the materializer would already be
@@ -445,8 +470,14 @@ impl NodeDbPgHandler {
                 database_id: task.database_id,
             });
         }
-        self.submit_to_data_plane(task.tenant_id, task.vshard_id, task.database_id, task.plan)
-            .await
+        self.submit_to_data_plane(
+            task.tenant_id,
+            task.vshard_id,
+            task.database_id,
+            task.plan,
+            user_id,
+        )
+        .await
     }
 
     /// Build a `Request`, register with the tracker, dispatch to the Data Plane,
@@ -457,6 +488,7 @@ impl NodeDbPgHandler {
         vshard_id: crate::types::VShardId,
         database_id: DatabaseId,
         plan: crate::bridge::envelope::PhysicalPlan,
+        user_id: Option<Arc<str>>,
     ) -> crate::Result<Response> {
         let request_id = self.next_request_id();
         let request = Request {
@@ -473,6 +505,8 @@ impl NodeDbPgHandler {
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id,
+            statement_digest: None,
         };
 
         let mut rx = self.state.tracker.register(request_id);
@@ -510,7 +544,7 @@ impl NodeDbPgHandler {
             plan: plan.clone(),
             post_set_op: crate::control::planner::physical::PostSetOp::None,
         };
-        let resp = Box::pin(self.dispatch_task(task)).await?;
+        let resp = Box::pin(self.dispatch_task(task, None)).await?;
         normalize_join_broadcast_payload(resp.payload.as_ref())
     }
 }

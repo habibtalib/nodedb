@@ -174,6 +174,8 @@ impl Scheduler {
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
 
         let resp_rx = self.shared.tracker.register(request_id);
@@ -291,6 +293,8 @@ impl Scheduler {
             idempotency_key: None,
             event_source: crate::event::EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
 
         let resp_rx = self.shared.tracker.register(request_id);

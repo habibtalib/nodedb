@@ -49,6 +49,8 @@ fn build_request(
         idempotency_key: None,
         event_source,
         user_roles: Vec::new(),
+        user_id: None,
+        statement_digest: None,
     }
 }
 

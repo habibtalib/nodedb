@@ -81,6 +81,8 @@ impl DataPlaneArrayExecutor {
             idempotency_key: None,
             event_source: EventSource::User,
             user_roles: Vec::new(),
+            user_id: None,
+            statement_digest: None,
         };
 
         let mut rx = self.state.tracker.register(request_id);
