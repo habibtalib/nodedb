@@ -22,6 +22,7 @@ members = [
   "nodedb-sql",
   "nodedb-test-support",
   "nodedb-cluster-tests",
+  "nodedb-client-tests",
 ]
 resolver = "2"
 

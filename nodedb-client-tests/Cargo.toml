@@ -1,0 +1,23 @@
+[package]
+name = "nodedb-client-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "End-to-end integration tests for nodedb-client. Spins up a real server via nodedb-test-support and exercises NodeDbRemote / NativeClient round-trips."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]
+nodedb = { workspace = true }
+nodedb-client = { workspace = true, features = ["remote", "native"] }
+nodedb-test-support = { workspace = true }
+nodedb-types = { workspace = true }
+
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+tokio-postgres = { workspace = true }
+tempfile = "3"

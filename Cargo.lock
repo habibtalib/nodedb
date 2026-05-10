@@ -4240,6 +4240,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nodedb-client-tests"
+version = "0.1.1"
+dependencies = [
+ "nodedb",
+ "nodedb-client",
+ "nodedb-test-support",
+ "nodedb-types",
+ "tempfile",
+ "tokio",
+ "tokio-postgres",
+]
+
+[[package]]
 name = "nodedb-cluster"
 version = "0.1.1"
 dependencies = [
