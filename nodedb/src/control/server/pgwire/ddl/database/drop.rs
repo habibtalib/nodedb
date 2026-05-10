@@ -209,6 +209,17 @@ pub fn handle_drop_database(
         drop_all_collections_in_database(catalog, db_id, &collections)?;
     }
 
+    // Emit audit BEFORE the catalog mutation so the record is durable even
+    // if the catalog delete fails (the database still exists in that case,
+    // but the attempt is documented).
+    state.audit_record_with_db(
+        crate::control::security::audit::AuditEvent::DatabaseDropped,
+        None,
+        Some(db_id),
+        &identity.username,
+        &format!("DROP DATABASE {name}"),
+    );
+
     // Propose the delete through Raft; fall back to direct write in single-node mode.
     let proposed = propose_catalog_entry(
         state,
@@ -236,13 +247,6 @@ pub fn handle_drop_database(
             map.remove(name);
         }
     }
-
-    state.audit_record(
-        crate::control::security::audit::AuditEvent::DdlChange,
-        None,
-        &identity.username,
-        &format!("DROP DATABASE {name}"),
-    );
 
     Ok(vec![Response::Execution(Tag::new("DROP DATABASE"))])
 }

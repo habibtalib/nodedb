@@ -84,9 +84,10 @@ pub fn handle_alter_database(
                     .map_err(|e| sqlstate_error("XX000", &format!("catalog write failed: {e}")))?;
             }
 
-            state.audit_record(
-                crate::control::security::audit::AuditEvent::DdlChange,
+            state.audit_record_with_db(
+                crate::control::security::audit::AuditEvent::DatabaseRenamed,
                 None,
+                Some(db_id),
                 &identity.username,
                 &format!("ALTER DATABASE {name} RENAME TO {new_name}"),
             );
@@ -122,9 +123,10 @@ pub fn handle_alter_database(
                 }
             }
 
-            state.audit_record(
-                crate::control::security::audit::AuditEvent::DdlChange,
+            state.audit_record_with_db(
+                crate::control::security::audit::AuditEvent::DatabaseQuotaChanged,
                 None,
+                Some(db_id),
                 &identity.username,
                 &format!(
                     "ALTER DATABASE {name} SET QUOTA — before: [{}] — after: [{}]",
@@ -143,6 +145,33 @@ pub fn handle_alter_database(
                 "ALTER DATABASE SET DEFAULT is not yet implemented; \
                  use ALTER USER <name> SET DEFAULT DATABASE <db>",
             ));
+        }
+
+        AlterDatabaseOperation::SetAuditDml(mode) => {
+            // Update the descriptor's `audit_dml` field and persist it.
+            descriptor.audit_dml = *mode;
+            let proposed = propose_catalog_entry(
+                state,
+                &CatalogEntry::PutDatabase(Box::new(descriptor.clone())),
+            )
+            .map_err(|e| sqlstate_error("XX000", &format!("catalog propose failed: {e}")))?;
+            if proposed == 0 {
+                catalog
+                    .put_database(&descriptor)
+                    .map_err(|e| sqlstate_error("XX000", &format!("catalog write failed: {e}")))?;
+            }
+
+            // Update live cache so the Event Plane consumer sees the new mode
+            // without a restart.
+            state.audit_dml_cache.set(db_id, *mode);
+
+            state.audit_record_with_db(
+                crate::control::security::audit::AuditEvent::DatabaseAuditDmlChanged,
+                None,
+                Some(db_id),
+                &identity.username,
+                &format!("ALTER DATABASE {name} SET AUDIT_DML = {mode}",),
+            );
         }
 
         AlterDatabaseOperation::Materialize => {

@@ -115,6 +115,7 @@ pub fn handle_mirror_database(
         quota_ref: 0,
         parent_clone: None,
         mirror_origin: Some(mirror_origin),
+        audit_dml: nodedb_types::AuditDmlMode::None,
     };
 
     // Propose through Raft; fall back to direct write in single-node mode.
@@ -138,9 +139,10 @@ pub fn handle_mirror_database(
         }
     }
 
-    state.audit_record(
-        crate::control::security::audit::AuditEvent::DdlChange,
+    state.audit_record_with_db(
+        crate::control::security::audit::AuditEvent::DatabaseMirrored,
         None,
+        Some(db_id),
         &identity.username,
         &format!(
             "MIRROR DATABASE {local_name} FROM {source_cluster}.{source_database} MODE={mode:?}"

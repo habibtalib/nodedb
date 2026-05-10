@@ -166,6 +166,7 @@ pub fn handle_clone_database(
             kv_surrogate_ceiling: Some(state.surrogate_assigner.current_hwm()),
         }),
         mirror_origin: None,
+        audit_dml: nodedb_types::AuditDmlMode::None,
     };
 
     // ── Propose via Raft ──────────────────────────────────────────────────────
@@ -250,9 +251,10 @@ pub fn handle_clone_database(
         }
     }
 
-    state.audit_record(
-        crate::control::security::audit::AuditEvent::DdlChange,
+    state.audit_record_with_db(
+        crate::control::security::audit::AuditEvent::DatabaseCloned,
         None,
+        Some(target_db_id),
         &identity.username,
         &format!(
             "CLONE DATABASE {} FROM {} AS OF SYSTEM TIME {}",

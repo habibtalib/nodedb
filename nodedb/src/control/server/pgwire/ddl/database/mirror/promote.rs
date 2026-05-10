@@ -142,9 +142,10 @@ pub fn handle_promote_database(
         ));
     }
 
-    state.audit_record(
-        crate::control::security::audit::AuditEvent::DdlChange,
+    state.audit_record_with_db(
+        crate::control::security::audit::AuditEvent::DatabasePromoted,
         None,
+        Some(db_id),
         &identity.username,
         &format!("ALTER DATABASE {name} PROMOTE"),
     );

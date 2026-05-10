@@ -9,6 +9,8 @@
 
 use std::sync::{Arc, Mutex};
 
+use nodedb_types::DatabaseId;
+
 use crate::types::TenantId;
 
 use super::auth::AuditAuth;
@@ -28,6 +30,8 @@ pub trait AuditEmitter: Send + Sync {
 #[derive(Clone, Copy)]
 pub struct AuditEmitContext<'a> {
     pub tenant_id: Option<TenantId>,
+    /// Database context for database-scoped security enforcement events.
+    pub database_id: Option<DatabaseId>,
     pub auth_user_id: &'a str,
     pub auth_user_name: &'a str,
 }
@@ -40,6 +44,7 @@ impl<'a> AuditEmitContext<'a> {
     ) -> Self {
         Self {
             tenant_id,
+            database_id: None,
             auth_user_id,
             auth_user_name,
         }
@@ -60,7 +65,7 @@ impl AuditEmitter for ArcAuditEmitter {
             Ok(l) => l,
             Err(p) => p.into_inner(),
         };
-        log.record_with_auth(event, ctx.tenant_id, source, detail, &auth);
+        log.record_with_auth(event, ctx.tenant_id, ctx.database_id, source, detail, &auth);
     }
 }
 

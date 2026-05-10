@@ -65,9 +65,10 @@ pub fn handle_use_database(
     // Session reset: abort open transaction, invalidate prepared statements.
     sessions.reset_for_database_switch(addr, db_id);
 
-    state.audit_record(
+    state.audit_record_with_db(
         crate::control::security::audit::AuditEvent::DdlChange,
         None,
+        Some(db_id),
         &identity.username,
         &format!("USE DATABASE {name}"),
     );

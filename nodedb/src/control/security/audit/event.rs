@@ -105,6 +105,34 @@ pub enum AuditEvent {
     /// A pre-authentication rate-limit bucket (per-IP or per-username)
     /// rejected a login attempt before SCRAM/Argon2 verification.
     LoginRateLimited = 31,
+    /// A new database was created.
+    DatabaseCreated = 32,
+    /// A database was dropped.
+    DatabaseDropped = 33,
+    /// A database was renamed.
+    DatabaseRenamed = 34,
+    /// A database quota was changed.
+    DatabaseQuotaChanged = 35,
+    /// A database was cloned.
+    DatabaseCloned = 36,
+    /// A database mirror was created.
+    DatabaseMirrored = 37,
+    /// A mirror database was promoted to writable primary.
+    DatabasePromoted = 38,
+    /// A cloned database was materialized.
+    DatabaseMaterialized = 39,
+    /// A tenant was moved between databases.
+    TenantMoved = 40,
+    /// A database backup was initiated.
+    DatabaseBackedUp = 41,
+    /// A database was restored from backup.
+    DatabaseRestored = 42,
+    /// A DML operation (INSERT/UPDATE/DELETE) was audited for a database with
+    /// AUDIT_DML mode enabled. Recorded at Forensic level only.
+    DmlAudit = 43,
+    /// The AUDIT_DML mode for a database was changed via
+    /// `ALTER DATABASE SET AUDIT_DML`.
+    DatabaseAuditDmlChanged = 44,
 }
 
 impl AuditEvent {
@@ -146,23 +174,71 @@ impl AuditEvent {
             Self::RlsRejected => 29,
             Self::LockoutTriggered => 30,
             Self::LoginRateLimited => 31,
+            Self::DatabaseCreated => 32,
+            Self::DatabaseDropped => 33,
+            Self::DatabaseRenamed => 34,
+            Self::DatabaseQuotaChanged => 35,
+            Self::DatabaseCloned => 36,
+            Self::DatabaseMirrored => 37,
+            Self::DatabasePromoted => 38,
+            Self::DatabaseMaterialized => 39,
+            Self::TenantMoved => 40,
+            Self::DatabaseBackedUp => 41,
+            Self::DatabaseRestored => 42,
+            Self::DmlAudit => 43,
+            Self::DatabaseAuditDmlChanged => 44,
         }
     }
 
     /// Whether this event belongs to the auth event stream.
     pub fn is_auth_event(&self) -> bool {
-        matches!(
-            self,
+        match self {
             Self::AuthSuccess
-                | Self::AuthFailure
-                | Self::AuthzDenied
-                | Self::SessionConnect
-                | Self::SessionDisconnect
-                | Self::PermissionDenied
-                | Self::RlsRejected
-                | Self::LockoutTriggered
-                | Self::LoginRateLimited
-        )
+            | Self::AuthFailure
+            | Self::AuthzDenied
+            | Self::SessionConnect
+            | Self::SessionDisconnect
+            | Self::PermissionDenied
+            | Self::RlsRejected
+            | Self::LockoutTriggered
+            | Self::LoginRateLimited => true,
+            Self::PrivilegeChange
+            | Self::TenantCreated
+            | Self::TenantDeleted
+            | Self::SnapshotBegin
+            | Self::SnapshotEnd
+            | Self::RestoreBegin
+            | Self::RestoreEnd
+            | Self::CertRotation
+            | Self::CertRotationFailed
+            | Self::KeyRotation
+            | Self::ConfigChange
+            | Self::NodeJoined
+            | Self::NodeLeft
+            | Self::AdminAction
+            | Self::QueryExec
+            | Self::RlsDenied
+            | Self::RowChange
+            | Self::DdlChange
+            | Self::SessionHandleFingerprintMismatch
+            | Self::SessionHandleResolveMissSpike
+            | Self::AuditCheckpoint
+            | Self::SessionRevoked
+            | Self::AuditBusLagged
+            | Self::DatabaseCreated
+            | Self::DatabaseDropped
+            | Self::DatabaseRenamed
+            | Self::DatabaseQuotaChanged
+            | Self::DatabaseCloned
+            | Self::DatabaseMirrored
+            | Self::DatabasePromoted
+            | Self::DatabaseMaterialized
+            | Self::TenantMoved
+            | Self::DatabaseBackedUp
+            | Self::DatabaseRestored
+            | Self::DmlAudit
+            | Self::DatabaseAuditDmlChanged => false,
+        }
     }
 
     /// Return a stable snake_case filter key for use in SQL `WHERE event_type = '...'`
@@ -202,6 +278,19 @@ impl AuditEvent {
             Self::RlsRejected => "rls_rejected",
             Self::LockoutTriggered => "lockout_triggered",
             Self::LoginRateLimited => "login_rate_limited",
+            Self::DatabaseCreated => "database_created",
+            Self::DatabaseDropped => "database_dropped",
+            Self::DatabaseRenamed => "database_renamed",
+            Self::DatabaseQuotaChanged => "database_quota_changed",
+            Self::DatabaseCloned => "database_cloned",
+            Self::DatabaseMirrored => "database_mirrored",
+            Self::DatabasePromoted => "database_promoted",
+            Self::DatabaseMaterialized => "database_materialized",
+            Self::TenantMoved => "tenant_moved",
+            Self::DatabaseBackedUp => "database_backed_up",
+            Self::DatabaseRestored => "database_restored",
+            Self::DmlAudit => "dml_audit",
+            Self::DatabaseAuditDmlChanged => "database_audit_dml_changed",
         }
     }
 
@@ -241,6 +330,19 @@ impl AuditEvent {
             Self::RlsRejected => AuditLevel::Minimal,
             Self::LockoutTriggered => AuditLevel::Minimal,
             Self::LoginRateLimited => AuditLevel::Minimal,
+            Self::DatabaseCreated
+            | Self::DatabaseDropped
+            | Self::DatabaseRenamed
+            | Self::DatabaseQuotaChanged
+            | Self::DatabaseCloned
+            | Self::DatabaseMirrored
+            | Self::DatabasePromoted
+            | Self::DatabaseMaterialized
+            | Self::TenantMoved
+            | Self::DatabaseBackedUp
+            | Self::DatabaseRestored
+            | Self::DatabaseAuditDmlChanged => AuditLevel::Standard,
+            Self::DmlAudit => AuditLevel::Forensic,
         }
     }
 }

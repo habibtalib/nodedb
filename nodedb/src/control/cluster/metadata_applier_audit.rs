@@ -63,6 +63,7 @@ pub(super) fn apply_ca_trust_change(
         log.record_with_auth(
             AuditEvent::CertRotation,
             None,
+            None,
             "metadata_group",
             &detail,
             &AuditAuth::default(),
@@ -114,6 +115,7 @@ pub(super) fn emit_ddl_audit(
     };
     log.record_with_auth(
         AuditEvent::DdlChange,
+        None,
         None,
         "metadata_group",
         &detail_json,

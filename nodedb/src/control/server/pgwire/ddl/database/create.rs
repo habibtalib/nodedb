@@ -105,6 +105,7 @@ pub fn handle_create_database(
         quota_ref: opts.quota_id,
         parent_clone: None,
         mirror_origin: None,
+        audit_dml: nodedb_types::AuditDmlMode::None,
     };
 
     // Propose through metadata Raft group 0 so all replicas apply the
@@ -143,9 +144,10 @@ pub fn handle_create_database(
         m.set_database_storage_bytes(name, 0);
     }
 
-    state.audit_record(
-        crate::control::security::audit::AuditEvent::DdlChange,
+    state.audit_record_with_db(
+        crate::control::security::audit::AuditEvent::DatabaseCreated,
         None,
+        Some(db_id),
         &identity.username,
         &format!("CREATE DATABASE {name}"),
     );

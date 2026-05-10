@@ -4,6 +4,8 @@
 
 use std::collections::VecDeque;
 
+use nodedb_types::DatabaseId;
+
 use crate::types::TenantId;
 
 use super::auth::AuditAuth;
@@ -74,7 +76,33 @@ impl AuditLog {
         source: &str,
         detail: &str,
     ) -> u64 {
-        self.record_with_auth(event, tenant_id, source, detail, &AuditAuth::default())
+        self.record_with_auth(
+            event,
+            tenant_id,
+            None,
+            source,
+            detail,
+            &AuditAuth::default(),
+        )
+    }
+
+    /// Record an audit event with database context.
+    pub fn record_with_database(
+        &mut self,
+        event: AuditEvent,
+        tenant_id: Option<TenantId>,
+        database_id: Option<DatabaseId>,
+        source: &str,
+        detail: &str,
+    ) -> u64 {
+        self.record_with_auth(
+            event,
+            tenant_id,
+            database_id,
+            source,
+            detail,
+            &AuditAuth::default(),
+        )
     }
 
     /// Record an audit event with auth context enrichment.
@@ -82,6 +110,7 @@ impl AuditLog {
         &mut self,
         event: AuditEvent,
         tenant_id: Option<TenantId>,
+        database_id: Option<DatabaseId>,
         source: &str,
         detail: &str,
         auth: &AuditAuth,
@@ -95,6 +124,7 @@ impl AuditLog {
             timestamp_us: now_us(),
             event: event.clone(),
             tenant_id,
+            database_id,
             auth_user_id: auth.user_id.clone(),
             auth_user_name: auth.user_name.clone(),
             session_id: auth.session_id.clone(),
@@ -119,6 +149,14 @@ impl AuditLog {
         self.entries.push_back(entry);
         self.total_entries += 1;
         seq
+    }
+
+    /// Filter in-memory entries by database id.
+    pub fn query_by_database(&self, database_id: DatabaseId) -> Vec<&AuditEntry> {
+        self.entries
+            .iter()
+            .filter(|e| e.database_id == Some(database_id))
+            .collect()
     }
 
     /// Query entries by event type.
@@ -347,13 +385,45 @@ mod tests {
             AuditEvent::NodeJoined,
             AuditEvent::NodeLeft,
             AuditEvent::AdminAction,
+            // New variants (13 additions):
+            AuditEvent::DatabaseCreated,
+            AuditEvent::DatabaseDropped,
+            AuditEvent::DatabaseRenamed,
+            AuditEvent::DatabaseQuotaChanged,
+            AuditEvent::DatabaseCloned,
+            AuditEvent::DatabaseMirrored,
+            AuditEvent::DatabasePromoted,
+            AuditEvent::DatabaseMaterialized,
+            AuditEvent::TenantMoved,
+            AuditEvent::DatabaseBackedUp,
+            AuditEvent::DatabaseRestored,
+            AuditEvent::DmlAudit,
+            AuditEvent::DatabaseAuditDmlChanged,
         ];
 
         let mut log = AuditLog::new(100);
         for event in events {
             log.record(event, None, "test", "");
         }
-        assert_eq!(log.len(), 17);
+        assert_eq!(log.len(), 30);
+    }
+
+    #[test]
+    fn record_with_database_id_propagates() {
+        use nodedb_types::DatabaseId;
+        let mut log = AuditLog::new(100);
+        let db_id = DatabaseId::new(42);
+        log.record_with_database(
+            AuditEvent::DatabaseCreated,
+            None,
+            Some(db_id),
+            "admin",
+            "CREATE DATABASE mydb",
+        );
+        let entries = log.query_by_database(db_id);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].database_id, Some(db_id));
+        assert_eq!(entries[0].event, AuditEvent::DatabaseCreated);
     }
 
     #[test]
@@ -394,6 +464,7 @@ mod tests {
             timestamp_us: 1_000_000,
             event: AuditEvent::AuditCheckpoint,
             tenant_id: None,
+            database_id: None,
             auth_user_id: String::new(),
             auth_user_name: String::new(),
             session_id: String::new(),
@@ -430,6 +501,7 @@ mod tests {
             timestamp_us: 0,
             event: AuditEvent::AuditCheckpoint,
             tenant_id: None,
+            database_id: None,
             auth_user_id: String::new(),
             auth_user_name: String::new(),
             session_id: String::new(),
