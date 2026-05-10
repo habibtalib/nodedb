@@ -1,6 +1,16 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 //! Core authentication configuration types.
+//!
+//! `Argon2Config` is **cluster-wide**. There is intentionally no
+//! per-database override: a `DatabaseDescriptor` does not carry password
+//! / Argon2 parameters, and downstream code must not branch hashing
+//! parameters on `database_id`. Hash verification and rehash-on-login
+//! both read this single config; per-database tuning would require
+//! versioning the hash format and a migration path that does not yet
+//! exist. If a per-database override is ever added, it must thread
+//! through every site that constructs an `argon2::Argon2` instance —
+//! a wide ripple, not a field on the descriptor.
 
 use serde::{Deserialize, Serialize};
 
