@@ -21,6 +21,8 @@ fn uuid_v4_hex() -> String {
     )
 }
 use nodedb::config::auth::AuthMode;
+use nodedb::control::server::admission::AdmissionRegistry;
+use nodedb::control::server::listener::{Listener, ListenerRunParams};
 use nodedb::control::server::pgwire::listener::PgListener;
 use nodedb::control::state::SharedState;
 use nodedb::event::{EventPlane, create_event_bus};
@@ -55,6 +57,10 @@ impl std::ops::Deref for TestClient {
 pub struct TestServer {
     pub client: TestClient,
     pub pg_port: u16,
+    /// Native protocol (MessagePack) listener port. Bound to a fresh
+    /// `127.0.0.1:0` per harness so `NativeClient::connect` can reach
+    /// it without configuration.
+    pub native_port: u16,
     /// Underlying shared state — exposed so integration tests can drive
     /// store-level side effects (e.g. seeding a session handle with a
     /// specific `ClientFingerprint`) before hitting the wire.
@@ -68,6 +74,7 @@ pub struct TestServer {
     poller_shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
     core_stop_txs: Option<Vec<std::sync::mpsc::Sender<()>>>,
     pg_handle: Option<tokio::task::JoinHandle<()>>,
+    native_handle: Option<tokio::task::JoinHandle<()>>,
     poller_handle: Option<tokio::task::JoinHandle<()>>,
     core_handles: Option<Vec<tokio::task::JoinHandle<()>>>,
     event_plane: Option<EventPlane>,
@@ -86,6 +93,38 @@ impl TestDataDir {
     pub fn path(&self) -> &std::path::Path {
         self.0.path()
     }
+}
+
+/// Bind a native (MessagePack) protocol listener on `127.0.0.1:0` and
+/// spawn its accept loop. Returns the listener's local port plus the
+/// handle to await on shutdown.
+async fn bind_native_listener(
+    shared: &Arc<SharedState>,
+    shutdown_bus: &nodedb::control::shutdown::ShutdownBus,
+    conn_semaphore: Arc<tokio::sync::Semaphore>,
+) -> (u16, tokio::task::JoinHandle<()>) {
+    let listener = Listener::bind("127.0.0.1:0".parse().unwrap())
+        .await
+        .expect("bind native listener");
+    let port = listener.local_addr().port();
+    let state = Arc::clone(shared);
+    let startup_gate = Arc::clone(&shared.startup);
+    let bus = shutdown_bus.clone();
+    let admission = Arc::new(AdmissionRegistry::new());
+    let handle = tokio::spawn(async move {
+        let _ = listener
+            .run(ListenerRunParams {
+                state,
+                auth_mode: AuthMode::Trust,
+                tls_acceptor: None,
+                conn_semaphore,
+                startup_gate,
+                bus,
+                admission,
+            })
+            .await;
+    });
+    (port, handle)
 }
 
 #[allow(dead_code)]
@@ -193,24 +232,30 @@ impl TestServer {
         // bus.initiate() also signals the flat ShutdownWatch.
         let (shutdown_bus, _) =
             nodedb::control::shutdown::ShutdownBus::new(Arc::clone(&shared.shutdown));
+        let conn_semaphore = Arc::new(tokio::sync::Semaphore::new(128));
         let shared_pg = Arc::clone(&shared);
         // Use the startup gate already on SharedState (a pre-fired placeholder
         // from `new_inner`). The listener starts accepting immediately.
         let test_startup_gate = Arc::clone(&shared.startup);
         let bus_pg = shutdown_bus.clone();
+        let pg_sem = Arc::clone(&conn_semaphore);
         let pg_handle = tokio::spawn(async move {
             pg_listener
                 .run(
                     shared_pg,
                     AuthMode::Trust,
                     None,
-                    Arc::new(tokio::sync::Semaphore::new(128)),
+                    pg_sem,
                     test_startup_gate,
                     bus_pg,
                 )
                 .await
                 .unwrap();
         });
+
+        // Native (MessagePack) listener — same SharedState, ephemeral port.
+        let (native_port, native_handle) =
+            bind_native_listener(&shared, &shutdown_bus, Arc::clone(&conn_semaphore)).await;
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -230,12 +275,14 @@ impl TestServer {
         Self {
             client: TestClient::new(client),
             pg_port: pg_addr.port(),
+            native_port,
             shared,
             conn_handle: Some(conn_handle),
             shutdown_bus: Some(shutdown_bus),
             poller_shutdown_tx: Some(poller_shutdown_tx),
             core_stop_txs: Some(core_stop_txs),
             pg_handle: Some(pg_handle),
+            native_handle: Some(native_handle),
             poller_handle: Some(poller_handle),
             core_handles: Some(core_handles),
             event_plane: Some(event_plane),
@@ -306,6 +353,16 @@ impl TestServer {
         // Let the listener complete its shutdown-bus drain. If it stalls,
         // fall back to abort so the test cannot hang indefinitely.
         if let Some(h) = self.pg_handle.take() {
+            let mut h = h;
+            match tokio::time::timeout(Duration::from_secs(2), &mut h).await {
+                Ok(_) => {}
+                Err(_) => {
+                    h.abort();
+                    let _ = h.await;
+                }
+            }
+        }
+        if let Some(h) = self.native_handle.take() {
             let mut h = h;
             match tokio::time::timeout(Duration::from_secs(2), &mut h).await {
                 Ok(_) => {}
@@ -469,22 +526,27 @@ impl TestServer {
 
         let (shutdown_bus, _) =
             nodedb::control::shutdown::ShutdownBus::new(Arc::clone(&shared.shutdown));
+        let conn_semaphore = Arc::new(tokio::sync::Semaphore::new(128));
         let shared_pg = Arc::clone(&shared);
         let test_startup_gate = Arc::clone(&shared.startup);
         let bus_pg = shutdown_bus.clone();
+        let pg_sem = Arc::clone(&conn_semaphore);
         let pg_handle = tokio::spawn(async move {
             pg_listener
                 .run(
                     shared_pg,
                     AuthMode::Trust,
                     None,
-                    Arc::new(tokio::sync::Semaphore::new(128)),
+                    pg_sem,
                     test_startup_gate,
                     bus_pg,
                 )
                 .await
                 .unwrap();
         });
+
+        let (native_port, native_handle) =
+            bind_native_listener(&shared, &shutdown_bus, Arc::clone(&conn_semaphore)).await;
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -506,12 +568,14 @@ impl TestServer {
         Self {
             client: TestClient::new(client),
             pg_port: pg_addr.port(),
+            native_port,
             shared,
             conn_handle: Some(conn_handle),
             shutdown_bus: Some(shutdown_bus),
             poller_shutdown_tx: Some(poller_shutdown_tx),
             core_stop_txs: Some(core_stop_txs),
             pg_handle: Some(pg_handle),
+            native_handle: Some(native_handle),
             poller_handle: Some(poller_handle),
             core_handles: Some(core_handles),
             event_plane: Some(event_plane),
@@ -607,22 +671,27 @@ impl TestServer {
 
         let (shutdown_bus, _) =
             nodedb::control::shutdown::ShutdownBus::new(Arc::clone(&shared.shutdown));
+        let conn_semaphore = Arc::new(tokio::sync::Semaphore::new(128));
         let shared_pg = Arc::clone(&shared);
         let test_startup_gate = Arc::clone(&shared.startup);
         let bus_pg = shutdown_bus.clone();
+        let pg_sem = Arc::clone(&conn_semaphore);
         let pg_handle = tokio::spawn(async move {
             pg_listener
                 .run(
                     shared_pg,
                     AuthMode::Trust,
                     None,
-                    Arc::new(tokio::sync::Semaphore::new(128)),
+                    pg_sem,
                     test_startup_gate,
                     bus_pg,
                 )
                 .await
                 .unwrap();
         });
+
+        let (native_port, native_handle) =
+            bind_native_listener(&shared, &shutdown_bus, Arc::clone(&conn_semaphore)).await;
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -641,12 +710,14 @@ impl TestServer {
         Self {
             client: TestClient::new(client),
             pg_port: pg_addr.port(),
+            native_port,
             shared,
             conn_handle: Some(conn_handle),
             shutdown_bus: Some(shutdown_bus),
             poller_shutdown_tx: Some(poller_shutdown_tx),
             core_stop_txs: Some(core_stop_txs),
             pg_handle: Some(pg_handle),
+            native_handle: Some(native_handle),
             poller_handle: Some(poller_handle),
             core_handles: Some(core_handles),
             event_plane: Some(event_plane),
@@ -863,6 +934,9 @@ impl Drop for TestServer {
             h.abort();
         }
         if let Some(h) = self.pg_handle.take() {
+            h.abort();
+        }
+        if let Some(h) = self.native_handle.take() {
             h.abort();
         }
         if let Some(h) = self.poller_handle.take() {
