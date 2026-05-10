@@ -116,39 +116,46 @@ pub trait NodeDb: NodeDbMarker {
 
     // ─── Graph Operations ────────────────────────────────────────────
 
-    /// Traverse the graph from `start` up to `depth` hops.
+    /// Traverse the graph from `start` up to `depth` hops within
+    /// `collection`.
     ///
-    /// Returns the discovered subgraph (nodes + edges). Optional edge filter
-    /// constrains which edges are followed during traversal.
+    /// `collection` names the graph collection holding the adjacency
+    /// data. NodeDB's graph overlay scopes edges per collection, so the
+    /// caller picks which graph to walk. Returns the discovered subgraph
+    /// (nodes + edges). Optional edge filter constrains which edges are
+    /// followed.
     ///
     /// On Lite: direct CSR pointer-chasing in contiguous memory. Microseconds.
-    /// On Remote: `SELECT * FROM graph_traverse($1, $2, $3)`.
+    /// On Remote: `GRAPH TRAVERSE FROM '<start>' DEPTH <n> [LABEL '<l>']`.
     async fn graph_traverse(
         &self,
+        collection: &str,
         start: &NodeId,
         depth: u8,
         edge_filter: Option<&EdgeFilter>,
     ) -> NodeDbResult<SubGraph>;
 
-    /// Insert a directed edge from `from` to `to` with the given label.
+    /// Insert a directed edge from `from` to `to` with the given label
+    /// into `collection`.
     ///
     /// Returns the generated edge ID.
     ///
     /// On Lite: appends to mutable adjacency buffer + CRDT delta + SQLite.
-    /// On Remote: `INSERT INTO edges (src, dst, label, properties) VALUES (...)`.
+    /// On Remote: `GRAPH INSERT EDGE IN '<collection>' FROM '<from>' TO '<to>' TYPE '<label>'`.
     async fn graph_insert_edge(
         &self,
+        collection: &str,
         from: &NodeId,
         to: &NodeId,
         edge_type: &str,
         properties: Option<Document>,
     ) -> NodeDbResult<EdgeId>;
 
-    /// Delete a graph edge by ID.
+    /// Delete a graph edge by ID from `collection`.
     ///
     /// On Lite: marks deleted + CRDT tombstone.
-    /// On Remote: `DELETE FROM edges WHERE id = $1`.
-    async fn graph_delete_edge(&self, edge_id: &EdgeId) -> NodeDbResult<()>;
+    /// On Remote: `GRAPH DELETE EDGE IN '<collection>' FROM '<src>' TO '<dst>' TYPE '<label>'`.
+    async fn graph_delete_edge(&self, collection: &str, edge_id: &EdgeId) -> NodeDbResult<()>;
 
     // ─── Document Operations ─────────────────────────────────────────
 
@@ -238,6 +245,7 @@ pub trait NodeDb: NodeDbMarker {
     /// hops.
     async fn graph_shortest_path(
         &self,
+        collection: &str,
         from: &NodeId,
         to: &NodeId,
         max_depth: u8,
@@ -259,7 +267,9 @@ pub trait NodeDb: NodeDbMarker {
         for _ in 0..max_depth {
             let mut next_frontier: Vec<NodeId> = Vec::new();
             for node in &frontier {
-                let sg = self.graph_traverse(node, 1, edge_filter).await?;
+                let sg = self
+                    .graph_traverse(collection, node, 1, edge_filter)
+                    .await?;
                 for edge in &sg.edges {
                     // Only follow edges originating from the current
                     // node — `graph_traverse` may include adjacent
@@ -299,23 +309,29 @@ pub trait NodeDb: NodeDbMarker {
 
     // ─── Text Search ────────────────────────────────────────────────
 
-    /// Full-text search with BM25 scoring.
+    /// Full-text search with BM25 scoring against the FTS-indexed
+    /// `field` on `collection`.
     ///
-    /// Returns document IDs with relevance scores, ordered by descending score.
-    /// Pass [`TextSearchParams::default()`] for standard OR-mode non-fuzzy search.
+    /// NodeDB's FTS is per-field — every BM25 index is scoped to one
+    /// declared field, so the caller names which field to search.
+    /// Returns document IDs with relevance scores, ordered by
+    /// descending score. Pass [`TextSearchParams::default()`] for
+    /// standard OR-mode non-fuzzy search.
     ///
     /// Default returns `Err` — `Ok(Vec::new())` is indistinguishable
     /// from a real "no matches" answer and would silently mask the
     /// missing implementation. Implementations must override (e.g., a
-    /// `SEARCH ... USING TEXT(...)` round-trip via `execute_sql`).
+    /// `SEARCH IN '<collection>' FIELD '<field>' QUERY '<q>'` round-trip
+    /// via `execute_sql`).
     async fn text_search(
         &self,
         collection: &str,
+        field: &str,
         query: &str,
         top_k: usize,
         params: TextSearchParams,
     ) -> NodeDbResult<Vec<SearchResult>> {
-        let _ = (collection, query, top_k, params);
+        let _ = (collection, field, query, top_k, params);
         Err(NodeDbError::storage(
             "text_search is not implemented on this client",
         ))
@@ -335,14 +351,20 @@ pub trait NodeDb: NodeDbMarker {
         Ok(())
     }
 
-    /// Batch insert graph edges — amortizes CRDT delta export to O(1) per batch.
-    async fn batch_graph_insert_edges(&self, edges: &[(&str, &str, &str)]) -> NodeDbResult<()> {
+    /// Batch insert graph edges into `collection` — amortizes CRDT
+    /// delta export to O(1) per batch.
+    async fn batch_graph_insert_edges(
+        &self,
+        collection: &str,
+        edges: &[(&str, &str, &str)],
+    ) -> NodeDbResult<()> {
         for &(from, to, label) in edges {
             let src = NodeId::try_new(from)
                 .map_err(|e| NodeDbError::storage(format!("invalid node id: {e}")))?;
             let dst = NodeId::try_new(to)
                 .map_err(|e| NodeDbError::storage(format!("invalid node id: {e}")))?;
-            self.graph_insert_edge(&src, &dst, label, None).await?;
+            self.graph_insert_edge(collection, &src, &dst, label, None)
+                .await?;
         }
         Ok(())
     }
@@ -517,6 +539,7 @@ mod tests {
 
         async fn graph_traverse(
             &self,
+            _collection: &str,
             _start: &NodeId,
             _depth: u8,
             _edge_filter: Option<&EdgeFilter>,
@@ -526,6 +549,7 @@ mod tests {
 
         async fn graph_insert_edge(
             &self,
+            _collection: &str,
             from: &NodeId,
             to: &NodeId,
             edge_type: &str,
@@ -535,7 +559,11 @@ mod tests {
                 .map_err(|e| NodeDbError::storage(format!("invalid edge label: {e}")))
         }
 
-        async fn graph_delete_edge(&self, _edge_id: &EdgeId) -> NodeDbResult<()> {
+        async fn graph_delete_edge(
+            &self,
+            _collection: &str,
+            _edge_id: &EdgeId,
+        ) -> NodeDbResult<()> {
             Ok(())
         }
 
@@ -604,13 +632,13 @@ mod tests {
     async fn mock_graph_operations() {
         let db = MockDb;
         let start = NodeId::try_new("alice").expect("test fixture");
-        let subgraph = db.graph_traverse(&start, 2, None).await.unwrap();
+        let subgraph = db.graph_traverse("social", &start, 2, None).await.unwrap();
         assert_eq!(subgraph.node_count(), 0);
 
         let from = NodeId::try_new("alice").expect("test fixture");
         let to = NodeId::try_new("bob").expect("test fixture");
         let edge_id = db
-            .graph_insert_edge(&from, &to, "KNOWS", None)
+            .graph_insert_edge("social", &from, &to, "KNOWS", None)
             .await
             .unwrap();
         assert_eq!(edge_id.src.as_str(), "alice");
@@ -618,7 +646,7 @@ mod tests {
         assert_eq!(edge_id.label, "KNOWS");
         assert_eq!(edge_id.seq, 0);
 
-        db.graph_delete_edge(&edge_id).await.unwrap();
+        db.graph_delete_edge("social", &edge_id).await.unwrap();
     }
 
     #[tokio::test]
@@ -662,7 +690,10 @@ mod tests {
         assert!(!results.is_empty());
 
         let start = NodeId::from_validated(results[0].id.clone());
-        let _subgraph = db.graph_traverse(&start, 2, None).await.unwrap();
+        let _subgraph = db
+            .graph_traverse("knowledge_base", &start, 2, None)
+            .await
+            .unwrap();
 
         let doc = Document::new("note-1");
         db.document_put("notes", doc).await.unwrap();
