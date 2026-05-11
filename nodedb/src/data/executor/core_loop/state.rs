@@ -190,6 +190,16 @@ pub struct CoreLoop {
     pub(in crate::data::executor) columnar_memtables:
         HashMap<(TenantId, String), crate::engine::timeseries::columnar_memtable::ColumnarMemtable>,
 
+    /// Live engine-memory reservation for each columnar timeseries memtable's
+    /// resident footprint. Recharged via `recharge_ts_memtable_budget` after
+    /// every ingest (so the Timeseries budget tracks the memtable's actual
+    /// `memory_bytes()`) and dropped when `flush_ts_collection` drains the
+    /// memtable — so the flush release balances the reservation instead of
+    /// releasing bytes that were never reserved.
+    /// Key: (TenantId, collection).
+    pub(in crate::data::executor) columnar_memtable_mem:
+        HashMap<(TenantId, String), nodedb_mem::ReservationToken>,
+
     /// Per-collection columnar mutation engines for plain/spatial profiles.
     /// Uses `nodedb-columnar`'s `MutationEngine` with full INSERT/UPDATE/DELETE.
     /// Key: (TenantId, collection).

@@ -91,6 +91,7 @@ impl CoreLoop {
             let tid_key = TenantId::new(tenant_id);
             let before = self.columnar_memtables.len();
             self.columnar_memtables.retain(|(t, _), _| *t != tid_key);
+            self.columnar_memtable_mem.retain(|(t, _), _| *t != tid_key);
             self.ts_registries.retain(|(t, _), _| *t != tid_key);
             self.ts_max_ingested_lsn.retain(|(t, _), _| *t != tid_key);
             self.ts_last_value_caches.retain(|(t, _), _| *t != tid_key);

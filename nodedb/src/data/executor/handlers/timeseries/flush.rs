@@ -5,7 +5,7 @@
 use crate::data::executor::core_loop::CoreLoop;
 use crate::engine::timeseries::columnar_segment::ColumnarSegmentWriter;
 use crate::engine::timeseries::partition_registry::PartitionRegistry;
-use crate::types::TenantId;
+use crate::types::{DatabaseId, TenantId};
 
 impl CoreLoop {
     /// Ensure the partition registry is loaded for a timeseries collection.
@@ -83,15 +83,16 @@ impl CoreLoop {
             return;
         }
 
-        // Track memtable bytes for governor release after drain.
-        let memtable_bytes = mt.memory_bytes();
-
         let drain = mt.drain();
 
-        // Release timeseries budget after drain clears the memtable.
-        if let Some(ref gov) = self.governor {
-            gov.release(nodedb_mem::EngineId::Timeseries, memtable_bytes);
-        }
+        // The memtable is now empty — drop its memory reservation. The
+        // reservation tracked the full resident footprint (kept current by
+        // `recharge_ts_memtable_budget` after every ingest), so dropping the
+        // token here releases exactly what was reserved. This replaces the
+        // old `gov.release(Timeseries, memtable_bytes)` call, which released
+        // the memtable footprint against a budget that ingest had only ever
+        // charged a tiny per-batch estimate — an over-release on every flush.
+        self.columnar_memtable_mem.remove(&key);
 
         // Write to L1 segments.
         let segment_dir = self.data_dir.join(format!("ts/{collection}"));
@@ -143,6 +144,47 @@ impl CoreLoop {
                 aggregates = ?refreshed,
                 "continuous aggregates refreshed on flush"
             );
+        }
+    }
+
+    /// Re-charge the engine memory budget for a timeseries memtable's
+    /// current resident footprint.
+    ///
+    /// Called after every ingest into `collection`'s memtable (ILP/JSON/
+    /// msgpack ingest and WAL replay). Drops the previous reservation — so
+    /// the budget tracks the memtable's net `memory_bytes()`, not the sum
+    /// of every recharge — then takes a fresh one. If the reservation
+    /// can't be granted (budget exhausted), the memtable runs un-accounted
+    /// until the next flush: an under-count, never an over-release. The
+    /// pre-flush-on-pressure check in the ingest path already tries to
+    /// drain before reaching here, and `flush_ts_collection` drops the
+    /// reservation when it drains the memtable.
+    pub(in crate::data::executor) fn recharge_ts_memtable_budget(
+        &mut self,
+        tid: TenantId,
+        db_id: DatabaseId,
+        collection: &str,
+    ) {
+        let gov = match &self.governor {
+            Some(g) => g.clone(),
+            None => return,
+        };
+        let key = (tid, collection.to_string());
+        let bytes = match self.columnar_memtables.get(&key) {
+            Some(mt) => mt.memory_bytes(),
+            None => {
+                self.columnar_memtable_mem.remove(&key);
+                return;
+            }
+        };
+        // Release the prior reservation first so a recharge of an
+        // unchanged memtable nets to zero rather than double-counting.
+        self.columnar_memtable_mem.remove(&key);
+        if bytes == 0 {
+            return;
+        }
+        if let Ok(token) = gov.try_reserve(db_id, tid, nodedb_mem::EngineId::Timeseries, bytes) {
+            self.columnar_memtable_mem.insert(key, token);
         }
     }
 }

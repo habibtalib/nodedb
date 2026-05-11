@@ -92,20 +92,11 @@ impl CoreLoop {
                 );
             }
             let sample_count = batch.samples.len();
-            if sample_count > 0
-                && let Some(ref gov) = self.governor
-            {
-                // Best-effort reservation; token held for the scope of this
-                // replay call then released when dropped.
-                let _mem_token = gov
-                    .try_reserve(
-                        db_id,
-                        tid,
-                        nodedb_mem::EngineId::Timeseries,
-                        sample_count * 24,
-                    )
-                    .ok();
-            }
+            // Re-charge the engine memory budget to the memtable's resident
+            // footprint after replaying these samples. The reservation is
+            // held until the memtable is drained on flush, so a replay-driven
+            // flush balances its release instead of over-releasing.
+            self.recharge_ts_memtable_budget(tid, db_id, collection);
             return sample_count;
         }
 

@@ -194,19 +194,6 @@ impl CoreLoop {
                 },
             );
         };
-        // Reserve memory budget for this batch (~24 bytes per ILP line estimate).
-        // The token is held for the scope below where the batch is written to
-        // the memtable, then dropped (releasing the reservation) once done.
-        let batch_estimate = lines.len() * 24;
-        let _mem_token = self.governor.as_ref().and_then(|gov| {
-            gov.try_reserve(
-                task.request.database_id,
-                tid,
-                nodedb_mem::EngineId::Timeseries,
-                batch_estimate,
-            )
-            .ok()
-        });
 
         let stamps = if bitemporal {
             Some(ilp_ingest::BitempStamps { system_ms: now_ms })
@@ -268,6 +255,14 @@ impl CoreLoop {
 
         self.checkpoint_coordinator
             .mark_dirty("timeseries", accepted);
+
+        // Re-charge the engine memory budget to the memtable's current
+        // resident footprint. The reservation is held (in
+        // `columnar_memtable_mem`) until the memtable is drained on flush,
+        // so the Timeseries budget reflects what the memtable holds and the
+        // flush release is balanced — never `release()`-ing bytes that were
+        // never reserved.
+        self.recharge_ts_memtable_budget(tid, task.request.database_id, collection);
 
         // Include schema_columns when schema is new OR evolved.
         let include_schema = is_new_memtable || schema_changed;

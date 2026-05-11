@@ -145,6 +145,7 @@ impl CoreLoop {
             if self.columnar_memtables.remove(&key).is_some() {
                 r += 1;
             }
+            self.columnar_memtable_mem.remove(&key);
             self.ts_registries.remove(&key);
             self.ts_max_ingested_lsn.remove(&key);
             self.ts_last_value_caches.remove(&key);

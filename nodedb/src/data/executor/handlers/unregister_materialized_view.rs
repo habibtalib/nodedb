@@ -40,6 +40,8 @@ impl CoreLoop {
         // `columnar_flushed_segments` keyed by the MV name. Reclaim
         // is the same `retain` sweep as `execute_unregister_collection`.
         let memtable_removed = self.columnar_memtables.remove(&(tid, nm.clone())).is_some();
+        // Drop the memtable's engine-memory reservation alongside it.
+        self.columnar_memtable_mem.remove(&(tid, nm.clone()));
 
         let before_engines = self.columnar_engines.len();
         self.columnar_engines

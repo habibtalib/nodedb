@@ -113,6 +113,7 @@ impl CoreLoop {
                 nodedb_types::config::tuning::QueryTuning::default().doc_cache_entries,
             ),
             columnar_memtables: HashMap::new(),
+            columnar_memtable_mem: HashMap::new(),
             columnar_engines: HashMap::new(),
             columnar_flushed_segments: HashMap::new(),
             ts_max_ingested_lsn: HashMap::new(),
