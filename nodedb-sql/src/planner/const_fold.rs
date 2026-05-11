@@ -133,6 +133,19 @@ fn fold_cast(inner: SqlValue, to_type: &str) -> Option<SqlValue> {
             },
             _ => None,
         },
+        // `JSON` / `JSONB` — JSON values live internally as their text form
+        // in `SqlValue::String`; the write path parses JSON-looking strings
+        // into document structure. The cast elides to the inner value's JSON
+        // text (mirrors the `::tsvector` / `::tsquery` elision in the resolver).
+        "JSON" | "JSONB" => match inner {
+            SqlValue::String(s) => Some(SqlValue::String(s)),
+            SqlValue::Int(i) => Some(SqlValue::String(i.to_string())),
+            SqlValue::Float(f) => Some(SqlValue::String(f.to_string())),
+            SqlValue::Decimal(d) => Some(SqlValue::String(d.to_string())),
+            SqlValue::Bool(b) => Some(SqlValue::String(b.to_string())),
+            SqlValue::Null => Some(SqlValue::Null),
+            _ => None,
+        },
         _ => None,
     }
 }

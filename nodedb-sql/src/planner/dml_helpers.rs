@@ -28,72 +28,110 @@ pub(super) fn convert_value_rows(
 pub(super) fn expr_to_sql_value(expr: &ast::Expr) -> Result<SqlValue> {
     match expr {
         ast::Expr::Value(v) => convert_value(&v.value),
-        ast::Expr::UnaryOp {
-            op: ast::UnaryOperator::Minus,
-            expr: inner,
-        } => {
-            let val = expr_to_sql_value(inner)?;
-            match val {
-                SqlValue::Int(n) => Ok(SqlValue::Int(-n)),
-                SqlValue::Float(f) => Ok(SqlValue::Float(-f)),
-                SqlValue::Decimal(d) => Ok(SqlValue::Decimal(-d)),
-                _ => Err(SqlError::TypeMismatch {
-                    detail: "cannot negate non-numeric value".into(),
-                }),
-            }
-        }
+        // Array literals lower element-wise into `SqlValue::Array`; there is
+        // no array-literal `SqlValue` the constant folder could produce.
         ast::Expr::Array(ast::Array { elem, .. }) => {
             let vals = elem.iter().map(expr_to_sql_value).collect::<Result<_>>()?;
             Ok(SqlValue::Array(vals))
         }
-        ast::Expr::Function(func) => {
-            let func_name = func
-                .name
-                .0
-                .iter()
-                .map(|p| match p {
-                    ast::ObjectNamePart::Identifier(ident) => normalize_ident(ident),
-                    _ => String::new(),
-                })
-                .collect::<Vec<_>>()
-                .join(".")
-                .to_lowercase();
-            match func_name.as_str() {
-                "st_point" => {
-                    let args = super::select::extract_func_args(func)?;
-                    if args.len() >= 2 {
-                        let lon = super::select::extract_float(&args[0])?;
-                        let lat = super::select::extract_float(&args[1])?;
-                        Ok(SqlValue::String(format!(
-                            r#"{{"type":"Point","coordinates":[{lon},{lat}]}}"#
-                        )))
-                    } else {
-                        Ok(SqlValue::String(format!("{expr}")))
-                    }
-                }
-                "st_geomfromgeojson" => {
-                    let args = super::select::extract_func_args(func)?;
-                    if !args.is_empty() {
-                        let s = super::select::extract_string_literal(&args[0])?;
-                        Ok(SqlValue::String(s))
-                    } else {
-                        Ok(SqlValue::String(format!("{expr}")))
-                    }
-                }
-                _ => {
-                    if let Ok(sql_expr) = crate::resolver::expr::convert_expr(expr)
-                        && let Some(v) = super::const_fold::fold_constant_default(&sql_expr)
-                    {
-                        Ok(v)
-                    } else {
-                        Ok(SqlValue::String(format!("{expr}")))
-                    }
-                }
-            }
+        // `ST_Point(...)` / `ST_GeomFromGeoJSON(...)` synthesise a GeoJSON
+        // string in place rather than resolving as registered scalar
+        // functions, so they keep their bespoke handling.
+        ast::Expr::Function(func) => match SpatialConstructor::from_function(func) {
+            Some(ctor) => spatial_constructor_to_value(ctor, func),
+            // Non-spatial functions (`now()`, `date_add(...)`, registered
+            // scalars) fold through the shared pipeline below.
+            None => fold_constant_value(expr),
+        },
+        // Everything else — `::TYPE` / `CAST(... AS TYPE)` casts, arithmetic,
+        // string concatenation, parenthesised literals — goes through the
+        // same resolver and constant folder the `SELECT` projection path
+        // uses, so the two surfaces never drift. Only genuinely row- or
+        // runtime-dependent expressions (column refs, subqueries, unknown
+        // functions) fail here.
+        _ => fold_constant_value(expr),
+    }
+}
+
+fn fold_constant_value(expr: &ast::Expr) -> Result<SqlValue> {
+    let sql_expr = crate::resolver::expr::convert_expr(expr)?;
+    super::const_fold::fold_constant_default(&sql_expr).ok_or_else(|| SqlError::Unsupported {
+        detail: format!("value expression: {expr}"),
+    })
+}
+
+/// Spatial constructors that synthesise a GeoJSON string literal directly
+/// in value position (rather than going through the registered scalar
+/// evaluator). Closed set — adding a new constructor requires a new variant,
+/// which forces handling in `spatial_constructor_to_value`.
+#[derive(Copy, Clone)]
+enum SpatialConstructor {
+    Point,
+    GeomFromGeoJson,
+}
+
+impl SpatialConstructor {
+    fn from_function(func: &ast::Function) -> Option<Self> {
+        let name = func
+            .name
+            .0
+            .iter()
+            .map(|p| match p {
+                ast::ObjectNamePart::Identifier(ident) => normalize_ident(ident),
+                _ => String::new(),
+            })
+            .collect::<Vec<_>>()
+            .join(".")
+            .to_lowercase();
+        match name.as_str() {
+            "st_point" => Some(Self::Point),
+            "st_geomfromgeojson" => Some(Self::GeomFromGeoJson),
+            _ => None,
         }
-        _ => Err(SqlError::Unsupported {
-            detail: format!("value expression: {expr}"),
-        }),
+    }
+
+    fn display_name(self) -> &'static str {
+        match self {
+            Self::Point => "ST_Point",
+            Self::GeomFromGeoJson => "ST_GeomFromGeoJSON",
+        }
+    }
+}
+
+fn spatial_constructor_to_value(
+    ctor: SpatialConstructor,
+    func: &ast::Function,
+) -> Result<SqlValue> {
+    let args = super::select::extract_func_args(func)?;
+    match ctor {
+        SpatialConstructor::Point => {
+            if args.len() < 2 {
+                return Err(SqlError::InvalidFunction {
+                    detail: format!(
+                        "{} requires 2 arguments (longitude, latitude), got {}",
+                        ctor.display_name(),
+                        args.len()
+                    ),
+                });
+            }
+            let lon = super::select::extract_float(&args[0])?;
+            let lat = super::select::extract_float(&args[1])?;
+            Ok(SqlValue::String(format!(
+                r#"{{"type":"Point","coordinates":[{lon},{lat}]}}"#
+            )))
+        }
+        SpatialConstructor::GeomFromGeoJson => {
+            if args.is_empty() {
+                return Err(SqlError::InvalidFunction {
+                    detail: format!(
+                        "{} requires 1 argument (GeoJSON string)",
+                        ctor.display_name()
+                    ),
+                });
+            }
+            let s = super::select::extract_string_literal(&args[0])?;
+            Ok(SqlValue::String(s))
+        }
     }
 }
 
