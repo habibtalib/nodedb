@@ -91,6 +91,81 @@ async fn create_vector_index_accepts_valid_ivf_pq() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn create_vector_index_per_column_two_embeddings_on_one_collection() {
+    // GAP-9: `CREATE VECTOR INDEX ... ON <coll> (<column>) ...` names the
+    // embedding column the index covers, so one collection can carry several
+    // vector indexes (e.g. a text-embedding and an image-embedding column),
+    // each with its own params. Before the fix the `(<column>)` token was
+    // silently discarded and every index's config landed on the default
+    // (unnamed) field.
+    let server = TestServer::start().await;
+    server
+        .exec("CREATE COLLECTION vi_multi TYPE document")
+        .await
+        .unwrap();
+    server
+        .exec("CREATE VECTOR INDEX idx_vi_multi_text ON vi_multi (text_emb) METRIC cosine DIM 4")
+        .await
+        .expect("first per-column vector index must be accepted");
+    // A second vector index on a *different* column of the same collection
+    // must also be accepted (and use its own metric), not rejected as a
+    // duplicate / param change.
+    server
+        .exec("CREATE VECTOR INDEX idx_vi_multi_img ON vi_multi (image_emb) METRIC l2 DIM 8")
+        .await
+        .expect("second per-column vector index on a different column must be accepted");
+
+    for (id, t, i) in [
+        (
+            "a",
+            [0.10f32, 0.20, 0.30, 0.40],
+            [1.0f32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ),
+        (
+            "b",
+            [0.11, 0.21, 0.31, 0.41],
+            [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ),
+        (
+            "c",
+            [0.90, 0.80, 0.70, 0.60],
+            [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ),
+    ] {
+        server
+            .exec(&format!(
+                "INSERT INTO vi_multi (id, text_emb, image_emb) VALUES \
+                 ('{id}', ARRAY[{},{},{},{}], ARRAY[{},{},{},{},{},{},{},{}])",
+                t[0], t[1], t[2], t[3], i[0], i[1], i[2], i[3], i[4], i[5], i[6], i[7]
+            ))
+            .await
+            .unwrap();
+    }
+
+    let by_text = server
+        .query_text("SELECT id FROM vi_multi WHERE text_emb <=> ARRAY[0.1, 0.2, 0.3, 0.4] LIMIT 2")
+        .await
+        .unwrap();
+    assert_eq!(
+        by_text.len(),
+        2,
+        "search on the (text_emb) index must return its nearest rows; got {by_text:?}"
+    );
+
+    let by_image = server
+        .query_text(
+            "SELECT id FROM vi_multi WHERE image_emb <-> ARRAY[1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0] LIMIT 2",
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        by_image.len(),
+        2,
+        "search on the (image_emb) index must return its nearest rows; got {by_image:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn alter_vector_index_set_index_type_accepted() {
     let server = TestServer::start().await;
     server

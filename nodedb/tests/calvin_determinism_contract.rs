@@ -179,6 +179,7 @@ fn kv_no_ttl_byte_identical() {
 fn vector_insert_byte_identical() {
     let mut ops = vec![PhysicalPlan::Vector(VectorOp::SetParams {
         collection: "vecs".into(),
+        field_name: String::new(),
         m: 16,
         ef_construction: 200,
         metric: "cosine".into(),

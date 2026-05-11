@@ -121,6 +121,7 @@ fn transaction_batch_rollback_on_failure() {
         &mut rx,
         PhysicalPlan::Vector(VectorOp::SetParams {
             collection: "emb".into(),
+            field_name: String::new(),
             m: 16,
             ef_construction: 200,
             metric: "cosine".into(),
@@ -301,6 +302,7 @@ fn transaction_edge_put_rolled_back_on_failure() {
         &mut rx,
         PhysicalPlan::Vector(VectorOp::SetParams {
             collection: "emb".into(),
+            field_name: String::new(),
             m: 16,
             ef_construction: 200,
             metric: "cosine".into(),
@@ -413,6 +415,7 @@ fn transaction_mixed_doc_edge_vector_rollback() {
         &mut rx,
         PhysicalPlan::Vector(VectorOp::SetParams {
             collection: "vec".into(),
+            field_name: String::new(),
             m: 16,
             ef_construction: 200,
             metric: "cosine".into(),

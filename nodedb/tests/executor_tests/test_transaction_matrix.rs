@@ -28,6 +28,7 @@ use crate::helpers::*;
 fn vector_set_params(collection: &str) -> PhysicalPlan {
     PhysicalPlan::Vector(VectorOp::SetParams {
         collection: collection.into(),
+        field_name: String::new(),
         m: 16,
         ef_construction: 200,
         metric: "cosine".into(),

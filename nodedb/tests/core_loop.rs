@@ -76,6 +76,8 @@ mod test_tenant_purge;
 mod test_tenant_quota;
 #[path = "executor_tests/test_timeseries.rs"]
 mod test_timeseries;
+#[path = "executor_tests/test_timeseries_budget.rs"]
+mod test_timeseries_budget;
 #[path = "executor_tests/test_transaction.rs"]
 mod test_transaction;
 #[path = "executor_tests/test_transaction_matrix.rs"]

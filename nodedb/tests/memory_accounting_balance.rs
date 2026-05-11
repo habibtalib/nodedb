@@ -128,3 +128,108 @@ async fn engine_memory_returns_to_baseline_after_create_insert_drop() {
          it reserved."
     );
 }
+
+/// Restarting on a populated data directory (WAL replay re-applying
+/// recovered rows across every engine) must leave the memory governor
+/// in a sane state — no over-release events, and an allocation that
+/// reflects the data actually resident, not a phantom multi-GB figure.
+///
+/// This is the crash-recovery / restart half of the accounting
+/// contract. On boot, each engine's WAL-replay path reconstructs its
+/// in-memory state; if any of those paths releases bytes it never
+/// reserved, or reserves bytes it never releases, the post-restart
+/// governor view detaches from reality — and a budget that reads in
+/// the multi-GB range against a GB-scale limit reports permanent
+/// Emergency pressure, suspends the Data Plane core's SPSC reads, and
+/// deadlocks every subsequent DDL on the schema-register barrier (the
+/// reported "healthy /healthz, every query fails" state). The
+/// tolerance is deliberately huge (256 MiB) so this only fires on a
+/// genuine accounting blow-up, not on legitimately-resident replayed
+/// data.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wal_replay_restart_keeps_governor_accounting_sane() {
+    let srv = TestServer::start().await;
+
+    srv.exec(
+        "CREATE COLLECTION replay_kv (k TEXT PRIMARY KEY, v TEXT) \
+         WITH (engine='kv')",
+    )
+    .await
+    .unwrap();
+    srv.exec(
+        "CREATE COLLECTION replay_ts \
+         COLUMNS (id TEXT, ts BIGINT TIME_KEY, val FLOAT) \
+         WITH (engine='timeseries')",
+    )
+    .await
+    .unwrap();
+    srv.exec(
+        "CREATE COLLECTION replay_doc (id TEXT PRIMARY KEY, payload TEXT) \
+         WITH (engine='document_strict')",
+    )
+    .await
+    .unwrap();
+
+    for i in 0..300u32 {
+        srv.exec(&format!(
+            "INSERT INTO replay_kv (k, v) VALUES ('k{i}', 'v{i}')"
+        ))
+        .await
+        .unwrap();
+        srv.exec(&format!(
+            "INSERT INTO replay_ts (id, ts, val) VALUES ('s{}', {}, {}.5)",
+            i % 8,
+            1_000_000 + i as i64,
+            i
+        ))
+        .await
+        .unwrap();
+        srv.exec(&format!(
+            "INSERT INTO replay_doc (id, payload) VALUES ('d{i}', 'payload-{i}')"
+        ))
+        .await
+        .unwrap();
+    }
+
+    // Restart against the same data directory — this drives every
+    // engine's WAL-replay path on the new server's Data Plane core.
+    let (srv, dir) = srv.take_dir();
+    srv.graceful_shutdown().await;
+    let (srv2, _dir) = TestServer::open_on_path(dir).await;
+
+    // Sanity: the replayed data is actually queryable (so we know
+    // replay ran, not that it silently dropped everything).
+    let kv_rows = srv2
+        .query_rows("SELECT v FROM replay_kv WHERE k = 'k42'")
+        .await
+        .unwrap();
+    assert_eq!(kv_rows.len(), 1, "replayed KV row must be queryable");
+
+    let settled = settle_allocated(&srv2, Duration::from_secs(5)).await;
+    let gov = srv2
+        .shared
+        .governor
+        .as_ref()
+        .expect("governor wired into the restarted server")
+        .clone();
+
+    let over_releases = gov.total_over_release_count();
+    assert_eq!(
+        over_releases, 0,
+        "WAL replay produced {over_releases} over-release event(s): some \
+         engine's replay path released budget it never reserved. Each event \
+         is the production \"memory release exceeds allocation (WAL replay or \
+         accounting drift)\" warning, and it can corrupt the per-engine \
+         counter into the range that reads as permanent Emergency pressure."
+    );
+
+    const MAX_SANE_ALLOCATED: usize = 256 * 1024 * 1024;
+    assert!(
+        settled <= MAX_SANE_ALLOCATED,
+        "after WAL replay the governor reports {settled} B allocated — far \
+         beyond what the replayed data could occupy. A replay path is \
+         reserving bytes it never releases (or a counter underflowed and \
+         wrapped); the governor's view of memory has detached from reality, \
+         which is what drives the post-upgrade Emergency-pressure cascade."
+    );
+}
