@@ -207,19 +207,13 @@ impl CoreLoop {
                 if let Some(ref schema) = strict_schema
                     && window_specs.is_empty()
                 {
-                    let deduped = if distinct {
-                        let mut seen = std::collections::HashSet::new();
-                        sorted
-                            .into_iter()
-                            .filter(|(_, value)| seen.insert(value.clone()))
-                            .collect::<Vec<_>>()
-                    } else {
-                        sorted
-                    };
-                    let result: Vec<_> = deduped
+                    // SQL DISTINCT semantics require deduplication on the
+                    // *projected* row, not the raw document bytes — two rows
+                    // with the same `category` but different ids/payload are
+                    // distinct as documents but the same under
+                    // `SELECT DISTINCT category`. Project first, then dedupe.
+                    let projected_rows: Vec<_> = sorted
                         .into_iter()
-                        .skip(offset)
-                        .take(limit)
                         .map(|(doc_id, val)| {
                             let mp = decode_scanned_document_msgpack(&val, Some(schema));
                             let projected =
@@ -227,6 +221,16 @@ impl CoreLoop {
                             (doc_id, projected)
                         })
                         .collect();
+                    let deduped = if distinct {
+                        let mut seen = std::collections::HashSet::new();
+                        projected_rows
+                            .into_iter()
+                            .filter(|(_, value)| seen.insert(value.clone()))
+                            .collect::<Vec<_>>()
+                    } else {
+                        projected_rows
+                    };
+                    let result: Vec<_> = deduped.into_iter().skip(offset).take(limit).collect();
                     return self.send_document_rows_raw(task, &result, stream_chunk_size);
                 }
 
@@ -243,20 +247,10 @@ impl CoreLoop {
                         &window_specs,
                     );
 
-                    let deduped: Vec<_> = if distinct {
-                        let mut seen = std::collections::HashSet::new();
-                        decoded_rows
-                            .into_iter()
-                            .filter(|(_, v)| seen.insert(v.to_string()))
-                            .collect()
-                    } else {
-                        decoded_rows
-                    };
-
-                    let result: Vec<_> = deduped
+                    // Project first, then dedupe on the projected JSON value
+                    // so `SELECT DISTINCT col` honours SQL semantics.
+                    let projected_rows: Vec<_> = decoded_rows
                         .into_iter()
-                        .skip(offset)
-                        .take(limit)
                         .map(|(doc_id, data)| {
                             let projected = apply_projection(data, &computed_cols, projection);
                             DocumentRow {
@@ -266,25 +260,26 @@ impl CoreLoop {
                         })
                         .collect();
 
-                    self.send_document_rows_transformed(task, &result, stream_chunk_size)
-                } else {
-                    let deduped = if distinct {
+                    let deduped: Vec<_> = if distinct {
                         let mut seen = std::collections::HashSet::new();
-                        sorted
+                        projected_rows
                             .into_iter()
-                            .filter(|(_, value)| seen.insert(value.clone()))
+                            .filter(|row| seen.insert(row.data.to_string()))
                             .collect()
                     } else {
-                        sorted
+                        projected_rows
                     };
 
+                    let result: Vec<_> = deduped.into_iter().skip(offset).take(limit).collect();
+                    self.send_document_rows_transformed(task, &result, stream_chunk_size)
+                } else {
                     let needs_transform = !computed_cols.is_empty() || !projection.is_empty();
 
                     if needs_transform {
-                        let result: Vec<_> = deduped
+                        // Project first so DISTINCT acts on the projected
+                        // row, not the raw document.
+                        let projected_rows: Vec<_> = sorted
                             .into_iter()
-                            .skip(offset)
-                            .take(limit)
                             .map(|(doc_id, value)| {
                                 let mp = doc_format::json_to_msgpack(&value);
                                 let projected =
@@ -292,9 +287,30 @@ impl CoreLoop {
                                 (doc_id, projected)
                             })
                             .collect();
-
+                        let deduped = if distinct {
+                            let mut seen = std::collections::HashSet::new();
+                            projected_rows
+                                .into_iter()
+                                .filter(|(_, value)| seen.insert(value.clone()))
+                                .collect()
+                        } else {
+                            projected_rows
+                        };
+                        let result: Vec<_> = deduped.into_iter().skip(offset).take(limit).collect();
                         self.send_document_rows_raw(task, &result, stream_chunk_size)
                     } else {
+                        // No projection — `SELECT DISTINCT *` semantics dedupe
+                        // on the entire raw value, which is what the
+                        // pre-existing path does.
+                        let deduped = if distinct {
+                            let mut seen = std::collections::HashSet::new();
+                            sorted
+                                .into_iter()
+                                .filter(|(_, value)| seen.insert(value.clone()))
+                                .collect()
+                        } else {
+                            sorted
+                        };
                         let rows: Vec<_> = deduped.into_iter().skip(offset).take(limit).collect();
                         self.send_document_rows_raw(task, &rows, stream_chunk_size)
                     }
