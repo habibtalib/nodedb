@@ -58,7 +58,7 @@ nodedb-strict = { path = "nodedb-strict", version = "0.2" }
 nodedb-columnar = { path = "nodedb-columnar", version = "0.2" }
 nodedb-array = { path = "nodedb-array", version = "0.2" }
 nodedb-sql = { path = "nodedb-sql", version = "0.2" }
-nodedb-test-support = { path = "nodedb-test-support", version = "0.2" }
+nodedb-test-support = { path = "nodedb-test-support" }
 
 # Async runtimes
 tokio = { version = "1", features = ["full"] }
