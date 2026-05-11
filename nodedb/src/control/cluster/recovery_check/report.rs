@@ -27,11 +27,18 @@ pub struct VerifyReport {
     pub applied_index_ok: bool,
     /// Raw gap observed by the applied-index gate (0 if no gap).
     pub applied_index_gap: u64,
-    /// Cross-table referential integrity violations. These are
-    /// NOT auto-repaired — the safe recovery is to re-run the
-    /// applier against the raft log, which is the operator's
-    /// job.
+    /// Cross-table referential integrity violations that the
+    /// self-heal pass could not repair (primary row gone, catalog
+    /// write failed, or a divergence kind without a reconstruction
+    /// rule). Anything left here still aborts startup.
     pub integrity_violations: Vec<Divergence>,
+    /// Count of `OrphanRow` integrity violations the self-heal pass
+    /// repaired by reconstructing `StoredOwner` entries from the
+    /// surviving primary rows' in-band `owner` fields. Surfaced in
+    /// metrics and the log line so operators can tell "we saw an
+    /// orphan and silently healed it" apart from "no orphan was ever
+    /// present".
+    pub integrity_repaired: usize,
     /// Per-registry divergence counts. The verify path attempts
     /// repair (swap-in fresh re-load) and records whether it
     /// succeeded.
@@ -70,10 +77,12 @@ impl fmt::Display for VerifyReport {
         write!(
             f,
             "catalog_sanity: applied_index_ok={} gap={} integrity_violations={} \
-             registry_divergences={} repaired={} all_repairs_ok={} elapsed={:?}",
+             integrity_repaired={} registry_divergences={} repaired={} \
+             all_repairs_ok={} elapsed={:?}",
             self.applied_index_ok,
             self.applied_index_gap,
             self.integrity_violations.len(),
+            self.integrity_repaired,
             self.total_registry_divergences(),
             self.total_registry_repairs(),
             self.all_repairs_ok,
@@ -105,6 +114,7 @@ mod tests {
             applied_index_ok: true,
             applied_index_gap: 0,
             integrity_violations: vec![],
+            integrity_repaired: 0,
             registry_divergences: HashMap::new(),
             all_repairs_ok: true,
             elapsed: Duration::from_millis(5),
@@ -125,6 +135,7 @@ mod tests {
                     expected_parent_kind: "owner",
                 },
             )],
+            integrity_repaired: 0,
             registry_divergences: HashMap::new(),
             all_repairs_ok: true,
             elapsed: Duration::from_millis(5),
@@ -138,6 +149,7 @@ mod tests {
             applied_index_ok: false,
             applied_index_gap: 42,
             integrity_violations: vec![],
+            integrity_repaired: 0,
             registry_divergences: HashMap::new(),
             all_repairs_ok: true,
             elapsed: Duration::from_millis(5),
@@ -159,6 +171,7 @@ mod tests {
             applied_index_ok: true,
             applied_index_gap: 0,
             integrity_violations: vec![],
+            integrity_repaired: 0,
             registry_divergences: d,
             all_repairs_ok: false,
             elapsed: Duration::from_millis(5),
@@ -174,6 +187,7 @@ mod tests {
             applied_index_ok: true,
             applied_index_gap: 0,
             integrity_violations: vec![],
+            integrity_repaired: 0,
             registry_divergences: HashMap::new(),
             all_repairs_ok: true,
             elapsed: Duration::from_millis(12),

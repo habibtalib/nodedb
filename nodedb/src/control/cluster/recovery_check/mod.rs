@@ -37,6 +37,7 @@ pub mod applied_index;
 pub mod divergence;
 pub mod integrity;
 pub mod registry_verify;
+pub mod repair_integrity;
 pub mod report;
 pub mod verify;
 
