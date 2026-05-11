@@ -48,13 +48,11 @@ pub enum TimeseriesOp {
         /// written after the given epoch-ms. Only populated for
         /// timeseries collections created `WITH BITEMPORAL`.
         #[serde(default)]
-        #[msgpack(default)]
         system_as_of_ms: Option<i64>,
         /// Bitemporal valid-time point. When `Some`, only rows whose
         /// `[_ts_valid_from, _ts_valid_until)` interval contains this
         /// point are returned.
         #[serde(default)]
-        #[msgpack(default)]
         valid_at_ms: Option<i64>,
     },
 
@@ -78,7 +76,6 @@ pub enum TimeseriesOp {
         /// CP-driven re-derivation pattern is owned by the timeseries
         /// engine integration.
         #[serde(default)]
-        #[msgpack(default)]
         surrogates: Vec<Surrogate>,
     },
 }

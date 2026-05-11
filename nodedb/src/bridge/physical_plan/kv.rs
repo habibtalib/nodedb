@@ -32,7 +32,6 @@ pub enum KvOp {
         /// source allocated AFTER the clone's AS-OF must not leak
         /// through.  `None` for normal (non-clone-delegated) gets.
         #[serde(default)]
-        #[msgpack(default)]
         surrogate_ceiling: Option<u32>,
     },
 
@@ -114,7 +113,6 @@ pub enum KvOp {
         /// Sort keys: `(field, descending)` pairs applied to the scan result
         /// before encoding. Empty = unsorted (engine native order).
         #[serde(default)]
-        #[msgpack(default)]
         sort_keys: Vec<(String, bool)>,
         /// Clone snapshot-isolation ceiling: when set, scan results
         /// drop entries whose surrogate exceeds this value.  Populated
@@ -123,7 +121,6 @@ pub enum KvOp {
         /// allocated AFTER the clone's AS-OF must not leak through.
         /// `None` for normal (non-clone-delegated) scans.
         #[serde(default)]
-        #[msgpack(default)]
         surrogate_ceiling: Option<u32>,
     },
 

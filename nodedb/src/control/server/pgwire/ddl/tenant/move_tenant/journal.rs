@@ -40,6 +40,7 @@ pub enum MovePhase {
 
 /// Persisted state for a single in-progress `MOVE TENANT` operation.
 #[derive(zerompk::ToMessagePack, zerompk::FromMessagePack, Debug, Clone)]
+#[msgpack(map)]
 pub struct MoveTenantJournalEntry {
     pub tenant_id: u64,
     pub tenant_name: String,

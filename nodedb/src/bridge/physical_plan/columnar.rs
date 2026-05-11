@@ -69,19 +69,16 @@ pub enum ColumnarOp {
         /// is ≤ this value. `None` = current-state read. Only populated
         /// for collections created `WITH BITEMPORAL`.
         #[serde(default)]
-        #[msgpack(default)]
         system_as_of_ms: Option<i64>,
         /// Bitemporal valid-time predicate: keep rows whose
         /// `[_ts_valid_from, _ts_valid_until)` interval contains this
         /// point. `None` = no valid-time filter.
         #[serde(default)]
-        #[msgpack(default)]
         valid_at_ms: Option<i64>,
         /// Optional surrogate prefilter injected by a cross-engine sub-plan.
         /// When present, the scan skips rows whose surrogate is absent from
         /// this bitmap. `None` = no prefilter; full collection is scanned.
         #[serde(default)]
-        #[msgpack(default)]
         prefilter: Option<SurrogateBitmap>,
     },
 

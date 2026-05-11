@@ -43,6 +43,7 @@ pub trait SchemaOps {
     zerompk::ToMessagePack,
     zerompk::FromMessagePack,
 )]
+#[msgpack(map)]
 pub struct StrictSchema {
     pub columns: Vec<ColumnDef>,
     pub version: u32,

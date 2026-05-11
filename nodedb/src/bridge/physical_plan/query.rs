@@ -70,7 +70,6 @@ pub enum QueryOp {
         /// for plain GROUP BY). The executor applies the sort after all
         /// groups are finalized and HAVING is filtered.
         #[serde(default)]
-        #[msgpack(default)]
         sort_keys: Vec<(String, bool)>,
     },
 

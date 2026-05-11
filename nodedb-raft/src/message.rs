@@ -138,6 +138,7 @@ pub struct RequestVoteResponse {
     zerompk::ToMessagePack,
     zerompk::FromMessagePack,
 )]
+#[msgpack(map)]
 pub struct InstallSnapshotRequest {
     /// Leader's term.
     pub term: u64,

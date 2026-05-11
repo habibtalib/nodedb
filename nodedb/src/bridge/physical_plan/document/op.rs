@@ -92,7 +92,6 @@ pub enum DocumentOp {
         pk_bytes: Vec<u8>,
         /// When `Some`, return the pre-deletion document projected per spec.
         #[serde(default)]
-        #[msgpack(default)]
         returning: Option<ReturningSpec>,
     },
 
@@ -109,7 +108,6 @@ pub enum DocumentOp {
         updates: Vec<(String, UpdateValue)>,
         /// When `Some`, return the post-update document projected per spec.
         #[serde(default)]
-        #[msgpack(default)]
         returning: Option<ReturningSpec>,
     },
 
@@ -138,7 +136,6 @@ pub enum DocumentOp {
         /// When present, the scan skips rows whose surrogate is absent from
         /// this bitmap. `None` = no prefilter; full collection is scanned.
         #[serde(default)]
-        #[msgpack(default)]
         prefilter: Option<SurrogateBitmap>,
     },
 
@@ -295,7 +292,6 @@ pub enum DocumentOp {
         /// Additional WHERE predicates applying only to the target (msgpack).
         target_filters: Vec<u8>,
         #[serde(default)]
-        #[msgpack(default)]
         returning: Option<ReturningSpec>,
     },
 
@@ -306,7 +302,6 @@ pub enum DocumentOp {
         updates: Vec<(String, UpdateValue)>,
         /// When `Some`, return updated documents projected per spec.
         #[serde(default)]
-        #[msgpack(default)]
         returning: Option<ReturningSpec>,
         /// Optimistic pre-execution predicted matching surrogates (OLLP path).
         ///
@@ -315,7 +310,6 @@ pub enum DocumentOp {
         /// mismatch the executor returns `ErrorCode::OllpRetryRequired` without
         /// writing. `None` on the non-OLLP (static-set) path — no verification.
         #[serde(default)]
-        #[msgpack(default)]
         ollp_predicted_surrogates: Option<Vec<u32>>,
     },
 
@@ -325,7 +319,6 @@ pub enum DocumentOp {
         filters: Vec<u8>,
         /// When `Some`, return pre-deletion documents projected per spec.
         #[serde(default)]
-        #[msgpack(default)]
         returning: Option<ReturningSpec>,
         /// Optimistic pre-execution predicted matching surrogates (OLLP path).
         ///
@@ -334,7 +327,6 @@ pub enum DocumentOp {
         /// mismatch the executor returns `ErrorCode::OllpRetryRequired` without
         /// writing. `None` on the non-OLLP (static-set) path — no verification.
         #[serde(default)]
-        #[msgpack(default)]
         ollp_predicted_surrogates: Option<Vec<u32>>,
     },
 
@@ -358,7 +350,6 @@ pub enum DocumentOp {
         source_join_col: String,
         clauses: Vec<MergeClauseOp>,
         #[serde(default)]
-        #[msgpack(default)]
         returning: Option<ReturningSpec>,
     },
 

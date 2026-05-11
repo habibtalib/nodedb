@@ -58,6 +58,7 @@ impl<'a> zerompk::FromMessagePack<'a> for NativeRequest {
 #[derive(
     Debug, Clone, Serialize, Deserialize, zerompk::ToMessagePack, zerompk::FromMessagePack,
 )]
+#[msgpack(map)]
 pub struct NativeResponse {
     /// Echoed from the request for correlation.
     pub seq: u64,
