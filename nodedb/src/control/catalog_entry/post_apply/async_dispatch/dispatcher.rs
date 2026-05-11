@@ -64,6 +64,24 @@ pub fn spawn_post_apply_async_side_effects(
                 super::materialized_view::delete_async(tenant_id, name, shared).await;
             });
         }
+        // `PutContinuousAggregate` dispatches register to every core on
+        // this node so the local `continuous_agg_mgr` picks up the new
+        // definition after a raft commit without re-issuing DDL.
+        CatalogEntry::PutContinuousAggregate(stored) => {
+            let tenant_id = stored.tenant_id;
+            let name = stored.name.clone();
+            let def_bytes = stored.def_bytes.clone();
+            tokio::spawn(async move {
+                super::continuous_aggregate::put_async(tenant_id, name, def_bytes, shared).await;
+            });
+        }
+        // `DeleteContinuousAggregate` dispatches unregister to every
+        // core so per-node runtime state is reclaimed symmetrically.
+        CatalogEntry::DeleteContinuousAggregate { tenant_id, name } => {
+            tokio::spawn(async move {
+                super::continuous_aggregate::delete_async(tenant_id, name, shared).await;
+            });
+        }
         // ── Variants with no async side effect today ─────────────────────────
         // Listed explicitly (no `_ => {}`) so the compiler forces a decision
         // when a new variant is added. Note: `DeleteTrigger` and
@@ -92,6 +110,8 @@ pub fn spawn_post_apply_async_side_effects(
         | CatalogEntry::PutApiKey(_)
         | CatalogEntry::RevokeApiKey { .. }
         | CatalogEntry::PutMaterializedView(_)
+        // PutContinuousAggregate / DeleteContinuousAggregate have their
+        // own async branches above; they do not appear here.
         | CatalogEntry::PutTenant(_)
         | CatalogEntry::DeleteTenant { .. }
         | CatalogEntry::PutRlsPolicy(_)

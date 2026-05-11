@@ -2,10 +2,10 @@
 
 //! Shared propose-and-apply helper for parent-replicated DDL.
 //!
-//! Every `CREATE` / `ALTER` handler for the eight parent-replicated
+//! Every `CREATE` / `ALTER` handler for the nine parent-replicated
 //! object types (collection, function, procedure, trigger,
-//! materialized_view, sequence, schedule, change_stream) follows the
-//! same three-step ritual:
+//! materialized_view, sequence, schedule, change_stream,
+//! continuous_aggregate) follows the same three-step ritual:
 //!
 //! 1. Build a `CatalogEntry::Put*(...)` variant.
 //! 2. Propose it through the metadata raft group; the applier on each

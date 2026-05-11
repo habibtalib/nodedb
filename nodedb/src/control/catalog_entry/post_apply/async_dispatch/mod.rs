@@ -20,6 +20,7 @@
 //! [sync]: crate::control::catalog_entry::post_apply::sync
 
 pub mod collection;
+pub mod continuous_aggregate;
 mod dispatcher;
 pub mod materialized_view;
 

@@ -12,6 +12,7 @@
 pub mod api_key;
 pub mod change_stream;
 pub mod collection;
+pub mod continuous_aggregate;
 pub mod custom_type;
 pub mod database;
 pub mod function;
@@ -115,6 +116,10 @@ fn apply_to_inner(entry: &CatalogEntry, catalog: &SystemCatalog) {
         CatalogEntry::PutMaterializedView(stored) => materialized_view::put(stored, catalog),
         CatalogEntry::DeleteMaterializedView { tenant_id, name } => {
             materialized_view::delete(*tenant_id, name, catalog)
+        }
+        CatalogEntry::PutContinuousAggregate(stored) => continuous_aggregate::put(stored, catalog),
+        CatalogEntry::DeleteContinuousAggregate { tenant_id, name } => {
+            continuous_aggregate::delete(*tenant_id, name, catalog)
         }
         CatalogEntry::PutTenant(stored) => tenant::put(stored, catalog),
         CatalogEntry::DeleteTenant { tenant_id } => tenant::delete(*tenant_id, catalog),

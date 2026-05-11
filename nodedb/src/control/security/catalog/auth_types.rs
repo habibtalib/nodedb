@@ -154,6 +154,7 @@ pub mod object_type {
     pub const SEQUENCE: &str = "sequence";
     pub const SCHEDULE: &str = "schedule";
     pub const CHANGE_STREAM: &str = "change_stream";
+    pub const CONTINUOUS_AGGREGATE: &str = "continuous_aggregate";
     /// Standalone-path owner — used for indexes that have no
     /// parent `Stored<T>` record.
     pub const INDEX: &str = "index";

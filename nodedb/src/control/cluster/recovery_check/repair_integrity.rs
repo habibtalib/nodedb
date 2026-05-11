@@ -160,8 +160,13 @@ fn primary_row_owner(
             .ok()
             .flatten()
             .map(|c| c.owner),
+        object_type::CONTINUOUS_AGGREGATE => catalog
+            .get_continuous_aggregate(tenant_id, name)
+            .ok()
+            .flatten()
+            .map(|c| c.owner),
         // Unknown kinds shouldn't appear in OrphanRow today (the
-        // verifier only flags the 8 parent-replicated types) but
+        // verifier only flags the parent-replicated types) but
         // surface here as "couldn't repair" rather than crashing.
         _ => None,
     }

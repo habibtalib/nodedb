@@ -15,6 +15,8 @@ pub mod collection_constraints;
 pub mod collections;
 pub mod column_stats;
 pub mod consumer_groups;
+pub mod continuous_aggregate;
+pub mod continuous_aggregates;
 pub mod custom_types;
 pub mod database;
 pub mod database_grants;
@@ -83,5 +85,6 @@ pub use synonym_groups::StoredSynonymGroup;
 pub use system_catalog::SystemCatalog;
 pub use trigger_types::StoredTrigger;
 pub use types::{
-    IndexBuildState, StoredCollection, StoredIndex, StoredMaterializedView, catalog_err, owner_key,
+    IndexBuildState, StoredCollection, StoredContinuousAggregate, StoredIndex,
+    StoredMaterializedView, catalog_err, owner_key,
 };

@@ -19,8 +19,9 @@ use std::sync::Arc;
 
 use super::gateway_invalidation::invalidate_gateway_cache_for_entry;
 use super::{
-    api_key, change_stream, collection, custom_type, database, function, materialized_view, owner,
-    permission, procedure, rls, role, schedule, sequence, synonym_group, tenant, trigger, user,
+    api_key, change_stream, collection, continuous_aggregate, custom_type, database, function,
+    materialized_view, owner, permission, procedure, rls, role, schedule, sequence, synonym_group,
+    tenant, trigger, user,
 };
 use crate::control::catalog_entry::entry::CatalogEntry;
 use crate::control::state::SharedState;
@@ -115,6 +116,12 @@ pub fn apply_post_apply_side_effects_sync(entry: &CatalogEntry, shared: &Arc<Sha
         }
         CatalogEntry::DeleteMaterializedView { tenant_id, name } => {
             materialized_view::delete(*tenant_id, name.clone(), Arc::clone(shared));
+        }
+        CatalogEntry::PutContinuousAggregate(stored) => {
+            continuous_aggregate::put((**stored).clone(), Arc::clone(shared));
+        }
+        CatalogEntry::DeleteContinuousAggregate { tenant_id, name } => {
+            continuous_aggregate::delete(*tenant_id, name.clone(), Arc::clone(shared));
         }
         CatalogEntry::PutTenant(stored) => {
             tenant::put((**stored).clone(), Arc::clone(shared));

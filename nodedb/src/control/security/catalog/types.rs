@@ -8,6 +8,7 @@
 //! - `tables.rs` — every `redb::TableDefinition` constant.
 //! - `collection.rs` — `IndexBuildState`, `StoredIndex`, `StoredCollection`.
 //! - `materialized_view.rs` — `StoredMaterializedView`.
+//! - `continuous_aggregate.rs` — `StoredContinuousAggregate`.
 //! - `checkpoint.rs` — `CheckpointRecord`.
 //! - `auth_types.rs` — user, role, tenant, permission, audit, blacklist, owner records.
 //! - `collection_constraints.rs` — constraint and field/event definitions.
@@ -22,6 +23,7 @@ pub use super::collection_constraints::{
     BalancedConstraintDef, CheckConstraintDef, EventDefinition, FieldDefinition, LegalHold,
     MaterializedSumDef, PeriodLockDef, StateTransitionDef, TransitionCheckDef, TransitionRule,
 };
+pub use super::continuous_aggregate::StoredContinuousAggregate;
 pub use super::materialized_view::StoredMaterializedView;
 pub use super::system_catalog::SystemCatalog;
 
@@ -33,13 +35,14 @@ pub use super::system_catalog::SystemCatalog;
 pub(super) use super::tables::{
     ALERT_RULES, API_KEYS, ARRAYS, AUDIT_LOG, AUTH_USERS, BLACKLIST, CHANGE_STREAMS, CHECKPOINTS,
     CLONE_COPYUPS, CLONE_KV_TOMBSTONES, CLONE_LINEAGE, CLONE_TOMBSTONES, COLLECTIONS,
-    COLLECTIONS_LEGACY, COLUMN_STATS, CONSUMER_GROUPS, CUSTOM_TYPES, DATABASE_GRANTS, DATABASE_HWM,
-    DATABASE_QUOTAS, DATABASES, DATABASES_BY_NAME, DEPENDENCIES, FUNCTIONS, L2_CLEANUP_QUEUE,
-    LOCKOUT_STATE, MATERIALIZED_VIEWS, METADATA, MIRROR_COLLECTION_MAP, MIRROR_LAG, OIDC_PROVIDERS,
-    ORG_MEMBERS, ORGS, OWNERS, PERMISSIONS, PROCEDURES, RETENTION_POLICIES, ROLES, SCHEDULES,
-    SCOPE_GRANTS, SCOPES, SEQUENCE_STATE, SEQUENCES, STREAMING_MVS, SURROGATE_PK,
-    SURROGATE_PK_LEGACY, SURROGATE_PK_REV, SURROGATE_PK_REV_LEGACY, SYNONYM_GROUPS, TENANT_QUOTAS,
-    TENANTS, TOPICS_EP, TRIGGERS, USERS, VECTOR_MODEL_METADATA, WAL_TOMBSTONES, WASM_MODULES,
+    COLLECTIONS_LEGACY, COLUMN_STATS, CONSUMER_GROUPS, CONTINUOUS_AGGREGATES, CUSTOM_TYPES,
+    DATABASE_GRANTS, DATABASE_HWM, DATABASE_QUOTAS, DATABASES, DATABASES_BY_NAME, DEPENDENCIES,
+    FUNCTIONS, L2_CLEANUP_QUEUE, LOCKOUT_STATE, MATERIALIZED_VIEWS, METADATA,
+    MIRROR_COLLECTION_MAP, MIRROR_LAG, OIDC_PROVIDERS, ORG_MEMBERS, ORGS, OWNERS, PERMISSIONS,
+    PROCEDURES, RETENTION_POLICIES, ROLES, SCHEDULES, SCOPE_GRANTS, SCOPES, SEQUENCE_STATE,
+    SEQUENCES, STREAMING_MVS, SURROGATE_PK, SURROGATE_PK_LEGACY, SURROGATE_PK_REV,
+    SURROGATE_PK_REV_LEGACY, SYNONYM_GROUPS, TENANT_QUOTAS, TENANTS, TOPICS_EP, TRIGGERS, USERS,
+    VECTOR_MODEL_METADATA, WAL_TOMBSTONES, WASM_MODULES,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────

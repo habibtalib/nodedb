@@ -117,6 +117,17 @@ pub fn stamp(entry: CatalogEntry, clock: &HlcClock, catalog: &SystemCatalog) -> 
             stored.modification_hlc = hlc;
             CatalogEntry::PutSequence(stored)
         }
+        CatalogEntry::PutContinuousAggregate(mut stored) => {
+            let prior = catalog
+                .get_continuous_aggregate(stored.tenant_id, &stored.name)
+                .ok()
+                .flatten()
+                .map(|c| c.descriptor_version)
+                .unwrap_or(0);
+            stored.descriptor_version = prior.saturating_add(1);
+            stored.modification_hlc = hlc;
+            CatalogEntry::PutContinuousAggregate(stored)
+        }
         // Variants without descriptor versioning pass through
         // unchanged. Exhaustive match forces explicit handling of
         // any future variant added to `CatalogEntry`.
@@ -126,6 +137,7 @@ pub fn stamp(entry: CatalogEntry, clock: &HlcClock, catalog: &SystemCatalog) -> 
         | CatalogEntry::DeleteProcedure { .. }
         | CatalogEntry::DeleteTrigger { .. }
         | CatalogEntry::DeleteMaterializedView { .. }
+        | CatalogEntry::DeleteContinuousAggregate { .. }
         | CatalogEntry::DeleteSequence { .. }
         | CatalogEntry::PutSequenceState(_)
         | CatalogEntry::PutSchedule(_)

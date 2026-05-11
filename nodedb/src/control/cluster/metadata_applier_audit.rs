@@ -177,6 +177,12 @@ pub(super) fn describe_entry(e: &catalog_entry::CatalogEntry) -> (String, u64, S
         E::RevokeApiKey { key_id, .. } => (key_id.clone(), 0, String::new()),
         E::PutMaterializedView(m) => (m.name.clone(), 0, String::new()),
         E::DeleteMaterializedView { name, .. } => (name.clone(), 0, String::new()),
+        E::PutContinuousAggregate(c) => (
+            c.name.clone(),
+            c.descriptor_version,
+            format!("{:?}", c.modification_hlc),
+        ),
+        E::DeleteContinuousAggregate { name, .. } => (name.clone(), 0, String::new()),
         E::PutTenant(t) => (t.name.clone(), 0, String::new()),
         E::DeleteTenant { tenant_id, .. } => (tenant_id.to_string(), 0, String::new()),
         E::PutRlsPolicy(p) => (p.name.clone(), 0, String::new()),

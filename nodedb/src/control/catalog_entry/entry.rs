@@ -9,8 +9,8 @@
 //! matches).
 
 use crate::control::security::catalog::{
-    StoredCollection, StoredCustomType, StoredMaterializedView, StoredOidcProvider,
-    StoredRlsPolicy, StoredSynonymGroup,
+    StoredCollection, StoredContinuousAggregate, StoredCustomType, StoredMaterializedView,
+    StoredOidcProvider, StoredRlsPolicy, StoredSynonymGroup,
     auth_types::{
         StoredApiKey, StoredOwner, StoredPermission, StoredRole, StoredTenant, StoredUser,
     },
@@ -164,6 +164,19 @@ pub enum CatalogEntry {
     /// collection is NOT deleted — operators drop it separately
     /// with `DROP COLLECTION` if desired.
     DeleteMaterializedView { tenant_id: u64, name: String },
+
+    // ── Continuous Aggregate ───────────────────────────────────────
+    /// Upsert a continuous-aggregate definition. The applier writes
+    /// the catalog row plus the owner row; the post-apply sync
+    /// re-dispatches `MetaOp::RegisterContinuousAggregate` to the
+    /// local Data Plane so the runtime manager picks up the change
+    /// without re-issuing DDL.
+    PutContinuousAggregate(Box<StoredContinuousAggregate>),
+    /// Delete a continuous-aggregate definition. The target
+    /// collection that holds materialized rows is NOT deleted —
+    /// operators drop it separately with `DROP COLLECTION` if
+    /// desired (mirrors the materialized-view contract).
+    DeleteContinuousAggregate { tenant_id: u64, name: String },
 
     // ── Tenant ─────────────────────────────────────────────────────
     /// Upsert a tenant identity record. Quotas are NOT part of
@@ -326,6 +339,8 @@ impl CatalogEntry {
             Self::RevokeApiKey { .. } => "revoke_api_key",
             Self::PutMaterializedView(_) => "put_materialized_view",
             Self::DeleteMaterializedView { .. } => "delete_materialized_view",
+            Self::PutContinuousAggregate(_) => "put_continuous_aggregate",
+            Self::DeleteContinuousAggregate { .. } => "delete_continuous_aggregate",
             Self::PutTenant(_) => "put_tenant",
             Self::DeleteTenant { .. } => "delete_tenant",
             Self::PutRlsPolicy(_) => "put_rls_policy",

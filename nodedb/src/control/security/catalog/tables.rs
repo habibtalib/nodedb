@@ -78,6 +78,10 @@ pub(super) const L2_CLEANUP_QUEUE: TableDefinition<(u64, &str), &[u8]> =
 pub(super) const MATERIALIZED_VIEWS: TableDefinition<&str, &[u8]> =
     TableDefinition::new("_system.materialized_views");
 
+/// Table: "{tenant_id}:{name}" -> MessagePack-serialized continuous aggregate metadata.
+pub(super) const CONTINUOUS_AGGREGATES: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("_system.continuous_aggregates");
+
 /// Table: "{tenant_id}:{name}" -> MessagePack-serialized user function definition.
 pub(super) const FUNCTIONS: TableDefinition<&str, &[u8]> =
     TableDefinition::new("_system.functions");

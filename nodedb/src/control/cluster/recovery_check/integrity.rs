@@ -132,6 +132,13 @@ pub fn verify_redb_integrity(catalog: &SystemCatalog) -> Vec<Divergence> {
             Vec::new()
         }
     };
+    let continuous_aggregates = match catalog.load_all_continuous_aggregates() {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(error = %e, "integrity: failed to load continuous_aggregates");
+            Vec::new()
+        }
+    };
     let rls = match catalog.load_all_rls_policies() {
         Ok(v) => v,
         Err(e) => {
@@ -158,7 +165,7 @@ pub fn verify_redb_integrity(catalog: &SystemCatalog) -> Vec<Divergence> {
     // row added here plus its `apply/<type>.rs::put` call to
     // `owner::put_parent_owner`. Omitting either half trips an
     // OrphanRow on the next restart.
-    let parent_replicated: [(&'static str, Vec<(u64, String)>); 8] = [
+    let parent_replicated: [(&'static str, Vec<(u64, String)>); 9] = [
         (
             object_type::COLLECTION,
             // Active AND soft-deleted collections both require an
@@ -216,6 +223,13 @@ pub fn verify_redb_integrity(catalog: &SystemCatalog) -> Vec<Divergence> {
         (
             object_type::CHANGE_STREAM,
             change_streams
+                .iter()
+                .map(|c| (c.tenant_id, c.name.clone()))
+                .collect(),
+        ),
+        (
+            object_type::CONTINUOUS_AGGREGATE,
+            continuous_aggregates
                 .iter()
                 .map(|c| (c.tenant_id, c.name.clone()))
                 .collect(),

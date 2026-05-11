@@ -36,6 +36,7 @@ use crate::control::state::SharedState;
 /// | PutRole / DeleteRole                    | ❌ no       | same |
 /// | PutApiKey / RevokeApiKey                | ❌ no       | same |
 /// | PutMaterializedView / DeleteMaterializedView | ❌ no  | MV definition is its own catalog object; write-path `materialized_sum_sources` is set at collection-register time via PutCollection, not updated by PutMaterializedView independently |
+/// | PutContinuousAggregate / DeleteContinuousAggregate | ❌ no | CA definition is its own catalog object; runtime manager re-registers via MetaOp dispatch, never appears in a PhysicalPlan variant |
 /// | PutTenant / DeleteTenant                | ❌ no       | tenant identity does not affect plan shape |
 /// | PutRlsPolicy / DeleteRlsPolicy          | ❌ no       | `execute_sql` is only called from CDC path (no RLS injection via `inject_rls`); per-session pgwire cache has its own DDL invalidation |
 /// | PutPermission / DeletePermission        | ❌ no       | permission checked at exec time |
@@ -147,6 +148,16 @@ pub(crate) fn invalidate_gateway_cache_for_entry(entry: &CatalogEntry, shared: &
         }
         CatalogEntry::DeleteMaterializedView { .. } => {
             // no-op: same as PutMaterializedView.
+        }
+
+        // ── Continuous aggregate: definition is its own catalog object ────────
+        CatalogEntry::PutContinuousAggregate(_) => {
+            // no-op: CA definition is its own catalog object and does not
+            // directly modify any PhysicalPlan. The Data Plane manager
+            // re-registers via MetaOp dispatch on apply or startup replay.
+        }
+        CatalogEntry::DeleteContinuousAggregate { .. } => {
+            // no-op: same as PutContinuousAggregate.
         }
 
         // ── Tenant: identity does not affect plan shape ───────────────────────
