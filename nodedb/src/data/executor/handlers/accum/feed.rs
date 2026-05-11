@@ -1,0 +1,171 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! `AggAccum::feed` — fold one document into a running accumulator.
+
+use std::collections::hash_map::Entry;
+
+use super::state::{ARRAY_AGG_CAP, AggAccum};
+use crate::bridge::physical_plan::AggregateSpec;
+
+impl AggAccum {
+    /// Feed one document into this accumulator.
+    pub(crate) fn feed(&mut self, agg: &AggregateSpec, doc: &[u8]) {
+        use nodedb_query::msgpack_scan::aggregate_helpers as ah;
+        match self {
+            AggAccum::Count { n } => {
+                if (agg.field == "*" && agg.expr.is_none())
+                    || ah::extract_non_null(doc, &agg.field, agg.expr.as_ref()).is_some()
+                {
+                    *n += 1;
+                }
+            }
+            AggAccum::SumAvg { sum, comp, n } => {
+                if let Some(v) = ah::extract_f64(doc, &agg.field, agg.expr.as_ref()) {
+                    let y = v - *comp;
+                    let t = *sum + y;
+                    *comp = (t - *sum) - y;
+                    *sum = t;
+                    *n += 1;
+                }
+            }
+            AggAccum::SumAvgDistinct { seen } => {
+                // Dedupe by raw msgpack bytes of the extracted value so
+                // SUM(DISTINCT col) / AVG(DISTINCT col) only credit each
+                // distinct value once. NULL bytes (msgpack `0xc0`) are
+                // ignored — they cannot meaningfully participate in a
+                // numeric aggregate. The parsed f64 is stored alongside
+                // the key so finalize can derive an order-independent
+                // sum (which also makes the state mergeable across
+                // spilled runs).
+                if let Some(bytes) = ah::extract_bytes(doc, &agg.field, agg.expr.as_ref())
+                    && bytes != [0xc0u8]
+                    && let Entry::Vacant(slot) = seen.entry(bytes)
+                    && let Some(v) = ah::extract_f64(doc, &agg.field, agg.expr.as_ref())
+                {
+                    slot.insert(v);
+                }
+            }
+            AggAccum::Min { best } => {
+                if let Some(v) = ah::extract_value(doc, &agg.field, agg.expr.as_ref()) {
+                    if v.is_null() {
+                        return;
+                    }
+                    let replace = match best {
+                        None => true,
+                        Some(cur) => {
+                            nodedb_query::value_ops::compare_values(&v, cur)
+                                == std::cmp::Ordering::Less
+                        }
+                    };
+                    if replace {
+                        *best = Some(v);
+                    }
+                }
+            }
+            AggAccum::Max { best } => {
+                if let Some(v) = ah::extract_value(doc, &agg.field, agg.expr.as_ref()) {
+                    if v.is_null() {
+                        return;
+                    }
+                    let replace = match best {
+                        None => true,
+                        Some(cur) => {
+                            nodedb_query::value_ops::compare_values(&v, cur)
+                                == std::cmp::Ordering::Greater
+                        }
+                    };
+                    if replace {
+                        *best = Some(v);
+                    }
+                }
+            }
+            AggAccum::CountDistinct { seen } => {
+                if let Some(bytes) = ah::extract_bytes(doc, &agg.field, agg.expr.as_ref())
+                    && bytes != [0xc0u8]
+                {
+                    seen.insert(bytes);
+                }
+            }
+            AggAccum::Welford { n, mean, m2 } => {
+                if let Some(v) = ah::extract_f64(doc, &agg.field, agg.expr.as_ref()) {
+                    *n += 1;
+                    let delta = v - *mean;
+                    *mean += delta / *n as f64;
+                    let delta2 = v - *mean;
+                    *m2 += delta * delta2;
+                }
+            }
+            AggAccum::Hll { hll } => {
+                if let Some(bytes) = ah::extract_bytes(doc, &agg.field, agg.expr.as_ref())
+                    && bytes != [0xc0u8]
+                {
+                    hll.add(fnv1a(&bytes));
+                }
+            }
+            AggAccum::TDigest { digest } => {
+                let actual = field_after_colon(&agg.field);
+                if let Some(v) = ah::extract_f64(doc, actual, agg.expr.as_ref()) {
+                    digest.add(v);
+                }
+            }
+            AggAccum::TopK { ss, .. } => {
+                let actual = field_after_colon(&agg.field);
+                if let Some(bytes) = ah::extract_bytes(doc, actual, agg.expr.as_ref())
+                    && bytes != [0xc0u8]
+                {
+                    ss.add(fnv1a(&bytes));
+                }
+            }
+            AggAccum::ArrayAgg { values } => {
+                if values.len() < ARRAY_AGG_CAP
+                    && let Some(v) = ah::extract_value(doc, &agg.field, agg.expr.as_ref())
+                    && !v.is_null()
+                {
+                    values.push(v);
+                }
+            }
+            AggAccum::ArrayAggDistinct { seen, values } => {
+                if values.len() < ARRAY_AGG_CAP
+                    && let Some(bytes) = ah::extract_bytes(doc, &agg.field, agg.expr.as_ref())
+                    && bytes != [0xc0u8]
+                    && seen.insert(bytes)
+                    && let Some(v) = ah::extract_value(doc, &agg.field, agg.expr.as_ref())
+                {
+                    values.push(v);
+                }
+            }
+            AggAccum::PercentileCont { values, .. } => {
+                let actual = field_after_colon(&agg.field);
+                if values.len() < ARRAY_AGG_CAP
+                    && let Some(v) = ah::extract_f64(doc, actual, agg.expr.as_ref())
+                {
+                    values.push(v);
+                }
+            }
+            AggAccum::StringAgg { parts } => {
+                if parts.len() < ARRAY_AGG_CAP
+                    && let Some(s) = ah::extract_str(doc, &agg.field, agg.expr.as_ref())
+                {
+                    parts.push(s);
+                }
+            }
+        }
+    }
+}
+
+/// FNV-1a hash (matches the implementation in nodedb-query aggregate.rs).
+#[inline]
+fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// Extract the actual field name from "prefix:field" format (e.g. "0.95:latency").
+#[inline]
+fn field_after_colon(field: &str) -> &str {
+    field.find(':').map(|i| &field[i + 1..]).unwrap_or(field)
+}

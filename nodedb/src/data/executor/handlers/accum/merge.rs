@@ -2,7 +2,15 @@
 
 //! `merge_from` implementations for `AggAccum` and `GroupState`.
 
-use super::{ARRAY_AGG_CAP, AggAccum, GroupState};
+use super::state::{ARRAY_AGG_CAP, AggAccum, GroupState};
+
+impl AggAccum {
+    /// Merge a partial accumulator `other` into `self` (used by tests).
+    #[cfg(test)]
+    pub(crate) fn merge_from(&mut self, other: AggAccum) {
+        merge_accum(self, other);
+    }
+}
 
 /// Merge the partial accumulator `other` (from a spilled run) into `dst`.
 ///
@@ -32,6 +40,14 @@ pub(super) fn merge_accum(dst: &mut AggAccum, other: AggAccum) {
             *ca = (t - *sa) - y;
             *sa = t;
             *na += nb;
+        }
+        (AggAccum::SumAvgDistinct { seen: a }, AggAccum::SumAvgDistinct { seen: b }) => {
+            // Union the deduped value maps; the first-seen parsed f64 wins
+            // (all instances of the same key carry the same value, so the
+            // choice is immaterial). The sum is re-derived at finalize.
+            for (key, value) in b {
+                a.entry(key).or_insert(value);
+            }
         }
         (AggAccum::Min { best: a }, AggAccum::Min { best: b }) => {
             if let Some(bv) = b {
