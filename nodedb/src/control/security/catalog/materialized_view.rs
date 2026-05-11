@@ -6,7 +6,7 @@ use nodedb_types::Hlc;
 
 /// A materialized view: strict → columnar CDC bridge.
 #[derive(zerompk::ToMessagePack, zerompk::FromMessagePack, Debug, Clone)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredMaterializedView {
     pub tenant_id: u64,
     pub name: String,

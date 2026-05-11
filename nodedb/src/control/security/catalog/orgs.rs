@@ -6,7 +6,7 @@ use super::types::{ORG_MEMBERS, ORGS, SystemCatalog, catalog_err};
 
 /// Serializable organization record for redb storage.
 #[derive(Debug, Clone, zerompk::ToMessagePack, zerompk::FromMessagePack)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredOrg {
     pub org_id: String,
     pub name: String,

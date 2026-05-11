@@ -17,7 +17,7 @@ use nodedb_types::Hlc;
 /// Data Plane's struct layout (the runtime type carries
 /// SIMD/quantization tuning that has no place in the catalog).
 #[derive(zerompk::ToMessagePack, zerompk::FromMessagePack, Debug, Clone)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredContinuousAggregate {
     pub tenant_id: u64,
     pub name: String,

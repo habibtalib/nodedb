@@ -19,7 +19,7 @@ use super::types::{SystemCatalog, catalog_err};
     serde::Serialize,
     serde::Deserialize,
 )]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredClaimMappingRule {
     /// Name of the JWT claim to inspect (e.g. `"org_id"`, `"groups"`).
     pub claim_name: String,
@@ -45,7 +45,7 @@ pub struct StoredClaimMappingRule {
     serde::Serialize,
     serde::Deserialize,
 )]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredOidcProvider {
     /// Human-readable name; also the catalog key.
     pub provider_name: String,

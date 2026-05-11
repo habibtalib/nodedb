@@ -24,7 +24,7 @@ impl ParamDirection {
 
 /// A stored procedure parameter.
 #[derive(Debug, Clone, zerompk::ToMessagePack, zerompk::FromMessagePack)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct ProcedureParam {
     pub name: String,
     pub data_type: String,
@@ -56,7 +56,7 @@ pub enum ProcedureRoutability {
 
 /// Serializable stored procedure definition for redb storage.
 #[derive(Debug, Clone, zerompk::ToMessagePack, zerompk::FromMessagePack)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredProcedure {
     pub tenant_id: u64,
     pub name: String,

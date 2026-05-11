@@ -63,7 +63,7 @@ impl ScheduleScope {
 
 /// Persistent definition of a scheduled job. Stored in the system catalog.
 #[derive(Debug, Clone, zerompk::ToMessagePack, zerompk::FromMessagePack)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct ScheduleDef {
     /// Tenant that owns this schedule.
     pub tenant_id: u64,

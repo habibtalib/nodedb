@@ -21,7 +21,7 @@ use super::types::{L2_CLEANUP_QUEUE, SystemCatalog, catalog_err};
 
 /// One queue entry: "L2 delete for this collection is still owed".
 #[derive(zerompk::ToMessagePack, zerompk::FromMessagePack, Debug, Clone)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredL2CleanupEntry {
     pub tenant_id: u64,
     pub name: String,

@@ -163,7 +163,7 @@ impl CompactionConfig {
 
 /// Persistent definition of a change stream. Stored in the system catalog.
 #[derive(Debug, Clone, zerompk::ToMessagePack, zerompk::FromMessagePack)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct ChangeStreamDef {
     /// Tenant that owns this stream.
     pub tenant_id: u64,

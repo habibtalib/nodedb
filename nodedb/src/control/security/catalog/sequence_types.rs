@@ -6,6 +6,7 @@
 ///
 /// Stored in redb under `_system.sequences` with key `"{tenant_id}:{name}"`.
 #[derive(Debug, Clone, zerompk::ToMessagePack, zerompk::FromMessagePack)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredSequence {
     pub tenant_id: u64,
     pub name: String,
@@ -111,7 +112,7 @@ impl StoredSequence {
 /// Persisted to catalog periodically and on shutdown. Not synced via CRDT —
 /// each node maintains its own counter within an allocated range.
 #[derive(Debug, Clone, zerompk::ToMessagePack, zerompk::FromMessagePack)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct SequenceState {
     pub tenant_id: u64,
     pub name: String,

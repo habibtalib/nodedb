@@ -97,7 +97,7 @@ impl FunctionLanguage {
 
 /// Serializable user-defined function record for redb storage.
 #[derive(Debug, Clone, zerompk::ToMessagePack, zerompk::FromMessagePack)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredFunction {
     pub tenant_id: u64,
     pub name: String,

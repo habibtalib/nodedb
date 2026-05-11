@@ -6,7 +6,7 @@ use super::types::{SCOPE_GRANTS, SCOPES, SystemCatalog, catalog_err};
 
 /// Serializable scope definition for redb storage.
 #[derive(Debug, Clone, zerompk::ToMessagePack, zerompk::FromMessagePack)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredScope {
     /// Scope name (e.g., "profile:read", "orders:write").
     pub name: String,
@@ -21,7 +21,7 @@ pub struct StoredScope {
 
 /// Serializable scope grant for redb storage.
 #[derive(Debug, Clone, zerompk::ToMessagePack, zerompk::FromMessagePack)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredScopeGrant {
     pub scope_name: String,
     /// Grantee type: "user", "role", "org", "team".

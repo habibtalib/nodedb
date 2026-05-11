@@ -42,7 +42,7 @@ pub enum DatabaseStatus {
     serde::Serialize,
     serde::Deserialize,
 )]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct DatabaseDescriptor {
     pub id: DatabaseId,
     /// Human-readable name. Mutable via `ALTER DATABASE RENAME`.
@@ -90,7 +90,7 @@ pub struct DatabaseDescriptor {
     serde::Serialize,
     serde::Deserialize,
 )]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct ParentCloneRef {
     pub source_db_id: DatabaseId,
     /// WAL LSN at which the clone was taken (the `AS OF` point).

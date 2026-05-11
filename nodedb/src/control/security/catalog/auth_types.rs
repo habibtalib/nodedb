@@ -4,7 +4,7 @@
 
 /// Serializable user record for redb storage.
 #[derive(zerompk::ToMessagePack, zerompk::FromMessagePack, Debug, Clone)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredUser {
     pub user_id: u64,
     pub username: String,
@@ -49,7 +49,7 @@ pub struct StoredUser {
 
 /// Serializable API key record for redb storage.
 #[derive(zerompk::ToMessagePack, zerompk::FromMessagePack, Debug, Clone)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredApiKey {
     /// Unique key identifier (used as prefix in the token).
     pub key_id: String,
@@ -87,7 +87,7 @@ pub struct StoredTenant {
 
 /// Serializable audit entry for redb storage.
 #[derive(zerompk::ToMessagePack, zerompk::FromMessagePack, Debug, Clone)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredAuditEntry {
     pub seq: u64,
     pub timestamp_us: u64,
@@ -179,7 +179,7 @@ pub struct StoredBlacklistEntry {
 
 /// Serializable JIT-provisioned auth user record for redb storage.
 #[derive(Debug, Clone, zerompk::ToMessagePack, zerompk::FromMessagePack)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredAuthUser {
     /// Unique identifier (from JWT `sub` or `user_id` claim).
     pub id: String,

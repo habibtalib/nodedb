@@ -32,7 +32,7 @@ pub enum IndexBuildState {
 /// recovery, descriptor-lease invalidation, and DROP cascade all ride the
 /// existing collection-commit pipeline.
 #[derive(zerompk::ToMessagePack, zerompk::FromMessagePack, Debug, Clone)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredIndex {
     /// Index identifier, unique per tenant.
     pub name: String,
@@ -59,7 +59,7 @@ pub struct StoredIndex {
 
 /// Serializable collection metadata for redb storage.
 #[derive(zerompk::ToMessagePack, zerompk::FromMessagePack, Debug, Clone)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct StoredCollection {
     pub tenant_id: u64,
     pub name: String,

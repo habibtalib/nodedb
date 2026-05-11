@@ -15,7 +15,7 @@ use crate::bridge::expr_eval::SqlExpr;
 
 /// Extended field definition supporting DEFAULT, VALUE, ASSERT, and TYPE constraints.
 #[derive(Debug, Clone, Serialize, Deserialize, ToMessagePack, FromMessagePack)]
-#[msgpack(map)]
+#[msgpack(map, allow_unknown_fields)]
 pub struct FieldDefinition {
     pub name: String,
     /// Type constraint: "int", "float", "string", etc. Empty = any.
