@@ -33,9 +33,9 @@ pub(super) struct BootstrapTable {
     pub(super) label: &'static str,
     /// Open — and therefore create — the table in a write transaction.
     pub(super) create: fn(&WriteTransaction) -> Result<(), TableError>,
-    /// Open the table read-only; fails with `TableDoesNotExist` if it
-    /// was never created. Used by the bootstrap-completeness test.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Open the table read-only; fails with `TableDoesNotExist` if it was
+    /// never created. Used by `SystemCatalog::open` to decide whether the
+    /// catalog needs bootstrapping, and by the bootstrap-completeness test.
     pub(super) probe: fn(&ReadTransaction) -> Result<(), TableError>,
 }
 

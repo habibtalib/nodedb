@@ -25,22 +25,40 @@ impl SystemCatalog {
 
         let db = Database::create(path).map_err(|e| catalog_err("open", e))?;
 
-        // Create every `_system.*` table from the canonical registry.
-        // Opening a table in redb creates it if absent; the registry is
-        // the single source of truth so a table cannot be read in
-        // production code without being bootstrapped here.
-        let write_txn = db.begin_write().map_err(|e| catalog_err("init txn", e))?;
-        {
-            for table in super::bootstrap_tables::BOOTSTRAP_TABLES {
-                (table.create)(&write_txn)
-                    .map_err(|e| catalog_err(&format!("init {} table", table.label), e))?;
+        // Bootstrap every `_system.*` table from the canonical registry —
+        // but only if at least one is actually missing. Probing read-only
+        // first keeps `open` byte-idempotent on an already-bootstrapped
+        // catalog: a write transaction + commit stamps a fresh meta/commit
+        // page on redb every time, so an unconditional bootstrap rewrites
+        // `system.redb` on every boot (changing its size/md5) even when
+        // nothing changed — and a boot that then fails its integrity check
+        // would have mutated persistent catalog state on its way out.
+        // Opening a table in a write transaction creates it if absent; the
+        // registry is the single source of truth, so a table cannot be
+        // read in production code without being bootstrapped here.
+        let needs_bootstrap = match db.begin_read() {
+            Ok(read_txn) => super::bootstrap_tables::BOOTSTRAP_TABLES
+                .iter()
+                .any(|table| (table.probe)(&read_txn).is_err()),
+            // A read transaction on a brand-new database can fail before
+            // the first commit; treat that as "bootstrap needed".
+            Err(_) => true,
+        };
+        if needs_bootstrap {
+            let write_txn = db.begin_write().map_err(|e| catalog_err("init txn", e))?;
+            {
+                for table in super::bootstrap_tables::BOOTSTRAP_TABLES {
+                    (table.create)(&write_txn)
+                        .map_err(|e| catalog_err(&format!("init {} table", table.label), e))?;
+                }
             }
+            write_txn
+                .commit()
+                .map_err(|e| catalog_err("init commit", e))?;
+            info!(path = %path.display(), "system catalog opened (bootstrapped)");
+        } else {
+            info!(path = %path.display(), "system catalog opened");
         }
-        write_txn
-            .commit()
-            .map_err(|e| catalog_err("init commit", e))?;
-
-        info!(path = %path.display(), "system catalog opened");
 
         Ok(Self { db })
     }
@@ -193,6 +211,53 @@ mod tests {
             (table.probe)(&txn)
                 .unwrap_or_else(|e| panic!("table `{}` missing after bootstrap: {e}", table.label));
         }
+    }
+
+    #[test]
+    fn reopening_a_bootstrapped_catalog_does_not_mutate_the_file() {
+        // `SystemCatalog::open` must be byte-idempotent on an
+        // already-bootstrapped catalog: opening it to *read* must not
+        // rewrite `system.redb`. Today `open` unconditionally runs a
+        // write transaction (iterating BOOTSTRAP_TABLES) and commits it,
+        // so redb writes a fresh meta page / reclaims pages on every
+        // boot — the file's bytes (and md5, and size) change even when
+        // nothing else does. That is the "system.redb silently modified
+        // during a broken boot" symptom: a boot that then fails its
+        // integrity check has still mutated persistent catalog state, so
+        // operators can't verify a backup by hash or trust "did the
+        // upgrade touch my catalog?". `open` should probe the registry
+        // with a read transaction and only escalate to a write txn if a
+        // table is actually missing.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("system.redb");
+
+        // First open: bootstrap happens here, file reaches steady state.
+        drop(SystemCatalog::open(&path).unwrap());
+        let before = std::fs::read(&path).unwrap();
+
+        // Second open of the same, fully-bootstrapped catalog — a pure
+        // "bring the catalog up to read it" boot. Must not touch a byte.
+        drop(SystemCatalog::open(&path).unwrap());
+        let after = std::fs::read(&path).unwrap();
+
+        let first_diff = before
+            .iter()
+            .zip(after.iter())
+            .position(|(a, b)| a != b)
+            .map(|i| i.to_string())
+            .unwrap_or_else(|| "len".to_string());
+        assert!(
+            before == after,
+            "re-opening an already-bootstrapped catalog rewrote system.redb \
+             (len {} → {}, first differing offset: {first_diff}): `open` runs \
+             an unconditional write transaction + commit, so redb stamps a \
+             fresh meta/commit page on every boot. Opening the catalog to \
+             read it must not mutate it — probe the bootstrap registry \
+             read-only and only open a write transaction when a table is \
+             genuinely absent.",
+            before.len(),
+            after.len(),
+        );
     }
 
     #[test]
