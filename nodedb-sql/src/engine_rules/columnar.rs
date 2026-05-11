@@ -131,6 +131,7 @@ impl EngineRules for ColumnarRules {
             having: p.having,
             limit: p.limit,
             grouping_sets: None,
+            sort_keys: Vec::new(),
         })
     }
 

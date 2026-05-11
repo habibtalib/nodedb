@@ -90,6 +90,37 @@ pub(in crate::planner::select) fn apply_order_by(
             window_functions: window_functions.clone(),
             temporal: *temporal,
         }),
+        // ORDER BY applied to a GROUP BY result: stash the sort keys
+        // on the Aggregate plan; the executor sorts the finalized
+        // group rows before returning. Without this branch the sort
+        // is silently dropped — every `… GROUP BY x ORDER BY x` query
+        // comes back in hash-map iteration order, which is a
+        // data-correctness bug for any downstream consumer.
+        SqlPlan::Aggregate {
+            input,
+            group_by,
+            aggregates,
+            having,
+            limit,
+            grouping_sets,
+            ..
+        } => Ok(SqlPlan::Aggregate {
+            input: input.clone(),
+            group_by: group_by.clone(),
+            aggregates: aggregates.clone(),
+            having: having.clone(),
+            limit: *limit,
+            grouping_sets: grouping_sets.clone(),
+            sort_keys,
+        }),
+        // Cte wraps an inner outer plan; push ORDER BY into that outer
+        // so derived-table queries (`SELECT … FROM (…) AS t ORDER BY …`)
+        // honour the sort. inline_cte downstream merges the outer Scan
+        // with the inner subquery plan; the sort_keys ride along.
+        SqlPlan::Cte { definitions, outer } => Ok(SqlPlan::Cte {
+            definitions: definitions.clone(),
+            outer: Box::new(apply_order_by(outer, order_by, functions, select_items)?),
+        }),
         _ => Ok(plan.clone()),
     }
 }

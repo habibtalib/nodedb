@@ -123,6 +123,7 @@ impl EngineRules for SpatialRules {
             having: p.having,
             limit: p.limit,
             grouping_sets: None,
+            sort_keys: Vec::new(),
         })
     }
 

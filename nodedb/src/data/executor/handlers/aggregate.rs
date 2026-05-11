@@ -109,6 +109,62 @@ fn apply_user_aliases_to_rows(rows: &mut [serde_json::Value], aggregates: &[Aggr
     }
 }
 
+/// Sort aggregated rows by `sort_keys = [(column, ascending), ...]`.
+///
+/// Each row is a `serde_json::Value::Object`; for every key, the
+/// extracted value is converted to a comparable form (numbers compared
+/// numerically, strings lexically, nulls last). Keys missing from a
+/// row sort as null. The sort is stable to preserve relative order of
+/// equal-key rows.
+fn sort_aggregated_rows(rows: &mut [serde_json::Value], sort_keys: &[(String, bool)]) {
+    if sort_keys.is_empty() {
+        return;
+    }
+    rows.sort_by(|a, b| {
+        for (column, ascending) in sort_keys {
+            let av = a.get(column);
+            let bv = b.get(column);
+            let ord = compare_json_values(av, bv);
+            if ord != std::cmp::Ordering::Equal {
+                return if *ascending { ord } else { ord.reverse() };
+            }
+        }
+        std::cmp::Ordering::Equal
+    });
+}
+
+/// Compare two `Option<&serde_json::Value>` for sort. Nulls / absent
+/// keys sort last; numbers compare numerically; everything else falls
+/// back to string comparison.
+fn compare_json_values(
+    a: Option<&serde_json::Value>,
+    b: Option<&serde_json::Value>,
+) -> std::cmp::Ordering {
+    use serde_json::Value as V;
+    use std::cmp::Ordering;
+    let a_is_null = matches!(a, None | Some(V::Null));
+    let b_is_null = matches!(b, None | Some(V::Null));
+    if a_is_null && b_is_null {
+        return Ordering::Equal;
+    }
+    if a_is_null {
+        return Ordering::Greater;
+    }
+    if b_is_null {
+        return Ordering::Less;
+    }
+    match (a.unwrap(), b.unwrap()) {
+        (V::Number(x), V::Number(y)) => {
+            let xf = x.as_f64().unwrap_or(0.0);
+            let yf = y.as_f64().unwrap_or(0.0);
+            xf.partial_cmp(&yf).unwrap_or(Ordering::Equal)
+        }
+        (V::String(x), V::String(y)) => x.cmp(y),
+        (V::Bool(x), V::Bool(y)) => x.cmp(y),
+        (x, y) => x.to_string().cmp(&y.to_string()),
+    }
+}
+
 // ── CoreLoop impl ──────────────────────────────────────────────────────────
 
 impl CoreLoop {
@@ -126,6 +182,7 @@ impl CoreLoop {
         sub_group_by: &[String],
         sub_aggregates: &[AggregateSpec],
         grouping_sets: &[Vec<u32>],
+        sort_keys: &[(String, bool)],
     ) -> Response {
         debug!(core = self.core_id, %collection, group_fields = group_by.len(), aggs = aggregates.len(), "aggregate");
 
@@ -261,6 +318,11 @@ impl CoreLoop {
                 }
 
                 apply_user_aliases_to_rows(&mut agg_result.rows, aggregates);
+                // Post-aggregate ORDER BY: sort the finalised group rows
+                // before truncating to LIMIT so the visible top-N
+                // reflects the requested sort, not hash-map iteration
+                // order.
+                sort_aggregated_rows(&mut agg_result.rows, sort_keys);
                 agg_result.rows.truncate(limit);
 
                 return match super::super::response_codec::encode_json_vec(&agg_result.rows) {
@@ -499,6 +561,9 @@ impl CoreLoop {
                 }
 
                 apply_user_aliases_to_rows(&mut results, aggregates);
+                // Post-aggregate ORDER BY: sort group rows before
+                // truncating so LIMIT picks the requested top-N.
+                sort_aggregated_rows(&mut results, sort_keys);
                 results.truncate(limit);
 
                 match super::super::response_codec::encode_json_vec(&results) {

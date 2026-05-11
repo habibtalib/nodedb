@@ -65,6 +65,13 @@ pub enum QueryOp {
         /// (non-NULL) for rows in that set.  Empty outer vec = plain single-set
         /// GROUP BY (no null-filling needed).
         grouping_sets: Vec<Vec<u32>>,
+        /// Post-aggregation sort keys: `(column_name, ascending)`.
+        /// Empty = preserve executor's natural order (hash-map iteration
+        /// for plain GROUP BY). The executor applies the sort after all
+        /// groups are finalized and HAVING is filtered.
+        #[serde(default)]
+        #[msgpack(default)]
+        sort_keys: Vec<(String, bool)>,
     },
 
     /// Partial aggregate: each core computes locally, Control Plane merges.

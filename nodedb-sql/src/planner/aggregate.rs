@@ -93,6 +93,7 @@ fn attach_grouping_sets(
             input,
             limit,
             grouping_sets: _,
+            sort_keys,
             ..
         } => SqlPlan::Aggregate {
             input,
@@ -101,6 +102,7 @@ fn attach_grouping_sets(
             having,
             limit,
             grouping_sets: Some(grouping_sets),
+            sort_keys,
         },
         other => {
             // Engine returned something other than Aggregate (e.g. TimeseriesIngest).
@@ -112,6 +114,7 @@ fn attach_grouping_sets(
                 having,
                 limit: 10000,
                 grouping_sets: Some(grouping_sets),
+                sort_keys: Vec::new(),
             }
         }
     }
@@ -356,7 +359,15 @@ pub fn extract_aggregates_from_projection(
     let mut aggregates = Vec::new();
     for item in items {
         let (expr, alias): (&ast::Expr, String) = match item {
-            ast::SelectItem::UnnamedExpr(expr) => (expr, format!("{expr}")),
+            // Lowercase the unparsed expression text so the resulting
+            // alias (which becomes the JSON row key after the
+            // `apply_user_aliases_to_rows` rename) matches the pgwire
+            // lookup key built by `expr_column_names`, which also
+            // lowercases. Without this match the row description
+            // column `count(distinct user_id)` would not resolve to
+            // the JSON value stored under `COUNT(DISTINCT user_id)`,
+            // and the client would see NULL.
+            ast::SelectItem::UnnamedExpr(expr) => (expr, format!("{expr}").to_lowercase()),
             ast::SelectItem::ExprWithAlias { expr, alias } => (expr, normalize_ident(alias)),
             _ => continue,
         };

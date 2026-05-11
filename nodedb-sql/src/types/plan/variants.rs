@@ -211,6 +211,12 @@ pub enum SqlPlan {
         /// into `group_by` (the canonical key list) that are *present* (non-NULL)
         /// for rows in that set.  `None` = plain single-set GROUP BY.
         grouping_sets: Option<Vec<Vec<usize>>>,
+        /// ORDER BY applied to the aggregated rows. Empty = no sort
+        /// (executor returns groups in hash-map iteration order).
+        /// Populated by `apply_order_by` when an outer ORDER BY
+        /// targets a GROUP BY result; the Aggregate executor sorts the
+        /// finalized group rows before returning.
+        sort_keys: Vec<SortKey>,
     },
 
     // ── Timeseries ──

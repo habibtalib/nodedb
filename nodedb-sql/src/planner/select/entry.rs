@@ -392,9 +392,9 @@ fn apply_limit(mut plan: SqlPlan, limit_clause: &Option<ast::LimitClause>) -> Sq
 }
 
 /// Catalog wrapper that resolves CTE names as schemaless document collections.
-struct CteCatalog<'a> {
-    inner: &'a dyn SqlCatalog,
-    cte_names: Vec<String>,
+pub(crate) struct CteCatalog<'a> {
+    pub(crate) inner: &'a dyn SqlCatalog,
+    pub(crate) cte_names: Vec<String>,
 }
 
 impl SqlCatalog for CteCatalog<'_> {

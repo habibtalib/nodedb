@@ -3,7 +3,7 @@
 //! Aggregate plan conversion and projection/window helpers.
 
 use nodedb_sql::types::{
-    AggregateExpr, EngineType, Filter, Projection, SqlExpr, SqlPlan, WindowSpec,
+    AggregateExpr, EngineType, Filter, Projection, SortKey, SqlExpr, SqlPlan, WindowSpec,
 };
 
 use crate::bridge::envelope::PhysicalPlan;
@@ -23,6 +23,7 @@ pub(super) struct ConvertAggregateParams<'a> {
     pub having: &'a [Filter],
     pub limit: usize,
     pub grouping_sets: Option<&'a [Vec<usize>]>,
+    pub sort_keys: &'a [SortKey],
     pub tenant_id: TenantId,
     pub ctx: &'a ConvertContext,
 }
@@ -35,9 +36,34 @@ pub(super) fn convert_aggregate(p: ConvertAggregateParams<'_>) -> crate::Result<
         having,
         limit,
         grouping_sets,
+        sort_keys,
         tenant_id,
         ctx,
     } = p;
+    // Encode SortKey expressions into the wire-friendly
+    // `(column_name, ascending)` shape. The post-aggregate sorter
+    // only supports bare column references — non-column sort
+    // expressions (e.g. `ORDER BY a + b`, `ORDER BY COUNT(*)`) need
+    // a dedicated post-aggregate projection step that is not yet
+    // wired through this path. Returning a typed error here surfaces
+    // the limitation up to the client; silently dropping such keys
+    // would yield unordered output that looks correct, which is the
+    // exact silent-narrowing class the audit guidance forbids.
+    let mut bridge_sort_keys: Vec<(String, bool)> = Vec::with_capacity(sort_keys.len());
+    for k in sort_keys {
+        match &k.expr {
+            SqlExpr::Column { name, .. } => bridge_sort_keys.push((name.clone(), k.ascending)),
+            other => {
+                return Err(crate::Error::PlanError {
+                    detail: format!(
+                        "ORDER BY after GROUP BY currently supports bare column references only; \
+                         expression {other:?} requires a post-aggregate projection step that is \
+                         not yet implemented"
+                    ),
+                });
+            }
+        }
+    }
     // Check if aggregating over a join.
     if let SqlPlan::Join {
         left,
@@ -161,6 +187,7 @@ pub(super) fn convert_aggregate(p: ConvertAggregateParams<'_>) -> crate::Result<
             sub_group_by: Vec::new(),
             sub_aggregates: Vec::new(),
             grouping_sets: bridge_grouping_sets,
+            sort_keys: bridge_sort_keys,
         }),
         post_set_op: PostSetOp::None,
     }])
@@ -278,6 +305,17 @@ fn aggregate_function_name(a: &AggregateExpr) -> String {
         match a.function.as_str() {
             "count" => "count_distinct".into(),
             "array_agg" => "array_agg_distinct".into(),
+            // SUM(DISTINCT col) / AVG(DISTINCT col) route to a dedicated
+            // accumulator that dedupes input values before summing. The
+            // plain "sum"/"avg" accumulator does not dedupe, so without
+            // this remap `DISTINCT` would be silently ignored.
+            "sum" => "sum_distinct".into(),
+            "avg" => "avg_distinct".into(),
+            // MIN(DISTINCT) and MAX(DISTINCT) yield the same result as
+            // their non-distinct counterparts (the smallest / largest
+            // value is the same whether or not duplicates are deduped),
+            // so we accept the DISTINCT modifier but route to the
+            // regular accumulator.
             _ => a.function.clone(),
         }
     } else {

@@ -273,6 +273,7 @@ mod tests {
             sub_group_by: vec![],
             sub_aggregates: vec![],
             grouping_sets: vec![],
+            sort_keys: vec![],
         }));
     }
 

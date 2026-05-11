@@ -294,6 +294,7 @@ pub(super) fn convert_one(
             having,
             limit,
             grouping_sets,
+            sort_keys,
         } => super::aggregate::convert_aggregate(super::aggregate::ConvertAggregateParams {
             input,
             group_by,
@@ -301,6 +302,7 @@ pub(super) fn convert_one(
             having,
             limit: *limit,
             grouping_sets: grouping_sets.as_deref(),
+            sort_keys,
             tenant_id,
             ctx,
         }),

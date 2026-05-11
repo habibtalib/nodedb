@@ -134,6 +134,7 @@ pub fn plan_join_from_select(
             having,
             limit: 10000,
             grouping_sets: None,
+            sort_keys: Vec::new(),
         }));
     }
 

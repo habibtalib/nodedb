@@ -136,6 +136,7 @@ impl EngineRules for SchemalessRules {
             having: p.having,
             limit: p.limit,
             grouping_sets: None,
+            sort_keys: Vec::new(),
         })
     }
 }

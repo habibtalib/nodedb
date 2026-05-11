@@ -351,6 +351,7 @@ pub(super) fn inline_cte(plan: &SqlPlan, cte_name: &str, cte_plan: &SqlPlan) -> 
             having,
             limit,
             grouping_sets,
+            sort_keys,
         } => SqlPlan::Aggregate {
             input: Box::new(inline_cte(input, cte_name, cte_plan)),
             group_by: group_by.clone(),
@@ -358,6 +359,7 @@ pub(super) fn inline_cte(plan: &SqlPlan, cte_name: &str, cte_plan: &SqlPlan) -> 
             having: having.clone(),
             limit: *limit,
             grouping_sets: grouping_sets.clone(),
+            sort_keys: sort_keys.clone(),
         },
 
         // JOIN referencing CTE on either side.
