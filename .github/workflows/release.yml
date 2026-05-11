@@ -120,15 +120,17 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           # Tier 1: no internal NodeDB dependencies
-          TIER1="nodedb-codec nodedb-bridge nodedb-wal nodedb-mem nodedb-raft"
+          TIER1="nodedb-codec nodedb-wal nodedb-raft"
           # Tier 2: depends on tier 1 only (nodedb-types depends on nodedb-codec)
           TIER2="nodedb-types"
-          # Tier 3: depends on tier 1-2 (all depend on nodedb-types)
-          TIER3="nodedb-fts nodedb-crdt nodedb-vector nodedb-graph nodedb-spatial nodedb-strict nodedb-client nodedb-columnar nodedb-cluster"
-          # Tier 4: depends on tier 3 (nodedb-query depends on nodedb-spatial, nodedb-fts)
-          TIER4="nodedb-query"
-          # Tier 5: depends on tier 4 (nodedb-sql depends on nodedb-query)
-          TIER5="nodedb-sql"
+          # Tier 3: depends on tier 2 only (nodedb-mem + crates that need only nodedb-types/nodedb-raft)
+          TIER3="nodedb-mem nodedb-bridge nodedb-crdt nodedb-strict nodedb-client nodedb-cluster"
+          # Tier 4: depends on nodedb-mem (nodedb-fts, nodedb-vector, nodedb-graph, nodedb-spatial, nodedb-columnar)
+          TIER4="nodedb-fts nodedb-vector nodedb-graph nodedb-spatial nodedb-columnar"
+          # Tier 5: depends on tier 4 (nodedb-query depends on nodedb-spatial, nodedb-fts)
+          TIER5="nodedb-query"
+          # Tier 6: depends on tier 5 (nodedb-sql depends on nodedb-query, nodedb-spatial)
+          TIER6="nodedb-sql"
           is_published() {
             curl -sf \
               -H "User-Agent: nodedb-ci (github.com/NodeDB-Lab/nodedb)" \
@@ -178,6 +180,7 @@ jobs:
           publish_tier "3 (depends on tier 2)" $TIER3
           publish_tier "4 (depends on tier 3)" $TIER4
           publish_tier "5 (depends on tier 4)" $TIER5
+          publish_tier "6 (depends on tier 5)" $TIER6
 
   # ── Build nodedb server binary (Linux only — requires io_uring) ──────────────
   build-server:
