@@ -376,12 +376,11 @@ impl MemoryGovernor {
         if let Some(budget) = self.budgets.get(&engine) {
             budget.release(size);
         }
-        // Also release from global counter for legacy callers.
-        if size > 0 {
-            self.global_counter
-                .allocated
-                .fetch_sub(size, Ordering::Relaxed);
-        }
+        // Also release from the global counter for legacy callers — saturating,
+        // so a release that races a still-alive `ReservationToken` (e.g. a
+        // timeseries flush releasing the memtable footprint while a per-batch
+        // token is in scope) cannot wrap the counter to ~usize::MAX.
+        crate::budget::atomic_saturating_sub(&self.global_counter.allocated, size);
     }
 
     /// Get the budget for a specific engine.
@@ -409,12 +408,13 @@ impl MemoryGovernor {
         self.budgets.values().map(|b| b.over_release_count()).sum()
     }
 
-    /// Global utilization as a percentage (0-100).
+    /// Global utilization as a percentage (0-100). Computed in `u128` so a
+    /// corrupted engine-layer sum clamps to 100 % instead of overflowing.
     pub fn global_utilization_percent(&self) -> u8 {
         if self.global_ceiling == 0 {
             return 100;
         }
-        ((self.total_allocated() * 100) / self.global_ceiling).min(100) as u8
+        ((self.total_allocated() as u128 * 100) / self.global_ceiling as u128).min(100) as u8
     }
 
     /// Current pressure level for a specific engine.
@@ -428,6 +428,19 @@ impl MemoryGovernor {
     /// Current global pressure level.
     pub fn global_pressure(&self) -> PressureLevel {
         self.thresholds.level_for(self.global_utilization_percent())
+    }
+
+    /// Worst-case (highest) pressure level across every engine that has a
+    /// configured budget. Cheap: iterates the in-memory budget map and
+    /// allocates nothing — meant to be called once per Data-Plane core-loop
+    /// tick, unlike [`snapshot`](Self::snapshot) which materialises a `Vec`.
+    /// Returns `Normal` when no engine budgets are configured.
+    pub fn worst_engine_pressure(&self) -> PressureLevel {
+        self.budgets
+            .values()
+            .map(|b| self.thresholds.level_for(b.utilization_percent()))
+            .max()
+            .unwrap_or(PressureLevel::Normal)
     }
 
     /// Set custom pressure thresholds.
@@ -753,6 +766,20 @@ mod tests {
             gov.engine_pressure(EngineId::Vector),
             PressureLevel::Warning
         );
+    }
+
+    #[test]
+    fn worst_engine_pressure_picks_highest() {
+        let gov = MemoryGovernor::new(test_config()).unwrap();
+        assert_eq!(gov.worst_engine_pressure(), PressureLevel::Normal);
+
+        // Push Query to Critical (2048 limit; 1800 ≈ 87%) while Vector/Timeseries
+        // stay Normal — the worst-case must follow Query.
+        let _tok = gov
+            .try_reserve(db(), tenant(), EngineId::Query, 1800)
+            .unwrap();
+        assert_eq!(gov.engine_pressure(EngineId::Vector), PressureLevel::Normal);
+        assert_eq!(gov.worst_engine_pressure(), PressureLevel::Critical);
     }
 
     #[test]

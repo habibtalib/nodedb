@@ -5,6 +5,30 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// Decrement `counter` by `size`, clamping at zero.
+///
+/// Plain `fetch_sub` wraps on underflow — a counter that has been
+/// released past zero by another path (e.g. a legacy `MemoryGovernor::release`
+/// draining a budget while a `ReservationToken` is still alive) would
+/// otherwise jump to ~`usize::MAX`, which every utilization reader then
+/// interprets as 100 % → permanent Emergency pressure. All release sites
+/// must go through this so an over-release is at worst a saturated zero,
+/// never a wrapped maximum.
+pub(crate) fn atomic_saturating_sub(counter: &AtomicUsize, size: usize) {
+    if size == 0 {
+        return;
+    }
+    let mut current = counter.load(Ordering::Acquire);
+    loop {
+        let new_val = current.saturating_sub(size);
+        match counter.compare_exchange_weak(current, new_val, Ordering::Release, Ordering::Relaxed)
+        {
+            Ok(_) => return,
+            Err(actual) => current = actual,
+        }
+    }
+}
+
 /// A memory budget for a single engine.
 ///
 /// Tracks current allocation against a configurable limit using atomic
@@ -159,13 +183,19 @@ impl Budget {
     }
 
     /// Utilization as a percentage (0-100).
+    ///
+    /// Computed in `u128` so a corrupted (e.g. underflow-wrapped near
+    /// `usize::MAX`) `allocated` clamps to 100 % rather than panicking on
+    /// `allocated * 100` overflow — a panic here is taken inside the Data
+    /// Plane core loop (`apply_spsc_pressure` → `snapshot`) and escalates
+    /// to a DEGRADED core.
     pub fn utilization_percent(&self) -> u8 {
         let limit = self.limit();
         if limit == 0 {
             return 100;
         }
-        let allocated = self.allocated();
-        ((allocated * 100) / limit).min(100) as u8
+        let allocated = self.allocated() as u128;
+        ((allocated * 100) / limit as u128).min(100) as u8
     }
 
     /// Peak allocation (high-water mark).
@@ -200,6 +230,36 @@ impl Budget {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn utilization_and_available_never_panic_on_corrupted_allocated() {
+        // `allocated` is the sum of `try_reserve`/`release` deltas. An
+        // unbalanced call site — or a `ReservationToken` drop that
+        // `fetch_sub`s past zero — leaves it wrapped near `usize::MAX`.
+        // `utilization_percent` must not panic computing `allocated * 100`
+        // (it does today in debug builds: `attempt to multiply with
+        // overflow`, taken inside the Data Plane core loop via
+        // `apply_spsc_pressure → snapshot`, which the panic watchdog then
+        // escalates to a DEGRADED core). In release the same multiply
+        // wraps and reports a garbage level. A budget reader must be
+        // robust to a corrupted counter: report a clamped 100 % (so the
+        // pressure detector at least errs toward Emergency, not toward
+        // "idle") and never crash.
+        let budget = Budget::new(1024);
+        budget.allocated.store(usize::MAX, Ordering::Relaxed);
+
+        assert_eq!(
+            budget.utilization_percent(),
+            100,
+            "a wrapped/over-large allocated counter must clamp to 100%, not \
+             panic on `allocated * 100` and not wrap to a small percentage"
+        );
+        assert_eq!(
+            budget.available(),
+            0,
+            "no capacity is available when allocated has run past the limit"
+        );
+    }
 
     #[test]
     fn reserve_within_limit() {
