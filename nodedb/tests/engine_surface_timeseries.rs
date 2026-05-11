@@ -176,3 +176,127 @@ async fn wal_restart_durability() {
     let expected = 3.14_f64;
     assert!((v - expected).abs() < 0.01);
 }
+
+// ── Continuous-aggregate registration must survive past the in-memory Data ──
+//
+// `CREATE CONTINUOUS AGGREGATE` currently dispatches `RegisterContinuousAggregate`
+// straight to the Data Plane manager and returns success — no catalog row, no
+// target collection, no Raft replication. Every assertion below pins one
+// observable consequence of "no catalog persistence":
+//
+//   1. SHOW CONTINUOUS AGGREGATES must list the registration immediately.
+//   2. The aggregate must still be listed after a restart.
+//   3. The aggregate name must resolve as a queryable relation, not "unknown
+//      table" — that is the whole point of materializing the result.
+//
+// All three are silent-failure spec assertions: if the CA registration ever
+// regresses back to "succeeds locally, vanishes elsewhere", a single test in
+// this group catches it.
+
+/// SHOW CONTINUOUS AGGREGATES must list a freshly-created aggregate. The
+/// `CREATE` path returns success without registering anything observable.
+#[tokio::test]
+async fn continuous_aggregate_visible_in_show_after_create() {
+    let srv = TestServer::start().await;
+    srv.exec(
+        "CREATE COLLECTION ts_cagg_show_src \
+         COLUMNS (id TEXT, ts BIGINT TIME_KEY, value FLOAT) \
+         WITH (engine='timeseries')",
+    )
+    .await
+    .unwrap();
+    srv.exec(
+        "CREATE CONTINUOUS AGGREGATE ts_cagg_show_view \
+         ON ts_cagg_show_src BUCKET '5m' \
+         AGGREGATE SUM(value) AS total_value",
+    )
+    .await
+    .unwrap();
+
+    let rows = srv.query_rows("SHOW CONTINUOUS AGGREGATES").await.unwrap();
+
+    assert!(
+        rows.iter()
+            .any(|r| r.first().map(String::as_str) == Some("ts_cagg_show_view")),
+        "SHOW CONTINUOUS AGGREGATES must list the just-created aggregate; \
+         got {rows:?}. Silent absence means the registration never reached \
+         a durable location and only lives in transient Data Plane state."
+    );
+}
+
+/// A continuous aggregate created before a restart must still be present
+/// after one. The registration is meaningless if it disappears on every
+/// process restart — that is the catalog-persistence gap.
+#[tokio::test]
+async fn continuous_aggregate_survives_restart() {
+    let srv = TestServer::start().await;
+    srv.exec(
+        "CREATE COLLECTION ts_cagg_persist_src \
+         COLUMNS (id TEXT, ts BIGINT TIME_KEY, value FLOAT) \
+         WITH (engine='timeseries')",
+    )
+    .await
+    .unwrap();
+    srv.exec(
+        "CREATE CONTINUOUS AGGREGATE ts_cagg_persist_view \
+         ON ts_cagg_persist_src BUCKET '5m' \
+         AGGREGATE SUM(value) AS total_value",
+    )
+    .await
+    .unwrap();
+
+    let (srv, dir) = srv.take_dir();
+    srv.graceful_shutdown().await;
+
+    let (srv2, _dir) = TestServer::open_on_path(dir).await;
+    let rows = srv2.query_rows("SHOW CONTINUOUS AGGREGATES").await.unwrap();
+
+    assert!(
+        rows.iter()
+            .any(|r| r.first().map(String::as_str) == Some("ts_cagg_persist_view")),
+        "SHOW CONTINUOUS AGGREGATES must still list the aggregate after a \
+         restart; got {rows:?}. Loss across restart is the catalog-persistence \
+         gap: the registration is in-memory Data Plane state only."
+    );
+}
+
+/// The aggregate name must resolve as a queryable relation — `SELECT
+/// … FROM <ca_name>` must not error with "unknown table". The bench's
+/// reported symptom is precisely that: queries against the
+/// materialized name return `42P01` because no target collection ever
+/// existed. Data correctness of the rolled-up rows is a separate
+/// spec (it depends on a refresh path that doesn't ship yet); this
+/// test only pins the "name resolves" half of the bug.
+#[tokio::test]
+async fn continuous_aggregate_name_is_queryable_after_create() {
+    let srv = TestServer::start().await;
+    srv.exec(
+        "CREATE COLLECTION ts_cagg_query_src \
+         COLUMNS (id TEXT, ts BIGINT TIME_KEY, value FLOAT) \
+         WITH (engine='timeseries')",
+    )
+    .await
+    .unwrap();
+
+    srv.exec(
+        "CREATE CONTINUOUS AGGREGATE ts_cagg_query_view \
+         ON ts_cagg_query_src BUCKET '1m' \
+         AGGREGATE SUM(value) AS total_value",
+    )
+    .await
+    .unwrap();
+
+    let _rows = srv
+        .query_rows("SELECT * FROM ts_cagg_query_view")
+        .await
+        .unwrap_or_else(|e| {
+            panic!(
+                "SELECT against the CA name must succeed once the aggregate \
+                 is registered (rolled-up data may be empty until a refresh \
+                 path is wired, but the name must resolve to a real relation); \
+                 got error: {e}. \"unknown table\" here is the bench's \
+                 reported symptom — no target collection was ever \
+                 materialized for the aggregate name."
+            )
+        });
+}

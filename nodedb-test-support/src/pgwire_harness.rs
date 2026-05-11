@@ -10,6 +10,30 @@ use std::time::Duration;
 
 use nodedb::bridge::dispatch::Dispatcher;
 
+/// Build a `MemoryGovernor` sized for integration tests: 64 MiB per
+/// engine, global ceiling = 2× the sum of per-engine budgets. Returns
+/// `None` only if the underlying `GovernorConfig` validation fails,
+/// matching the original inline behaviour.
+///
+/// Without a wired governor any test that asserts on balanced
+/// acquire/release after a workload trips on `governor.is_none()`
+/// instead of the real accounting bug — every test entry point that
+/// hands out a `SharedState` must install one.
+fn init_test_memory_governor() -> Option<Arc<nodedb_mem::MemoryGovernor>> {
+    let test_budget: usize = 64 * 1024 * 1024; // 64 MiB / engine
+    let mut engine_limits = std::collections::HashMap::new();
+    for id in nodedb_mem::EngineId::ALL {
+        engine_limits.insert(*id, test_budget);
+    }
+    let global_ceiling = test_budget * nodedb_mem::EngineId::ALL.len() * 2;
+    nodedb_mem::MemoryGovernor::new(nodedb_mem::GovernorConfig {
+        global_ceiling,
+        engine_limits,
+    })
+    .ok()
+    .map(Arc::new)
+}
+
 /// Generate a short hex string suitable for unique test name suffixes.
 fn uuid_v4_hex() -> String {
     let id = uuid::Uuid::new_v4();
@@ -166,6 +190,7 @@ impl TestServer {
         // Deterministic 32-byte key — same value every test run.
         if let Some(s) = Arc::get_mut(&mut shared) {
             s.backup_kek = Some(Arc::new([0x42u8; 32]));
+            s.governor = init_test_memory_governor();
         }
         let shared = shared;
 
@@ -428,6 +453,7 @@ impl TestServer {
             SharedState::new_with_credentials(dispatcher, Arc::clone(&wal), credentials);
         if let Some(s) = Arc::get_mut(&mut shared) {
             s.backup_kek = Some(Arc::new([0x42u8; 32]));
+            s.governor = init_test_memory_governor();
         }
         let shared = shared;
         nodedb::bootstrap::credentials::replay_surrogate_wal(&shared, &wal_records);
@@ -503,6 +529,14 @@ impl TestServer {
             .await
             .unwrap();
         }
+
+        // Re-register every persisted continuous aggregate on the local
+        // Data Plane manager: the registry is per-core in-memory state
+        // and is otherwise lost across restart.
+        nodedb::control::server::pgwire::ddl::continuous_agg::register_persisted_continuous_aggregates(
+            &shared,
+        )
+        .await;
 
         let watermark_store =
             Arc::new(nodedb::event::watermark::WatermarkStore::open(dir_path).unwrap());
@@ -613,6 +647,7 @@ impl TestServer {
             SharedState::new_with_credentials(dispatcher, Arc::clone(&wal), credentials);
         if let Some(s) = Arc::get_mut(&mut shared) {
             s.backup_kek = Some(Arc::new([0x42u8; 32]));
+            s.governor = init_test_memory_governor();
         }
         let shared = shared;
 

@@ -140,6 +140,12 @@ fn classify(entry: &CatalogEntry) -> VariantClass {
         CatalogEntry::DeleteSchedule { .. } => VariantClass::ParentReplicated,
         CatalogEntry::DeleteChangeStream { .. } => VariantClass::ParentReplicated,
 
+        // Continuous aggregates carry a parent-replicated definition row
+        // plus an owner row (apply path calls `put_parent_owner` /
+        // `delete_parent_owner`).
+        CatalogEntry::PutContinuousAggregate(_) => VariantClass::ParentReplicated,
+        CatalogEntry::DeleteContinuousAggregate { .. } => VariantClass::ParentReplicated,
+
         CatalogEntry::PutOwner(_) => VariantClass::Exempt,
         CatalogEntry::DeleteOwner { .. } => VariantClass::Exempt,
 

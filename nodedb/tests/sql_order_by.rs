@@ -203,3 +203,43 @@ async fn order_by_string_column() {
         rows[2]
     );
 }
+
+/// `ORDER BY` applied to a `GROUP BY` result must sort the groups.
+/// Surfaced while building B2 derived-FROM coverage: an aggregate
+/// query with trailing `ORDER BY` returned rows in arbitrary order
+/// (the planner only honours ORDER BY for plain `Scan` plans, not
+/// for the `Aggregate` variant). Silent unordered output breaks every
+/// dashboard / agent that consumes the rows in declared order.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn order_by_after_group_by_sorts_groups() {
+    let srv = common::pgwire_harness::TestServer::start().await;
+    srv.exec(
+        "CREATE COLLECTION items_ord (id TEXT PRIMARY KEY, category TEXT, qty INTEGER) \
+         WITH (engine='document_strict')",
+    )
+    .await
+    .unwrap();
+    srv.exec(
+        "INSERT INTO items_ord (id, category, qty) VALUES \
+         ('i1','b',5),('i2','a',2),('i3','c',9),('i4','a',3)",
+    )
+    .await
+    .unwrap();
+
+    let rows = srv
+        .query_rows(
+            "SELECT category, SUM(qty) AS total \
+             FROM items_ord GROUP BY category ORDER BY category",
+        )
+        .await
+        .unwrap();
+
+    let cats: Vec<&str> = rows.iter().map(|r| r[0].as_str()).collect();
+    assert_eq!(
+        cats,
+        vec!["a", "b", "c"],
+        "GROUP BY + ORDER BY must produce groups sorted by the key; got \
+         {cats:?}. Unordered output is a silent data-correctness bug — \
+         downstream consumers cannot rely on the declared sort."
+    );
+}

@@ -4502,6 +4502,7 @@ dependencies = [
  "nodedb-array",
  "nodedb-bridge",
  "nodedb-cluster",
+ "nodedb-mem",
  "nodedb-types",
  "nodedb-wal",
  "serde_json",
