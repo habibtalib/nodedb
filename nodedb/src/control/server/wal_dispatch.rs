@@ -175,6 +175,7 @@ pub fn wal_append_if_write_with_creds(
         }
         PhysicalPlan::Vector(VectorOp::SetParams {
             collection,
+            field_name,
             m,
             ef_construction,
             metric,
@@ -183,6 +184,8 @@ pub fn wal_append_if_write_with_creds(
             ivf_cells,
             ivf_nprobe,
         }) => {
+            // `field_name` is appended last so older 4-/8-element WAL records
+            // still decode (the replay reads the leading positions first).
             let entry = zerompk::to_msgpack_vec(&(
                 collection,
                 m,
@@ -192,6 +195,7 @@ pub fn wal_append_if_write_with_creds(
                 pq_m,
                 ivf_cells,
                 ivf_nprobe,
+                field_name,
             ))
             .map_err(|e| crate::Error::Serialization {
                 format: "msgpack".into(),

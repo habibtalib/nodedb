@@ -101,6 +101,10 @@ pub enum VectorOp {
     /// Set vector index parameters for a collection.
     SetParams {
         collection: String,
+        /// Named vector field this config applies to. Empty string = the
+        /// default (unnamed) vector field. Lets one collection carry
+        /// multiple vector indexes, one per `VECTOR` / embedding column.
+        field_name: String,
         m: usize,
         ef_construction: usize,
         metric: String,

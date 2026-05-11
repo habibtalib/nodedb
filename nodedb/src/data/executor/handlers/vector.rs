@@ -20,6 +20,8 @@ pub(in crate::data::executor) struct SetVectorParamsInput<'a> {
     pub task: &'a ExecutionTask,
     pub tid: u64,
     pub collection: &'a str,
+    /// Named vector field this config applies to. Empty = default field.
+    pub field_name: &'a str,
     pub m: usize,
     pub ef_construction: usize,
     pub metric: &'a str,
@@ -308,6 +310,7 @@ impl CoreLoop {
             task,
             tid,
             collection,
+            field_name,
             m,
             ef_construction,
             metric,
@@ -316,8 +319,8 @@ impl CoreLoop {
             ivf_cells,
             ivf_nprobe,
         } = params;
-        debug!(core = self.core_id, %collection, m, ef_construction, %metric, %index_type, "set vector params");
-        let index_key = CoreLoop::vector_index_key(tid, collection, "");
+        debug!(core = self.core_id, %collection, field = field_name, m, ef_construction, %metric, %index_type, "set vector params");
+        let index_key = CoreLoop::vector_index_key(tid, collection, field_name);
 
         if self.vector_collections.contains_key(&index_key) {
             return self.response_error(

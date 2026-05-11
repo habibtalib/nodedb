@@ -188,6 +188,7 @@ fn to_physical_plan(
         }),
         ReplicatedWrite::SetVectorParams {
             collection,
+            field_name,
             m,
             ef_construction,
             metric,
@@ -197,6 +198,7 @@ fn to_physical_plan(
             ivf_nprobe,
         } => PhysicalPlan::Vector(VectorOp::SetParams {
             collection: collection.clone(),
+            field_name: field_name.clone(),
             m: *m,
             ef_construction: *ef_construction,
             metric: metric.clone(),

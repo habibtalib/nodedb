@@ -305,6 +305,7 @@ pub async fn handle_alter_vector_index_set(
         // current IndexConfig and only overrides fields that were explicitly set.
         let set_plan = PhysicalPlan::Vector(VectorOp::SetParams {
             collection: collection.clone(),
+            field_name: field_name.clone(),
             m,
             ef_construction,
             metric: String::new(),

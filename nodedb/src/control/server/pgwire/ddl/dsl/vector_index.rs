@@ -24,9 +24,13 @@ use super::helpers::{find_param_str, find_param_usize};
 /// `nodedb_vector::index_config::IndexType`.
 const KNOWN_INDEX_TYPES: &[&str] = &["hnsw", "hnsw_pq", "ivf_pq"];
 
-/// CREATE VECTOR INDEX <name> ON <collection>
+/// CREATE VECTOR INDEX <name> ON <collection> [(<column>)]
 ///   [METRIC cosine|l2|inner_product|...] [M <m>] [EF_CONSTRUCTION <ef>] [DIM <dim>]
 ///   [INDEX_TYPE hnsw|hnsw_pq|ivf_pq] [PQ_M <m>] [IVF_CELLS <n>] [IVF_NPROBE <n>]
+///
+/// The optional `(<column>)` names the embedding column the index covers, so
+/// one collection can carry several vector indexes (e.g. a text-embedding and
+/// an image-embedding column). Omitted → the collection's default vector field.
 pub async fn create_vector_index(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
@@ -35,7 +39,7 @@ pub async fn create_vector_index(
     if parts.len() < 6 {
         return Err(sqlstate_error(
             "42601",
-            "syntax: CREATE VECTOR INDEX <name> ON <collection> \
+            "syntax: CREATE VECTOR INDEX <name> ON <collection> [(<column>)] \
              [METRIC cosine|l2] [M <m>] [EF_CONSTRUCTION <ef>] [DIM <dim>] \
              [INDEX_TYPE hnsw|hnsw_pq|ivf_pq] [PQ_M <m>] [IVF_CELLS <n>] [IVF_NPROBE <n>]",
         ));
@@ -48,7 +52,14 @@ pub async fn create_vector_index(
     let collection = parts[5];
     let tenant_id = identity.tenant_id;
 
-    let upper_parts: Vec<String> = parts.iter().map(|p| p.to_uppercase()).collect();
+    // Optional `(<column>)` right after the collection name. Everything after
+    // it (or after the collection name, if absent) is option keywords.
+    let (field_name, opts_start) = parse_optional_column(parts, 6);
+
+    let upper_parts: Vec<String> = parts[opts_start..]
+        .iter()
+        .map(|p| p.to_uppercase())
+        .collect();
 
     let metric = find_param_str(&upper_parts, "METRIC").unwrap_or_else(|| "COSINE".into());
     let m = find_param_usize(&upper_parts, "M").unwrap_or(16);
@@ -77,6 +88,7 @@ pub async fn create_vector_index(
         crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
     let set_params_plan = PhysicalPlan::Vector(VectorOp::SetParams {
         collection: collection.to_string(),
+        field_name: field_name.clone(),
         m,
         ef_construction,
         metric: metric.to_lowercase(),
@@ -99,9 +111,14 @@ pub async fn create_vector_index(
         Some(tenant_id),
         &identity.username,
         &format!(
-            "created vector index '{index_name}' on '{collection}' \
+            "created vector index '{index_name}' on '{collection}'{} \
              (metric={metric}, m={m}, ef_construction={ef_construction}, dim={dim}, \
              index_type={}, pq_m={pq_m}, ivf_cells={ivf_cells}, ivf_nprobe={ivf_nprobe})",
+            if field_name.is_empty() {
+                String::new()
+            } else {
+                format!(" column '{field_name}'")
+            },
             if index_type.is_empty() {
                 "hnsw"
             } else {
@@ -111,6 +128,107 @@ pub async fn create_vector_index(
     );
 
     Ok(vec![Response::Execution(Tag::new("CREATE VECTOR INDEX"))])
+}
+
+/// If the token(s) right after the collection name form a `(<column>)` group,
+/// return the unquoted column name and the index where the option keywords
+/// begin. Otherwise return `("", start)`.
+///
+/// Handles `(col)` as one token and `( col )` split across three; an
+/// unterminated `(` is treated as "no column" rather than an error.
+fn parse_optional_column(parts: &[&str], start: usize) -> (String, usize) {
+    let Some(first) = parts.get(start) else {
+        return (String::new(), start);
+    };
+    if !first.starts_with('(') {
+        return (String::new(), start);
+    }
+    let mut end = start;
+    while end < parts.len() && !parts[end].ends_with(')') {
+        end += 1;
+    }
+    if end >= parts.len() {
+        return (String::new(), start);
+    }
+    let joined: String = parts[start..=end].concat();
+    let col = joined
+        .trim_start_matches('(')
+        .trim_end_matches(')')
+        .trim()
+        .trim_matches('"')
+        .to_string();
+    if col.is_empty() {
+        return (String::new(), start);
+    }
+    (col, end + 1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_optional_column;
+
+    #[test]
+    fn no_column_clause() {
+        let parts = [
+            "CREATE", "VECTOR", "INDEX", "idx", "ON", "coll", "METRIC", "cosine",
+        ];
+        assert_eq!(parse_optional_column(&parts, 6), (String::new(), 6));
+    }
+
+    #[test]
+    fn column_one_token() {
+        let parts = [
+            "CREATE",
+            "VECTOR",
+            "INDEX",
+            "idx",
+            "ON",
+            "coll",
+            "(text_emb)",
+            "METRIC",
+            "cosine",
+        ];
+        assert_eq!(
+            parse_optional_column(&parts, 6),
+            ("text_emb".to_string(), 7)
+        );
+    }
+
+    #[test]
+    fn column_split_tokens() {
+        let parts = [
+            "CREATE", "VECTOR", "INDEX", "idx", "ON", "coll", "(", "text_emb", ")", "DIM", "512",
+        ];
+        assert_eq!(
+            parse_optional_column(&parts, 6),
+            ("text_emb".to_string(), 9)
+        );
+    }
+
+    #[test]
+    fn column_at_end_of_statement() {
+        let parts = [
+            "CREATE",
+            "VECTOR",
+            "INDEX",
+            "idx",
+            "ON",
+            "coll",
+            "(image_emb)",
+        ];
+        assert_eq!(
+            parse_optional_column(&parts, 6),
+            ("image_emb".to_string(), 7)
+        );
+    }
+
+    #[test]
+    fn unterminated_paren_is_ignored() {
+        let parts = [
+            "CREATE", "VECTOR", "INDEX", "idx", "ON", "coll", "(oops", "METRIC",
+        ];
+        assert_eq!(parse_optional_column(&parts, 6), (String::new(), 6));
+    }
 }
 
 fn validate_quantization(

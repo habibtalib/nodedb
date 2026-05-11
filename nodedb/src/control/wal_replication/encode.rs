@@ -90,6 +90,7 @@ pub fn to_replicated_entry(
         },
         PhysicalPlan::Vector(VectorOp::SetParams {
             collection,
+            field_name,
             m,
             ef_construction,
             metric,
@@ -99,6 +100,7 @@ pub fn to_replicated_entry(
             ivf_nprobe,
         }) => ReplicatedWrite::SetVectorParams {
             collection: collection.clone(),
+            field_name: field_name.clone(),
             m: *m,
             ef_construction: *ef_construction,
             metric: metric.clone(),

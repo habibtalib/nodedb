@@ -106,6 +106,8 @@ pub enum ReplicatedWrite {
     },
     SetVectorParams {
         collection: String,
+        #[serde(default)]
+        field_name: String,
         m: usize,
         ef_construction: usize,
         metric: String,
