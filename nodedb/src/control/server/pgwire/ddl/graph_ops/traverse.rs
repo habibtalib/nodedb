@@ -87,10 +87,14 @@ pub async fn traverse(
     check_tenant_graph_depth(state, tenant_id, depth, "DEPTH")?;
     let dir = to_engine_direction(direction);
 
-    match crate::control::server::graph_dispatch::cross_core_bfs_with_options(
+    // Subgraph-shaped dispatcher: emits `{nodes,edges}` JSON matching
+    // the remote client's `parse_graph_traverse_json` decoder. Tree
+    // DDL aggregates that only need a flat reachable set still call
+    // `cross_core_bfs_with_options` directly.
+    match crate::control::server::graph_dispatch::cross_core_traverse_subgraph(
         state,
         tenant_id,
-        vec![start],
+        start,
         edge_label,
         dir,
         depth,

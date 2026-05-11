@@ -14,7 +14,10 @@
 
 pub mod bfs;
 pub mod helpers;
+pub(crate) mod hop;
 pub mod shortest_path;
+pub mod traverse_subgraph;
 
 pub use bfs::cross_core_bfs_with_options;
 pub use shortest_path::cross_core_shortest_path;
+pub use traverse_subgraph::cross_core_traverse_subgraph;

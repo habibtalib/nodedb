@@ -1,25 +1,31 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-//! `cross_core_bfs` — multi-hop BFS that drives `GRAPH TRAVERSE`, the
-//! tree DDL aggregates (`TREE_SUM`, `TREE_CHILDREN`) and any other
-//! breadth-first walk that needs to see the full cross-core / cross-shard
-//! neighborhood of each frontier node.
+//! `cross_core_bfs` — multi-hop BFS that drives the tree DDL aggregates
+//! (`TREE_SUM`, `TREE_CHILDREN`) and any other breadth-first walk that
+//! needs a flat reachable-node set across the full cross-core /
+//! cross-shard neighborhood of each frontier node.
+//!
+//! The shared per-hop scatter/decode/merge logic lives in
+//! [`super::hop::execute_neighbor_hop`]; this dispatcher only retains
+//! the merged destination set. `GRAPH TRAVERSE`, which needs the
+//! `{nodes,edges}` subgraph shape the remote client decodes, lives in
+//! [`super::traverse_subgraph::cross_core_traverse_subgraph`].
 
 use std::collections::HashSet;
 
 use sonic_rs;
 
-use crate::bridge::envelope::{PhysicalPlan, Response};
-use crate::bridge::physical_plan::GraphOp;
-use crate::control::scatter_gather;
+use crate::bridge::envelope::Response;
 use crate::control::state::SharedState;
 use crate::engine::graph::traversal_options::GraphTraversalOptions;
-use crate::types::{Lsn, RequestId, TenantId, TraceId};
+use crate::types::{Lsn, RequestId, TenantId};
+
+use super::hop::{NeighborHopParams, execute_neighbor_hop};
 
 /// Cross-core BFS with explicit traversal options (fan-out limits, partial mode).
 ///
-/// This is the cluster-aware entry point. Callers pass `&GraphTraversalOptions::default()`
-/// for standard traversal.
+/// This is the cluster-aware entry point. Callers pass
+/// `&GraphTraversalOptions::default()` for standard traversal.
 pub async fn cross_core_bfs_with_options(
     shared: &SharedState,
     tenant_id: TenantId,
@@ -29,8 +35,6 @@ pub async fn cross_core_bfs_with_options(
     max_depth: usize,
     options: &GraphTraversalOptions,
 ) -> crate::Result<Response> {
-    let cluster_mode = shared.cluster_routing.is_some();
-
     let mut visited: HashSet<String> = HashSet::new();
     let mut all_discovered: Vec<String> = Vec::new();
     let mut frontier: Vec<String> = start_nodes.clone();
@@ -45,119 +49,43 @@ pub async fn cross_core_bfs_with_options(
             break;
         }
 
-        // ── Local hop ──────────────────────────────────────────────────────
-        //
-        // Single broadcast per hop: `NeighborsMulti` carries the whole
-        // frontier in one plan so the Control Plane makes one RPC per
-        // hop regardless of frontier size. Previously this loop issued
-        // `O(frontier)` serial broadcasts (§issue-53 bug 3).
-        let mut local_hop_results: Vec<String> = Vec::new();
-
-        // Cap this hop's handler-side allocation to the remaining budget
-        // under `max_visited` so a single wide hop cannot blow past the
-        // cap on the Data Plane side. `u32::MAX` on an underflow-ed
-        // subtraction is defensively clamped.
-        let remaining_budget = options
-            .max_visited
-            .saturating_sub(all_discovered.len())
-            .min(u32::MAX as usize) as u32;
-        let plan = PhysicalPlan::Graph(GraphOp::NeighborsMulti {
-            node_ids: frontier.clone(),
-            edge_label: edge_label.clone(),
-            direction,
-            max_results: remaining_budget,
-            rls_filters: Vec::new(),
-        });
-
-        let resp = crate::control::server::broadcast::broadcast_to_all_cores(
+        let hop = execute_neighbor_hop(
             shared,
             tenant_id,
-            plan,
-            TraceId::ZERO,
+            NeighborHopParams {
+                frontier: &frontier,
+                edge_label: edge_label.as_deref(),
+                direction,
+                options,
+                discovered_so_far: all_discovered.len(),
+                remaining_depth: max_depth.saturating_sub(depth + 1),
+            },
         )
         .await?;
 
-        if !resp.payload.is_empty() {
-            let json_text =
-                crate::data::executor::response_codec::decode_payload_to_json(&resp.payload);
-            if let Ok(arr) = sonic_rs::from_str::<Vec<serde_json::Value>>(&json_text) {
-                for item in arr {
-                    if let Some(neighbor) = item.get("node").and_then(|v| v.as_str()) {
-                        local_hop_results.push(neighbor.to_string());
-                        // Mid-hop max_visited check — prevents a single
-                        // wide hop from pushing far past the configured
-                        // cap before the between-hop check fires.
-                        if all_discovered.len() + local_hop_results.len() >= options.max_visited {
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // ── Cluster mode: scatter-gather for cross-shard frontier ──────────
-        let merged_hop_results = if cluster_mode {
-            // Partition newly-discovered nodes into local vs cross-shard.
-            let (local_nodes, cross_shard_envelope) = {
-                let routing = shared
-                    .cluster_routing
-                    .as_ref()
-                    .expect("cluster_routing checked above");
-                let rt = routing.read().unwrap_or_else(|p| p.into_inner());
-                scatter_gather::partition_local_remote(&local_hop_results, shared.node_id, &rt)
-            };
-
-            if cross_shard_envelope.is_empty() {
-                // All results are local — no cross-shard work needed.
-                local_nodes
-            } else {
-                let remaining_depth = max_depth.saturating_sub(depth + 1);
-                let (merged, _meta) = scatter_gather::coordinate_cross_shard_hop(
-                    shared,
-                    tenant_id,
-                    scatter_gather::CrossShardHopParams {
-                        local_nodes,
-                        envelope: cross_shard_envelope,
-                        options,
-                        edge_label: edge_label.as_deref(),
-                        direction,
-                        remaining_depth,
-                    },
-                )
-                .await?;
-                merged
-            }
-        } else {
-            // Single-node mode: all results are already local.
-            local_hop_results
-        };
-
-        // ── Extend global visited set and compute next frontier ────────────
+        // Extend global visited set and compute next frontier.
         let mut next_frontier: Vec<String> = Vec::new();
-        for node in merged_hop_results {
+        for node in hop.merged_destinations {
             if visited.insert(node.clone()) {
                 next_frontier.push(node.clone());
                 all_discovered.push(node);
+                if all_discovered.len() >= options.max_visited {
+                    break;
+                }
             }
         }
 
         frontier = next_frontier;
 
-        // Enforce max_visited cap across all hops.
         if all_discovered.len() >= options.max_visited {
             break;
         }
     }
 
-    let payload = match sonic_rs::to_vec(&all_discovered) {
-        Ok(v) => v,
-        Err(e) => {
-            return Err(crate::Error::Serialization {
-                format: "json".into(),
-                detail: e.to_string(),
-            });
-        }
-    };
+    let payload = sonic_rs::to_vec(&all_discovered).map_err(|e| crate::Error::Serialization {
+        format: "json".into(),
+        detail: e.to_string(),
+    })?;
 
     Ok(Response {
         request_id: RequestId::new(0),
