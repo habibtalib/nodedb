@@ -106,7 +106,7 @@ jobs:
             # For pre-release versions, pin internal dep requirements so semver
             # "0.0.0" doesn't fail to match "0.0.0-beta.1"
             if [[ "$VERSION" == *-* ]]; then
-              sed -i -E 's/(nodedb-(codec|bridge|wal|mem|crdt|raft|fts|types|vector|graph|spatial|strict|client|columnar|cluster|query|sql) = \{ [^}]*version = )"[^"]*"/\1"='"$VERSION"'"/' Cargo.toml
+              sed -i -E 's/(nodedb-(codec|bridge|wal|mem|crdt|raft|fts|types|vector|graph|spatial|strict|client|columnar|cluster|query|sql|array) = \{ [^}]*version = )"[^"]*"/\1"='"$VERSION"'"/' Cargo.toml
               echo "Updated internal dep versions to =$VERSION"
             fi
 
@@ -124,13 +124,15 @@ jobs:
           # Tier 2: depends on tier 1 only (nodedb-types depends on nodedb-codec)
           TIER2="nodedb-types"
           # Tier 3: depends on tier 2 only (nodedb-mem + crates that need only nodedb-types/nodedb-raft)
-          TIER3="nodedb-mem nodedb-bridge nodedb-crdt nodedb-strict nodedb-client nodedb-cluster"
+          TIER3="nodedb-mem nodedb-bridge nodedb-crdt nodedb-strict nodedb-client nodedb-cluster nodedb-array"
           # Tier 4: depends on nodedb-mem (nodedb-fts, nodedb-vector, nodedb-graph, nodedb-spatial, nodedb-columnar)
           TIER4="nodedb-fts nodedb-vector nodedb-graph nodedb-spatial nodedb-columnar"
           # Tier 5: depends on tier 4 (nodedb-query depends on nodedb-spatial, nodedb-fts)
           TIER5="nodedb-query"
           # Tier 6: depends on tier 5 (nodedb-sql depends on nodedb-query, nodedb-spatial)
           TIER6="nodedb-sql"
+          # Tier 7: depends on tier 6 (nodedb depends on all crates including nodedb-sql)
+          TIER7="nodedb"
           is_published() {
             curl -sf \
               -H "User-Agent: nodedb-ci (github.com/NodeDB-Lab/nodedb)" \
@@ -181,6 +183,7 @@ jobs:
           publish_tier "4 (depends on tier 3)" $TIER4
           publish_tier "5 (depends on tier 4)" $TIER5
           publish_tier "6 (depends on tier 5)" $TIER6
+          publish_tier "7 (depends on tier 6)" $TIER7
 
   # ── Build nodedb server binary (Linux only — requires io_uring) ──────────────
   build-server:
@@ -227,7 +230,7 @@ jobs:
             # For pre-release versions, pin internal dep requirements so semver
             # "0" doesn't fail to match "0.0.0-beta.3"
             if [[ "$VERSION" == *-* ]]; then
-              sed -i -E 's/(nodedb-(codec|bridge|wal|mem|crdt|raft|fts|types|vector|graph|spatial|strict|client|columnar|cluster|query|sql) = \{ [^}]*version = )"[^"]*"/\1"='"$VERSION"'"/' Cargo.toml
+              sed -i -E 's/(nodedb-(codec|bridge|wal|mem|crdt|raft|fts|types|vector|graph|spatial|strict|client|columnar|cluster|query|sql|array) = \{ [^}]*version = )"[^"]*"/\1"='"$VERSION"'"/' Cargo.toml
               echo "Updated internal dep versions to =$VERSION"
             fi
 
