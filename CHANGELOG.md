@@ -7,6 +7,41 @@ NodeDB uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.2.0] - 2026-05-11
+
+### Added
+
+- **Database primitive** — `CREATE`, `DROP`, `ALTER`, `USE`, and `SHOW DATABASE`; database context bound at connection handshake and propagated through WAL, catalog, routing, and planner
+- **CLONE DATABASE** — copy-on-write clone with per-engine row materializer, surrogate ceiling for snapshot isolation, and `SHOW DATABASE LINEAGE FOR`
+- **MOVE TENANT** — relocate a tenant's collections between databases
+- **Mirror database** — cross-cluster read-only replica via Raft Observer role; lag monitor and automatic restart recovery
+- **OIDC authentication** — bearer token auth with provider DDL (`CREATE OIDC PROVIDER`) and catalog persistence
+- **Per-database audit** — DML audit mode (`ALTER DATABASE SET AUDIT_DML`), database lifecycle events, `user_id` / `statement_digest` propagated through Data Plane and WAL
+- **Per-database quotas** — resource budgets for databases and tenants (`ALTER DATABASE SET QUOTA`); sum-of-quotas enforcement; live cap updates
+- **Weighted-fair queue** — per-database DRR dispatch in the SPSC bridge; per-database and per-tenant QPS buckets; connection admission control
+- **Per-database metrics** — dedicated Prometheus series per database; per-database CPU budget tracker for compaction enforcement
+- **DocCache sharding** — shard document cache by `database_id` with weighted eviction
+- **ClusterAdmin role** — cluster-wide admin identity; `GRANT/REVOKE ON DATABASE`; `ALTER USER SET DEFAULT DATABASE`
+- **Session registry** — kill-channel per session, hard-revoke on credential change
+- **Credential hardening** — persistent lockout state, per-user credential versioning, pre-authentication login rate limiting
+- **Continuous aggregate DDL** — `CREATE CONTINUOUS AGGREGATE` with catalog persistence
+- **`SHOW AUDIT WHERE`** — filter clause on audit log queries
+- **nodedb-client** — graph DSL, field-aware vector ops, text search, and bound-parameter support (`sql_params`) in the native protocol
+- **FTS** — crash-safe LSM compaction with dedicated compaction module
+- **Memory governor** — over-release counter on `Budget` and `Governor` for accounting correctness
+
+### Fixed
+
+- `DISTINCT` deduplication now operates on projected output, not raw rows
+- `ORDER BY` correctly propagated into aggregate plans; derived-`FROM` subqueries supported
+- `DROP COLLECTION IF EXISTS` routed through typed handler so the flag is honoured
+- Catalog orphan-row violations self-healed at startup
+- `EventPlane` drop no longer silently discards pending `WriteEvent`s
+- Consumer-disconnect events misclassified as security violations
+- ILP measurement names with `/` now route correctly for database-qualified paths
+
+---
+
 ## [0.1.0] - 2026-05-07
 
 > First structured release. Ready for pilot deployments and early adopters.
@@ -74,4 +109,5 @@ NodeDB uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+[0.2.0]: https://github.com/NodeDB-Lab/nodedb/releases/tag/v0.2.0
 [0.1.0]: https://github.com/NodeDB-Lab/nodedb/releases/tag/v0.1.0
