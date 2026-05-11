@@ -5,11 +5,13 @@
 //! Supports: ENABLE, DISABLE, SET CRON 'expr'.
 
 use pgwire::api::results::{Response, Tag};
-use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
+use pgwire::error::PgWireResult;
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::event::scheduler::cron::CronExpr;
+
+use super::super::super::types::sqlstate_error;
 
 /// Handle `ALTER SCHEDULE <name> ENABLE | DISABLE | SET CRON '<expr>'`.
 ///
@@ -28,13 +30,7 @@ pub fn alter_schedule(
     let mut def = state
         .schedule_registry
         .get(tenant_id, name)
-        .ok_or_else(|| {
-            PgWireError::UserError(Box::new(ErrorInfo::new(
-                "ERROR".to_owned(),
-                "42704".to_owned(),
-                format!("schedule \"{name}\" does not exist"),
-            )))
-        })?;
+        .ok_or_else(|| sqlstate_error("42704", &format!("schedule \"{name}\" does not exist")))?;
 
     match action {
         "ENABLE" => {
@@ -45,42 +41,33 @@ pub fn alter_schedule(
         }
         "SET" => {
             let new_cron = cron_expr.ok_or_else(|| {
-                PgWireError::UserError(Box::new(ErrorInfo::new(
-                    "ERROR".to_owned(),
-                    "42601".to_owned(),
-                    "ALTER SCHEDULE SET CRON requires a quoted cron expression".to_owned(),
-                )))
+                sqlstate_error(
+                    "42601",
+                    "ALTER SCHEDULE SET CRON requires a quoted cron expression",
+                )
             })?;
 
-            CronExpr::parse(new_cron).map_err(|e| {
-                PgWireError::UserError(Box::new(ErrorInfo::new(
-                    "ERROR".to_owned(),
-                    "22023".to_owned(),
-                    format!("invalid cron expression: {e}"),
-                )))
-            })?;
+            CronExpr::parse(new_cron)
+                .map_err(|e| sqlstate_error("22023", &format!("invalid cron expression: {e}")))?;
 
             def.cron_expr = new_cron.to_string();
         }
         _ => {
-            return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                "ERROR".to_owned(),
-                "42601".to_owned(),
-                "ALTER SCHEDULE supports: ENABLE, DISABLE, SET CRON 'expr'".to_owned(),
-            ))));
+            return Err(sqlstate_error(
+                "42601",
+                "ALTER SCHEDULE supports: ENABLE, DISABLE, SET CRON 'expr'",
+            ));
         }
     }
 
-    // Persist updated definition.
-    if let Some(catalog) = state.credentials.catalog() {
-        catalog.put_schedule(&def).map_err(|e| {
-            PgWireError::UserError(Box::new(ErrorInfo::new(
-                "ERROR".to_owned(),
-                "XX000".to_owned(),
-                format!("failed to persist schedule: {e}"),
-            )))
-        })?;
-    }
+    // Persist the updated definition through the same metadata-raft
+    // propose path every other parent-replicated ALTER uses, so a
+    // cluster deployment converges on the new state cluster-wide and
+    // the single-node fallback writes both the primary row and its
+    // OWNERS row. The earlier direct `catalog.put_schedule(&def)`
+    // call did neither — divergence on replicas, orphan on disk.
+    let entry = crate::control::catalog_entry::CatalogEntry::PutSchedule(Box::new(def.clone()));
+    super::super::catalog_propose::propose_and_apply(state, &entry)?;
 
     // Update in-memory registry.
     state.schedule_registry.update(def);

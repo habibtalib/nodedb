@@ -106,19 +106,14 @@ pub fn create_function(
     // parsed block cache so subsequent calls re-parse the new body.
     // (The WASM binary itself, if any, stays on the proposing node
     // only until a future batch adds replicated WASM distribution.)
-    let entry = crate::control::catalog_entry::CatalogEntry::PutFunction(Box::new(stored.clone()));
-    let log_index = crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
-        .map_err(|e| sqlstate_error("XX000", &format!("metadata propose: {e}")))?;
-    if log_index == 0 {
-        catalog
-            .put_function(&stored)
-            .map_err(|e| sqlstate_error("XX000", &format!("catalog write: {e}")))?;
-    }
-
     // Ownership replicates through the parent `PutFunction`
-    // post_apply on every node — `stored.owner` carries the
-    // creator and `post_apply::function::put` installs the owner
-    // record cluster-wide.
+    // post_apply on every node — `stored.owner` carries the creator
+    // and `apply::function::put` installs the owner record. On the
+    // single-node / rolling-upgrade / DDL-buffer fallback path
+    // `propose_and_apply` runs the same applier locally so the
+    // OWNERS row lands too.
+    let entry = crate::control::catalog_entry::CatalogEntry::PutFunction(Box::new(stored.clone()));
+    super::super::super::catalog_propose::propose_and_apply(state, &entry)?;
 
     // Extract and store dependencies (referenced functions in the body).
     let deps = extract_dependencies(&stored);

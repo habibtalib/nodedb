@@ -96,19 +96,13 @@ pub fn create_schedule(
         created_at: now,
     };
 
-    let catalog = state
-        .credentials
-        .catalog()
-        .as_ref()
-        .ok_or_else(|| sqlstate_error("XX000", "system catalog not available"))?;
+    if state.credentials.catalog().is_none() {
+        return Err(sqlstate_error("XX000", "system catalog not available"));
+    }
 
     let entry = crate::control::catalog_entry::CatalogEntry::PutSchedule(Box::new(def.clone()));
-    let log_index = crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
-        .map_err(|e| sqlstate_error("XX000", &format!("metadata propose: {e}")))?;
+    let log_index = super::super::catalog_propose::propose_and_apply(state, &entry)?;
     if log_index == 0 {
-        catalog
-            .put_schedule(&def)
-            .map_err(|e| sqlstate_error("XX000", &format!("catalog write: {e}")))?;
         state.schedule_registry.register(def.clone());
     }
 

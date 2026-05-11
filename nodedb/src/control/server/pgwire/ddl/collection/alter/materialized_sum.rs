@@ -63,13 +63,7 @@ pub fn add_materialized_sum(
 
     coll.materialized_sums.push(def);
     let entry = crate::control::catalog_entry::CatalogEntry::PutCollection(Box::new(coll.clone()));
-    let log_index = crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
-        .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-    if log_index == 0 {
-        catalog
-            .put_collection(DatabaseId::DEFAULT, &coll)
-            .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-    }
+    super::super::super::catalog_propose::propose_and_apply(state, &entry)?;
 
     state.schema_version.bump();
 

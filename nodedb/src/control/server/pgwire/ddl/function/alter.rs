@@ -57,9 +57,16 @@ pub fn alter_function(
 
     let old_owner = func.owner.clone();
     func.owner = new_owner.clone();
-    catalog
-        .put_function(&func)
-        .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
+    // Route through the same metadata-raft propose path every other
+    // parent-replicated ALTER uses. The applier's
+    // `owner::put_parent_owner` companion write rebinds the OWNERS
+    // table to the new owner cluster-wide — without this, an
+    // ALTER FUNCTION OWNER TO updated only the function row's
+    // in-band `owner` field and the OWNERS table still resolved the
+    // function to the previous owner, silently breaking permission
+    // transfer.
+    let entry = crate::control::catalog_entry::CatalogEntry::PutFunction(Box::new(func.clone()));
+    super::super::catalog_propose::propose_and_apply(state, &entry)?;
 
     state.audit_record(
         crate::control::security::audit::AuditEvent::AdminAction,
@@ -117,9 +124,8 @@ fn alter_function_limits(
         }
     }
 
-    catalog
-        .put_function(&func)
-        .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
+    let entry = crate::control::catalog_entry::CatalogEntry::PutFunction(Box::new(func.clone()));
+    super::super::catalog_propose::propose_and_apply(state, &entry)?;
 
     state.audit_record(
         crate::control::security::audit::AuditEvent::AdminAction,

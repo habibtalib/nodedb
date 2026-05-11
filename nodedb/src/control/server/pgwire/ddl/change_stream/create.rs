@@ -148,12 +148,8 @@ pub fn create_change_stream(
     let kafka_config = def.kafka.clone();
 
     let entry = crate::control::catalog_entry::CatalogEntry::PutChangeStream(Box::new(def.clone()));
-    let log_index = crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
-        .map_err(|e| sqlstate_error("XX000", &format!("metadata propose: {e}")))?;
+    let log_index = super::super::catalog_propose::propose_and_apply(state, &entry)?;
     if log_index == 0 {
-        catalog
-            .put_change_stream(&def)
-            .map_err(|e| sqlstate_error("XX000", &format!("catalog write: {e}")))?;
         state.stream_registry.register(def.clone());
     }
 

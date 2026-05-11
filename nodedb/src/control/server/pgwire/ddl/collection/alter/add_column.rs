@@ -68,14 +68,7 @@ pub async fn alter_table_add_column(
                     let entry = crate::control::catalog_entry::CatalogEntry::PutCollection(
                         Box::new(updated.clone()),
                     );
-                    let log_index =
-                        crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
-                            .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-                    if log_index == 0 {
-                        catalog
-                            .put_collection(DatabaseId::DEFAULT, &updated)
-                            .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-                    }
+                    super::super::super::catalog_propose::propose_and_apply(state, &entry)?;
                     Some(updated)
                 } else {
                     None

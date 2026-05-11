@@ -204,7 +204,8 @@ pub(super) async fn try_dispatch_async(
                     balanced_raw: balanced_raw.as_deref(),
                 },
                 database_id,
-            );
+            )
+            .await;
             let result = match result {
                 Ok(resp) => dispatch_register_by_name(state, identity, name, database_id)
                     .await

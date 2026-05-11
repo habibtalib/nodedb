@@ -15,6 +15,7 @@ pub mod collection;
 pub mod custom_type;
 pub mod database;
 pub mod function;
+pub mod local;
 pub mod materialized_view;
 pub mod oidc_provider;
 pub mod owner;

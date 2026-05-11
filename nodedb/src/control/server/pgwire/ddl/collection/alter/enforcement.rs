@@ -7,7 +7,6 @@ use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
-use crate::control::security::catalog::SystemCatalog;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
@@ -33,7 +32,7 @@ pub fn alter_collection_set_retention(
         .map_err(|e| sqlstate_error("22023", &e.to_string()))?;
 
     coll.retention_period = Some(value.to_string());
-    persist_and_bump(state, catalog, &coll)
+    persist_and_bump(state, &coll)
 }
 
 /// ALTER COLLECTION <name> SET LEGAL_HOLD = TRUE|FALSE TAG '<tag>'
@@ -81,16 +80,16 @@ pub fn alter_collection_set_legal_hold(
         }
     }
 
-    persist_and_bump(state, catalog, &coll)
+    persist_and_bump(state, &coll)
 }
 
 /// ALTER COLLECTION <name> SET APPEND_ONLY
 pub fn alter_collection_set_append_only(
     state: &SharedState,
-    _identity: &AuthenticatedIdentity,
+    identity: &AuthenticatedIdentity,
     name: &str,
 ) -> PgWireResult<Vec<Response>> {
-    let tenant_id = _identity.tenant_id.as_u64();
+    let tenant_id = identity.tenant_id.as_u64();
     let Some(catalog) = state.credentials.catalog() else {
         return Err(sqlstate_error("XX000", "no catalog available"));
     };
@@ -106,17 +105,17 @@ pub fn alter_collection_set_append_only(
         ));
     }
     coll.append_only = true;
-    persist_and_bump(state, catalog, &coll)
+    persist_and_bump(state, &coll)
 }
 
 /// ALTER COLLECTION <name> SET LAST_VALUE_CACHE = TRUE|FALSE
 pub fn alter_collection_set_last_value_cache(
     state: &SharedState,
-    _identity: &AuthenticatedIdentity,
+    identity: &AuthenticatedIdentity,
     name: &str,
     enabled: bool,
 ) -> PgWireResult<Vec<Response>> {
-    let tenant_id = _identity.tenant_id.as_u64();
+    let tenant_id = identity.tenant_id.as_u64();
     let Some(catalog) = state.credentials.catalog() else {
         return Err(sqlstate_error("XX000", "no catalog available"));
     };
@@ -132,22 +131,15 @@ pub fn alter_collection_set_last_value_cache(
         ));
     }
     coll.lvc_enabled = enabled;
-    persist_and_bump(state, catalog, &coll)
+    persist_and_bump(state, &coll)
 }
 
 fn persist_and_bump(
     state: &SharedState,
-    catalog: &SystemCatalog,
     coll: &crate::control::security::catalog::StoredCollection,
 ) -> PgWireResult<Vec<Response>> {
     let entry = crate::control::catalog_entry::CatalogEntry::PutCollection(Box::new(coll.clone()));
-    let log_index = crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
-        .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-    if log_index == 0 {
-        catalog
-            .put_collection(DatabaseId::DEFAULT, coll)
-            .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-    }
+    super::super::super::catalog_propose::propose_and_apply(state, &entry)?;
     state.schema_version.bump();
     Ok(vec![Response::Execution(Tag::new("ALTER COLLECTION"))])
 }

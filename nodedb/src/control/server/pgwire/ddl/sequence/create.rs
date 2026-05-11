@@ -3,11 +3,13 @@
 //! `CREATE SEQUENCE` handler.
 
 use pgwire::api::results::{Response, Tag};
-use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
+use pgwire::error::PgWireResult;
 
 use crate::control::security::catalog::sequence_types::StoredSequence;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+
+use super::super::super::types::sqlstate_error;
 
 /// Handle `CREATE [IF NOT EXISTS] SEQUENCE <name> [options…]`.
 ///
@@ -51,24 +53,13 @@ pub fn create_sequence(
         def.cache_size = c;
     }
     if let Some(fmt) = format_template_raw {
-        let tokens = crate::control::sequence::format::parse_format_template(fmt).map_err(|e| {
-            PgWireError::UserError(Box::new(ErrorInfo::new(
-                "ERROR".to_owned(),
-                "42601".to_owned(),
-                format!("invalid FORMAT: {e}"),
-            )))
-        })?;
+        let tokens = crate::control::sequence::format::parse_format_template(fmt)
+            .map_err(|e| sqlstate_error("42601", &format!("invalid FORMAT: {e}")))?;
         def.format_template = Some(tokens);
     }
     if let Some(reset) = reset_period_raw {
-        def.reset_scope =
-            crate::control::sequence::format::ResetScope::parse(reset).map_err(|e| {
-                PgWireError::UserError(Box::new(ErrorInfo::new(
-                    "ERROR".to_owned(),
-                    "42601".to_owned(),
-                    e.to_string(),
-                )))
-            })?;
+        def.reset_scope = crate::control::sequence::format::ResetScope::parse(reset)
+            .map_err(|e| sqlstate_error("42601", &e.to_string()))?;
     }
     def.gap_free = gap_free;
 
@@ -86,48 +77,23 @@ pub fn create_sequence(
         .unwrap_or_default()
         .as_millis() as u64;
 
-    def.validate().map_err(|e| {
-        PgWireError::UserError(Box::new(ErrorInfo::new(
-            "ERROR".to_owned(),
-            "42P17".to_owned(),
-            e.to_string(),
-        )))
-    })?;
+    def.validate()
+        .map_err(|e| sqlstate_error("42P17", &e.to_string()))?;
 
     if state.sequence_registry.exists(tenant_id, &def.name) {
-        return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-            "ERROR".to_owned(),
-            "42P07".to_owned(),
-            format!("sequence \"{}\" already exists", def.name),
-        ))));
+        return Err(sqlstate_error(
+            "42P07",
+            &format!("sequence \"{}\" already exists", def.name),
+        ));
     }
 
     let entry = crate::control::catalog_entry::CatalogEntry::PutSequence(Box::new(def.clone()));
-    let log_index = crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
-        .map_err(|e| {
-            PgWireError::UserError(Box::new(ErrorInfo::new(
-                "ERROR".to_owned(),
-                "XX000".to_owned(),
-                e.to_string(),
-            )))
-        })?;
+    let log_index = super::super::catalog_propose::propose_and_apply(state, &entry)?;
     if log_index == 0 {
-        if let Some(catalog) = state.credentials.catalog() {
-            catalog.put_sequence(&def).map_err(|e| {
-                PgWireError::UserError(Box::new(ErrorInfo::new(
-                    "ERROR".to_owned(),
-                    "XX000".to_owned(),
-                    format!("failed to persist sequence: {e}"),
-                )))
-            })?;
-        }
-        state.sequence_registry.create(def).map_err(|e| {
-            PgWireError::UserError(Box::new(ErrorInfo::new(
-                "ERROR".to_owned(),
-                "XX000".to_owned(),
-                e.to_string(),
-            )))
-        })?;
+        state
+            .sequence_registry
+            .create(def)
+            .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     }
 
     state.schema_version.bump();

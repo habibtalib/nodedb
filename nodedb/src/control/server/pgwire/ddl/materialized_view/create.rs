@@ -73,15 +73,7 @@ pub async fn create_materialized_view(
     // it up on its next tick.
     let entry =
         crate::control::catalog_entry::CatalogEntry::PutMaterializedView(Box::new(view.clone()));
-    let log_index = crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
-        .map_err(|e| sqlstate_error("XX000", &format!("metadata propose: {e}")))?;
-    if log_index == 0
-        && let Some(catalog) = state.credentials.catalog()
-    {
-        catalog
-            .put_materialized_view(&view)
-            .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-    }
+    super::super::catalog_propose::propose_and_apply(state, &entry)?;
 
     // Create the view's target collection so REFRESH can insert into it
     // and clients can SELECT from it like any other collection. Skipped
@@ -132,16 +124,7 @@ pub async fn create_materialized_view(
         };
         let coll_entry =
             crate::control::catalog_entry::CatalogEntry::PutCollection(Box::new(target.clone()));
-        let coll_log_index =
-            crate::control::metadata_proposer::propose_catalog_entry(state, &coll_entry)
-                .map_err(|e| sqlstate_error("XX000", &format!("metadata propose: {e}")))?;
-        if coll_log_index == 0
-            && let Some(catalog) = state.credentials.catalog()
-        {
-            catalog
-                .put_collection(DatabaseId::DEFAULT, &target)
-                .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-        }
+        super::super::catalog_propose::propose_and_apply(state, &coll_entry)?;
         // Register the target with this node's Data Plane so writes
         // encode correctly and scans can find the collection.
         super::super::collection::dispatch_register_from_stored(state, &target)

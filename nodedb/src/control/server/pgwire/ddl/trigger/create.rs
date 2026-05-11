@@ -108,12 +108,10 @@ pub fn create_trigger(
     };
 
     let entry = crate::control::catalog_entry::CatalogEntry::PutTrigger(Box::new(stored.clone()));
-    let log_index = crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
-        .map_err(|e| sqlstate_error("XX000", &format!("metadata propose: {e}")))?;
+    let log_index = super::super::catalog_propose::propose_and_apply(state, &entry)?;
     if log_index == 0 {
-        catalog
-            .put_trigger(&stored)
-            .map_err(|e| sqlstate_error("XX000", &format!("catalog write: {e}")))?;
+        // Registry update is local-only — the Raft applier handles
+        // the cluster-wide registry refresh on remote nodes.
         state.trigger_registry.register(stored.clone());
     }
 

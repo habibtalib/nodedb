@@ -132,18 +132,8 @@ fn alter_format(
     if let Some(mut def) = state.sequence_registry.get_def(tenant_id, name) {
         def.format_template = Some(tokens);
         let entry = crate::control::catalog_entry::CatalogEntry::PutSequence(Box::new(def.clone()));
-        let log_index = crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
-            .map_err(|e| {
-                PgWireError::UserError(Box::new(ErrorInfo::new(
-                    "ERROR".to_owned(),
-                    "XX000".to_owned(),
-                    e.to_string(),
-                )))
-            })?;
+        let log_index = super::super::catalog_propose::propose_and_apply(state, &entry)?;
         if log_index == 0 {
-            if let Some(catalog) = state.credentials.catalog() {
-                let _ = catalog.put_sequence(&def);
-            }
             let _ = state.sequence_registry.remove(tenant_id, name);
             let _ = state.sequence_registry.create(def);
         }
