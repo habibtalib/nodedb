@@ -43,11 +43,10 @@ pub(super) async fn dispatch(
     // CREATE RLS POLICY — fully dispatched via typed AST (ast.rs).
     // ALTER COLLECTION (all sub-operations) — fully dispatched via typed AST (ast.rs).
 
-    if upper.starts_with("DROP COLLECTION ") {
-        return Some(super::super::collection::drop_collection(
-            state, identity, parts,
-        ));
-    }
+    // DROP { COLLECTION | TABLE } — fully dispatched via typed AST (ast.rs
+    // DropCollection); the text-based dispatch used to read `parts[2]` for
+    // the name, which broke `DROP COLLECTION IF EXISTS <name>` (read "IF"
+    // as the name) and never recognised the `DROP TABLE` spelling at all.
     if upper.starts_with("UNDROP COLLECTION ") || upper.starts_with("UNDROP TABLE ") {
         return Some(super::super::collection::undrop_collection(
             state, identity, parts,

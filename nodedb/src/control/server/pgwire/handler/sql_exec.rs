@@ -244,6 +244,7 @@ impl NodeDbPgHandler {
             && !upper.starts_with("SHOW CONFLICT POLICY")
             && upper != "SHOW SYNONYM GROUPS"
             && upper != "SHOW TYPES"
+            && !upper.starts_with("SHOW CONTINUOUS AGGREGATE")
             // NodeDB-specific multi-word SHOW commands handled by the AST
             // router (lineage, quota, usage, mirror status). The session
             // SHOW handler is for PG runtime parameters only — single-word

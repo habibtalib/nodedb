@@ -2,16 +2,25 @@
 
 //! DROP COLLECTION DDL.
 //!
-//! Supported forms (tokens are case-insensitive):
+//! Supported forms (tokens are case-insensitive; `COLLECTION` and
+//! `TABLE` are accepted as synonyms — both route through the parser
+//! to `NodedbStatement::DropCollection` and land here):
 //!
-//! - `DROP COLLECTION <n>` — soft-delete (flip `is_active`).
-//! - `DROP COLLECTION <n> PURGE` — hard-delete via
-//!   `CatalogEntry::PurgeCollection`. Requires admin.
-//! - `DROP COLLECTION <n> CASCADE` / `... PURGE CASCADE` /
-//!   `... CASCADE FORCE` — accept the keyword; the recursive dependent
-//!   enumeration lives in the apply path Until the enumerator lands,
-//!   handlers reject with a clear "dependents must be dropped
-//!   individually" message rather than silently succeeding.
+//! - `DROP { COLLECTION | TABLE } [IF EXISTS] <name>` — soft-delete
+//!   (flip `is_active`). `IF EXISTS` makes the missing-target case a
+//!   silent success instead of `42P01`.
+//! - `DROP { COLLECTION | TABLE } [IF EXISTS] <name> PURGE` — hard-delete
+//!   via `CatalogEntry::PurgeCollection`. Requires admin. `IF EXISTS`
+//!   makes the already-purged case a silent success.
+//! - `DROP { COLLECTION | TABLE } [IF EXISTS] <name> CASCADE [FORCE]`
+//!   — accept the keyword; the recursive dependent enumeration lives
+//!   in the apply path. Until the enumerator lands, handlers reject
+//!   with a clear "dependents must be dropped individually" message
+//!   rather than silently succeeding.
+//!
+//! The handler takes typed parsed arguments rather than the raw `parts`
+//! slice so the `IF EXISTS` and spelling-synonym contracts cannot be
+//! lost by an off-by-one index into the tokens.
 
 use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
@@ -23,52 +32,29 @@ use crate::control::state::SharedState;
 
 use super::super::super::types::sqlstate_error;
 
-/// Flags parsed off the `DROP COLLECTION <name> [IF EXISTS] [PURGE] [CASCADE [FORCE]]`
-/// trailing tokens.
-#[derive(Debug, Default, Clone, Copy)]
-struct DropFlags {
-    purge: bool,
-    cascade: bool,
-    cascade_force: bool,
-}
-
-fn parse_drop_flags(parts: &[&str]) -> DropFlags {
-    let mut f = DropFlags::default();
-    let upper: Vec<String> = parts.iter().map(|p| p.to_uppercase()).collect();
-    for (i, tok) in upper.iter().enumerate() {
-        match tok.as_str() {
-            "PURGE" => f.purge = true,
-            "CASCADE" => {
-                f.cascade = true;
-                if upper.get(i + 1).map(String::as_str) == Some("FORCE") {
-                    f.cascade_force = true;
-                }
-            }
-            "FORCE" if i > 0 && upper[i - 1] == "CASCADE" => {
-                // already handled above
-            }
-            _ => {}
-        }
-    }
-    f
-}
-
-/// DROP COLLECTION <name> [PURGE] [CASCADE [FORCE]]
+/// DROP { COLLECTION | TABLE } [IF EXISTS] <name> [PURGE] [CASCADE [FORCE]]
 ///
-/// Marks collection as inactive (or hard-deletes on PURGE).
-/// Requires owner or admin.
+/// All fields arrive pre-parsed from `NodedbStatement::DropCollection`:
+/// - `name`: collection (lowercased by the parser).
+/// - `if_exists`: suppress `42P01` when the target does not exist.
+/// - `purge`: hard-delete via `PurgeCollection` (admin only).
+/// - `cascade` / `cascade_force`: reject for now (atomic batched
+///   propose path not landed).
+///
+/// Security invariant: `IF EXISTS` does not bypass authz. A caller
+/// without ownership or admin rights gets `42501` (permission denied)
+/// regardless of whether the target actually exists — this prevents
+/// using error-code differences to probe collection existence.
 pub fn drop_collection(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
-    parts: &[&str],
+    name: &str,
+    if_exists: bool,
+    purge: bool,
+    cascade: bool,
+    cascade_force: bool,
 ) -> PgWireResult<Vec<Response>> {
-    if parts.len() < 3 {
-        return Err(sqlstate_error("42601", "syntax: DROP COLLECTION <name>"));
-    }
-
-    let flags = parse_drop_flags(parts);
-
-    let name_lower = parts[2].to_lowercase();
+    let name_lower = name.to_lowercase();
     let name = name_lower.as_str();
     let tenant_id = identity.tenant_id;
 
@@ -79,7 +65,7 @@ pub fn drop_collection(
     // the enumerated dependent list in hand, so the rejection is
     // specific instead of a generic "not yet supported".
     let dependents: Vec<crate::control::cascade::Dependent> = if let Some(catalog) =
-        state.credentials.catalog()
+        state.credentials.catalog().as_ref()
     {
         let mut visited = std::collections::HashSet::new();
         crate::control::cascade::collect_dependents(catalog, tenant_id.as_u64(), name, &mut visited)
@@ -99,7 +85,7 @@ pub fn drop_collection(
         .filter(|d| d.kind != crate::control::cascade::DependentKind::Sequence)
         .collect();
 
-    if !blocking_dependents.is_empty() && !flags.cascade {
+    if !blocking_dependents.is_empty() && !cascade {
         let deps_list: Vec<String> = blocking_dependents
             .iter()
             .map(|d| format!("{}:{}", d.kind.as_str(), d.name))
@@ -116,7 +102,7 @@ pub fn drop_collection(
         ));
     }
 
-    if flags.cascade {
+    if cascade {
         return Err(sqlstate_error(
             "0A000",
             "DROP COLLECTION ... CASCADE requires atomic batched Delete* + PurgeCollection \
@@ -124,7 +110,7 @@ pub fn drop_collection(
              Drop dependents individually in the meantime.",
         ));
     }
-    let _ = flags.cascade_force; // same gate
+    let _ = cascade_force; // same gate
 
     // Check ownership or admin.
     let is_owner = state
@@ -137,6 +123,9 @@ pub fn drop_collection(
         || identity.has_role(&crate::control::security::identity::Role::TenantAdmin);
 
     if !is_owner && !is_admin {
+        // See the security invariant in the docstring: returned
+        // unconditionally, before the existence check, so the response
+        // does not depend on whether the target exists.
         return Err(sqlstate_error(
             "42501",
             "permission denied: only owner, superuser, or tenant_admin can drop collections",
@@ -145,7 +134,7 @@ pub fn drop_collection(
 
     // PURGE requires admin — it bypasses the retention safety net,
     // which an owner alone should not be able to invoke.
-    if flags.purge && !is_admin {
+    if purge && !is_admin {
         return Err(sqlstate_error(
             "42501",
             "permission denied: only superuser or tenant_admin may DROP COLLECTION ... PURGE",
@@ -159,21 +148,22 @@ pub fn drop_collection(
     // | active              | proceed                     | proceed (upgrade)      |
     // | soft-deleted        | idempotent OK — already     | proceed (upgrade to    |
     // |                     |   soft-deleted              |   hard-delete)         |
-    // | absent (purged/NA)  | 42P01 "does not exist"      | idempotent OK —        |
+    // | absent (purged/NA)  | 42P01 (or OK if IF EXISTS)  | idempotent OK —        |
     // |                     |                             |   already purged       |
     //
-    // The two idempotency branches short-circuit with a success tag
-    // and skip the audit pair + propose — re-running a drop that's
-    // already a no-op should not spawn extra raft rounds or audit
-    // noise.
-    if let Some(catalog) = state.credentials.catalog() {
+    // The two idempotency branches (already-deleted, already-purged)
+    // short-circuit with a success tag and skip the audit pair +
+    // propose — re-running a drop that's already a no-op should not
+    // spawn extra raft rounds or audit noise. The `if_exists` case
+    // joins them on the absent-name branch.
+    if let Some(catalog) = state.credentials.catalog().as_ref() {
         match catalog.get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), name) {
             Ok(Some(coll)) if coll.is_active => {}
-            Ok(Some(_)) if flags.purge => {}
+            Ok(Some(_)) if purge => {}
             Ok(Some(_)) => {
                 return Ok(vec![Response::Execution(Tag::new("DROP COLLECTION"))]);
             }
-            Ok(None) if flags.purge => {
+            Ok(None) if purge || if_exists => {
                 return Ok(vec![Response::Execution(Tag::new("DROP COLLECTION"))]);
             }
             _ => {
@@ -192,7 +182,7 @@ pub fn drop_collection(
     // still present, so the purge can be retried cleanly with full
     // history. The alternative (audit after delete) loses the trail
     // on a crash window.
-    let action = if flags.purge {
+    let action = if purge {
         format!("requested purge of collection '{name}'")
     } else {
         format!("requested drop of collection '{name}'")
@@ -208,7 +198,7 @@ pub fn drop_collection(
     // on every node decodes the entry, performs the appropriate
     // mutation, and (for PurgeCollection) triggers the async
     // storage-reclaim dispatch on every node symmetrically.
-    let entry = if flags.purge {
+    let entry = if purge {
         crate::control::catalog_entry::CatalogEntry::PurgeCollection {
             tenant_id: tenant_id.as_u64(),
             name: name.to_string(),
@@ -222,12 +212,12 @@ pub fn drop_collection(
     let log_index = crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
     if log_index == 0
-        && let Some(catalog) = state.credentials.catalog()
+        && let Some(catalog) = state.credentials.catalog().as_ref()
     {
         // Single-node / no-cluster fallback: apply the catalog mutation
         // directly, matching what the applier would have done on a
         // clustered deployment.
-        if flags.purge {
+        if purge {
             catalog
                 .delete_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), name)
                 .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
@@ -242,7 +232,7 @@ pub fn drop_collection(
     }
 
     // Cascade: drop implicit sequences (SERIAL/BIGSERIAL fields create {coll}_{field}_seq).
-    if let Some(catalog) = state.credentials.catalog()
+    if let Some(catalog) = state.credentials.catalog().as_ref()
         && let Ok(seqs) = catalog.load_sequences_for_tenant(tenant_id.as_u64())
     {
         let prefix = format!("{name}_");
@@ -270,7 +260,7 @@ pub fn drop_collection(
     // intent + outcome pair is visible to auditors. If the process
     // dies after propose returned but before this line, the pre-propose
     // intent record alone is enough to reconstruct the history.
-    let completion = if flags.purge {
+    let completion = if purge {
         format!("purged collection '{name}' (log_index={log_index})")
     } else {
         format!("dropped collection '{name}' (log_index={log_index})")

@@ -12,6 +12,7 @@ use crate::control::server::pgwire::ddl::alert::alter_alert;
 use crate::control::server::pgwire::ddl::alert::{CreateAlertRequest, create_alert};
 use crate::control::server::pgwire::ddl::change_stream::alter_change_stream;
 use crate::control::server::pgwire::ddl::cluster::alter_raft_group;
+use crate::control::server::pgwire::ddl::collection::drop_collection;
 use crate::control::server::pgwire::ddl::consumer_group::create_consumer_group;
 use crate::control::server::pgwire::ddl::grant::database_permission::{
     grant_database, revoke_database,
@@ -43,6 +44,27 @@ pub(super) fn try_dispatch_sync(
     }
 
     match stmt {
+        // DROP { COLLECTION | TABLE } [IF EXISTS] <name> [PURGE] [CASCADE]
+        // — parser folds both spellings into `DropCollection`. The typed
+        // handler honours `if_exists` correctly; previously the text-
+        // based dispatcher read `parts[2]` and would treat "IF" as the
+        // name.
+        NodedbStatement::DropCollection {
+            name,
+            if_exists,
+            purge,
+            cascade,
+            cascade_force,
+        } => Some(drop_collection(
+            state,
+            identity,
+            name,
+            *if_exists,
+            *purge,
+            *cascade,
+            *cascade_force,
+        )),
+
         NodedbStatement::GrantRole { role, username } => {
             Some(grant_role(state, identity, role, username))
         }

@@ -60,18 +60,11 @@ pub(super) fn try_dispatch_guards(
             None
         }
 
-        // ── IF EXISTS: swallow not-found errors on DROP ──────────
-        NodedbStatement::DropCollection {
-            name,
-            if_exists: true,
-            ..
-        } => {
-            if !collection_exists(state, identity, name, database_id) {
-                return Some(Ok(vec![Response::Execution(Tag::new("DROP COLLECTION"))]));
-            }
-            None
-        }
+        // `DropCollection` is fully owned by the sync_ops typed
+        // handler, which honours `if_exists` correctly via the
+        // existence-check matrix. No guard short-circuit needed.
 
+        // ── IF EXISTS: swallow not-found errors on DROP ──────────
         NodedbStatement::DropIndex {
             if_exists: true, ..
         } => None,
