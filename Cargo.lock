@@ -2144,7 +2144,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4091,7 +4091,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -4193,7 +4193,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-array"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "crc32c",
  "loro",
@@ -4210,7 +4210,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-bridge"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "fluxbench",
  "libc",
@@ -4223,7 +4223,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-client"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "nodedb-types",
@@ -4241,7 +4241,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-client-tests"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "nodedb",
  "nodedb-client",
@@ -4254,7 +4254,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-cluster"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "crc32c",
@@ -4288,7 +4288,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-cluster-tests"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "bytes",
  "futures",
@@ -4308,7 +4308,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-codec"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "lz4_flex 0.11.6",
  "nalgebra",
@@ -4325,7 +4325,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-columnar"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "crc32c",
  "nodedb-codec",
@@ -4344,7 +4344,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-crdt"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "getrandom 0.3.4",
  "hkdf",
@@ -4362,7 +4362,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-fts"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "arc-swap",
  "crc32c",
@@ -4382,7 +4382,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-graph"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "arc-swap",
  "nodedb-mem",
@@ -4399,7 +4399,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-mem"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "fluxbench",
  "libc",
@@ -4415,7 +4415,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-query"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "nodedb-fts",
  "nodedb-spatial",
@@ -4432,7 +4432,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-raft"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "crc32c",
  "rand 0.9.4",
@@ -4449,7 +4449,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-spatial"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "h3o",
  "nodedb-mem",
@@ -4466,7 +4466,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-sql"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "nodedb-query",
@@ -4480,7 +4480,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-strict"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "arrow",
  "nodedb-types",
@@ -4494,7 +4494,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-test-support"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "bytes",
  "futures",
@@ -4517,7 +4517,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-types"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "bytemuck",
@@ -4543,7 +4543,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-vector"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "arc-swap",
  "crc32c",
@@ -4565,7 +4565,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-vector-gpu"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "nodedb-vector",
  "thiserror 2.0.18",
@@ -4573,7 +4573,7 @@ dependencies = [
 
 [[package]]
 name = "nodedb-wal"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "crc32c",
@@ -5356,7 +5356,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.11.0",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -5518,7 +5518,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6145,7 +6145,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6213,7 +6213,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6729,7 +6729,6 @@ dependencies = [
  "cfg-if",
  "libc",
  "psm",
- "windows-sys 0.52.0",
  "windows-sys 0.59.0",
 ]
 
@@ -6858,7 +6857,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8018,7 +8017,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8565,16 +8564,18 @@ dependencies = [
 
 [[package]]
 name = "zerompk"
-version = "0.4.1"
-source = "git+https://github.com/farhan-syah/zerompk?rev=1dd71a0de6b6c99f2c2dbbc69106bb87b1e2cdcb#1dd71a0de6b6c99f2c2dbbc69106bb87b1e2cdcb"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ed7119bccd8297686328e73233a8c839645e742e16c2b8e94a48bda9f118729"
 dependencies = [
  "zerompk_derive",
 ]
 
 [[package]]
 name = "zerompk_derive"
-version = "0.4.1"
-source = "git+https://github.com/farhan-syah/zerompk?rev=1dd71a0de6b6c99f2c2dbbc69106bb87b1e2cdcb#1dd71a0de6b6c99f2c2dbbc69106bb87b1e2cdcb"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cec68b6d21b4d29083199a2b2f42fb23712cfdf3bdb221b86c2485c6b6c4248"
 dependencies = [
  "proc-macro2",
  "quote",
