@@ -175,10 +175,13 @@ mod tests {
             .as_secs()
             + 60;
         let hex = issue_token(&secret, 1, expiry).unwrap();
-        // Flip last two hex chars (end of MAC).
+        // Flip the last MAC byte. XOR with 0xFF so it always changes even
+        // if it was already 0x00 (a fixed "00" replacement would be a
+        // no-op ~1/256 of the time, since the MAC varies with the expiry).
         let mut tampered = hex.clone();
         let len = tampered.len();
-        tampered.replace_range(len - 2..len, "00");
+        let orig = u8::from_str_radix(&tampered[len - 2..len], 16).unwrap();
+        tampered.replace_range(len - 2..len, &format!("{:02x}", orig ^ 0xFF));
         assert_eq!(
             verify_token(&tampered, &secret).unwrap_err(),
             TokenError::InvalidMac

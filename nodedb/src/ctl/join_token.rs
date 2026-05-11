@@ -82,10 +82,14 @@ mod tests {
         assert_eq!(got_node, for_node);
         assert_eq!(got_exp, expiry);
 
-        // Flip a byte in the MAC portion.
+        // Flip a byte in the MAC portion. XOR with 0xFF so the byte is
+        // guaranteed to change even if it was already 0x00 (a fixed "00"
+        // replacement would be a no-op ~1/256 of the time, since the MAC
+        // varies with the wall-clock-derived expiry).
         let mut tampered = hex.clone();
         let flip = tampered.len() - 4;
-        tampered.replace_range(flip..flip + 2, "00");
+        let orig = u8::from_str_radix(&tampered[flip..flip + 2], 16).expect("valid hex byte");
+        tampered.replace_range(flip..flip + 2, &format!("{:02x}", orig ^ 0xFF));
         assert!(tok::verify_token(&tampered, &secret).is_err());
 
         // Wrong secret.
