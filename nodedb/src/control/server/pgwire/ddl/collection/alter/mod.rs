@@ -14,6 +14,7 @@ pub mod drop_column;
 pub mod enforcement;
 pub mod materialized_sum;
 pub mod rename_column;
+pub mod strict_schema;
 
 pub use add_column::alter_table_add_column;
 pub use alter_type::alter_collection_alter_column_type;

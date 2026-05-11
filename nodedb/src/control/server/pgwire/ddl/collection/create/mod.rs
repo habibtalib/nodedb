@@ -11,6 +11,7 @@
 //! Public API stays at `super::create::*` via the re-exports
 //! below — no callers outside this file need to change.
 
+pub mod build;
 pub mod enforcement;
 pub mod engine_option;
 pub mod handler;

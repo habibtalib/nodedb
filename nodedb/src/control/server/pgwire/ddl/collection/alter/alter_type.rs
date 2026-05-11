@@ -9,7 +9,6 @@
 //! Widening across discriminants would require a full online rewrite and
 //! is tracked as a separate enhancement.
 
-use nodedb_types::DatabaseId;
 use std::str::FromStr;
 
 use pgwire::api::results::{Response, Tag};
@@ -20,6 +19,7 @@ use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
 use super::super::super::super::types::sqlstate_error;
+use super::strict_schema::{load_strict_collection, persist_schema_change, write_schema_back};
 
 /// ALTER COLLECTION <name> ALTER COLUMN <column_name> TYPE <new_type>
 ///
@@ -39,28 +39,8 @@ pub async fn alter_collection_alter_column_type(
     let new_type = nodedb_types::columnar::ColumnType::from_str(new_type_str)
         .map_err(|e| sqlstate_error("42601", &format!("invalid type '{new_type_str}': {e}")))?;
 
-    let Some(catalog) = state.credentials.catalog() else {
-        return Err(sqlstate_error("XX000", "no catalog available"));
-    };
-
-    let coll = catalog
-        .get_collection(DatabaseId::DEFAULT, tenant_id.as_u64(), name)
-        .map_err(|e| sqlstate_error("XX000", &e.to_string()))?
-        .filter(|c| c.is_active)
-        .ok_or_else(|| sqlstate_error("42P01", &format!("collection '{name}' does not exist")))?;
-
-    if !coll.collection_type.is_strict() {
-        return Err(sqlstate_error(
-            "0A000",
-            "ALTER COLUMN TYPE is only supported on strict document collections",
-        ));
-    }
-
-    let mut schema: nodedb_types::columnar::StrictSchema = coll
-        .timeseries_config
-        .as_deref()
-        .and_then(|s| sonic_rs::from_str(s).ok())
-        .ok_or_else(|| sqlstate_error("XX000", "strict schema missing or malformed"))?;
+    let (coll, mut schema) =
+        load_strict_collection(state, tenant_id.as_u64(), name, "ALTER COLUMN TYPE")?;
 
     let col = schema
         .columns
@@ -88,23 +68,8 @@ pub async fn alter_collection_alter_column_type(
     schema.version = schema.version.saturating_add(1);
 
     let mut updated = coll;
-    updated.collection_type = nodedb_types::CollectionType::strict(schema.clone());
-    updated.timeseries_config = sonic_rs::to_string(&schema).ok();
-
-    let entry =
-        crate::control::catalog_entry::CatalogEntry::PutCollection(Box::new(updated.clone()));
-    let log_index = crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
-        .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-    if log_index == 0 {
-        catalog
-            .put_collection(DatabaseId::DEFAULT, &updated)
-            .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-    }
-
-    super::super::create::dispatch_register_from_stored(state, &updated)
-        .await
-        .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
-    state.schema_version.bump();
+    write_schema_back(&mut updated, schema);
+    persist_schema_change(state, &updated).await?;
 
     state.audit_record(
         AuditEvent::AdminAction,
