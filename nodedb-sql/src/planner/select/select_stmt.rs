@@ -226,8 +226,7 @@ pub(super) fn plan_select(
     let projection = convert_projection(&select.projection)?;
 
     // 8. Convert window functions (SELECT with OVER).
-    let window_functions =
-        crate::planner::window::extract_window_functions(&select.projection, functions)?;
+    let window_functions = crate::planner::window::extract_window_functions(select, functions)?;
 
     // 9. Build base scan plan.
     let scan_projection = if subquery_joins.is_empty() {
