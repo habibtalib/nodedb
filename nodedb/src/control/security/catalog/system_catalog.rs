@@ -25,179 +25,16 @@ impl SystemCatalog {
 
         let db = Database::create(path).map_err(|e| catalog_err("open", e))?;
 
-        // Ensure tables exist.
+        // Create every `_system.*` table from the canonical registry.
+        // Opening a table in redb creates it if absent; the registry is
+        // the single source of truth so a table cannot be read in
+        // production code without being bootstrapped here.
         let write_txn = db.begin_write().map_err(|e| catalog_err("init txn", e))?;
         {
-            let _ = write_txn
-                .open_table(USERS)
-                .map_err(|e| catalog_err("init users table", e))?;
-            let _ = write_txn
-                .open_table(API_KEYS)
-                .map_err(|e| catalog_err("init api_keys table", e))?;
-            let _ = write_txn
-                .open_table(ROLES)
-                .map_err(|e| catalog_err("init roles table", e))?;
-            let _ = write_txn
-                .open_table(PERMISSIONS)
-                .map_err(|e| catalog_err("init permissions table", e))?;
-            let _ = write_txn
-                .open_table(OWNERS)
-                .map_err(|e| catalog_err("init owners table", e))?;
-            let _ = write_txn
-                .open_table(TENANTS)
-                .map_err(|e| catalog_err("init tenants table", e))?;
-            let _ = write_txn
-                .open_table(AUDIT_LOG)
-                .map_err(|e| catalog_err("init audit_log table", e))?;
-            let _ = write_txn
-                .open_table(COLLECTIONS)
-                .map_err(|e| catalog_err("init collections table", e))?;
-            let _ = write_txn
-                .open_table(METADATA)
-                .map_err(|e| catalog_err("init metadata table", e))?;
-            let _ = write_txn
-                .open_table(BLACKLIST)
-                .map_err(|e| catalog_err("init blacklist table", e))?;
-            let _ = write_txn
-                .open_table(AUTH_USERS)
-                .map_err(|e| catalog_err("init auth_users table", e))?;
-            let _ = write_txn
-                .open_table(ORGS)
-                .map_err(|e| catalog_err("init orgs table", e))?;
-            let _ = write_txn
-                .open_table(ORG_MEMBERS)
-                .map_err(|e| catalog_err("init org_members table", e))?;
-            let _ = write_txn
-                .open_table(SCOPES)
-                .map_err(|e| catalog_err("init scopes table", e))?;
-            let _ = write_txn
-                .open_table(SCOPE_GRANTS)
-                .map_err(|e| catalog_err("init scope_grants table", e))?;
-            let _ = write_txn
-                .open_table(MATERIALIZED_VIEWS)
-                .map_err(|e| catalog_err("init materialized_views table", e))?;
-            let _ = write_txn
-                .open_table(FUNCTIONS)
-                .map_err(|e| catalog_err("init functions table", e))?;
-            let _ = write_txn
-                .open_table(TRIGGERS)
-                .map_err(|e| catalog_err("init triggers table", e))?;
-            let _ = write_txn
-                .open_table(ARRAYS)
-                .map_err(|e| catalog_err("init arrays table", e))?;
-            let _ = write_txn
-                .open_table(PROCEDURES)
-                .map_err(|e| catalog_err("init procedures table", e))?;
-            let _ = write_txn
-                .open_table(DEPENDENCIES)
-                .map_err(|e| catalog_err("init dependencies table", e))?;
-            let _ = write_txn
-                .open_table(WASM_MODULES)
-                .map_err(|e| catalog_err("init wasm_modules table", e))?;
-            let _ = write_txn
-                .open_table(CHANGE_STREAMS)
-                .map_err(|e| catalog_err("init change_streams table", e))?;
-            let _ = write_txn
-                .open_table(CONSUMER_GROUPS)
-                .map_err(|e| catalog_err("init consumer_groups table", e))?;
-            let _ = write_txn
-                .open_table(SCHEDULES)
-                .map_err(|e| catalog_err("init schedules table", e))?;
-            let _ = write_txn
-                .open_table(TOPICS_EP)
-                .map_err(|e| catalog_err("init topics_ep table", e))?;
-            let _ = write_txn
-                .open_table(STREAMING_MVS)
-                .map_err(|e| catalog_err("init streaming_mvs table", e))?;
-            let _ = write_txn
-                .open_table(super::rls::RLS_POLICIES)
-                .map_err(|e| catalog_err("init rls_policies table", e))?;
-            let _ = write_txn
-                .open_table(ALERT_RULES)
-                .map_err(|e| catalog_err("init alert_rules table", e))?;
-            let _ = write_txn
-                .open_table(RETENTION_POLICIES)
-                .map_err(|e| catalog_err("init retention_policies table", e))?;
-            let _ = write_txn
-                .open_table(SEQUENCES)
-                .map_err(|e| catalog_err("init sequences table", e))?;
-            let _ = write_txn
-                .open_table(SEQUENCE_STATE)
-                .map_err(|e| catalog_err("init sequence_state table", e))?;
-            let _ = write_txn
-                .open_table(COLUMN_STATS)
-                .map_err(|e| catalog_err("init column_stats table", e))?;
-            let _ = write_txn
-                .open_table(VECTOR_MODEL_METADATA)
-                .map_err(|e| catalog_err("init vector_model_metadata table", e))?;
-            let _ = write_txn
-                .open_table(CHECKPOINTS)
-                .map_err(|e| catalog_err("init checkpoints table", e))?;
-            let _ = write_txn
-                .open_table(WAL_TOMBSTONES)
-                .map_err(|e| catalog_err("init wal_tombstones table", e))?;
-            let _ = write_txn
-                .open_table(super::types::L2_CLEANUP_QUEUE)
-                .map_err(|e| catalog_err("init l2_cleanup_queue table", e))?;
-            let _ = write_txn
-                .open_table(super::surrogate_hwm::SURROGATE_HWM)
-                .map_err(|e| catalog_err("init surrogate_hwm table", e))?;
-            let _ = write_txn
-                .open_table(super::types::SURROGATE_PK)
-                .map_err(|e| catalog_err("init surrogate_pk table", e))?;
-            let _ = write_txn
-                .open_table(super::types::SURROGATE_PK_REV)
-                .map_err(|e| catalog_err("init surrogate_pk_rev table", e))?;
-            let _ = write_txn
-                .open_table(SYNONYM_GROUPS)
-                .map_err(|e| catalog_err("init synonym_groups table", e))?;
-            let _ = write_txn
-                .open_table(CUSTOM_TYPES)
-                .map_err(|e| catalog_err("init custom_types table", e))?;
-            let _ = write_txn
-                .open_table(super::lockout::LOCKOUT_STATE_TABLE)
-                .map_err(|e| catalog_err("init lockout_state table", e))?;
-            let _ = write_txn
-                .open_table(DATABASES)
-                .map_err(|e| catalog_err("init databases table", e))?;
-            let _ = write_txn
-                .open_table(DATABASES_BY_NAME)
-                .map_err(|e| catalog_err("init databases_by_name table", e))?;
-            let _ = write_txn
-                .open_table(DATABASE_HWM)
-                .map_err(|e| catalog_err("init database_hwm table", e))?;
-            let _ = write_txn
-                .open_table(DATABASE_QUOTAS)
-                .map_err(|e| catalog_err("init database_quotas table", e))?;
-            let _ = write_txn
-                .open_table(TENANT_QUOTAS)
-                .map_err(|e| catalog_err("init tenant_quotas table", e))?;
-            let _ = write_txn
-                .open_table(CLONE_COPYUPS)
-                .map_err(|e| catalog_err("init clone_copyups table", e))?;
-            let _ = write_txn
-                .open_table(CLONE_TOMBSTONES)
-                .map_err(|e| catalog_err("init clone_tombstones table", e))?;
-            let _ = write_txn
-                .open_table(CLONE_KV_TOMBSTONES)
-                .map_err(|e| catalog_err("init clone_kv_tombstones table", e))?;
-            let _ = write_txn
-                .open_table(CLONE_LINEAGE)
-                .map_err(|e| catalog_err("init clone_lineage table", e))?;
-            let _ = write_txn
-                .open_table(MIRROR_COLLECTION_MAP)
-                .map_err(|e| catalog_err("init mirror_collection_map table", e))?;
-            let _ = write_txn
-                .open_table(MIRROR_LAG)
-                .map_err(|e| catalog_err("init mirror_lag table", e))?;
-            let _ = write_txn
-                .open_table(OIDC_PROVIDERS)
-                .map_err(|e| catalog_err("init oidc_providers table", e))?;
-            let _ = write_txn
-                .open_table(
-                    crate::control::server::pgwire::ddl::tenant::move_tenant::journal::MOVE_TENANT_JOURNAL,
-                )
-                .map_err(|e| catalog_err("init move_tenant_journal table", e))?;
+            for table in super::bootstrap_tables::BOOTSTRAP_TABLES {
+                (table.create)(&write_txn)
+                    .map_err(|e| catalog_err(&format!("init {} table", table.label), e))?;
+            }
         }
         write_txn
             .commit()
@@ -339,6 +176,23 @@ mod tests {
 
         let loaded = catalog.load_all_users().unwrap();
         assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn bootstrap_creates_every_registered_table() {
+        // A fresh catalog must already contain every table in the
+        // bootstrap registry, so boot-time readers (integrity walk,
+        // continuous-aggregate replay, …) open existing empty tables
+        // instead of hitting "table does not exist". Re-opening each
+        // entry read-only would fail with `TableDoesNotExist` if the
+        // init path ever stopped iterating the registry.
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = SystemCatalog::open(&dir.path().join("system.redb")).unwrap();
+        let txn = catalog.db.begin_read().unwrap();
+        for table in super::super::bootstrap_tables::BOOTSTRAP_TABLES {
+            (table.probe)(&txn)
+                .unwrap_or_else(|e| panic!("table `{}` missing after bootstrap: {e}", table.label));
+        }
     }
 
     #[test]

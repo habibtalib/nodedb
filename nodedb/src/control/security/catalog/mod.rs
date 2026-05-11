@@ -6,6 +6,7 @@ pub mod audit;
 pub mod auth_types;
 pub mod auth_users;
 pub mod blacklist;
+pub mod bootstrap_tables;
 pub mod change_streams;
 pub mod checkpoint;
 pub mod checkpoints;

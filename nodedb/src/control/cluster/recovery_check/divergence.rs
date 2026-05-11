@@ -42,6 +42,16 @@ pub enum DivergenceKind {
         key: String,
         detail: String,
     },
+    /// A `_system.*` table the integrity walk needs could not be
+    /// loaded — either it was never bootstrapped (missing from the
+    /// catalog's `BOOTSTRAP_TABLES` registry) or redb returned a read
+    /// error. The walk cannot certify a catalog it cannot fully read,
+    /// so it records this and bails rather than emitting spurious
+    /// orphan / dangling-reference reports against an empty stand-in.
+    /// Treated as an integrity violation: not registry-repairable, and
+    /// it aborts startup — recovery is "re-run the applier from the
+    /// raft log", same as any other redb corruption.
+    TableLoadError { table: &'static str, detail: String },
 }
 
 impl DivergenceKind {
@@ -54,6 +64,7 @@ impl DivergenceKind {
             Self::MissingInRegistry { .. } => "missing_in_registry",
             Self::ExtraInRegistry { .. } => "extra_in_registry",
             Self::ValueMismatch { .. } => "value_mismatch",
+            Self::TableLoadError { .. } => "table_load_error",
         }
     }
 
@@ -62,7 +73,7 @@ impl DivergenceKind {
     pub fn is_integrity(&self) -> bool {
         matches!(
             self,
-            Self::DanglingReference { .. } | Self::OrphanRow { .. }
+            Self::DanglingReference { .. } | Self::OrphanRow { .. } | Self::TableLoadError { .. }
         )
     }
 }
@@ -114,6 +125,9 @@ impl fmt::Display for Divergence {
                 f,
                 "registry {registry}: value mismatch for key {key} — {detail}"
             ),
+            DivergenceKind::TableLoadError { table, detail } => {
+                write!(f, "_system table {table} failed to load — {detail}")
+            }
         }
     }
 }
@@ -130,6 +144,17 @@ mod tests {
         });
         assert_eq!(d.kind.label(), "missing_in_registry");
         assert!(!d.kind.is_integrity());
+    }
+
+    #[test]
+    fn table_load_error_is_integrity() {
+        let d = Divergence::new(DivergenceKind::TableLoadError {
+            table: "continuous_aggregates",
+            detail: "table does not exist".into(),
+        });
+        assert_eq!(d.kind.label(), "table_load_error");
+        assert!(d.kind.is_integrity());
+        assert!(d.to_string().contains("continuous_aggregates"));
     }
 
     #[test]

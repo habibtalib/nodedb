@@ -44,108 +44,52 @@ use super::divergence::{Divergence, DivergenceKind};
 pub fn verify_redb_integrity(catalog: &SystemCatalog) -> Vec<Divergence> {
     let mut violations: Vec<Divergence> = Vec::new();
 
-    // Fetch every table once up front. If a table load fails
-    // it's logged and skipped — we can't cross-check what we
-    // can't read, but we can still report the load error via
-    // tracing and move on.
-    let collections = match catalog.load_all_collections(DatabaseId::DEFAULT) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "integrity: failed to load collections");
-            return violations;
-        }
-    };
-    let owners = match catalog.load_all_owners() {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "integrity: failed to load owners");
-            Vec::new()
-        }
-    };
-    let users = match catalog.load_all_users() {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "integrity: failed to load users");
-            Vec::new()
-        }
-    };
-    let roles = match catalog.load_all_roles() {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "integrity: failed to load roles");
-            Vec::new()
-        }
-    };
-    let permissions = match catalog.load_all_permissions() {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "integrity: failed to load permissions");
-            Vec::new()
-        }
-    };
-    let triggers = match catalog.load_all_triggers() {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "integrity: failed to load triggers");
-            Vec::new()
-        }
-    };
-    let functions = match catalog.load_all_functions() {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "integrity: failed to load functions");
-            Vec::new()
-        }
-    };
-    let procedures = match catalog.load_all_procedures() {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "integrity: failed to load procedures");
-            Vec::new()
-        }
-    };
-    let materialized_views = match catalog.load_all_materialized_views() {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "integrity: failed to load materialized_views");
-            Vec::new()
-        }
-    };
-    let sequences = match catalog.load_all_sequences() {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "integrity: failed to load sequences");
-            Vec::new()
-        }
-    };
-    let schedules = match catalog.load_all_schedules() {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "integrity: failed to load schedules");
-            Vec::new()
-        }
-    };
-    let change_streams = match catalog.load_all_change_streams() {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "integrity: failed to load change_streams");
-            Vec::new()
-        }
-    };
-    let continuous_aggregates = match catalog.load_all_continuous_aggregates() {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "integrity: failed to load continuous_aggregates");
-            Vec::new()
-        }
-    };
-    let rls = match catalog.load_all_rls_policies() {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "integrity: failed to load rls policies");
-            Vec::new()
-        }
-    };
+    // Load every table the cross-checks below need, once, up front.
+    // A table we cannot read — missing because it was never in the
+    // catalog's `BOOTSTRAP_TABLES` registry, or a redb read error —
+    // makes every check that touches it meaningless: cross-checking
+    // against an empty stand-in manufactures phantom orphan /
+    // dangling-reference reports. So a load failure records a
+    // `TableLoadError` divergence and bails the walk. That divergence
+    // is non-empty, so the `CatalogSanityCheck` wrapper aborts startup
+    // — which is correct: a catalog we cannot fully read is not one we
+    // can certify.
+    macro_rules! load_table {
+        ($table:literal, $expr:expr) => {
+            match $expr {
+                Ok(v) => v,
+                Err(e) => {
+                    violations.push(Divergence::new(DivergenceKind::TableLoadError {
+                        table: $table,
+                        detail: e.to_string(),
+                    }));
+                    return violations;
+                }
+            }
+        };
+    }
+
+    let collections = load_table!(
+        "collections",
+        catalog.load_all_collections(DatabaseId::DEFAULT)
+    );
+    let owners = load_table!("owners", catalog.load_all_owners());
+    let users = load_table!("users", catalog.load_all_users());
+    let roles = load_table!("roles", catalog.load_all_roles());
+    let permissions = load_table!("permissions", catalog.load_all_permissions());
+    let triggers = load_table!("triggers", catalog.load_all_triggers());
+    let functions = load_table!("functions", catalog.load_all_functions());
+    let procedures = load_table!("procedures", catalog.load_all_procedures());
+    let materialized_views =
+        load_table!("materialized_views", catalog.load_all_materialized_views());
+    let sequences = load_table!("sequences", catalog.load_all_sequences());
+    let schedules = load_table!("schedules", catalog.load_all_schedules());
+    let change_streams = load_table!("change_streams", catalog.load_all_change_streams());
+    let continuous_aggregates = load_table!(
+        "continuous_aggregates",
+        catalog.load_all_continuous_aggregates()
+    );
+    let rls = load_table!("rls_policies", catalog.load_all_rls_policies());
 
     // Build lookup sets once — every referential check is a
     // HashSet membership probe.

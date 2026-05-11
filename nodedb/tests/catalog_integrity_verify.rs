@@ -10,6 +10,7 @@ mod catalog_integrity_helpers;
 
 use catalog_integrity_helpers::*;
 use nodedb::control::catalog_entry::CatalogEntry;
+use nodedb::control::cluster::recovery_check::integrity::verify_redb_integrity;
 use nodedb::control::security::catalog::auth_types::StoredOwner;
 
 #[test]
@@ -101,6 +102,42 @@ fn verify_redb_integrity_flags_orphan_change_stream() {
         find_orphan(&catalog, "change_stream").is_some(),
         "verify_redb_integrity must report OrphanRow(change_stream) \
          when a ChangeStreamDef exists without a matching StoredOwner row"
+    );
+}
+
+/// On a freshly-bootstrapped catalog (clean data dir, no DDL yet) the
+/// startup integrity walk must complete with no divergences. The walk
+/// opens every `_system.*` table it cross-checks; a table missing from
+/// the bootstrap registry now surfaces as a `TableLoadError` divergence
+/// (it used to be a swallowed `tracing::error!`), so an empty divergence
+/// list is positive proof that every walked table was bootstrapped —
+/// and the list stays in lockstep with the walker automatically as new
+/// tables are added to it.
+///
+/// Regression: `_system.continuous_aggregates` was omitted from the
+/// bootstrap init list. Its loader returned `Err("table does not
+/// exist")`, the walker logged an `ERROR` on every clean boot, and the
+/// integrity check still reported "clean". "No CAs registered" is the
+/// legitimate state for a fresh server — it must read back as an empty
+/// set, not an error.
+#[test]
+fn fresh_catalog_loads_every_walked_table() {
+    let (_dir, catalog) = make_catalog();
+
+    let divergences = verify_redb_integrity(&catalog);
+    assert!(
+        divergences.is_empty(),
+        "fresh catalog must pass the integrity walk with no divergences, got: {divergences:?}"
+    );
+
+    // Named guard for the exact table that was missing: it must load
+    // and read back empty on a fresh server.
+    let caggs = catalog
+        .load_all_continuous_aggregates()
+        .expect("continuous_aggregates must load on a fresh catalog");
+    assert!(
+        caggs.is_empty(),
+        "a fresh catalog has no continuous aggregates registered"
     );
 }
 
