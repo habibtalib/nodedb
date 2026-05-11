@@ -399,6 +399,16 @@ impl MemoryGovernor {
         self.budgets.values().map(|b| b.allocated()).sum()
     }
 
+    /// Total number of over-release events observed across all
+    /// per-engine budgets. A non-zero value signals at least one
+    /// call-site is releasing more bytes than it reserved — the
+    /// "memory release exceeds allocation" warning class. Per-engine
+    /// `allocated()` saturates to zero on over-release, so this
+    /// counter is the only post-hoc observable for the bug.
+    pub fn total_over_release_count(&self) -> usize {
+        self.budgets.values().map(|b| b.over_release_count()).sum()
+    }
+
     /// Global utilization as a percentage (0-100).
     pub fn global_utilization_percent(&self) -> u8 {
         if self.global_ceiling == 0 {

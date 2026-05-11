@@ -26,6 +26,13 @@ pub struct Budget {
 
     /// Number of times an allocation was rejected due to budget exhaustion.
     rejection_count: AtomicUsize,
+
+    /// Number of `release(size)` calls where `size > current` — the
+    /// accounting-drift symptom. Saturating the per-engine counter
+    /// to zero hides the drift from `allocated()`, so this counter
+    /// is the only observable signal that the call-site is
+    /// over-releasing.
+    over_release_count: AtomicUsize,
 }
 
 impl Budget {
@@ -36,6 +43,7 @@ impl Budget {
             allocated: Arc::new(AtomicUsize::new(0)),
             peak: AtomicUsize::new(0),
             rejection_count: AtomicUsize::new(0),
+            over_release_count: AtomicUsize::new(0),
         }
     }
 
@@ -110,6 +118,7 @@ impl Budget {
             ) {
                 Ok(_) => {
                     if size > current {
+                        self.over_release_count.fetch_add(1, Ordering::Relaxed);
                         tracing::warn!(
                             released = size,
                             allocated = current,
@@ -131,6 +140,15 @@ impl Budget {
     /// Hard limit in bytes.
     pub fn limit(&self) -> usize {
         self.limit.load(Ordering::Relaxed)
+    }
+
+    /// Number of over-release events observed on this budget. A
+    /// non-zero value is the smoking-gun signal that some call-site
+    /// is releasing more bytes than it reserved. Per-engine
+    /// `allocated()` saturates to zero on over-release, so this
+    /// counter is the only post-hoc observable.
+    pub fn over_release_count(&self) -> usize {
+        self.over_release_count.load(Ordering::Relaxed)
     }
 
     /// Remaining bytes available.
