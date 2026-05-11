@@ -84,12 +84,7 @@ impl CoreLoop {
         };
 
         // Worst-case pressure across all engines that have a budget.
-        let worst = governor
-            .snapshot()
-            .into_iter()
-            .map(|s| governor.engine_pressure(s.engine))
-            .max()
-            .unwrap_or(PressureLevel::Normal);
+        let worst = governor.worst_engine_pressure();
 
         match worst {
             PressureLevel::Normal | PressureLevel::Warning => {
@@ -311,6 +306,44 @@ mod tests {
         assert!(
             core.pressure_suspend_reads,
             "Emergency must set suspend flag"
+        );
+    }
+
+    #[test]
+    fn spsc_emergency_suspension_clears_after_sustained_normal() {
+        // A core that entered Emergency suspend because the governor
+        // *reported* exhaustion must lift the suspension once the
+        // governor's worst-case pressure is back to Normal — otherwise a
+        // transient (or bogus, e.g. accounting-drift) Emergency wedges the
+        // core's SPSC reads forever, and every DDL waiting on that core's
+        // schema-register ACK times out. `pressure_normal_ticks` is the
+        // hysteresis gate; the suspend flag must be cleared once it
+        // crosses the threshold.
+        let (mut core, _tx, _rx, _dir) = make_core();
+        core.set_governor(make_governor_at(EngineId::Vector, 97));
+        core.apply_spsc_pressure();
+        assert!(
+            core.pressure_suspend_reads,
+            "Emergency must enter the suspended state first"
+        );
+
+        // Governor pressure returns to Normal (a fresh governor at 0%).
+        core.set_governor(make_governor_at(EngineId::Vector, 0));
+        for _ in 0..(PRESSURE_NORMAL_HYSTERESIS - 1) {
+            core.apply_spsc_pressure();
+        }
+        assert!(
+            core.pressure_suspend_reads,
+            "must not lift suspension before the hysteresis threshold"
+        );
+        core.apply_spsc_pressure();
+        assert!(
+            !core.pressure_suspend_reads,
+            "after {PRESSURE_NORMAL_HYSTERESIS} consecutive Normal ticks the \
+             Emergency suspension must be lifted — a stuck suspend flag is the \
+             cascade that turns transient or accounting-drift memory pressure \
+             into permanent schema-register barrier timeouts and a server that \
+             answers /healthz but fails every DDL"
         );
     }
 
