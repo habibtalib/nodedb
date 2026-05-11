@@ -163,6 +163,48 @@ fn parse_optional_column(parts: &[&str], start: usize) -> (String, usize) {
     (col, end + 1)
 }
 
+fn validate_quantization(
+    index_type: &str,
+    dim: usize,
+    pq_m: usize,
+    ivf_cells: usize,
+    ivf_nprobe: usize,
+) -> PgWireResult<()> {
+    if !index_type.is_empty() && !KNOWN_INDEX_TYPES.contains(&index_type) {
+        return Err(sqlstate_error(
+            "42601",
+            &format!(
+                "unknown index_type '{index_type}'; supported: {}",
+                KNOWN_INDEX_TYPES.join(", ")
+            ),
+        ));
+    }
+
+    let uses_pq = matches!(index_type, "hnsw_pq" | "ivf_pq");
+    if uses_pq && pq_m > 0 && dim > 0 && !dim.is_multiple_of(pq_m) {
+        return Err(sqlstate_error(
+            "42601",
+            &format!("pq_m ({pq_m}) must divide dim ({dim}) evenly"),
+        ));
+    }
+
+    if !uses_pq && (pq_m > 0 || ivf_cells > 0 || ivf_nprobe > 0) {
+        return Err(sqlstate_error(
+            "42601",
+            "pq_m / ivf_cells / ivf_nprobe require INDEX_TYPE hnsw_pq or ivf_pq",
+        ));
+    }
+
+    if index_type == "ivf_pq" && ivf_nprobe > 0 && ivf_cells > 0 && ivf_nprobe > ivf_cells {
+        return Err(sqlstate_error(
+            "42601",
+            &format!("ivf_nprobe ({ivf_nprobe}) must not exceed ivf_cells ({ivf_cells})"),
+        ));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::parse_optional_column;
@@ -229,46 +271,4 @@ mod tests {
         ];
         assert_eq!(parse_optional_column(&parts, 6), (String::new(), 6));
     }
-}
-
-fn validate_quantization(
-    index_type: &str,
-    dim: usize,
-    pq_m: usize,
-    ivf_cells: usize,
-    ivf_nprobe: usize,
-) -> PgWireResult<()> {
-    if !index_type.is_empty() && !KNOWN_INDEX_TYPES.contains(&index_type) {
-        return Err(sqlstate_error(
-            "42601",
-            &format!(
-                "unknown index_type '{index_type}'; supported: {}",
-                KNOWN_INDEX_TYPES.join(", ")
-            ),
-        ));
-    }
-
-    let uses_pq = matches!(index_type, "hnsw_pq" | "ivf_pq");
-    if uses_pq && pq_m > 0 && dim > 0 && !dim.is_multiple_of(pq_m) {
-        return Err(sqlstate_error(
-            "42601",
-            &format!("pq_m ({pq_m}) must divide dim ({dim}) evenly"),
-        ));
-    }
-
-    if !uses_pq && (pq_m > 0 || ivf_cells > 0 || ivf_nprobe > 0) {
-        return Err(sqlstate_error(
-            "42601",
-            "pq_m / ivf_cells / ivf_nprobe require INDEX_TYPE hnsw_pq or ivf_pq",
-        ));
-    }
-
-    if index_type == "ivf_pq" && ivf_nprobe > 0 && ivf_cells > 0 && ivf_nprobe > ivf_cells {
-        return Err(sqlstate_error(
-            "42601",
-            &format!("ivf_nprobe ({ivf_nprobe}) must not exceed ivf_cells ({ivf_cells})"),
-        ));
-    }
-
-    Ok(())
 }
