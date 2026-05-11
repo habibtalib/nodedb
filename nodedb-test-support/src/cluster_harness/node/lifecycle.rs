@@ -167,6 +167,7 @@ impl TestClusterNode {
                 core_array_catalog: shared.array_catalog.clone(),
                 event_producer,
                 core_metrics: shared.system_metrics.clone(),
+                governor: shared.governor.clone(),
                 replay: None,
                 stop_rx: core_stop_rx,
             });

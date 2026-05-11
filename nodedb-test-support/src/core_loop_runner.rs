@@ -31,6 +31,7 @@ use nodedb::control::array_catalog::ArrayCatalog;
 use nodedb::control::metrics::SystemMetrics;
 use nodedb::data::executor::core_loop::CoreLoop;
 use nodedb::event::EventProducer;
+use nodedb_mem::MemoryGovernor;
 use nodedb_types::OrdinalClock;
 use nodedb_wal::{TombstoneSet, WalRecord};
 
@@ -64,6 +65,11 @@ pub struct CoreLoopSpawn {
     pub event_producer: EventProducer,
     /// Optional system metrics handle wired via `core.set_metrics`.
     pub core_metrics: Option<Arc<SystemMetrics>>,
+    /// Optional memory governor wired via `core.set_governor`. Production
+    /// (`data::runtime`) always wires this; without it the Data Plane's
+    /// per-engine budget accounting (and the pressure detector that reads
+    /// it) is a no-op, so memory-balance assertions in tests are vacuous.
+    pub governor: Option<Arc<MemoryGovernor>>,
     /// WAL replay payload, or `None` for fresh-start cores.
     pub replay: Option<WalReplay>,
     /// Stop signal for the tick loop. Sender lives in the harness shutdown path.
@@ -83,6 +89,7 @@ pub fn spawn_core_loop(spawn: CoreLoopSpawn) -> tokio::task::JoinHandle<()> {
         core_array_catalog,
         event_producer,
         core_metrics,
+        governor,
         replay,
         stop_rx,
     } = spawn;
@@ -104,6 +111,9 @@ pub fn spawn_core_loop(spawn: CoreLoopSpawn) -> tokio::task::JoinHandle<()> {
                 core.set_event_producer(event_producer);
                 if let Some(m) = core_metrics {
                     core.set_metrics(m);
+                }
+                if let Some(g) = governor {
+                    core.set_governor(g);
                 }
                 if let Some(WalReplay {
                     records,

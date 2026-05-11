@@ -69,6 +69,7 @@ impl TestServer {
                     core_array_catalog: shared.array_catalog.clone(),
                     event_producer,
                     core_metrics: None,
+                    governor: shared.governor.clone(),
                     replay: None,
                     stop_rx: core_stop_rx,
                 });
