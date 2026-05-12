@@ -74,8 +74,3 @@ wildcards = "deny"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = [
-    # zerompk + zerompk_derive: pinned to a specific rev of the project's
-    # own MessagePack codec until it lands on crates.io for v0.1.x.
-    "https://github.com/farhan-syah/zerompk",
-]
