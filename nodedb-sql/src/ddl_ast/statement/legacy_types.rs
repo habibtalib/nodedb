@@ -6,11 +6,11 @@
 //! (`collection.rs`, `auth.rs`, `maintenance.rs`); this file only
 //! declares the unified enum that references them.
 
+use super::super::alter_ops::{AlterCollectionOp, AlterRoleOp, AlterUserOp};
+use super::super::graph_types::{GraphDirection, GraphProperties};
 use super::auth::*;
 use super::collection::*;
 use super::maintenance::*;
-use super::super::alter_ops::{AlterCollectionOp, AlterRoleOp, AlterUserOp};
-use super::super::graph_types::{GraphDirection, GraphProperties};
 
 /// Typed representation of every NodeDB DDL statement.
 ///

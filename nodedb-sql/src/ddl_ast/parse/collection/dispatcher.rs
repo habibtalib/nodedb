@@ -10,9 +10,9 @@
 //! - `DESCRIBE <name>` (excluding `DESCRIBE SEQUENCE`)
 //! - `\d` / `SHOW COLLECTIONS`
 
+use super::super::helpers::{extract_name_after_if_exists, extract_name_after_keyword};
 use super::alter_ops::parse_alter_operation;
 use super::body::parse_collection_body;
-use super::super::helpers::{extract_name_after_if_exists, extract_name_after_keyword};
 use crate::ddl_ast::statement::NodedbStatement;
 use crate::error::SqlError;
 

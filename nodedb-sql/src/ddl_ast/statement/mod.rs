@@ -4,11 +4,13 @@
 
 pub mod auth;
 pub mod collection;
+pub mod legacy_types;
 pub mod maintenance;
 pub mod types;
 
 pub use auth::*;
 pub use collection::*;
+pub use legacy_types::*;
 pub use maintenance::*;
 pub use types::*;
 
