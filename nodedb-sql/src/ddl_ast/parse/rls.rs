@@ -3,7 +3,7 @@
 //! Parse CREATE/DROP/SHOW RLS POLICY.
 
 use super::helpers::{extract_after_keyword, extract_name_after_if_exists};
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{NodedbStatement, PolicyStmt};
 use crate::error::SqlError;
 
 pub(super) fn try_parse(
@@ -22,15 +22,17 @@ pub(super) fn try_parse(
                 Some(r) => r?,
             };
             let collection = extract_after_keyword(parts, "ON").unwrap_or_default();
-            return Ok(Some(NodedbStatement::DropRlsPolicy {
+            return Ok(Some(NodedbStatement::Policy(PolicyStmt::DropRlsPolicy {
                 name,
                 collection,
                 if_exists,
-            }));
+            })));
         }
         if upper.starts_with("SHOW RLS POLI") {
             let collection = parts.get(3).map(|s| s.to_string());
-            return Ok(Some(NodedbStatement::ShowRlsPolicies { collection }));
+            return Ok(Some(NodedbStatement::Policy(PolicyStmt::ShowRlsPolicies {
+                collection,
+            })));
         }
         Ok(None)
     })()
@@ -109,7 +111,7 @@ fn parse_create_rls_policy(upper: &str, parts: &[&str], _trimmed: &str) -> Noded
         .and_then(|i| parts.get(i + 1))
         .and_then(|s| s.parse::<u64>().ok());
 
-    NodedbStatement::CreateRlsPolicy {
+    NodedbStatement::Policy(PolicyStmt::CreateRlsPolicy {
         name,
         collection,
         policy_type,
@@ -117,7 +119,7 @@ fn parse_create_rls_policy(upper: &str, parts: &[&str], _trimmed: &str) -> Noded
         is_restrictive,
         on_deny_raw,
         tenant_id_override,
-    }
+    })
 }
 
 /// Strip at most one matched pair of outer parentheses.

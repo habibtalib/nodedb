@@ -3,7 +3,7 @@
 //! Parse CREATE/DROP/ALTER/SHOW ALERT + SHOW ALERT STATUS.
 
 use super::helpers::extract_name_after_if_exists;
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{AutomationStmt, NodedbStatement};
 use crate::error::SqlError;
 
 pub(super) fn try_parse(
@@ -21,23 +21,31 @@ pub(super) fn try_parse(
                 None => return Ok(None),
                 Some(r) => r?,
             };
-            return Ok(Some(NodedbStatement::DropAlert { name, if_exists }));
+            return Ok(Some(NodedbStatement::Automation(
+                AutomationStmt::DropAlert { name, if_exists },
+            )));
         }
         if upper.starts_with("ALTER ALERT ") {
             // ALTER ALERT <name> ENABLE|DISABLE
             let name = parts.get(2).map(|s| s.to_lowercase()).unwrap_or_default();
             let action = parts.get(3).map(|s| s.to_uppercase()).unwrap_or_default();
-            return Ok(Some(NodedbStatement::AlterAlert { name, action }));
+            return Ok(Some(NodedbStatement::Automation(
+                AutomationStmt::AlterAlert { name, action },
+            )));
         }
         if upper.starts_with("SHOW ALERT STATUS ") {
             let name = match parts.get(3) {
                 None => return Ok(None),
                 Some(s) => s.to_string(),
             };
-            return Ok(Some(NodedbStatement::ShowAlertStatus { name }));
+            return Ok(Some(NodedbStatement::Automation(
+                AutomationStmt::ShowAlertStatus { name },
+            )));
         }
         if upper.starts_with("SHOW ALERT") && !upper.starts_with("SHOW ALERT STATUS") {
-            return Ok(Some(NodedbStatement::ShowAlerts));
+            return Ok(Some(NodedbStatement::Automation(
+                AutomationStmt::ShowAlerts,
+            )));
         }
         Ok(None)
     })()
@@ -123,7 +131,7 @@ fn parse_create_alert(upper: &str, trimmed: &str) -> NodedbStatement {
         })
         .unwrap_or_default();
 
-    NodedbStatement::CreateAlert {
+    NodedbStatement::Automation(AutomationStmt::CreateAlert {
         name,
         collection,
         where_filter,
@@ -134,7 +142,7 @@ fn parse_create_alert(upper: &str, trimmed: &str) -> NodedbStatement {
         recover_after,
         severity,
         notify_targets_raw,
-    }
+    })
 }
 
 /// Extract text between two keyword boundaries (case-insensitive search, original-case result).
@@ -228,7 +236,7 @@ mod tests {
                    NOTIFY TOPIC 'alerts', WEBHOOK 'https://ops.example.com/alerts'";
         let upper = sql.to_uppercase();
         let stmt = parse_create_alert(&upper, sql);
-        if let NodedbStatement::CreateAlert {
+        if let NodedbStatement::Automation(AutomationStmt::CreateAlert {
             name,
             collection,
             where_filter,
@@ -239,7 +247,7 @@ mod tests {
             recover_after,
             severity,
             notify_targets_raw,
-        } = stmt
+        }) = stmt
         {
             assert_eq!(name, "high_temp");
             assert_eq!(collection, "sensors");
@@ -261,7 +269,7 @@ mod tests {
         let sql = "CREATE ALERT simple ON metrics CONDITION MAX(cpu) > 95.0 WINDOW '1 minute' SEVERITY 'warning'";
         let upper = sql.to_uppercase();
         let stmt = parse_create_alert(&upper, sql);
-        if let NodedbStatement::CreateAlert {
+        if let NodedbStatement::Automation(AutomationStmt::CreateAlert {
             name,
             collection,
             where_filter,
@@ -269,7 +277,7 @@ mod tests {
             recover_after,
             notify_targets_raw,
             ..
-        } = stmt
+        }) = stmt
         {
             assert_eq!(name, "simple");
             assert_eq!(collection, "metrics");

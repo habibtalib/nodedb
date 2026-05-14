@@ -54,7 +54,8 @@ fn table_level_primary_key_rejected() {
 fn inline_primary_key_accepted() {
     use nodedb_sql::ddl_ast::NodedbStatement;
     let stmt = parse_ok("CREATE TABLE x (id INT PRIMARY KEY)");
-    if let NodedbStatement::CreateTable { columns, .. } = stmt {
+    use nodedb_sql::ddl_ast::CollectionStmt;
+    if let NodedbStatement::Collection(CollectionStmt::CreateTable { columns, .. }) = stmt {
         assert_eq!(columns.len(), 1, "expected 1 column");
         let (name, type_str) = &columns[0];
         assert_eq!(name, "id", "column name should be 'id'");
@@ -170,7 +171,7 @@ fn plain_columns_succeed() {
     assert!(
         matches!(
             stmt,
-            nodedb_sql::ddl_ast::NodedbStatement::CreateTable { .. }
+            nodedb_sql::ddl_ast::NodedbStatement::Collection(nodedb_sql::ddl_ast::CollectionStmt::CreateTable { .. })
         ),
         "expected CreateTable statement"
     );
@@ -184,7 +185,7 @@ fn engine_override_succeeds() {
     assert!(
         matches!(
             stmt,
-            nodedb_sql::ddl_ast::NodedbStatement::CreateTable { .. }
+            nodedb_sql::ddl_ast::NodedbStatement::Collection(nodedb_sql::ddl_ast::CollectionStmt::CreateTable { .. })
         ),
         "expected CreateTable statement"
     );
@@ -195,7 +196,7 @@ fn engine_override_succeeds() {
 #[test]
 fn not_null_and_default_accepted() {
     let stmt = parse_ok("CREATE TABLE x (id INT NOT NULL DEFAULT 0)");
-    if let nodedb_sql::ddl_ast::NodedbStatement::CreateTable { columns, .. } = stmt {
+    if let nodedb_sql::ddl_ast::NodedbStatement::Collection(nodedb_sql::ddl_ast::CollectionStmt::CreateTable { columns, .. }) = stmt {
         assert_eq!(columns.len(), 1, "expected 1 column");
         let (name, type_str) = &columns[0];
         assert_eq!(name, "id");
@@ -222,7 +223,7 @@ fn create_collection_succeeds() {
     assert!(
         matches!(
             stmt,
-            nodedb_sql::ddl_ast::NodedbStatement::CreateCollection { .. }
+            nodedb_sql::ddl_ast::NodedbStatement::Collection(nodedb_sql::ddl_ast::CollectionStmt::CreateCollection { .. })
         ),
         "expected CreateCollection statement"
     );
@@ -237,7 +238,7 @@ fn create_collection_succeeds() {
 #[test]
 fn create_table_no_columns_parse_succeeds_with_empty_columns() {
     let stmt = parse_ok("CREATE TABLE x");
-    if let nodedb_sql::ddl_ast::NodedbStatement::CreateTable { columns, .. } = stmt {
+    if let nodedb_sql::ddl_ast::NodedbStatement::Collection(nodedb_sql::ddl_ast::CollectionStmt::CreateTable { columns, .. }) = stmt {
         assert!(
             columns.is_empty(),
             "expected empty columns for no-column CREATE TABLE"

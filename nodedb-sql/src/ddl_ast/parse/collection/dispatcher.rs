@@ -13,7 +13,7 @@
 use super::super::helpers::{extract_name_after_if_exists, extract_name_after_keyword};
 use super::alter_ops::parse_alter_operation;
 use super::body::parse_collection_body;
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{CollectionStmt, NodedbStatement};
 use crate::error::SqlError;
 
 pub(in crate::ddl_ast::parse) fn try_parse(
@@ -30,15 +30,17 @@ pub(in crate::ddl_ast::parse) fn try_parse(
             };
             let (engine, columns, options, flags, balanced_raw) =
                 parse_collection_body(trimmed, &name)?;
-            return Ok(Some(NodedbStatement::CreateCollection {
-                name,
-                if_not_exists,
-                engine,
-                columns,
-                options,
-                flags,
-                balanced_raw,
-            }));
+            return Ok(Some(NodedbStatement::Collection(
+                CollectionStmt::CreateCollection {
+                    name,
+                    if_not_exists,
+                    engine,
+                    columns,
+                    options,
+                    flags,
+                    balanced_raw,
+                },
+            )));
         }
         if upper.starts_with("CREATE TABLE ") {
             let if_not_exists = upper.contains("IF NOT EXISTS");
@@ -48,15 +50,17 @@ pub(in crate::ddl_ast::parse) fn try_parse(
             };
             let (engine, columns, options, flags, balanced_raw) =
                 parse_collection_body(trimmed, &name)?;
-            return Ok(Some(NodedbStatement::CreateTable {
-                name,
-                if_not_exists,
-                engine,
-                columns,
-                options,
-                flags,
-                balanced_raw,
-            }));
+            return Ok(Some(NodedbStatement::Collection(
+                CollectionStmt::CreateTable {
+                    name,
+                    if_not_exists,
+                    engine,
+                    columns,
+                    options,
+                    flags,
+                    balanced_raw,
+                },
+            )));
         }
         if upper.starts_with("UNDROP COLLECTION ") || upper.starts_with("UNDROP TABLE ") {
             let name = match extract_name_after_keyword(parts, "COLLECTION")
@@ -65,7 +69,9 @@ pub(in crate::ddl_ast::parse) fn try_parse(
                 None => return Ok(None),
                 Some(r) => r?,
             };
-            return Ok(Some(NodedbStatement::UndropCollection { name }));
+            return Ok(Some(NodedbStatement::Collection(
+                CollectionStmt::UndropCollection { name },
+            )));
         }
         if upper.starts_with("DROP COLLECTION ") || upper.starts_with("DROP TABLE ") {
             let if_exists = upper.contains("IF EXISTS");
@@ -79,13 +85,15 @@ pub(in crate::ddl_ast::parse) fn try_parse(
             let cascade = upper.contains(" CASCADE");
             let cascade_force =
                 upper.contains(" CASCADE FORCE") || upper.contains(" FORCE CASCADE");
-            return Ok(Some(NodedbStatement::DropCollection {
-                name,
-                if_exists,
-                purge,
-                cascade: cascade || cascade_force,
-                cascade_force,
-            }));
+            return Ok(Some(NodedbStatement::Collection(
+                CollectionStmt::DropCollection {
+                    name,
+                    if_exists,
+                    purge,
+                    cascade: cascade || cascade_force,
+                    cascade_force,
+                },
+            )));
         }
         if upper.starts_with("ALTER COLLECTION ") || upper.starts_with("ALTER TABLE ") {
             let name = match extract_name_after_keyword(parts, "COLLECTION")
@@ -98,17 +106,23 @@ pub(in crate::ddl_ast::parse) fn try_parse(
                 None => return Ok(None),
                 Some(op) => op,
             };
-            return Ok(Some(NodedbStatement::AlterCollection { name, operation }));
+            return Ok(Some(NodedbStatement::Collection(
+                CollectionStmt::AlterCollection { name, operation },
+            )));
         }
         if upper.starts_with("DESCRIBE ") && !upper.starts_with("DESCRIBE SEQUENCE") {
             let name = match parts.get(1) {
                 None => return Ok(None),
                 Some(s) => s.to_string(),
             };
-            return Ok(Some(NodedbStatement::DescribeCollection { name }));
+            return Ok(Some(NodedbStatement::Collection(
+                CollectionStmt::DescribeCollection { name },
+            )));
         }
         if upper == "\\D" || upper == "SHOW COLLECTIONS" || upper.starts_with("SHOW COLLECTIONS") {
-            return Ok(Some(NodedbStatement::ShowCollections));
+            return Ok(Some(NodedbStatement::Collection(
+                CollectionStmt::ShowCollections,
+            )));
         }
         Ok(None)
     })()

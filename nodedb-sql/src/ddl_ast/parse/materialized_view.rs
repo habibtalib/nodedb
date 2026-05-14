@@ -3,7 +3,7 @@
 //! Parse CREATE/DROP MATERIALIZED VIEW + CREATE/DROP CONTINUOUS AGGREGATE.
 
 use super::helpers::extract_name_after_if_exists;
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{NodedbStatement, StreamViewStmt};
 use crate::error::SqlError;
 
 pub(super) fn try_parse(
@@ -21,13 +21,14 @@ pub(super) fn try_parse(
                 None => return Ok(None),
                 Some(r) => r?,
             };
-            return Ok(Some(NodedbStatement::DropMaterializedView {
-                name,
-                if_exists,
-            }));
+            return Ok(Some(NodedbStatement::StreamView(
+                StreamViewStmt::DropMaterializedView { name, if_exists },
+            )));
         }
         if upper.starts_with("SHOW MATERIALIZED VIEWS") {
-            return Ok(Some(NodedbStatement::ShowMaterializedViews));
+            return Ok(Some(NodedbStatement::StreamView(
+                StreamViewStmt::ShowMaterializedViews,
+            )));
         }
         if upper.starts_with("CREATE CONTINUOUS AGGREGATE ") {
             return Ok(Some(parse_create_continuous_aggregate(upper, trimmed)));
@@ -38,13 +39,14 @@ pub(super) fn try_parse(
                 None => return Ok(None),
                 Some(r) => r?,
             };
-            return Ok(Some(NodedbStatement::DropContinuousAggregate {
-                name,
-                if_exists,
-            }));
+            return Ok(Some(NodedbStatement::StreamView(
+                StreamViewStmt::DropContinuousAggregate { name, if_exists },
+            )));
         }
         if upper.starts_with("SHOW CONTINUOUS AGGREGATES") {
-            return Ok(Some(NodedbStatement::ShowContinuousAggregates));
+            return Ok(Some(NodedbStatement::StreamView(
+                StreamViewStmt::ShowContinuousAggregates,
+            )));
         }
         Ok(None)
     })()
@@ -98,12 +100,12 @@ fn parse_create_mv(upper: &str, trimmed: &str) -> NodedbStatement {
 
     let refresh_mode = extract_refresh_mode(upper, trimmed);
 
-    NodedbStatement::CreateMaterializedView {
+    NodedbStatement::StreamView(StreamViewStmt::CreateMaterializedView {
         name,
         source,
         query_sql,
         refresh_mode,
-    }
+    })
 }
 
 /// Find trailing `WITH (` options clause (not a CTE WITH).
@@ -234,14 +236,14 @@ fn parse_create_continuous_aggregate(upper: &str, trimmed: &str) -> NodedbStatem
         })
         .unwrap_or_default();
 
-    NodedbStatement::CreateContinuousAggregate {
+    NodedbStatement::StreamView(StreamViewStmt::CreateContinuousAggregate {
         name,
         source,
         bucket_raw,
         aggregate_exprs_raw,
         group_by,
         with_clause_raw,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -252,12 +254,12 @@ mod tests {
     fn parse_mv_basic() {
         let sql = "CREATE MATERIALIZED VIEW summary ON orders AS SELECT count(*) FROM orders";
         let upper = sql.to_uppercase();
-        if let NodedbStatement::CreateMaterializedView {
+        if let NodedbStatement::StreamView(StreamViewStmt::CreateMaterializedView {
             name,
             source,
             query_sql,
             refresh_mode,
-        } = parse_create_mv(&upper, sql)
+        }) = parse_create_mv(&upper, sql)
         {
             assert_eq!(name, "summary");
             assert_eq!(source, "orders");
@@ -272,13 +274,13 @@ mod tests {
     fn parse_continuous_aggregate_basic() {
         let sql = "CREATE CONTINUOUS AGGREGATE hourly_avg ON metrics BUCKET '1h' AGGREGATE avg(cpu) AS mean_cpu";
         let upper = sql.to_uppercase();
-        if let NodedbStatement::CreateContinuousAggregate {
+        if let NodedbStatement::StreamView(StreamViewStmt::CreateContinuousAggregate {
             name,
             source,
             bucket_raw,
             aggregate_exprs_raw,
             ..
-        } = parse_create_continuous_aggregate(&upper, sql)
+        }) = parse_create_continuous_aggregate(&upper, sql)
         {
             assert_eq!(name, "hourly_avg");
             assert_eq!(source, "metrics");

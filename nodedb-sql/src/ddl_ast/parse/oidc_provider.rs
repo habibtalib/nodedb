@@ -27,7 +27,7 @@
 //! SHOW OIDC PROVIDERS
 //! ```
 
-use crate::ddl_ast::statement::{NodedbStatement, OidcClaimMappingClause};
+use crate::ddl_ast::statement::{AuthStmt, NodedbStatement, OidcClaimMappingClause};
 use crate::error::SqlError;
 
 pub(super) fn try_parse(
@@ -45,7 +45,7 @@ pub(super) fn try_parse(
         return Some(parse_drop(parts));
     }
     if upper == "SHOW OIDC PROVIDERS" {
-        return Some(Ok(NodedbStatement::ShowOidcProviders));
+        return Some(Ok(NodedbStatement::Auth(AuthStmt::ShowOidcProviders)));
     }
     None
 }
@@ -74,13 +74,13 @@ fn parse_create(parts: &[&str], trimmed: &str) -> Result<NodedbStatement, SqlErr
 
     let claim_mappings = parse_claim_mappings(trimmed)?;
 
-    Ok(NodedbStatement::CreateOidcProvider {
+    Ok(NodedbStatement::Auth(AuthStmt::CreateOidcProvider {
         name,
         issuer,
         jwks_uri,
         audience,
         claim_mappings,
-    })
+    }))
 }
 
 // ── ALTER ──────────────────────────────────────────────────────────────────
@@ -96,10 +96,12 @@ fn parse_alter(parts: &[&str], trimmed: &str) -> Result<NodedbStatement, SqlErro
 
     let claim_mappings = parse_claim_mappings(trimmed)?;
 
-    Ok(NodedbStatement::AlterOidcProviderClaimMapping {
-        name,
-        claim_mappings,
-    })
+    Ok(NodedbStatement::Auth(
+        AuthStmt::AlterOidcProviderClaimMapping {
+            name,
+            claim_mappings,
+        },
+    ))
 }
 
 // ── DROP ───────────────────────────────────────────────────────────────────
@@ -121,7 +123,10 @@ fn parse_drop(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
         })?
         .to_string();
 
-    Ok(NodedbStatement::DropOidcProvider { name, if_exists })
+    Ok(NodedbStatement::Auth(AuthStmt::DropOidcProvider {
+        name,
+        if_exists,
+    }))
 }
 
 // ── Claim-mapping parser ────────────────────────────────────────────────────
@@ -317,7 +322,7 @@ mod tests {
     fn show_oidc_providers() {
         assert_eq!(
             ok("SHOW OIDC PROVIDERS"),
-            NodedbStatement::ShowOidcProviders
+            NodedbStatement::Auth(AuthStmt::ShowOidcProviders)
         );
     }
 
@@ -326,10 +331,10 @@ mod tests {
         let stmt = ok("DROP OIDC PROVIDER myidp");
         assert_eq!(
             stmt,
-            NodedbStatement::DropOidcProvider {
+            NodedbStatement::Auth(AuthStmt::DropOidcProvider {
                 name: "myidp".to_string(),
                 if_exists: false,
-            }
+            })
         );
     }
 
@@ -338,10 +343,10 @@ mod tests {
         let stmt = ok("DROP OIDC PROVIDER IF EXISTS myidp");
         assert_eq!(
             stmt,
-            NodedbStatement::DropOidcProvider {
+            NodedbStatement::Auth(AuthStmt::DropOidcProvider {
                 name: "myidp".to_string(),
                 if_exists: true,
-            }
+            })
         );
     }
 
@@ -351,13 +356,13 @@ mod tests {
         let stmt = ok(sql);
         assert_eq!(
             stmt,
-            NodedbStatement::CreateOidcProvider {
+            NodedbStatement::Auth(AuthStmt::CreateOidcProvider {
                 name: "auth0".to_string(),
                 issuer: "https://auth0.example.com".to_string(),
                 jwks_uri: "https://auth0.example.com/.well-known/jwks.json".to_string(),
                 audience: None,
                 claim_mappings: vec![],
-            }
+            })
         );
     }
 
@@ -366,7 +371,7 @@ mod tests {
         let sql = "CREATE OIDC PROVIDER auth0 ISSUER 'https://idp.example.com' JWKS_URI 'https://idp.example.com/jwks' AUDIENCE 'nodedb-api'";
         let stmt = ok(sql);
         match stmt {
-            NodedbStatement::CreateOidcProvider { audience, .. } => {
+            NodedbStatement::Auth(AuthStmt::CreateOidcProvider { audience, .. }) => {
                 assert_eq!(audience, Some("nodedb-api".to_string()));
             }
             other => panic!("unexpected: {other:?}"),
@@ -380,11 +385,11 @@ mod tests {
              CLAIM MAPPING WHEN org_id = 'acme' SET DEFAULT_DATABASE = 42 ADD DATABASES [43, 44] ADD ROLES ['readwrite']";
         let stmt = ok(sql);
         match stmt {
-            NodedbStatement::CreateOidcProvider {
+            NodedbStatement::Auth(AuthStmt::CreateOidcProvider {
                 name,
                 claim_mappings,
                 ..
-            } => {
+            }) => {
                 assert_eq!(name, "corp");
                 assert_eq!(claim_mappings.len(), 1);
                 let cm = &claim_mappings[0];
@@ -403,10 +408,10 @@ mod tests {
         let sql = "ALTER OIDC PROVIDER auth0 SET CLAIM MAPPING WHEN sub = '*' ADD ROLES ['admin']";
         let stmt = ok(sql);
         match stmt {
-            NodedbStatement::AlterOidcProviderClaimMapping {
+            NodedbStatement::Auth(AuthStmt::AlterOidcProviderClaimMapping {
                 name,
                 claim_mappings,
-            } => {
+            }) => {
                 assert_eq!(name, "auth0");
                 assert_eq!(claim_mappings.len(), 1);
                 assert_eq!(claim_mappings[0].claim_value, "*");

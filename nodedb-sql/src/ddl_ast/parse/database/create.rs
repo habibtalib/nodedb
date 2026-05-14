@@ -2,7 +2,7 @@
 
 //! `CREATE DATABASE [IF NOT EXISTS] <name> [WITH (...)]`.
 
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{DatabaseStmt, NodedbStatement};
 use crate::error::SqlError;
 
 use super::with_options::parse_with_options;
@@ -33,11 +33,11 @@ pub(super) fn parse_create_database(
 
     let options = parse_with_options(original);
 
-    Ok(NodedbStatement::CreateDatabase {
+    Ok(NodedbStatement::Database(DatabaseStmt::CreateDatabase {
         name,
         if_not_exists,
         options,
-    })
+    }))
 }
 
 #[cfg(test)]
@@ -58,11 +58,11 @@ mod tests {
         let stmt = ok("CREATE DATABASE mydb");
         assert_eq!(
             stmt,
-            NodedbStatement::CreateDatabase {
+            NodedbStatement::Database(DatabaseStmt::CreateDatabase {
                 name: "mydb".into(),
                 if_not_exists: false,
                 options: vec![],
-            }
+            })
         );
     }
 
@@ -70,11 +70,11 @@ mod tests {
     fn parse_create_database_if_not_exists() {
         let stmt = ok("CREATE DATABASE IF NOT EXISTS mydb");
         match stmt {
-            NodedbStatement::CreateDatabase {
+            NodedbStatement::Database(DatabaseStmt::CreateDatabase {
                 name,
                 if_not_exists,
                 ..
-            } => {
+            }) => {
                 assert_eq!(name, "mydb");
                 assert!(if_not_exists);
             }

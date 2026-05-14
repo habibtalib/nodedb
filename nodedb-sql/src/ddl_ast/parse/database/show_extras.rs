@@ -3,7 +3,7 @@
 //! `SHOW DATABASE QUOTA FOR <name>`, `SHOW DATABASE USAGE FOR <name>`,
 //! and `SHOW DATABASE LINEAGE FOR <name>`.
 
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{DatabaseStmt, NodedbStatement};
 use crate::error::SqlError;
 
 /// Parse `SHOW DATABASE QUOTA FOR <name>` or `SHOW DATABASE USAGE FOR <name>`.
@@ -30,9 +30,13 @@ pub(super) fn parse_show_database_quota_or_usage(
         .to_string();
 
     if is_usage {
-        Ok(NodedbStatement::ShowDatabaseUsage { name })
+        Ok(NodedbStatement::Database(DatabaseStmt::ShowDatabaseUsage {
+            name,
+        }))
     } else {
-        Ok(NodedbStatement::ShowDatabaseQuota { name })
+        Ok(NodedbStatement::Database(DatabaseStmt::ShowDatabaseQuota {
+            name,
+        }))
     }
 }
 
@@ -53,7 +57,9 @@ pub(super) fn parse_show_database_lineage(parts: &[&str]) -> Result<NodedbStatem
         })?
         .trim_matches('"')
         .to_string();
-    Ok(NodedbStatement::ShowDatabaseLineage { name })
+    Ok(NodedbStatement::Database(
+        DatabaseStmt::ShowDatabaseLineage { name },
+    ))
 }
 
 #[cfg(test)]
@@ -74,9 +80,9 @@ mod tests {
         let stmt = ok("SHOW DATABASE LINEAGE FOR mydb");
         assert_eq!(
             stmt,
-            NodedbStatement::ShowDatabaseLineage {
+            NodedbStatement::Database(DatabaseStmt::ShowDatabaseLineage {
                 name: "mydb".into()
-            }
+            })
         );
     }
 

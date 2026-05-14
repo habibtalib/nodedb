@@ -2,7 +2,7 @@
 
 //! `BACKUP DATABASE <name> TO <uri>` and `RESTORE DATABASE <name> FROM <uri>`.
 
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{DatabaseStmt, NodedbStatement};
 use crate::error::SqlError;
 
 pub(super) fn parse_backup_database(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
@@ -22,7 +22,10 @@ pub(super) fn parse_backup_database(parts: &[&str]) -> Result<NodedbStatement, S
         })?;
     let uri = parts[to_idx + 1..].join(" ").trim_matches('\'').to_string();
 
-    Ok(NodedbStatement::BackupDatabase { name, uri })
+    Ok(NodedbStatement::Database(DatabaseStmt::BackupDatabase {
+        name,
+        uri,
+    }))
 }
 
 pub(super) fn parse_restore_database(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
@@ -45,5 +48,8 @@ pub(super) fn parse_restore_database(parts: &[&str]) -> Result<NodedbStatement, 
         .trim_matches('\'')
         .to_string();
 
-    Ok(NodedbStatement::RestoreDatabase { name, uri })
+    Ok(NodedbStatement::Database(DatabaseStmt::RestoreDatabase {
+        name,
+        uri,
+    }))
 }

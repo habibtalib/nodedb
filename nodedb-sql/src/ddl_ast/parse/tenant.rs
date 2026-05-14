@@ -7,7 +7,7 @@
 //! - `SHOW TENANT QUOTA FOR <name> IN DATABASE <db>`
 //! - `SHOW TENANT USAGE FOR <name> IN DATABASE <db>`
 
-use crate::ddl_ast::statement::{AlterTenantOperation, NodedbStatement};
+use crate::ddl_ast::statement::{AlterTenantOperation, DatabaseStmt, NodedbStatement};
 use crate::error::SqlError;
 
 use super::database::parse_quota_spec;
@@ -63,11 +63,11 @@ fn try_parse_alter_tenant(
         Err(e) => return Some(Err(e)),
     };
 
-    Some(Ok(NodedbStatement::AlterTenant {
+    Some(Ok(NodedbStatement::Database(DatabaseStmt::AlterTenant {
         name,
         database,
         operation: AlterTenantOperation::SetQuota(spec),
-    }))
+    })))
 }
 
 // ── SHOW TENANT ───────────────────────────────────────────────────────────────
@@ -113,15 +113,13 @@ fn try_parse_show_tenant(parts: &[&str]) -> Option<Result<NodedbStatement, SqlEr
     let database = parts[7].to_string();
 
     if is_quota {
-        Some(Ok(NodedbStatement::ShowTenantQuotaInDatabase {
-            name,
-            database,
-        }))
+        Some(Ok(NodedbStatement::Database(
+            DatabaseStmt::ShowTenantQuotaInDatabase { name, database },
+        )))
     } else {
-        Some(Ok(NodedbStatement::ShowTenantUsageInDatabase {
-            name,
-            database,
-        }))
+        Some(Ok(NodedbStatement::Database(
+            DatabaseStmt::ShowTenantUsageInDatabase { name, database },
+        )))
     }
 }
 
@@ -148,11 +146,11 @@ mod tests {
             "ALTER TENANT acme IN DATABASE production SET QUOTA (max_memory_bytes = 1073741824)",
         );
         match stmt {
-            NodedbStatement::AlterTenant {
+            NodedbStatement::Database(DatabaseStmt::AlterTenant {
                 name,
                 database,
                 operation: AlterTenantOperation::SetQuota(spec),
-            } => {
+            }) => {
                 assert_eq!(name, "acme");
                 assert_eq!(database, "production");
                 assert_eq!(spec.max_memory_bytes, Some(1_073_741_824));
@@ -166,10 +164,10 @@ mod tests {
         let stmt = ok("SHOW TENANT QUOTA FOR acme IN DATABASE production");
         assert_eq!(
             stmt,
-            NodedbStatement::ShowTenantQuotaInDatabase {
+            NodedbStatement::Database(DatabaseStmt::ShowTenantQuotaInDatabase {
                 name: "acme".into(),
                 database: "production".into(),
-            }
+            })
         );
     }
 
@@ -178,10 +176,10 @@ mod tests {
         let stmt = ok("SHOW TENANT USAGE FOR acme IN DATABASE production");
         assert_eq!(
             stmt,
-            NodedbStatement::ShowTenantUsageInDatabase {
+            NodedbStatement::Database(DatabaseStmt::ShowTenantUsageInDatabase {
                 name: "acme".into(),
                 database: "production".into(),
-            }
+            })
         );
     }
 

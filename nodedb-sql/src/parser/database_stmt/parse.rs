@@ -32,7 +32,7 @@ pub fn try_parse_database_statement(sql: &str) -> Result<Option<NodedbStatement>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ddl_ast::statement::{AlterDatabaseOperation, NodedbStatement};
+    use crate::ddl_ast::statement::{AlterDatabaseOperation, DatabaseStmt, NodedbStatement};
 
     fn ok(sql: &str) -> NodedbStatement {
         try_parse_database_statement(sql)
@@ -43,11 +43,11 @@ mod tests {
     #[test]
     fn parse_create_database() {
         match ok("CREATE DATABASE mydb") {
-            NodedbStatement::CreateDatabase {
+            NodedbStatement::Database(DatabaseStmt::CreateDatabase {
                 name,
                 if_not_exists,
                 ..
-            } => {
+            }) => {
                 assert_eq!(name, "mydb");
                 assert!(!if_not_exists);
             }
@@ -58,11 +58,11 @@ mod tests {
     #[test]
     fn parse_create_database_if_not_exists() {
         match ok("CREATE DATABASE IF NOT EXISTS mydb") {
-            NodedbStatement::CreateDatabase {
+            NodedbStatement::Database(DatabaseStmt::CreateDatabase {
                 name,
                 if_not_exists,
                 ..
-            } => {
+            }) => {
                 assert_eq!(name, "mydb");
                 assert!(if_not_exists);
             }
@@ -73,7 +73,7 @@ mod tests {
     #[test]
     fn parse_drop_database() {
         match ok("DROP DATABASE mydb CASCADE") {
-            NodedbStatement::DropDatabase { name, cascade, .. } => {
+            NodedbStatement::Database(DatabaseStmt::DropDatabase { name, cascade, .. }) => {
                 assert_eq!(name, "mydb");
                 assert!(cascade);
             }
@@ -84,9 +84,9 @@ mod tests {
     #[test]
     fn parse_drop_database_if_exists() {
         match ok("DROP DATABASE IF EXISTS mydb") {
-            NodedbStatement::DropDatabase {
+            NodedbStatement::Database(DatabaseStmt::DropDatabase {
                 name, if_exists, ..
-            } => {
+            }) => {
                 assert_eq!(name, "mydb");
                 assert!(if_exists);
             }
@@ -97,7 +97,7 @@ mod tests {
     #[test]
     fn parse_alter_database_rename() {
         match ok("ALTER DATABASE mydb RENAME TO newdb") {
-            NodedbStatement::AlterDatabase { name, operation } => {
+            NodedbStatement::Database(DatabaseStmt::AlterDatabase { name, operation }) => {
                 assert_eq!(name, "mydb");
                 assert_eq!(
                     operation,
@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn parse_alter_database_set_quota() {
         match ok("ALTER DATABASE mydb SET QUOTA (max_qps = 500)") {
-            NodedbStatement::AlterDatabase { name, operation } => {
+            NodedbStatement::Database(DatabaseStmt::AlterDatabase { name, operation }) => {
                 assert_eq!(name, "mydb");
                 match operation {
                     AlterDatabaseOperation::SetQuota(spec) => {
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn parse_alter_database_materialize() {
         match ok("ALTER DATABASE mydb MATERIALIZE") {
-            NodedbStatement::AlterDatabase { operation, .. } => {
+            NodedbStatement::Database(DatabaseStmt::AlterDatabase { operation, .. }) => {
                 assert_eq!(operation, AlterDatabaseOperation::Materialize);
             }
             other => panic!("unexpected: {other:?}"),
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn parse_alter_database_promote() {
         match ok("ALTER DATABASE mydb PROMOTE") {
-            NodedbStatement::AlterDatabase { operation, .. } => {
+            NodedbStatement::Database(DatabaseStmt::AlterDatabase { operation, .. }) => {
                 assert_eq!(operation, AlterDatabaseOperation::Promote);
             }
             other => panic!("unexpected: {other:?}"),
@@ -152,14 +152,16 @@ mod tests {
             try_parse_database_statement("SHOW DATABASES")
                 .unwrap()
                 .unwrap(),
-            NodedbStatement::ShowDatabases
+            NodedbStatement::Database(DatabaseStmt::ShowDatabases)
         );
     }
 
     #[test]
     fn parse_use_database() {
         match ok("USE DATABASE mydb") {
-            NodedbStatement::UseDatabase { name } => assert_eq!(name, "mydb"),
+            NodedbStatement::Database(DatabaseStmt::UseDatabase { name }) => {
+                assert_eq!(name, "mydb")
+            }
             other => panic!("unexpected: {other:?}"),
         }
     }
@@ -187,11 +189,11 @@ mod tests {
     fn parse_clone_database() {
         use crate::ddl_ast::CloneAsOf;
         match ok("CLONE DATABASE new_db FROM source_db") {
-            NodedbStatement::CloneDatabase {
+            NodedbStatement::Database(DatabaseStmt::CloneDatabase {
                 new_name,
                 source_name,
                 as_of,
-            } => {
+            }) => {
                 assert_eq!(new_name, "new_db");
                 assert_eq!(source_name, "source_db");
                 assert_eq!(as_of, CloneAsOf::Latest);
@@ -204,12 +206,12 @@ mod tests {
     fn parse_mirror_database() {
         use crate::ddl_ast::MirrorMode;
         match ok("MIRROR DATABASE replica FROM prod-us.source") {
-            NodedbStatement::MirrorDatabase {
+            NodedbStatement::Database(DatabaseStmt::MirrorDatabase {
                 local_name,
                 source_cluster,
                 source_database,
                 mode,
-            } => {
+            }) => {
                 assert_eq!(local_name, "replica");
                 assert_eq!(source_cluster, "prod-us");
                 assert_eq!(source_database, "source");
@@ -222,7 +224,7 @@ mod tests {
     #[test]
     fn parse_backup_database() {
         match ok("BACKUP DATABASE mydb TO 's3://bucket/path'") {
-            NodedbStatement::BackupDatabase { name, uri } => {
+            NodedbStatement::Database(DatabaseStmt::BackupDatabase { name, uri }) => {
                 assert_eq!(name, "mydb");
                 assert!(!uri.is_empty());
             }
@@ -233,7 +235,7 @@ mod tests {
     #[test]
     fn parse_restore_database() {
         match ok("RESTORE DATABASE mydb FROM 's3://bucket/path'") {
-            NodedbStatement::RestoreDatabase { name, uri } => {
+            NodedbStatement::Database(DatabaseStmt::RestoreDatabase { name, uri }) => {
                 assert_eq!(name, "mydb");
                 assert!(!uri.is_empty());
             }
@@ -244,11 +246,11 @@ mod tests {
     #[test]
     fn parse_move_tenant() {
         match ok("MOVE TENANT t1 FROM db_a TO db_b") {
-            NodedbStatement::MoveTenant {
+            NodedbStatement::Database(DatabaseStmt::MoveTenant {
                 tenant_name,
                 from_db,
                 to_db,
-            } => {
+            }) => {
                 assert_eq!(tenant_name, "t1");
                 assert_eq!(from_db, "db_a");
                 assert_eq!(to_db, "db_b");

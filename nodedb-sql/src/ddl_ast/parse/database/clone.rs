@@ -2,7 +2,7 @@
 
 //! `CLONE DATABASE <new> FROM <source> [AS OF SYSTEM TIME <ms> | LATEST]`.
 
-use crate::ddl_ast::statement::{CloneAsOf, NodedbStatement};
+use crate::ddl_ast::statement::{CloneAsOf, DatabaseStmt, NodedbStatement};
 use crate::error::SqlError;
 
 pub(super) fn parse_clone_database(
@@ -76,11 +76,11 @@ pub(super) fn parse_clone_database(
         CloneAsOf::Latest
     };
 
-    Ok(NodedbStatement::CloneDatabase {
+    Ok(NodedbStatement::Database(DatabaseStmt::CloneDatabase {
         new_name,
         source_name,
         as_of,
-    })
+    }))
 }
 
 #[cfg(test)]
@@ -101,11 +101,11 @@ mod tests {
         let stmt = ok("CLONE DATABASE newdb FROM srcdb AS OF SYSTEM TIME 1730000000000");
         assert_eq!(
             stmt,
-            NodedbStatement::CloneDatabase {
+            NodedbStatement::Database(DatabaseStmt::CloneDatabase {
                 new_name: "newdb".into(),
                 source_name: "srcdb".into(),
                 as_of: CloneAsOf::SystemTimeMs(1_730_000_000_000),
-            }
+            })
         );
     }
 
@@ -114,11 +114,11 @@ mod tests {
         let stmt = ok("CLONE DATABASE newdb FROM srcdb AS OF LATEST");
         assert_eq!(
             stmt,
-            NodedbStatement::CloneDatabase {
+            NodedbStatement::Database(DatabaseStmt::CloneDatabase {
                 new_name: "newdb".into(),
                 source_name: "srcdb".into(),
                 as_of: CloneAsOf::Latest,
-            }
+            })
         );
     }
 
@@ -127,11 +127,11 @@ mod tests {
         let stmt = ok("CLONE DATABASE newdb FROM srcdb");
         assert_eq!(
             stmt,
-            NodedbStatement::CloneDatabase {
+            NodedbStatement::Database(DatabaseStmt::CloneDatabase {
                 new_name: "newdb".into(),
                 source_name: "srcdb".into(),
                 as_of: CloneAsOf::Latest,
-            }
+            })
         );
     }
 }

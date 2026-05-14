@@ -3,7 +3,7 @@
 //! Parse CREATE/DROP/ALTER/SHOW TRIGGER.
 
 use super::helpers::{extract_after_keyword, extract_name_after_if_exists};
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{AutomationStmt, NodedbStatement};
 use crate::error::SqlError;
 
 pub(super) fn try_parse(
@@ -22,11 +22,13 @@ pub(super) fn try_parse(
                 Some(r) => r?,
             };
             let collection = extract_after_keyword(parts, "ON").unwrap_or_default();
-            return Ok(Some(NodedbStatement::DropTrigger {
-                name,
-                collection,
-                if_exists,
-            }));
+            return Ok(Some(NodedbStatement::Automation(
+                AutomationStmt::DropTrigger {
+                    name,
+                    collection,
+                    if_exists,
+                },
+            )));
         }
         if upper.starts_with("ALTER TRIGGER ") {
             // ALTER TRIGGER <name> ENABLE|DISABLE|OWNER TO <new_owner>
@@ -38,11 +40,13 @@ pub(super) fn try_parse(
             } else {
                 None
             };
-            return Ok(Some(NodedbStatement::AlterTrigger {
-                name,
-                action,
-                new_owner,
-            }));
+            return Ok(Some(NodedbStatement::Automation(
+                AutomationStmt::AlterTrigger {
+                    name,
+                    action,
+                    new_owner,
+                },
+            )));
         }
         if upper.starts_with("SHOW TRIGGERS") {
             let collection = if upper.starts_with("SHOW TRIGGERS ON ") {
@@ -50,7 +54,9 @@ pub(super) fn try_parse(
             } else {
                 None
             };
-            return Ok(Some(NodedbStatement::ShowTriggers { collection }));
+            return Ok(Some(NodedbStatement::Automation(
+                AutomationStmt::ShowTriggers { collection },
+            )));
         }
         Ok(None)
     })()
@@ -94,7 +100,7 @@ fn parse_create_trigger(upper: &str, trimmed: &str) -> NodedbStatement {
     let priority = parse_priority_token(&tokens_orig, &tokens_upper, &mut i);
     let security = parse_security_token(&tokens_upper, &mut i);
 
-    NodedbStatement::CreateTrigger {
+    NodedbStatement::Automation(AutomationStmt::CreateTrigger {
         or_replace,
         execution_mode,
         name,
@@ -108,7 +114,7 @@ fn parse_create_trigger(upper: &str, trimmed: &str) -> NodedbStatement {
         priority,
         security,
         body_sql,
-    }
+    })
 }
 
 /// Strip `CREATE [OR REPLACE] [SYNC|DEFERRED] TRIGGER ` prefix.
@@ -324,14 +330,14 @@ mod tests {
     #[test]
     fn basic_after_insert() {
         let sql = "CREATE TRIGGER audit AFTER INSERT ON orders FOR EACH ROW BEGIN RETURN; END";
-        if let NodedbStatement::CreateTrigger {
+        if let NodedbStatement::Automation(AutomationStmt::CreateTrigger {
             name,
             timing,
             events_insert,
             collection,
             granularity,
             ..
-        } = create(sql)
+        }) = create(sql)
         {
             assert_eq!(name, "audit");
             assert_eq!(timing, "AFTER");
@@ -346,11 +352,11 @@ mod tests {
     #[test]
     fn or_replace_sync() {
         let sql = "CREATE OR REPLACE SYNC TRIGGER t AFTER INSERT ON c FOR EACH ROW BEGIN END";
-        if let NodedbStatement::CreateTrigger {
+        if let NodedbStatement::Automation(AutomationStmt::CreateTrigger {
             or_replace,
             execution_mode,
             ..
-        } = create(sql)
+        }) = create(sql)
         {
             assert!(or_replace);
             assert_eq!(execution_mode, "SYNC");
@@ -362,12 +368,12 @@ mod tests {
     #[test]
     fn multi_event() {
         let sql = "CREATE TRIGGER t AFTER INSERT OR UPDATE OR DELETE ON c FOR EACH ROW BEGIN END";
-        if let NodedbStatement::CreateTrigger {
+        if let NodedbStatement::Automation(AutomationStmt::CreateTrigger {
             events_insert,
             events_update,
             events_delete,
             ..
-        } = create(sql)
+        }) = create(sql)
         {
             assert!(events_insert);
             assert!(events_update);
@@ -380,7 +386,9 @@ mod tests {
     #[test]
     fn statement_granularity() {
         let sql = "CREATE TRIGGER t AFTER INSERT ON c FOR EACH STATEMENT BEGIN END";
-        if let NodedbStatement::CreateTrigger { granularity, .. } = create(sql) {
+        if let NodedbStatement::Automation(AutomationStmt::CreateTrigger { granularity, .. }) =
+            create(sql)
+        {
             assert_eq!(granularity, "STATEMENT");
         } else {
             panic!("expected CreateTrigger");
@@ -390,7 +398,9 @@ mod tests {
     #[test]
     fn with_priority() {
         let sql = "CREATE TRIGGER t AFTER INSERT ON c FOR EACH ROW PRIORITY 10 BEGIN END";
-        if let NodedbStatement::CreateTrigger { priority, .. } = create(sql) {
+        if let NodedbStatement::Automation(AutomationStmt::CreateTrigger { priority, .. }) =
+            create(sql)
+        {
             assert_eq!(priority, 10);
         } else {
             panic!("expected CreateTrigger");

@@ -7,7 +7,7 @@
 //! returning `None` lets dispatch fall through to that handler.
 //! `COPY ... TO` and `COPY (SELECT ...) TO` are rejected with typed errors.
 
-use crate::ddl_ast::statement::{CopyFormat, NodedbStatement};
+use crate::ddl_ast::statement::{CopyFormat, MiscStmt, NodedbStatement};
 use crate::error::SqlError;
 
 /// Try to parse a COPY statement.
@@ -87,13 +87,13 @@ fn parse_copy_from(trimmed: &str, upper: &str) -> Result<NodedbStatement, SqlErr
         None => detect_format_from_path(&path)?,
     };
 
-    Ok(NodedbStatement::CopyFromFile {
+    Ok(NodedbStatement::Misc(MiscStmt::CopyFromFile {
         collection,
         path,
         format,
         delimiter,
         header,
-    })
+    }))
 }
 
 /// Strip surrounding double or single quotes from an identifier or path.
@@ -315,13 +315,13 @@ mod tests {
     fn basic_ndjson_by_extension() {
         let stmt = ok("COPY users FROM '/tmp/users.ndjson'");
         match stmt {
-            NodedbStatement::CopyFromFile {
+            NodedbStatement::Misc(MiscStmt::CopyFromFile {
                 collection,
                 path,
                 format,
                 delimiter,
                 header,
-            } => {
+            }) => {
                 assert_eq!(collection, "users");
                 assert_eq!(path, "/tmp/users.ndjson");
                 assert_eq!(format, Some(CopyFormat::Ndjson));
@@ -336,7 +336,7 @@ mod tests {
     fn json_array_by_extension() {
         let stmt = ok("COPY users FROM '/tmp/users.json'");
         match stmt {
-            NodedbStatement::CopyFromFile { format, .. } => {
+            NodedbStatement::Misc(MiscStmt::CopyFromFile { format, .. }) => {
                 assert_eq!(format, Some(CopyFormat::JsonArray));
             }
             other => panic!("unexpected: {other:?}"),
@@ -347,7 +347,7 @@ mod tests {
     fn csv_by_extension() {
         let stmt = ok("COPY users FROM '/tmp/users.csv'");
         match stmt {
-            NodedbStatement::CopyFromFile { format, .. } => {
+            NodedbStatement::Misc(MiscStmt::CopyFromFile { format, .. }) => {
                 assert_eq!(format, Some(CopyFormat::Csv));
             }
             other => panic!("unexpected: {other:?}"),
@@ -358,7 +358,7 @@ mod tests {
     fn explicit_format_overrides_extension() {
         let stmt = ok("COPY users FROM '/tmp/data.csv' WITH (FORMAT json)");
         match stmt {
-            NodedbStatement::CopyFromFile { format, .. } => {
+            NodedbStatement::Misc(MiscStmt::CopyFromFile { format, .. }) => {
                 assert_eq!(format, Some(CopyFormat::JsonArray));
             }
             other => panic!("unexpected: {other:?}"),
@@ -369,9 +369,9 @@ mod tests {
     fn csv_with_delimiter() {
         let stmt = ok("COPY users FROM '/tmp/data.csv' WITH (FORMAT csv, DELIMITER ';')");
         match stmt {
-            NodedbStatement::CopyFromFile {
+            NodedbStatement::Misc(MiscStmt::CopyFromFile {
                 format, delimiter, ..
-            } => {
+            }) => {
                 assert_eq!(format, Some(CopyFormat::Csv));
                 assert_eq!(delimiter, Some(';'));
             }
@@ -383,7 +383,7 @@ mod tests {
     fn header_false() {
         let stmt = ok("COPY users FROM '/tmp/data.csv' WITH (FORMAT csv, HEADER false)");
         match stmt {
-            NodedbStatement::CopyFromFile { header, .. } => {
+            NodedbStatement::Misc(MiscStmt::CopyFromFile { header, .. }) => {
                 assert!(!header);
             }
             other => panic!("unexpected: {other:?}"),

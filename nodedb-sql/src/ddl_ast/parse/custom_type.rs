@@ -9,7 +9,7 @@
 //! - `ALTER TYPE <name> ADD VALUE 'label'`
 //! - `SHOW TYPES`
 
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{NodedbStatement, PolicyStmt};
 use crate::error::SqlError;
 
 /// Try to parse custom type DDL statements.
@@ -28,7 +28,7 @@ pub(super) fn try_parse(
         return Some(parse_alter(parts, trimmed));
     }
     if upper == "SHOW TYPES" {
-        return Some(Ok(NodedbStatement::ShowTypes));
+        return Some(Ok(NodedbStatement::Policy(PolicyStmt::ShowTypes)));
     }
     None
 }
@@ -66,10 +66,10 @@ fn parse_create(parts: &[&str], trimmed: &str) -> Result<NodedbStatement, SqlErr
                 });
             }
         }
-        Ok(NodedbStatement::CreateEnumType {
+        Ok(NodedbStatement::Policy(PolicyStmt::CreateEnumType {
             name: name.to_lowercase(),
             labels,
-        })
+        }))
     } else {
         // Composite: AS (<field> <type>, ...)
         let fields = parse_composite_fields(trimmed)?;
@@ -78,10 +78,10 @@ fn parse_create(parts: &[&str], trimmed: &str) -> Result<NodedbStatement, SqlErr
                 detail: "CREATE TYPE … AS: composite field list must not be empty".to_string(),
             });
         }
-        Ok(NodedbStatement::CreateCompositeType {
+        Ok(NodedbStatement::Policy(PolicyStmt::CreateCompositeType {
             name: name.to_lowercase(),
             fields,
-        })
+        }))
     }
 }
 
@@ -101,10 +101,10 @@ fn parse_drop(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
         detail: "syntax: DROP TYPE [IF EXISTS] <name>".to_string(),
     })?;
 
-    Ok(NodedbStatement::DropType {
+    Ok(NodedbStatement::Policy(PolicyStmt::DropType {
         name: name.to_lowercase(),
         if_exists,
-    })
+    }))
 }
 
 /// Parse `ALTER TYPE <name> ADD VALUE 'label'`.
@@ -142,10 +142,10 @@ fn parse_alter(parts: &[&str], trimmed: &str) -> Result<NodedbStatement, SqlErro
         });
     }
 
-    Ok(NodedbStatement::AlterTypeAddValue {
+    Ok(NodedbStatement::Policy(PolicyStmt::AlterTypeAddValue {
         type_name: name.to_lowercase(),
         label,
-    })
+    }))
 }
 
 /// Extract `('label1', 'label2', ...)` after the ENUM keyword.
@@ -280,7 +280,7 @@ mod tests {
     fn create_enum_basic() {
         let stmt = ok("CREATE TYPE status AS ENUM ('active', 'inactive', 'pending')");
         match stmt {
-            NodedbStatement::CreateEnumType { name, labels } => {
+            NodedbStatement::Policy(PolicyStmt::CreateEnumType { name, labels }) => {
                 assert_eq!(name, "status");
                 assert_eq!(labels, vec!["active", "inactive", "pending"]);
             }
@@ -292,7 +292,9 @@ mod tests {
     fn create_enum_name_lowercased() {
         let stmt = ok("CREATE TYPE Status AS ENUM ('a', 'b')");
         match stmt {
-            NodedbStatement::CreateEnumType { name, .. } => assert_eq!(name, "status"),
+            NodedbStatement::Policy(PolicyStmt::CreateEnumType { name, .. }) => {
+                assert_eq!(name, "status")
+            }
             other => panic!("unexpected {other:?}"),
         }
     }
@@ -314,7 +316,7 @@ mod tests {
     fn create_composite_basic() {
         let stmt = ok("CREATE TYPE address AS (street TEXT, city TEXT, zip TEXT)");
         match stmt {
-            NodedbStatement::CreateCompositeType { name, fields } => {
+            NodedbStatement::Policy(PolicyStmt::CreateCompositeType { name, fields }) => {
                 assert_eq!(name, "address");
                 assert_eq!(fields.len(), 3);
                 assert_eq!(fields[0].0, "street");
@@ -330,10 +332,10 @@ mod tests {
         let stmt = ok("DROP TYPE status");
         assert_eq!(
             stmt,
-            NodedbStatement::DropType {
+            NodedbStatement::Policy(PolicyStmt::DropType {
                 name: "status".to_string(),
                 if_exists: false,
-            }
+            })
         );
     }
 
@@ -342,10 +344,10 @@ mod tests {
         let stmt = ok("DROP TYPE IF EXISTS status");
         assert_eq!(
             stmt,
-            NodedbStatement::DropType {
+            NodedbStatement::Policy(PolicyStmt::DropType {
                 name: "status".to_string(),
                 if_exists: true,
-            }
+            })
         );
     }
 
@@ -354,10 +356,10 @@ mod tests {
         let stmt = ok("ALTER TYPE status ADD VALUE 'archived'");
         assert_eq!(
             stmt,
-            NodedbStatement::AlterTypeAddValue {
+            NodedbStatement::Policy(PolicyStmt::AlterTypeAddValue {
                 type_name: "status".to_string(),
                 label: "archived".to_string(),
-            }
+            })
         );
     }
 
@@ -370,6 +372,6 @@ mod tests {
     #[test]
     fn show_types() {
         let stmt = ok("SHOW TYPES");
-        assert_eq!(stmt, NodedbStatement::ShowTypes);
+        assert_eq!(stmt, NodedbStatement::Policy(PolicyStmt::ShowTypes));
     }
 }

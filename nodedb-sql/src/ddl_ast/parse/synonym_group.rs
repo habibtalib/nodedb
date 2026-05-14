@@ -7,7 +7,7 @@
 //! - `DROP SYNONYM GROUP [IF EXISTS] <name>`
 //! - `SHOW SYNONYM GROUPS`
 
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{NodedbStatement, PolicyStmt};
 use crate::error::SqlError;
 
 /// Try to parse synonym group DDL statements.
@@ -23,7 +23,7 @@ pub(super) fn try_parse(
         return Some(parse_drop(parts));
     }
     if upper == "SHOW SYNONYM GROUPS" {
-        return Some(Ok(NodedbStatement::ShowSynonymGroups));
+        return Some(Ok(NodedbStatement::Policy(PolicyStmt::ShowSynonymGroups)));
     }
     None
 }
@@ -62,10 +62,10 @@ fn parse_create(parts: &[&str], trimmed: &str) -> Result<NodedbStatement, SqlErr
         }
     }
 
-    Ok(NodedbStatement::CreateSynonymGroup {
+    Ok(NodedbStatement::Policy(PolicyStmt::CreateSynonymGroup {
         name: name.to_lowercase(),
         terms,
-    })
+    }))
 }
 
 /// Parse `DROP SYNONYM GROUP [IF EXISTS] <name>`.
@@ -85,10 +85,10 @@ fn parse_drop(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
         detail: "syntax: DROP SYNONYM GROUP [IF EXISTS] <name>".to_string(),
     })?;
 
-    Ok(NodedbStatement::DropSynonymGroup {
+    Ok(NodedbStatement::Policy(PolicyStmt::DropSynonymGroup {
         name: name.to_lowercase(),
         if_exists,
-    })
+    }))
 }
 
 /// Parse a `('term1', 'term2', ...)` term list from the raw fragment after AS.
@@ -180,7 +180,7 @@ mod tests {
     fn create_basic() {
         let stmt = ok("CREATE SYNONYM GROUP db_terms AS ('database', 'db', 'datastore')");
         match stmt {
-            NodedbStatement::CreateSynonymGroup { name, terms } => {
+            NodedbStatement::Policy(PolicyStmt::CreateSynonymGroup { name, terms }) => {
                 assert_eq!(name, "db_terms");
                 assert_eq!(terms, vec!["database", "db", "datastore"]);
             }
@@ -192,7 +192,7 @@ mod tests {
     fn create_name_lowercased() {
         let stmt = ok("CREATE SYNONYM GROUP MyGroup AS ('foo', 'bar')");
         match stmt {
-            NodedbStatement::CreateSynonymGroup { name, .. } => {
+            NodedbStatement::Policy(PolicyStmt::CreateSynonymGroup { name, .. }) => {
                 assert_eq!(name, "mygroup");
             }
             other => panic!("unexpected {other:?}"),
@@ -217,10 +217,10 @@ mod tests {
         let stmt = ok("DROP SYNONYM GROUP db_terms");
         assert_eq!(
             stmt,
-            NodedbStatement::DropSynonymGroup {
+            NodedbStatement::Policy(PolicyStmt::DropSynonymGroup {
                 name: "db_terms".to_string(),
                 if_exists: false,
-            }
+            })
         );
     }
 
@@ -229,24 +229,24 @@ mod tests {
         let stmt = ok("DROP SYNONYM GROUP IF EXISTS db_terms");
         assert_eq!(
             stmt,
-            NodedbStatement::DropSynonymGroup {
+            NodedbStatement::Policy(PolicyStmt::DropSynonymGroup {
                 name: "db_terms".to_string(),
                 if_exists: true,
-            }
+            })
         );
     }
 
     #[test]
     fn show_synonym_groups() {
         let stmt = ok("SHOW SYNONYM GROUPS");
-        assert_eq!(stmt, NodedbStatement::ShowSynonymGroups);
+        assert_eq!(stmt, NodedbStatement::Policy(PolicyStmt::ShowSynonymGroups));
     }
 
     #[test]
     fn terms_case_folded() {
         let stmt = ok("CREATE SYNONYM GROUP g AS ('DB', 'Database', 'DataStore')");
         match stmt {
-            NodedbStatement::CreateSynonymGroup { terms, .. } => {
+            NodedbStatement::Policy(PolicyStmt::CreateSynonymGroup { terms, .. }) => {
                 assert_eq!(terms, vec!["db", "database", "datastore"]);
             }
             other => panic!("unexpected {other:?}"),

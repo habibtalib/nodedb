@@ -2,7 +2,7 @@
 
 //! `USE DATABASE <name>`.
 
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{DatabaseStmt, NodedbStatement};
 use crate::error::SqlError;
 
 pub(super) fn parse_use_database(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
@@ -14,7 +14,9 @@ pub(super) fn parse_use_database(parts: &[&str]) -> Result<NodedbStatement, SqlE
         })?
         .trim_matches('"')
         .to_string();
-    Ok(NodedbStatement::UseDatabase { name })
+    Ok(NodedbStatement::Database(DatabaseStmt::UseDatabase {
+        name,
+    }))
 }
 
 #[cfg(test)]
@@ -35,9 +37,9 @@ mod tests {
         let stmt = ok("USE DATABASE mydb");
         assert_eq!(
             stmt,
-            NodedbStatement::UseDatabase {
+            NodedbStatement::Database(DatabaseStmt::UseDatabase {
                 name: "mydb".into()
-            }
+            })
         );
     }
 }

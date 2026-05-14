@@ -3,7 +3,7 @@
 //! Parse CREATE/DROP/ALTER/SHOW RETENTION POLICY.
 
 use super::helpers::extract_name_after_if_exists;
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{NodedbStatement, PolicyStmt};
 use crate::error::SqlError;
 
 /// Extract the value for a SET key from the SQL string.
@@ -37,10 +37,9 @@ pub(super) fn try_parse(
                 None => return Ok(None),
                 Some(r) => r?,
             };
-            return Ok(Some(NodedbStatement::DropRetentionPolicy {
-                name,
-                if_exists,
-            }));
+            return Ok(Some(NodedbStatement::Policy(
+                PolicyStmt::DropRetentionPolicy { name, if_exists },
+            )));
         }
         if upper.starts_with("ALTER RETENTION POLICY ") {
             // ALTER RETENTION POLICY <name> [ON <collection>] ENABLE | DISABLE | SET <key> = <value>
@@ -68,15 +67,19 @@ pub(super) fn try_parse(
             } else {
                 (None, None)
             };
-            return Ok(Some(NodedbStatement::AlterRetentionPolicy {
-                name,
-                action,
-                set_key,
-                set_value,
-            }));
+            return Ok(Some(NodedbStatement::Policy(
+                PolicyStmt::AlterRetentionPolicy {
+                    name,
+                    action,
+                    set_key,
+                    set_value,
+                },
+            )));
         }
         if upper.starts_with("SHOW RETENTION POLIC") {
-            return Ok(Some(NodedbStatement::ShowRetentionPolicies));
+            return Ok(Some(NodedbStatement::Policy(
+                PolicyStmt::ShowRetentionPolicies,
+            )));
         }
         let _ = parts;
         Ok(None)
@@ -114,12 +117,12 @@ fn parse_create_retention_policy(upper: &str, trimmed: &str) -> NodedbStatement 
     // EVAL_INTERVAL from trailing WITH clause
     let eval_interval_raw = extract_eval_interval(upper, trimmed);
 
-    NodedbStatement::CreateRetentionPolicy {
+    NodedbStatement::Policy(PolicyStmt::CreateRetentionPolicy {
         name,
         collection,
         body_raw,
         eval_interval_raw,
-    }
+    })
 }
 
 /// Extract content between the first outer-level `(` and matching `)`.
@@ -196,12 +199,12 @@ mod tests {
     fn parse_basic_retention_policy() {
         let sql = "CREATE RETENTION POLICY rp1 ON metrics (RAW RETAIN '7d')";
         let upper = sql.to_uppercase();
-        if let NodedbStatement::CreateRetentionPolicy {
+        if let NodedbStatement::Policy(PolicyStmt::CreateRetentionPolicy {
             name,
             collection,
             body_raw,
             eval_interval_raw,
-        } = parse_create_retention_policy(&upper, sql)
+        }) = parse_create_retention_policy(&upper, sql)
         {
             assert_eq!(name, "rp1");
             assert_eq!(collection, "metrics");
@@ -217,9 +220,10 @@ mod tests {
         let sql =
             "CREATE RETENTION POLICY rp2 ON ts (RAW RETAIN '30d') WITH (EVAL_INTERVAL = '1h')";
         let upper = sql.to_uppercase();
-        if let NodedbStatement::CreateRetentionPolicy {
-            eval_interval_raw, ..
-        } = parse_create_retention_policy(&upper, sql)
+        if let NodedbStatement::Policy(PolicyStmt::CreateRetentionPolicy {
+            eval_interval_raw,
+            ..
+        }) = parse_create_retention_policy(&upper, sql)
         {
             assert_eq!(eval_interval_raw.as_deref(), Some("1h"));
         } else {

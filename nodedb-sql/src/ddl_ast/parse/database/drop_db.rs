@@ -2,7 +2,7 @@
 
 //! `DROP DATABASE [IF EXISTS] <name> [CASCADE | FORCE]`.
 
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{DatabaseStmt, NodedbStatement};
 use crate::error::SqlError;
 
 pub(super) fn parse_drop_database(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
@@ -41,11 +41,11 @@ pub(super) fn parse_drop_database(parts: &[&str]) -> Result<NodedbStatement, Sql
         }
     }
 
-    Ok(NodedbStatement::DropDatabase {
+    Ok(NodedbStatement::Database(DatabaseStmt::DropDatabase {
         name,
         if_exists,
         cascade,
-    })
+    }))
 }
 
 #[cfg(test)]
@@ -66,11 +66,11 @@ mod tests {
         let stmt = ok("DROP DATABASE mydb CASCADE");
         assert_eq!(
             stmt,
-            NodedbStatement::DropDatabase {
+            NodedbStatement::Database(DatabaseStmt::DropDatabase {
                 name: "mydb".into(),
                 if_exists: false,
                 cascade: true,
-            }
+            })
         );
     }
 
@@ -79,11 +79,11 @@ mod tests {
         let stmt = ok("DROP DATABASE mydb FORCE");
         assert_eq!(
             stmt,
-            NodedbStatement::DropDatabase {
+            NodedbStatement::Database(DatabaseStmt::DropDatabase {
                 name: "mydb".into(),
                 if_exists: false,
                 cascade: true,
-            }
+            })
         );
     }
 
@@ -92,11 +92,11 @@ mod tests {
         let stmt = ok("DROP DATABASE IF EXISTS mydb");
         assert_eq!(
             stmt,
-            NodedbStatement::DropDatabase {
+            NodedbStatement::Database(DatabaseStmt::DropDatabase {
                 name: "mydb".into(),
                 if_exists: true,
                 cascade: false,
-            }
+            })
         );
     }
 

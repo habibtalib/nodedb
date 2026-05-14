@@ -3,7 +3,7 @@
 //! Parse `COPY <collection> TO '<path>' [WITH (...)]` and
 //! `COPY (SELECT ...) TO '<path>' [WITH (...)]`.
 
-use crate::ddl_ast::statement::{CopyFormat, CopyToSource, NodedbStatement};
+use crate::ddl_ast::statement::{CopyFormat, CopyToSource, MiscStmt, NodedbStatement};
 use crate::error::SqlError;
 
 use super::copy_from::{
@@ -81,13 +81,13 @@ fn parse_table_form(trimmed: &str) -> Result<NodedbStatement, SqlError> {
 
     let _ = rest; // consumed by parse_path_and_opts
 
-    Ok(NodedbStatement::CopyToFile {
+    Ok(NodedbStatement::Misc(MiscStmt::CopyToFile {
         source: CopyToSource::Collection(collection),
         path,
         format,
         delimiter,
         header,
-    })
+    }))
 }
 
 /// `COPY (SELECT ...) TO '<path>' [WITH (...)]`
@@ -120,13 +120,13 @@ fn parse_query_form(trimmed: &str) -> Result<NodedbStatement, SqlError> {
     let after_to = after_paren["TO ".len()..].trim_start();
     let (path, _rest, format, delimiter, header) = parse_path_and_opts(after_to)?;
 
-    Ok(NodedbStatement::CopyToFile {
+    Ok(NodedbStatement::Misc(MiscStmt::CopyToFile {
         source: CopyToSource::Query(query),
         path,
         format,
         delimiter,
         header,
-    })
+    }))
 }
 
 type PathAndOpts<'a> = (String, &'a str, Option<CopyFormat>, Option<char>, bool);
@@ -191,12 +191,12 @@ mod tests {
     fn basic_ndjson_by_extension() {
         let stmt = ok("COPY users TO '/tmp/out.ndjson'");
         match stmt {
-            NodedbStatement::CopyToFile {
+            NodedbStatement::Misc(MiscStmt::CopyToFile {
                 source,
                 path,
                 format,
                 ..
-            } => {
+            }) => {
                 assert_eq!(source, CopyToSource::Collection("users".to_string()));
                 assert_eq!(path, "/tmp/out.ndjson");
                 assert_eq!(format, Some(CopyFormat::Ndjson));
@@ -209,7 +209,7 @@ mod tests {
     fn json_array_by_extension() {
         let stmt = ok("COPY users TO '/tmp/out.json'");
         match stmt {
-            NodedbStatement::CopyToFile { format, .. } => {
+            NodedbStatement::Misc(MiscStmt::CopyToFile { format, .. }) => {
                 assert_eq!(format, Some(CopyFormat::JsonArray));
             }
             other => panic!("unexpected: {other:?}"),
@@ -220,7 +220,7 @@ mod tests {
     fn csv_by_extension() {
         let stmt = ok("COPY users TO '/tmp/out.csv'");
         match stmt {
-            NodedbStatement::CopyToFile { format, .. } => {
+            NodedbStatement::Misc(MiscStmt::CopyToFile { format, .. }) => {
                 assert_eq!(format, Some(CopyFormat::Csv));
             }
             other => panic!("unexpected: {other:?}"),
@@ -231,7 +231,7 @@ mod tests {
     fn explicit_format_with_clause() {
         let stmt = ok("COPY users TO '/tmp/out.csv' WITH (FORMAT ndjson)");
         match stmt {
-            NodedbStatement::CopyToFile { format, .. } => {
+            NodedbStatement::Misc(MiscStmt::CopyToFile { format, .. }) => {
                 assert_eq!(format, Some(CopyFormat::Ndjson));
             }
             other => panic!("unexpected: {other:?}"),
@@ -242,9 +242,9 @@ mod tests {
     fn csv_with_delimiter() {
         let stmt = ok("COPY users TO '/tmp/out.csv' WITH (FORMAT csv, DELIMITER ';')");
         match stmt {
-            NodedbStatement::CopyToFile {
+            NodedbStatement::Misc(MiscStmt::CopyToFile {
                 format, delimiter, ..
-            } => {
+            }) => {
                 assert_eq!(format, Some(CopyFormat::Csv));
                 assert_eq!(delimiter, Some(';'));
             }
@@ -256,7 +256,7 @@ mod tests {
     fn header_false() {
         let stmt = ok("COPY users TO '/tmp/out.csv' WITH (FORMAT csv, HEADER false)");
         match stmt {
-            NodedbStatement::CopyToFile { header, .. } => {
+            NodedbStatement::Misc(MiscStmt::CopyToFile { header, .. }) => {
                 assert!(!header);
             }
             other => panic!("unexpected: {other:?}"),
@@ -267,7 +267,7 @@ mod tests {
     fn query_form() {
         let stmt = ok("COPY (SELECT * FROM users WHERE active = true) TO '/tmp/out.ndjson'");
         match stmt {
-            NodedbStatement::CopyToFile { source, path, .. } => {
+            NodedbStatement::Misc(MiscStmt::CopyToFile { source, path, .. }) => {
                 assert!(matches!(source, CopyToSource::Query(_)));
                 assert_eq!(path, "/tmp/out.ndjson");
                 if let CopyToSource::Query(q) = source {
@@ -282,7 +282,10 @@ mod tests {
     fn copy_from_not_intercepted() {
         // COPY FROM should not be caught by try_parse (handled by copy_from).
         let stmt = ok("COPY users FROM '/tmp/data.ndjson'");
-        assert!(matches!(stmt, NodedbStatement::CopyFromFile { .. }));
+        assert!(matches!(
+            stmt,
+            NodedbStatement::Misc(MiscStmt::CopyFromFile { .. })
+        ));
     }
 
     #[test]

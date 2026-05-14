@@ -3,7 +3,7 @@
 //! Parse CREATE/DROP/ALTER/DESCRIBE/SHOW SEQUENCE.
 
 use super::helpers::extract_name_after_if_exists;
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{CollectionStmt, NodedbStatement};
 use crate::error::SqlError;
 
 pub(super) fn try_parse(
@@ -19,20 +19,22 @@ pub(super) fn try_parse(
                 Some(r) => r?,
             };
             let options = parse_sequence_options(parts, &name);
-            return Ok(Some(NodedbStatement::CreateSequence {
-                name,
-                if_not_exists,
-                start: options.start,
-                increment: options.increment,
-                min_value: options.min_value,
-                max_value: options.max_value,
-                cycle: options.cycle,
-                cache: options.cache,
-                format_template_raw: options.format_template_raw,
-                reset_period_raw: options.reset_period_raw,
-                gap_free: options.gap_free,
-                scope: options.scope,
-            }));
+            return Ok(Some(NodedbStatement::Collection(
+                CollectionStmt::CreateSequence {
+                    name,
+                    if_not_exists,
+                    start: options.start,
+                    increment: options.increment,
+                    min_value: options.min_value,
+                    max_value: options.max_value,
+                    cycle: options.cycle,
+                    cache: options.cache,
+                    format_template_raw: options.format_template_raw,
+                    reset_period_raw: options.reset_period_raw,
+                    gap_free: options.gap_free,
+                    scope: options.scope,
+                },
+            )));
         }
         if upper.starts_with("DROP SEQUENCE ") {
             let if_exists = upper.contains("IF EXISTS");
@@ -40,7 +42,9 @@ pub(super) fn try_parse(
                 None => return Ok(None),
                 Some(r) => r?,
             };
-            return Ok(Some(NodedbStatement::DropSequence { name, if_exists }));
+            return Ok(Some(NodedbStatement::Collection(
+                CollectionStmt::DropSequence { name, if_exists },
+            )));
         }
         if upper.starts_with("ALTER SEQUENCE ") {
             let name = parts.get(2).map(|s| s.to_lowercase()).unwrap_or_default();
@@ -62,21 +66,27 @@ pub(super) fn try_parse(
                     .map(|s| s.trim_matches('\'').trim_matches('"').to_string()),
                 _ => None,
             };
-            return Ok(Some(NodedbStatement::AlterSequence {
-                name,
-                action,
-                with_value,
-            }));
+            return Ok(Some(NodedbStatement::Collection(
+                CollectionStmt::AlterSequence {
+                    name,
+                    action,
+                    with_value,
+                },
+            )));
         }
         if upper.starts_with("DESCRIBE SEQUENCE ") {
             let name = match parts.get(2) {
                 None => return Ok(None),
                 Some(s) => s.to_string(),
             };
-            return Ok(Some(NodedbStatement::DescribeSequence { name }));
+            return Ok(Some(NodedbStatement::Collection(
+                CollectionStmt::DescribeSequence { name },
+            )));
         }
         if upper == "SHOW SEQUENCES" || upper.starts_with("SHOW SEQUENCES") {
-            return Ok(Some(NodedbStatement::ShowSequences));
+            return Ok(Some(NodedbStatement::Collection(
+                CollectionStmt::ShowSequences,
+            )));
         }
         Ok(None)
     })()

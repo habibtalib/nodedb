@@ -5,7 +5,7 @@
 
 use nodedb_types::MirrorMode;
 
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{DatabaseStmt, NodedbStatement};
 use crate::error::SqlError;
 
 pub(super) fn parse_mirror_database(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
@@ -70,12 +70,12 @@ pub(super) fn parse_mirror_database(parts: &[&str]) -> Result<NodedbStatement, S
         .transpose()?
         .unwrap_or(MirrorMode::Async);
 
-    Ok(NodedbStatement::MirrorDatabase {
+    Ok(NodedbStatement::Database(DatabaseStmt::MirrorDatabase {
         local_name,
         source_cluster,
         source_database,
         mode,
-    })
+    }))
 }
 
 pub(super) fn parse_show_database_mirror_status(
@@ -96,7 +96,9 @@ pub(super) fn parse_show_database_mirror_status(
     } else {
         None
     };
-    Ok(NodedbStatement::ShowDatabaseMirrorStatus { name })
+    Ok(NodedbStatement::Database(
+        DatabaseStmt::ShowDatabaseMirrorStatus { name },
+    ))
 }
 
 #[cfg(test)]
@@ -116,12 +118,12 @@ mod tests {
     fn parse_mirror_database_dotted_source_async_default() {
         let stmt = ok("MIRROR DATABASE replica FROM prod-us.mydb");
         match stmt {
-            NodedbStatement::MirrorDatabase {
+            NodedbStatement::Database(DatabaseStmt::MirrorDatabase {
                 local_name,
                 source_cluster,
                 source_database,
                 mode,
-            } => {
+            }) => {
                 assert_eq!(local_name, "replica");
                 assert_eq!(source_cluster, "prod-us");
                 assert_eq!(source_database, "mydb");
@@ -135,7 +137,7 @@ mod tests {
     fn parse_mirror_database_sync_mode() {
         let stmt = ok("MIRROR DATABASE replica FROM prod-us.mydb MODE = sync");
         match stmt {
-            NodedbStatement::MirrorDatabase { mode, .. } => {
+            NodedbStatement::Database(DatabaseStmt::MirrorDatabase { mode, .. }) => {
                 assert_eq!(mode, MirrorMode::Sync);
             }
             other => panic!("unexpected: {other:?}"),
@@ -164,7 +166,7 @@ mod tests {
         let stmt = ok("SHOW DATABASE MIRROR STATUS");
         assert_eq!(
             stmt,
-            NodedbStatement::ShowDatabaseMirrorStatus { name: None }
+            NodedbStatement::Database(DatabaseStmt::ShowDatabaseMirrorStatus { name: None })
         );
     }
 
@@ -173,9 +175,9 @@ mod tests {
         let stmt = ok("SHOW DATABASE MIRROR STATUS FOR replica");
         assert_eq!(
             stmt,
-            NodedbStatement::ShowDatabaseMirrorStatus {
+            NodedbStatement::Database(DatabaseStmt::ShowDatabaseMirrorStatus {
                 name: Some("replica".into())
-            }
+            })
         );
     }
 

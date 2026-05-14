@@ -91,6 +91,9 @@ pub fn parse(sql: &str) -> Option<Result<NodedbStatement, SqlError>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ddl_ast::statement::{
+        AuthStmt, AutomationStmt, ClusterStmt, CollectionStmt, DatabaseStmt, GraphStmt,
+    };
     use crate::error::SqlError;
 
     /// Parse and double-unwrap — panics if `None` or `Err`.
@@ -112,11 +115,11 @@ mod tests {
     fn parse_create_collection() {
         let stmt = ok("CREATE COLLECTION users (id INT, name TEXT)");
         match stmt {
-            NodedbStatement::CreateCollection {
+            NodedbStatement::Collection(CollectionStmt::CreateCollection {
                 name,
                 if_not_exists,
                 ..
-            } => {
+            }) => {
                 assert_eq!(name, "users");
                 assert!(!if_not_exists);
             }
@@ -128,11 +131,11 @@ mod tests {
     fn parse_create_collection_if_not_exists() {
         let stmt = ok("CREATE COLLECTION IF NOT EXISTS users");
         match stmt {
-            NodedbStatement::CreateCollection {
+            NodedbStatement::Collection(CollectionStmt::CreateCollection {
                 name,
                 if_not_exists,
                 ..
-            } => {
+            }) => {
                 assert_eq!(name, "users");
                 assert!(if_not_exists);
             }
@@ -145,13 +148,13 @@ mod tests {
         let stmt = ok("DROP COLLECTION users");
         assert_eq!(
             stmt,
-            NodedbStatement::DropCollection {
+            NodedbStatement::Collection(CollectionStmt::DropCollection {
                 name: "users".into(),
                 if_exists: false,
                 purge: false,
                 cascade: false,
                 cascade_force: false,
-            }
+            })
         );
     }
 
@@ -160,13 +163,13 @@ mod tests {
         let stmt = ok("DROP COLLECTION IF EXISTS users");
         assert_eq!(
             stmt,
-            NodedbStatement::DropCollection {
+            NodedbStatement::Collection(CollectionStmt::DropCollection {
                 name: "users".into(),
                 if_exists: true,
                 purge: false,
                 cascade: false,
                 cascade_force: false,
-            }
+            })
         );
     }
 
@@ -175,13 +178,13 @@ mod tests {
         let stmt = ok("DROP COLLECTION users PURGE");
         assert_eq!(
             stmt,
-            NodedbStatement::DropCollection {
+            NodedbStatement::Collection(CollectionStmt::DropCollection {
                 name: "users".into(),
                 if_exists: false,
                 purge: true,
                 cascade: false,
                 cascade_force: false,
-            }
+            })
         );
     }
 
@@ -190,13 +193,13 @@ mod tests {
         let stmt = ok("DROP COLLECTION users CASCADE");
         assert_eq!(
             stmt,
-            NodedbStatement::DropCollection {
+            NodedbStatement::Collection(CollectionStmt::DropCollection {
                 name: "users".into(),
                 if_exists: false,
                 purge: false,
                 cascade: true,
                 cascade_force: false,
-            }
+            })
         );
     }
 
@@ -205,13 +208,13 @@ mod tests {
         let stmt = ok("DROP COLLECTION users PURGE CASCADE");
         assert_eq!(
             stmt,
-            NodedbStatement::DropCollection {
+            NodedbStatement::Collection(CollectionStmt::DropCollection {
                 name: "users".into(),
                 if_exists: false,
                 purge: true,
                 cascade: true,
                 cascade_force: false,
-            }
+            })
         );
     }
 
@@ -220,13 +223,13 @@ mod tests {
         let stmt = ok("DROP COLLECTION users CASCADE FORCE");
         assert_eq!(
             stmt,
-            NodedbStatement::DropCollection {
+            NodedbStatement::Collection(CollectionStmt::DropCollection {
                 name: "users".into(),
                 if_exists: false,
                 purge: false,
                 cascade: true,
                 cascade_force: true,
-            }
+            })
         );
     }
 
@@ -235,9 +238,9 @@ mod tests {
         let stmt = ok("UNDROP COLLECTION users");
         assert_eq!(
             stmt,
-            NodedbStatement::UndropCollection {
+            NodedbStatement::Collection(CollectionStmt::UndropCollection {
                 name: "users".into()
-            }
+            })
         );
     }
 
@@ -246,22 +249,25 @@ mod tests {
         let stmt = ok("UNDROP TABLE users");
         assert_eq!(
             stmt,
-            NodedbStatement::UndropCollection {
+            NodedbStatement::Collection(CollectionStmt::UndropCollection {
                 name: "users".into()
-            }
+            })
         );
     }
 
     #[test]
     fn parse_show_nodes() {
-        assert_eq!(parse("SHOW NODES"), Some(Ok(NodedbStatement::ShowNodes)));
+        assert_eq!(
+            parse("SHOW NODES"),
+            Some(Ok(NodedbStatement::Cluster(ClusterStmt::ShowNodes)))
+        );
     }
 
     #[test]
     fn parse_show_cluster() {
         assert_eq!(
             parse("SHOW CLUSTER"),
-            Some(Ok(NodedbStatement::ShowCluster))
+            Some(Ok(NodedbStatement::Cluster(ClusterStmt::ShowCluster)))
         );
     }
 
@@ -271,12 +277,12 @@ mod tests {
             "CREATE OR REPLACE SYNC TRIGGER on_insert AFTER INSERT ON orders FOR EACH ROW BEGIN RETURN; END",
         );
         match stmt {
-            NodedbStatement::CreateTrigger {
+            NodedbStatement::Automation(AutomationStmt::CreateTrigger {
                 or_replace,
                 execution_mode,
                 timing,
                 ..
-            } => {
+            }) => {
                 assert!(or_replace);
                 assert_eq!(execution_mode, "SYNC");
                 assert_eq!(timing, "AFTER");
@@ -289,9 +295,9 @@ mod tests {
     fn parse_drop_index_if_exists() {
         let stmt = ok("DROP INDEX IF EXISTS idx_name");
         match stmt {
-            NodedbStatement::DropIndex {
+            NodedbStatement::Collection(CollectionStmt::DropIndex {
                 name, if_exists, ..
-            } => {
+            }) => {
                 assert_eq!(name, "idx_name");
                 assert!(if_exists);
             }
@@ -303,13 +309,15 @@ mod tests {
     fn parse_analyze() {
         assert_eq!(
             parse("ANALYZE users"),
-            Some(Ok(NodedbStatement::Analyze {
+            Some(Ok(NodedbStatement::Cluster(ClusterStmt::Analyze {
                 collection: Some("users".into()),
-            }))
+            })))
         );
         assert_eq!(
             parse("ANALYZE"),
-            Some(Ok(NodedbStatement::Analyze { collection: None }))
+            Some(Ok(NodedbStatement::Cluster(ClusterStmt::Analyze {
+                collection: None
+            })))
         );
     }
 
@@ -317,11 +325,11 @@ mod tests {
     fn parse_create_table_plain() {
         let stmt = ok("CREATE TABLE foo (id INT, name TEXT)");
         match stmt {
-            NodedbStatement::CreateTable {
+            NodedbStatement::Collection(CollectionStmt::CreateTable {
                 name,
                 if_not_exists,
                 ..
-            } => {
+            }) => {
                 assert_eq!(name, "foo");
                 assert!(!if_not_exists);
             }
@@ -333,11 +341,11 @@ mod tests {
     fn parse_create_table_if_not_exists() {
         let stmt = ok("CREATE TABLE IF NOT EXISTS orders (id INT)");
         match stmt {
-            NodedbStatement::CreateTable {
+            NodedbStatement::Collection(CollectionStmt::CreateTable {
                 name,
                 if_not_exists,
                 ..
-            } => {
+            }) => {
                 assert_eq!(name, "orders");
                 assert!(if_not_exists);
             }
@@ -348,7 +356,10 @@ mod tests {
     #[test]
     fn create_collection_is_not_create_table() {
         let stmt = ok("CREATE COLLECTION foo");
-        assert!(matches!(stmt, NodedbStatement::CreateCollection { .. }));
+        assert!(matches!(
+            stmt,
+            NodedbStatement::Collection(CollectionStmt::CreateCollection { .. })
+        ));
     }
 
     #[test]
@@ -416,7 +427,7 @@ mod tests {
     fn match_query_uses_body_field() {
         let stmt = ok("MATCH (x)-[:l]->(y) RETURN x, y");
         match stmt {
-            NodedbStatement::MatchQuery { body } => {
+            NodedbStatement::Graph(GraphStmt::MatchQuery { body }) => {
                 assert!(body.starts_with("MATCH"), "body must hold the original SQL");
             }
             other => panic!("expected MatchQuery, got {other:?}"),
@@ -434,7 +445,7 @@ mod tests {
              SOURCE orders ON orders.account_id = accounts.id VALUE orders.amount",
         );
         match stmt {
-            NodedbStatement::AlterCollection { name, operation } => {
+            NodedbStatement::Collection(CollectionStmt::AlterCollection { name, operation }) => {
                 assert_eq!(name, "accounts");
                 match operation {
                     crate::ddl_ast::AlterCollectionOp::AddMaterializedSum {
@@ -461,7 +472,7 @@ mod tests {
     fn parse_grant_role() {
         let stmt = ok("GRANT ROLE admin TO alice");
         match stmt {
-            NodedbStatement::GrantRole { role, username } => {
+            NodedbStatement::Auth(AuthStmt::GrantRole { role, username }) => {
                 assert_eq!(role, "admin");
                 assert_eq!(username, "alice");
             }
@@ -473,11 +484,11 @@ mod tests {
     fn parse_create_sequence_if_not_exists() {
         let stmt = ok("CREATE SEQUENCE IF NOT EXISTS my_seq START 1");
         match stmt {
-            NodedbStatement::CreateSequence {
+            NodedbStatement::Collection(CollectionStmt::CreateSequence {
                 name,
                 if_not_exists,
                 ..
-            } => {
+            }) => {
                 assert_eq!(name, "my_seq");
                 assert!(if_not_exists);
             }
@@ -489,7 +500,7 @@ mod tests {
     fn parse_restore_dry_run() {
         let stmt = ok("RESTORE TENANT 1 FROM '/tmp/backup' DRY RUN");
         match stmt {
-            NodedbStatement::RestoreTenant { dry_run, tenant_id } => {
+            NodedbStatement::Database(DatabaseStmt::RestoreTenant { dry_run, tenant_id }) => {
                 assert!(dry_run);
                 assert_eq!(tenant_id, "1");
             }
@@ -508,7 +519,9 @@ mod tests {
     fn create_table_quoted_reserved_name_is_ok() {
         let stmt = ok(r#"CREATE TABLE "match" (id INT)"#);
         match stmt {
-            NodedbStatement::CreateTable { name, .. } => assert_eq!(name, "match"),
+            NodedbStatement::Collection(CollectionStmt::CreateTable { name, .. }) => {
+                assert_eq!(name, "match")
+            }
             other => panic!("expected CreateTable, got {other:?}"),
         }
     }
@@ -527,7 +540,7 @@ mod tests {
     fn create_table_quoted_reserved_column_is_ok() {
         let stmt = ok(r#"CREATE TABLE foo ("graph" INT)"#);
         match stmt {
-            NodedbStatement::CreateTable { columns, .. } => {
+            NodedbStatement::Collection(CollectionStmt::CreateTable { columns, .. }) => {
                 assert_eq!(columns[0].0, "graph");
             }
             other => panic!("expected CreateTable, got {other:?}"),
@@ -540,62 +553,89 @@ mod tests {
     fn reserved_graph() {
         assert_reserved("CREATE TABLE graph (id INT)");
         let stmt = ok(r#"CREATE TABLE "graph" (id INT)"#);
-        assert!(matches!(stmt, NodedbStatement::CreateTable { .. }));
+        assert!(matches!(
+            stmt,
+            NodedbStatement::Collection(CollectionStmt::CreateTable { .. })
+        ));
     }
 
     #[test]
     fn reserved_match() {
         assert_reserved("CREATE TABLE match (id INT)");
         let stmt = ok(r#"CREATE TABLE "match" (id INT)"#);
-        assert!(matches!(stmt, NodedbStatement::CreateTable { .. }));
+        assert!(matches!(
+            stmt,
+            NodedbStatement::Collection(CollectionStmt::CreateTable { .. })
+        ));
     }
 
     #[test]
     fn reserved_optional() {
         assert_reserved("CREATE TABLE optional (id INT)");
         let stmt = ok(r#"CREATE TABLE "optional" (id INT)"#);
-        assert!(matches!(stmt, NodedbStatement::CreateTable { .. }));
+        assert!(matches!(
+            stmt,
+            NodedbStatement::Collection(CollectionStmt::CreateTable { .. })
+        ));
     }
 
     #[test]
     fn reserved_upsert() {
         assert_reserved("CREATE COLLECTION upsert (id INT)");
         let stmt = ok(r#"CREATE COLLECTION "upsert" (id INT)"#);
-        assert!(matches!(stmt, NodedbStatement::CreateCollection { .. }));
+        assert!(matches!(
+            stmt,
+            NodedbStatement::Collection(CollectionStmt::CreateCollection { .. })
+        ));
     }
 
     #[test]
     fn reserved_undrop() {
         assert_reserved("CREATE TABLE undrop (id INT)");
         let stmt = ok(r#"CREATE TABLE "undrop" (id INT)"#);
-        assert!(matches!(stmt, NodedbStatement::CreateTable { .. }));
+        assert!(matches!(
+            stmt,
+            NodedbStatement::Collection(CollectionStmt::CreateTable { .. })
+        ));
     }
 
     #[test]
     fn reserved_purge() {
         assert_reserved("CREATE TABLE purge (id INT)");
         let stmt = ok(r#"CREATE TABLE "purge" (id INT)"#);
-        assert!(matches!(stmt, NodedbStatement::CreateTable { .. }));
+        assert!(matches!(
+            stmt,
+            NodedbStatement::Collection(CollectionStmt::CreateTable { .. })
+        ));
     }
 
     #[test]
     fn reserved_cascade() {
         assert_reserved("CREATE TABLE cascade (id INT)");
         let stmt = ok(r#"CREATE TABLE "cascade" (id INT)"#);
-        assert!(matches!(stmt, NodedbStatement::CreateTable { .. }));
+        assert!(matches!(
+            stmt,
+            NodedbStatement::Collection(CollectionStmt::CreateTable { .. })
+        ));
     }
 
     #[test]
     fn reserved_search() {
         assert_reserved("CREATE TABLE search (id INT)");
         let stmt = ok(r#"CREATE TABLE "search" (id INT)"#);
-        assert!(matches!(stmt, NodedbStatement::CreateTable { .. }));
+        assert!(matches!(
+            stmt,
+            NodedbStatement::Collection(CollectionStmt::CreateTable { .. })
+        ));
     }
 
     #[test]
     fn reserved_crdt() {
         assert_reserved("CREATE TABLE crdt (id INT)");
         let stmt = ok(r#"CREATE TABLE "crdt" (id INT)"#);
-        assert!(matches!(stmt, NodedbStatement::CreateTable { .. }));
+        assert!(matches!(
+            stmt,
+            NodedbStatement::Collection(CollectionStmt::CreateTable { .. })
+        ));
     }
 }

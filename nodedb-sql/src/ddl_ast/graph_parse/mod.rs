@@ -27,7 +27,7 @@ pub use fusion_params::{
     parse_search_using_fusion,
 };
 
-use super::statement::NodedbStatement;
+use super::statement::{GraphStmt, NodedbStatement};
 
 /// Entry point: returns `Some` when `sql` starts with a graph DSL
 /// keyword (`GRAPH ...`, `MATCH ...`, `OPTIONAL MATCH ...`), else
@@ -37,9 +37,9 @@ pub fn try_parse(sql: &str) -> Option<NodedbStatement> {
     let upper = trimmed.to_ascii_uppercase();
 
     if upper.starts_with("MATCH ") || upper.starts_with("OPTIONAL MATCH ") {
-        return Some(NodedbStatement::MatchQuery {
+        return Some(NodedbStatement::Graph(GraphStmt::MatchQuery {
             body: trimmed.to_string(),
-        });
+        }));
     }
 
     if !upper.starts_with("GRAPH ") {
@@ -89,13 +89,13 @@ mod tests {
         let stmt =
             try_parse("GRAPH INSERT EDGE IN 'myedges' FROM 'TO' TO 'FROM' TYPE 'LABEL'").unwrap();
         match stmt {
-            NodedbStatement::GraphInsertEdge {
+            NodedbStatement::Graph(GraphStmt::GraphInsertEdge {
                 collection,
                 src,
                 dst,
                 label,
                 properties,
-            } => {
+            }) => {
                 assert_eq!(collection, "myedges");
                 assert_eq!(src, "TO");
                 assert_eq!(dst, "FROM");
@@ -110,12 +110,12 @@ mod tests {
     fn parse_graph_delete_edge_with_collection() {
         let stmt = try_parse("GRAPH DELETE EDGE IN 'myedges' FROM 'a' TO 'b' TYPE 'l'").unwrap();
         match stmt {
-            NodedbStatement::GraphDeleteEdge {
+            NodedbStatement::Graph(GraphStmt::GraphDeleteEdge {
                 collection,
                 src,
                 dst,
                 label,
-            } => {
+            }) => {
                 assert_eq!(collection, "myedges");
                 assert_eq!(src, "a");
                 assert_eq!(dst, "b");
@@ -141,11 +141,11 @@ mod tests {
         )
         .unwrap();
         match stmt {
-            NodedbStatement::GraphInsertEdge {
+            NodedbStatement::Graph(GraphStmt::GraphInsertEdge {
                 collection,
                 properties,
                 ..
-            } => {
+            }) => {
                 assert_eq!(collection, "edges");
                 match properties {
                     GraphProperties::Object(s) => assert!(s.contains("} DEPTH 999")),
@@ -161,7 +161,7 @@ mod tests {
         let stmt =
             try_parse("GRAPH TRAVERSE FROM 'node_with_DEPTH_in_name' DEPTH 2 LABEL 'l'").unwrap();
         match stmt {
-            NodedbStatement::GraphTraverse { start, depth, .. } => {
+            NodedbStatement::Graph(GraphStmt::GraphTraverse { start, depth, .. }) => {
                 assert_eq!(start, "node_with_DEPTH_in_name");
                 assert_eq!(depth, 2);
             }
@@ -173,12 +173,12 @@ mod tests {
     fn parse_graph_path() {
         let stmt = try_parse("GRAPH PATH FROM 'a' TO 'b' MAX_DEPTH 5 LABEL 'l'").unwrap();
         match stmt {
-            NodedbStatement::GraphPath {
+            NodedbStatement::Graph(GraphStmt::GraphPath {
                 src,
                 dst,
                 max_depth,
                 edge_label,
-            } => {
+            }) => {
                 assert_eq!(src, "a");
                 assert_eq!(dst, "b");
                 assert_eq!(max_depth, 5);
@@ -192,11 +192,11 @@ mod tests {
     fn parse_graph_labels_list() {
         let stmt = try_parse("GRAPH LABEL 'alice' AS 'Person', 'User'").unwrap();
         match stmt {
-            NodedbStatement::GraphSetLabels {
+            NodedbStatement::Graph(GraphStmt::GraphSetLabels {
                 node_id,
                 labels,
                 remove,
-            } => {
+            }) => {
                 assert_eq!(node_id, "alice");
                 assert_eq!(labels, vec!["Person".to_string(), "User".to_string()]);
                 assert!(!remove);
@@ -209,13 +209,13 @@ mod tests {
     fn parse_graph_algo_pagerank() {
         let stmt = try_parse("GRAPH ALGO PAGERANK ON users ITERATIONS 5 DAMPING 0.85").unwrap();
         match stmt {
-            NodedbStatement::GraphAlgo {
+            NodedbStatement::Graph(GraphStmt::GraphAlgo {
                 algorithm,
                 collection,
                 damping,
                 max_iterations,
                 ..
-            } => {
+            }) => {
                 assert_eq!(algorithm, "PAGERANK");
                 assert_eq!(collection, "users");
                 assert_eq!(damping, Some(0.85));
@@ -229,7 +229,7 @@ mod tests {
     fn parse_match_query_captures_raw() {
         let stmt = try_parse("MATCH (x)-[:l]->(y) RETURN x, y").unwrap();
         match stmt {
-            NodedbStatement::MatchQuery { body } => {
+            NodedbStatement::Graph(GraphStmt::MatchQuery { body }) => {
                 assert!(body.starts_with("MATCH"));
             }
             other => panic!("expected MatchQuery, got {other:?}"),
@@ -257,7 +257,7 @@ mod tests {
         )
         .unwrap();
         match stmt {
-            NodedbStatement::GraphRagFusion { collection, params } => {
+            NodedbStatement::Graph(GraphStmt::GraphRagFusion { collection, params }) => {
                 assert_eq!(collection, "entities");
                 let v = params.query_vector.expect("QUERY ARRAY parsed");
                 assert_eq!(v.len(), 3);
@@ -278,7 +278,7 @@ mod tests {
     fn parse_rag_fusion_minimal_defaults_to_none() {
         let stmt = try_parse("GRAPH RAG FUSION ON mycol QUERY ARRAY[1.0, 0.0]").unwrap();
         match stmt {
-            NodedbStatement::GraphRagFusion { collection, params } => {
+            NodedbStatement::Graph(GraphStmt::GraphRagFusion { collection, params }) => {
                 assert_eq!(collection, "mycol");
                 assert!(params.query_vector.is_some());
                 assert_eq!(params.vector_top_k, None);
@@ -300,7 +300,7 @@ mod tests {
             try_parse("GRAPH RAG FUSION ON col QUERY ARRAY[0.5] DIRECTION both MAX_VISITED 500")
                 .unwrap();
         match stmt {
-            NodedbStatement::GraphRagFusion { params, .. } => {
+            NodedbStatement::Graph(GraphStmt::GraphRagFusion { params, .. }) => {
                 assert_eq!(params.direction, Some(GraphDirection::Both));
                 assert_eq!(params.max_visited, Some(500));
             }
@@ -313,7 +313,7 @@ mod tests {
         let stmt =
             try_parse("GRAPH RAG FUSION ON col QUERY ARRAY[0.5] VECTOR_FIELD 'embedding'").unwrap();
         match stmt {
-            NodedbStatement::GraphRagFusion { params, .. } => {
+            NodedbStatement::Graph(GraphStmt::GraphRagFusion { params, .. }) => {
                 assert_eq!(params.vector_field.as_deref(), Some("embedding"));
             }
             other => panic!("expected GraphRagFusion, got {other:?}"),
@@ -324,7 +324,7 @@ mod tests {
     fn parse_rag_fusion_rrf_k_both_values_captured() {
         let stmt = try_parse("GRAPH RAG FUSION ON col QUERY ARRAY[0.5] RRF_K (1.0, 99.5)").unwrap();
         match stmt {
-            NodedbStatement::GraphRagFusion { params, .. } => {
+            NodedbStatement::Graph(GraphStmt::GraphRagFusion { params, .. }) => {
                 let (k1, k2) = params.rrf_k.expect("RRF_K must be parsed");
                 assert!((k1 - 1.0).abs() < 1e-10, "vector_k must be 1.0, got {k1}");
                 assert!((k2 - 99.5).abs() < 1e-10, "graph_k must be 99.5, got {k2}");

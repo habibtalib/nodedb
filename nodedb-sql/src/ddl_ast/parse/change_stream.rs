@@ -3,7 +3,7 @@
 //! Parse CREATE/DROP/ALTER CHANGE STREAM and CREATE/DROP/SHOW CONSUMER GROUP.
 
 use super::helpers::extract_name_after_if_exists;
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{NodedbStatement, StreamViewStmt};
 use crate::error::SqlError;
 
 pub(super) fn try_parse(
@@ -21,16 +21,22 @@ pub(super) fn try_parse(
                 None => return Ok(None),
                 Some(r) => r?,
             };
-            return Ok(Some(NodedbStatement::DropChangeStream { name, if_exists }));
+            return Ok(Some(NodedbStatement::StreamView(
+                StreamViewStmt::DropChangeStream { name, if_exists },
+            )));
         }
         if upper.starts_with("ALTER CHANGE STREAM ") {
             // ALTER CHANGE STREAM <name> <action>
             let name = parts.get(3).map(|s| s.to_lowercase()).unwrap_or_default();
             let action = parts.get(4).map(|s| s.to_uppercase()).unwrap_or_default();
-            return Ok(Some(NodedbStatement::AlterChangeStream { name, action }));
+            return Ok(Some(NodedbStatement::StreamView(
+                StreamViewStmt::AlterChangeStream { name, action },
+            )));
         }
         if upper.starts_with("SHOW CHANGE STREAM") {
-            return Ok(Some(NodedbStatement::ShowChangeStreams));
+            return Ok(Some(NodedbStatement::StreamView(
+                StreamViewStmt::ShowChangeStreams,
+            )));
         }
 
         // Consumer group commands live in the same parse scope.
@@ -38,10 +44,12 @@ pub(super) fn try_parse(
             // CREATE CONSUMER GROUP <name> ON <stream>
             let group_name = parts.get(3).map(|s| s.to_lowercase()).unwrap_or_default();
             let stream_name = parts.get(5).map(|s| s.to_lowercase()).unwrap_or_default();
-            return Ok(Some(NodedbStatement::CreateConsumerGroup {
-                group_name,
-                stream_name,
-            }));
+            return Ok(Some(NodedbStatement::StreamView(
+                StreamViewStmt::CreateConsumerGroup {
+                    group_name,
+                    stream_name,
+                },
+            )));
         }
         if upper.starts_with("DROP CONSUMER GROUP ") {
             // DROP CONSUMER GROUP [IF EXISTS] <name> ON <stream>
@@ -57,15 +65,19 @@ pub(super) fn try_parse(
                 .and_then(|i| parts.get(i + 1))
                 .map(|s| s.to_string())
                 .unwrap_or_default();
-            return Ok(Some(NodedbStatement::DropConsumerGroup {
-                name,
-                stream,
-                if_exists,
-            }));
+            return Ok(Some(NodedbStatement::StreamView(
+                StreamViewStmt::DropConsumerGroup {
+                    name,
+                    stream,
+                    if_exists,
+                },
+            )));
         }
         if upper.starts_with("SHOW CONSUMER GROUPS") {
             let stream = parts.get(3).map(|s| s.to_string());
-            return Ok(Some(NodedbStatement::ShowConsumerGroups { stream }));
+            return Ok(Some(NodedbStatement::StreamView(
+                StreamViewStmt::ShowConsumerGroups { stream },
+            )));
         }
         Ok(None)
     })()
@@ -109,11 +121,11 @@ fn parse_create_change_stream(upper: &str, trimmed: &str) -> NodedbStatement {
         })
         .unwrap_or_default();
 
-    NodedbStatement::CreateChangeStream {
+    NodedbStatement::StreamView(StreamViewStmt::CreateChangeStream {
         name,
         collection,
         with_clause_raw,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -127,11 +139,11 @@ mod tests {
 
     #[test]
     fn basic_stream() {
-        if let NodedbStatement::CreateChangeStream {
+        if let NodedbStatement::StreamView(StreamViewStmt::CreateChangeStream {
             name,
             collection,
             with_clause_raw,
-        } = create("CREATE CHANGE STREAM orders_stream ON orders")
+        }) = create("CREATE CHANGE STREAM orders_stream ON orders")
         {
             assert_eq!(name, "orders_stream");
             assert_eq!(collection, "orders");
@@ -143,8 +155,9 @@ mod tests {
 
     #[test]
     fn wildcard_collection() {
-        if let NodedbStatement::CreateChangeStream { collection, .. } =
-            create("CREATE CHANGE STREAM all ON *")
+        if let NodedbStatement::StreamView(StreamViewStmt::CreateChangeStream {
+            collection, ..
+        }) = create("CREATE CHANGE STREAM all ON *")
         {
             assert_eq!(collection, "*");
         } else {
@@ -154,9 +167,10 @@ mod tests {
 
     #[test]
     fn with_clause() {
-        if let NodedbStatement::CreateChangeStream {
-            with_clause_raw, ..
-        } =
+        if let NodedbStatement::StreamView(StreamViewStmt::CreateChangeStream {
+            with_clause_raw,
+            ..
+        }) =
             create("CREATE CHANGE STREAM s ON orders WITH (FORMAT = 'msgpack', INCLUDE = 'INSERT')")
         {
             assert!(with_clause_raw.to_uppercase().contains("FORMAT"));

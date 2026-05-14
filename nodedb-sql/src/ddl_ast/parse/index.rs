@@ -3,7 +3,7 @@
 //! Parse CREATE INDEX / DROP INDEX / SHOW INDEX / REINDEX.
 
 use super::helpers::extract_name_after_if_exists;
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{CollectionStmt, NodedbStatement};
 use crate::error::SqlError;
 
 pub(super) fn try_parse(
@@ -24,15 +24,19 @@ pub(super) fn try_parse(
                 None => return Ok(None),
                 Some(r) => r?,
             };
-            return Ok(Some(NodedbStatement::DropIndex {
-                name,
-                collection: None,
-                if_exists,
-            }));
+            return Ok(Some(NodedbStatement::Collection(
+                CollectionStmt::DropIndex {
+                    name,
+                    collection: None,
+                    if_exists,
+                },
+            )));
         }
         if upper.starts_with("SHOW INDEX") {
             let collection = parts.get(2).map(|s| s.to_string());
-            return Ok(Some(NodedbStatement::ShowIndexes { collection }));
+            return Ok(Some(NodedbStatement::Collection(
+                CollectionStmt::ShowIndexes { collection },
+            )));
         }
         if upper.starts_with("REINDEX ") {
             // Grammar: REINDEX [INDEX <name>] [CONCURRENTLY] <collection>
@@ -90,11 +94,11 @@ pub(super) fn try_parse(
                 Some(s) => s.to_lowercase(),
             };
 
-            return Ok(Some(NodedbStatement::Reindex {
+            return Ok(Some(NodedbStatement::Collection(CollectionStmt::Reindex {
                 collection,
                 index_name,
                 concurrent,
-            }));
+            })));
         }
         Ok(None)
     })()
@@ -174,12 +178,12 @@ fn parse_create_index(
 
     let case_insensitive = upper.contains("COLLATE NOCASE") || upper.contains("COLLATE CI");
 
-    NodedbStatement::CreateIndex {
+    NodedbStatement::Collection(CollectionStmt::CreateIndex {
         unique,
         index_name,
         collection,
         field,
         case_insensitive,
         where_condition,
-    }
+    })
 }

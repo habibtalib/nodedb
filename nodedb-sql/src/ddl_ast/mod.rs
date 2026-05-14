@@ -28,6 +28,7 @@ pub use nodedb_types::QuotaSpec;
 pub use nodedb_types::{MirrorMode, MirrorStatus};
 pub use parse::parse;
 pub use statement::{
-    AlterDatabaseOperation, AlterTenantOperation, CloneAsOf, NodedbStatement,
-    OidcClaimMappingClause,
+    AlterDatabaseOperation, AlterTenantOperation, AuthStmt, AutomationStmt, CloneAsOf,
+    ClusterStmt, CollectionStmt, DatabaseStmt, GraphStmt, MiscStmt, NodedbStatement,
+    OidcClaimMappingClause, PolicyStmt, StreamViewStmt,
 };

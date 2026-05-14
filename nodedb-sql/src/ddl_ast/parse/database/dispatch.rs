@@ -4,7 +4,7 @@
 //! the per-operation parser. Keep this file thin — the actual parsing logic
 //! belongs in the sibling modules.
 
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{DatabaseStmt, NodedbStatement};
 use crate::error::SqlError;
 
 use super::alter::parse_alter_database;
@@ -41,7 +41,7 @@ pub fn try_parse(
         "BACKUP" if second == "DATABASE" => Some(parse_backup_database(parts)),
         "RESTORE" if second == "DATABASE" => Some(parse_restore_database(parts)),
         "SHOW" if second == "DATABASES" && parts.len() == 2 => {
-            Some(Ok(NodedbStatement::ShowDatabases))
+            Some(Ok(NodedbStatement::Database(DatabaseStmt::ShowDatabases)))
         }
         // SHOW DATABASE QUOTA FOR <name>
         "SHOW"
@@ -86,6 +86,6 @@ mod tests {
         let upper = sql.to_uppercase();
         let parts: Vec<&str> = sql.split_whitespace().collect();
         let stmt = try_parse(&upper, &parts, sql).unwrap().unwrap();
-        assert_eq!(stmt, NodedbStatement::ShowDatabases);
+        assert_eq!(stmt, NodedbStatement::Database(DatabaseStmt::ShowDatabases));
     }
 }

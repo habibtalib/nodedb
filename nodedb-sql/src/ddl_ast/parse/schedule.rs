@@ -3,7 +3,7 @@
 //! Parse CREATE/DROP/ALTER/SHOW SCHEDULE + SHOW SCHEDULE HISTORY.
 
 use super::helpers::extract_name_after_if_exists;
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{AutomationStmt, NodedbStatement};
 use crate::error::SqlError;
 
 /// Extract the content between the first pair of single quotes after
@@ -44,7 +44,9 @@ pub(super) fn try_parse(
                 None => return Ok(None),
                 Some(r) => r?,
             };
-            return Ok(Some(NodedbStatement::DropSchedule { name, if_exists }));
+            return Ok(Some(NodedbStatement::Automation(
+                AutomationStmt::DropSchedule { name, if_exists },
+            )));
         }
         if upper.starts_with("ALTER SCHEDULE ") {
             // ALTER SCHEDULE <name> ENABLE | DISABLE | SET CRON '<expr>'
@@ -56,21 +58,27 @@ pub(super) fn try_parse(
             } else {
                 None
             };
-            return Ok(Some(NodedbStatement::AlterSchedule {
-                name,
-                action,
-                cron_expr,
-            }));
+            return Ok(Some(NodedbStatement::Automation(
+                AutomationStmt::AlterSchedule {
+                    name,
+                    action,
+                    cron_expr,
+                },
+            )));
         }
         if upper.starts_with("SHOW SCHEDULE HISTORY ") {
             let name = match parts.get(3) {
                 None => return Ok(None),
                 Some(s) => s.to_string(),
             };
-            return Ok(Some(NodedbStatement::ShowScheduleHistory { name }));
+            return Ok(Some(NodedbStatement::Automation(
+                AutomationStmt::ShowScheduleHistory { name },
+            )));
         }
         if upper == "SHOW SCHEDULES" || upper.starts_with("SHOW SCHEDULES") {
-            return Ok(Some(NodedbStatement::ShowSchedules));
+            return Ok(Some(NodedbStatement::Automation(
+                AutomationStmt::ShowSchedules,
+            )));
         }
         Ok(None)
     })()
@@ -137,14 +145,14 @@ fn parse_create_schedule(upper: &str, trimmed: &str) -> NodedbStatement {
         .map(|pos| trimmed[pos + 4..].trim().to_string())
         .unwrap_or_default();
 
-    NodedbStatement::CreateSchedule {
+    NodedbStatement::Automation(AutomationStmt::CreateSchedule {
         name,
         cron_expr,
         body_sql,
         scope,
         missed_policy,
         allow_overlap,
-    }
+    })
 }
 
 /// Extract cron expression from rest (after "CREATE SCHEDULE <name> ").
@@ -184,14 +192,14 @@ mod tests {
     #[test]
     fn basic_schedule() {
         let sql = "CREATE SCHEDULE cleanup CRON '0 0 * * *' AS BEGIN DELETE FROM old; END";
-        if let NodedbStatement::CreateSchedule {
+        if let NodedbStatement::Automation(AutomationStmt::CreateSchedule {
             name,
             cron_expr,
             body_sql,
             scope,
             allow_overlap,
             ..
-        } = create(sql)
+        }) = create(sql)
         {
             assert_eq!(name, "cleanup");
             assert_eq!(cron_expr, "0 0 * * *");
@@ -206,7 +214,9 @@ mod tests {
     #[test]
     fn scope_local() {
         let sql = "CREATE SCHEDULE gc CRON '0 * * * *' SCOPE LOCAL AS BEGIN RETURN; END";
-        if let NodedbStatement::CreateSchedule { scope, .. } = create(sql) {
+        if let NodedbStatement::Automation(AutomationStmt::CreateSchedule { scope, .. }) =
+            create(sql)
+        {
             assert_eq!(scope, "LOCAL");
         } else {
             panic!("expected CreateSchedule");
@@ -218,11 +228,11 @@ mod tests {
         let sql = "CREATE SCHEDULE agg CRON '*/5 * * * *' \
                    WITH (ALLOW_OVERLAP = false, MISSED = CATCH_UP) \
                    AS BEGIN INSERT INTO stats SELECT 1; END";
-        if let NodedbStatement::CreateSchedule {
+        if let NodedbStatement::Automation(AutomationStmt::CreateSchedule {
             allow_overlap,
             missed_policy,
             ..
-        } = create(sql)
+        }) = create(sql)
         {
             assert!(!allow_overlap);
             assert_eq!(missed_policy, "CATCH_UP");

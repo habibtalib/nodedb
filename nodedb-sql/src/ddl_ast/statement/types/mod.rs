@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-#![allow(dead_code)]
-
 pub mod auth;
 pub mod automation;
 pub mod cluster;

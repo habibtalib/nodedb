@@ -2,7 +2,9 @@
 
 //! Parse users/roles/permissions/grants + audit/tenants/constraints/typeguards.
 
-use crate::ddl_ast::statement::{AlterRoleOp, AlterUserOp, NodedbStatement};
+use crate::ddl_ast::statement::{
+    AlterRoleOp, AlterUserOp, AuthStmt, DatabaseStmt, MiscStmt, NodedbStatement,
+};
 use crate::error::SqlError;
 
 pub(super) fn try_parse(
@@ -19,13 +21,13 @@ fn try_parse_inner(upper: &str, parts: &[&str], trimmed: &str) -> Option<NodedbS
     }
     if upper.starts_with("DROP USER ") {
         let username = parts.get(2)?.to_string();
-        return Some(NodedbStatement::DropUser { username });
+        return Some(NodedbStatement::Auth(AuthStmt::DropUser { username }));
     }
     if upper.starts_with("ALTER USER ") {
         return Some(parse_alter_user(parts, trimmed));
     }
     if upper.starts_with("SHOW USERS") {
-        return Some(NodedbStatement::ShowUsers);
+        return Some(NodedbStatement::Auth(AuthStmt::ShowUsers));
     }
     if upper.starts_with("ALTER ROLE ") {
         return Some(parse_alter_role(parts, trimmed));
@@ -34,13 +36,19 @@ fn try_parse_inner(upper: &str, parts: &[&str], trimmed: &str) -> Option<NodedbS
         // GRANT ROLE <role> TO <user>
         let role = parts.get(2).map(|s| s.to_string()).unwrap_or_default();
         let username = parts.get(4).map(|s| s.to_string()).unwrap_or_default();
-        return Some(NodedbStatement::GrantRole { role, username });
+        return Some(NodedbStatement::Auth(AuthStmt::GrantRole {
+            role,
+            username,
+        }));
     }
     if upper.starts_with("REVOKE ROLE ") {
         // REVOKE ROLE <role> FROM <user>
         let role = parts.get(2).map(|s| s.to_string()).unwrap_or_default();
         let username = parts.get(4).map(|s| s.to_string()).unwrap_or_default();
-        return Some(NodedbStatement::RevokeRole { role, username });
+        return Some(NodedbStatement::Auth(AuthStmt::RevokeRole {
+            role,
+            username,
+        }));
     }
     if upper.starts_with("GRANT ") && !upper.starts_with("GRANT ROLE ") {
         // GRANT <perm> ON DATABASE <name> TO <grantee> — must be checked before
@@ -63,11 +71,11 @@ fn try_parse_inner(upper: &str, parts: &[&str], trimmed: &str) -> Option<NodedbS
                 .and_then(|i| parts.get(i + 1))
                 .map(|s| s.to_string())
                 .unwrap_or_default();
-            return Some(NodedbStatement::GrantDatabasePermission {
+            return Some(NodedbStatement::Auth(AuthStmt::GrantDatabasePermission {
                 permission,
                 db_name,
                 grantee,
-            });
+            }));
         }
 
         // GRANT <perm> ON [FUNCTION] <name> TO <grantee>
@@ -94,12 +102,12 @@ fn try_parse_inner(upper: &str, parts: &[&str], trimmed: &str) -> Option<NodedbS
             .and_then(|i| parts.get(i + 1))
             .map(|s| s.to_string())
             .unwrap_or_default();
-        return Some(NodedbStatement::GrantPermission {
+        return Some(NodedbStatement::Auth(AuthStmt::GrantPermission {
             permission,
             target_type,
             target_name,
             grantee,
-        });
+        }));
     }
     if upper.starts_with("REVOKE ")
         && !upper.starts_with("REVOKE API KEY")
@@ -126,11 +134,11 @@ fn try_parse_inner(upper: &str, parts: &[&str], trimmed: &str) -> Option<NodedbS
                 .and_then(|i| parts.get(i + 1))
                 .map(|s| s.to_string())
                 .unwrap_or_default();
-            return Some(NodedbStatement::RevokeDatabasePermission {
+            return Some(NodedbStatement::Auth(AuthStmt::RevokeDatabasePermission {
                 permission,
                 db_name,
                 grantee,
-            });
+            }));
         }
 
         // REVOKE <perm> ON [FUNCTION] <name> FROM <grantee>
@@ -156,12 +164,12 @@ fn try_parse_inner(upper: &str, parts: &[&str], trimmed: &str) -> Option<NodedbS
             .and_then(|i| parts.get(i + 1))
             .map(|s| s.to_string())
             .unwrap_or_default();
-        return Some(NodedbStatement::RevokePermission {
+        return Some(NodedbStatement::Auth(AuthStmt::RevokePermission {
             permission,
             target_type,
             target_name,
             grantee,
-        });
+        }));
     }
     if upper.starts_with("SHOW PERMISSIONS") {
         // SHOW PERMISSIONS [ON <collection>] [FOR <grantee>]
@@ -175,28 +183,32 @@ fn try_parse_inner(upper: &str, parts: &[&str], trimmed: &str) -> Option<NodedbS
             .position(|p| p.eq_ignore_ascii_case("FOR"))
             .and_then(|i| parts.get(i + 1))
             .map(|s| s.to_string());
-        return Some(NodedbStatement::ShowPermissions {
+        return Some(NodedbStatement::Auth(AuthStmt::ShowPermissions {
             on_collection,
             for_grantee,
-        });
+        }));
     }
     if upper.starts_with("SHOW GRANTS") {
         let username = parts.get(2).map(|s| s.to_string());
-        return Some(NodedbStatement::ShowGrants { username });
+        return Some(NodedbStatement::Auth(AuthStmt::ShowGrants { username }));
     }
     if upper.starts_with("SHOW TENANTS") {
-        return Some(NodedbStatement::ShowTenants);
+        return Some(NodedbStatement::Database(DatabaseStmt::ShowTenants));
     }
     if upper.starts_with("SHOW AUDIT") {
-        return Some(NodedbStatement::ShowAuditLog);
+        return Some(NodedbStatement::Misc(MiscStmt::ShowAuditLog));
     }
     if upper.starts_with("SHOW CONSTRAINTS ") {
         let collection = parts.get(2)?.to_string();
-        return Some(NodedbStatement::ShowConstraints { collection });
+        return Some(NodedbStatement::Misc(MiscStmt::ShowConstraints {
+            collection,
+        }));
     }
     if upper.starts_with("SHOW TYPEGUARD") {
         let collection = parts.get(2)?.to_string();
-        return Some(NodedbStatement::ShowTypeGuards { collection });
+        return Some(NodedbStatement::Misc(MiscStmt::ShowTypeGuards {
+            collection,
+        }));
     }
     None
 }
@@ -241,12 +253,12 @@ fn parse_create_user(parts: &[&str], _trimmed: &str) -> NodedbStatement {
         .and_then(|ti| parts.get(ti + 1))
         .and_then(|s| s.parse::<u64>().ok());
 
-    NodedbStatement::CreateUser {
+    NodedbStatement::Auth(AuthStmt::CreateUser {
         username,
         password,
         role,
         tenant_id,
-    }
+    })
 }
 
 /// Parse all `ALTER USER <name> ...` forms.
@@ -321,7 +333,7 @@ fn parse_alter_user(parts: &[&str], _trimmed: &str) -> NodedbStatement {
         }
     };
 
-    NodedbStatement::AlterUser { username, op }
+    NodedbStatement::Auth(AuthStmt::AlterUser { username, op })
 }
 
 /// Parse `ALTER ROLE <name> GRANT/REVOKE/SET ...`.
@@ -393,7 +405,7 @@ fn parse_alter_role(parts: &[&str], _trimmed: &str) -> NodedbStatement {
         }
     };
 
-    NodedbStatement::AlterRole { name, sub_op }
+    NodedbStatement::Auth(AuthStmt::AlterRole { name, sub_op })
 }
 
 /// Extract a single-quoted string from parts starting at `start`.
@@ -435,12 +447,12 @@ mod tests {
     #[test]
     fn create_user_basic() {
         let stmt = parse("CREATE USER alice WITH PASSWORD 'secret' ROLE read_write").unwrap();
-        if let NodedbStatement::CreateUser {
+        if let NodedbStatement::Auth(AuthStmt::CreateUser {
             username,
             password,
             role,
             tenant_id,
-        } = stmt
+        }) = stmt
         {
             assert_eq!(username, "alice");
             assert_eq!(password, "secret");
@@ -454,7 +466,7 @@ mod tests {
     #[test]
     fn create_user_no_role() {
         let stmt = parse("CREATE USER bob WITH PASSWORD 'pw123'").unwrap();
-        if let NodedbStatement::CreateUser { username, role, .. } = stmt {
+        if let NodedbStatement::Auth(AuthStmt::CreateUser { username, role, .. }) = stmt {
             assert_eq!(username, "bob");
             assert!(role.is_none());
         } else {
@@ -465,7 +477,7 @@ mod tests {
     #[test]
     fn create_user_with_tenant() {
         let stmt = parse("CREATE USER carol WITH PASSWORD 'pw' TENANT 42").unwrap();
-        if let NodedbStatement::CreateUser { tenant_id, .. } = stmt {
+        if let NodedbStatement::Auth(AuthStmt::CreateUser { tenant_id, .. }) = stmt {
             assert_eq!(tenant_id, Some(42));
         } else {
             panic!("expected CreateUser");
@@ -477,12 +489,12 @@ mod tests {
         let stmt = parse("ALTER USER alice SET PASSWORD 'newpass'").unwrap();
         assert_eq!(
             stmt,
-            NodedbStatement::AlterUser {
+            NodedbStatement::Auth(AuthStmt::AlterUser {
                 username: "alice".to_string(),
                 op: AlterUserOp::SetPassword {
                     password: "newpass".to_string()
                 },
-            }
+            })
         );
     }
 
@@ -491,12 +503,12 @@ mod tests {
         let stmt = parse("ALTER USER alice SET ROLE admin").unwrap();
         assert_eq!(
             stmt,
-            NodedbStatement::AlterUser {
+            NodedbStatement::Auth(AuthStmt::AlterUser {
                 username: "alice".to_string(),
                 op: AlterUserOp::SetRole {
                     role: "admin".to_string()
                 },
-            }
+            })
         );
     }
 
@@ -505,10 +517,10 @@ mod tests {
         let stmt = parse("ALTER USER alice MUST CHANGE PASSWORD").unwrap();
         assert_eq!(
             stmt,
-            NodedbStatement::AlterUser {
+            NodedbStatement::Auth(AuthStmt::AlterUser {
                 username: "alice".to_string(),
                 op: AlterUserOp::MustChangePassword,
-            }
+            })
         );
     }
 
@@ -517,10 +529,10 @@ mod tests {
         let stmt = parse("ALTER USER alice PASSWORD NEVER EXPIRES").unwrap();
         assert_eq!(
             stmt,
-            NodedbStatement::AlterUser {
+            NodedbStatement::Auth(AuthStmt::AlterUser {
                 username: "alice".to_string(),
                 op: AlterUserOp::PasswordNeverExpires,
-            }
+            })
         );
     }
 
@@ -529,12 +541,12 @@ mod tests {
         let stmt = parse("ALTER USER alice PASSWORD EXPIRES '2026-12-31T00:00:00Z'").unwrap();
         assert_eq!(
             stmt,
-            NodedbStatement::AlterUser {
+            NodedbStatement::Auth(AuthStmt::AlterUser {
                 username: "alice".to_string(),
                 op: AlterUserOp::PasswordExpiresAt {
                     iso8601: "2026-12-31T00:00:00Z".to_string()
                 },
-            }
+            })
         );
     }
 
@@ -543,10 +555,10 @@ mod tests {
         let stmt = parse("ALTER USER alice PASSWORD EXPIRES IN 90 DAYS").unwrap();
         assert_eq!(
             stmt,
-            NodedbStatement::AlterUser {
+            NodedbStatement::Auth(AuthStmt::AlterUser {
                 username: "alice".to_string(),
                 op: AlterUserOp::PasswordExpiresInDays { days: 90 },
-            }
+            })
         );
     }
 
@@ -555,7 +567,7 @@ mod tests {
     #[test]
     fn alter_role_set_inherit() {
         let stmt = parse("ALTER ROLE analyst SET INHERIT readonly").unwrap();
-        if let NodedbStatement::AlterRole { name, sub_op } = stmt {
+        if let NodedbStatement::Auth(AuthStmt::AlterRole { name, sub_op }) = stmt {
             assert_eq!(name, "analyst");
             assert_eq!(
                 sub_op,
@@ -571,7 +583,7 @@ mod tests {
     #[test]
     fn alter_role_grant_collection() {
         let stmt = parse("ALTER ROLE analyst GRANT READ ON my_collection").unwrap();
-        if let NodedbStatement::AlterRole { name, sub_op } = stmt {
+        if let NodedbStatement::Auth(AuthStmt::AlterRole { name, sub_op }) = stmt {
             assert_eq!(name, "analyst");
             assert_eq!(
                 sub_op,
@@ -589,7 +601,7 @@ mod tests {
     #[test]
     fn alter_role_grant_function() {
         let stmt = parse("ALTER ROLE analyst GRANT EXECUTE ON FUNCTION my_func").unwrap();
-        if let NodedbStatement::AlterRole { name, sub_op } = stmt {
+        if let NodedbStatement::Auth(AuthStmt::AlterRole { name, sub_op }) = stmt {
             assert_eq!(name, "analyst");
             assert_eq!(
                 sub_op,
@@ -607,7 +619,7 @@ mod tests {
     #[test]
     fn alter_role_revoke_collection() {
         let stmt = parse("ALTER ROLE analyst REVOKE WRITE ON orders").unwrap();
-        if let NodedbStatement::AlterRole { name, sub_op } = stmt {
+        if let NodedbStatement::Auth(AuthStmt::AlterRole { name, sub_op }) = stmt {
             assert_eq!(name, "analyst");
             assert_eq!(
                 sub_op,
@@ -625,7 +637,7 @@ mod tests {
     #[test]
     fn alter_role_revoke_function() {
         let stmt = parse("ALTER ROLE analyst REVOKE EXECUTE ON FUNCTION calc").unwrap();
-        if let NodedbStatement::AlterRole { name, sub_op } = stmt {
+        if let NodedbStatement::Auth(AuthStmt::AlterRole { name, sub_op }) = stmt {
             assert_eq!(name, "analyst");
             assert_eq!(
                 sub_op,
@@ -647,10 +659,10 @@ mod tests {
         let stmt = parse("SHOW PERMISSIONS").unwrap();
         assert_eq!(
             stmt,
-            NodedbStatement::ShowPermissions {
+            NodedbStatement::Auth(AuthStmt::ShowPermissions {
                 on_collection: None,
                 for_grantee: None,
-            }
+            })
         );
     }
 
@@ -659,10 +671,10 @@ mod tests {
         let stmt = parse("SHOW PERMISSIONS ON orders").unwrap();
         assert_eq!(
             stmt,
-            NodedbStatement::ShowPermissions {
+            NodedbStatement::Auth(AuthStmt::ShowPermissions {
                 on_collection: Some("orders".to_string()),
                 for_grantee: None,
-            }
+            })
         );
     }
 
@@ -671,10 +683,10 @@ mod tests {
         let stmt = parse("SHOW PERMISSIONS FOR alice").unwrap();
         assert_eq!(
             stmt,
-            NodedbStatement::ShowPermissions {
+            NodedbStatement::Auth(AuthStmt::ShowPermissions {
                 on_collection: None,
                 for_grantee: Some("alice".to_string()),
-            }
+            })
         );
     }
 
@@ -683,10 +695,10 @@ mod tests {
         let stmt = parse("SHOW PERMISSIONS ON orders FOR alice").unwrap();
         assert_eq!(
             stmt,
-            NodedbStatement::ShowPermissions {
+            NodedbStatement::Auth(AuthStmt::ShowPermissions {
                 on_collection: Some("orders".to_string()),
                 for_grantee: Some("alice".to_string()),
-            }
+            })
         );
     }
 }

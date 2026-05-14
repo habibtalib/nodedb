@@ -4,15 +4,15 @@
 
 pub mod auth;
 pub mod collection;
-pub mod legacy_types;
 pub mod maintenance;
 pub mod types;
+pub mod wrapper;
 
 pub use auth::*;
 pub use collection::*;
-pub use legacy_types::*;
 pub use maintenance::*;
 pub use types::*;
+pub use wrapper::*;
 
 // Cross-module re-exports preserved at the `statement::` path for
 // callers that imported these types via the pre-split surface.

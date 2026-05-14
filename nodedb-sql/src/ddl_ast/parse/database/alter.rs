@@ -6,7 +6,7 @@
 
 use nodedb_types::AuditDmlMode;
 
-use crate::ddl_ast::statement::{AlterDatabaseOperation, NodedbStatement};
+use crate::ddl_ast::statement::{AlterDatabaseOperation, DatabaseStmt, NodedbStatement};
 use crate::error::SqlError;
 
 use super::quota_spec::parse_quota_spec;
@@ -52,7 +52,10 @@ pub(super) fn parse_alter_database(
         }
     };
 
-    Ok(NodedbStatement::AlterDatabase { name, operation })
+    Ok(NodedbStatement::Database(DatabaseStmt::AlterDatabase {
+        name,
+        operation,
+    }))
 }
 
 fn parse_rename(parts: &[&str]) -> Result<AlterDatabaseOperation, SqlError> {
@@ -158,12 +161,12 @@ mod tests {
         let stmt = ok("ALTER DATABASE mydb RENAME TO newdb");
         assert_eq!(
             stmt,
-            NodedbStatement::AlterDatabase {
+            NodedbStatement::Database(DatabaseStmt::AlterDatabase {
                 name: "mydb".into(),
                 operation: AlterDatabaseOperation::Rename {
                     new_name: "newdb".into()
                 },
-            }
+            })
         );
     }
 
@@ -171,10 +174,10 @@ mod tests {
     fn parse_alter_database_set_quota() {
         let stmt = ok("ALTER DATABASE mydb SET QUOTA (max_memory_bytes = 1073741824)");
         match stmt {
-            NodedbStatement::AlterDatabase {
+            NodedbStatement::Database(DatabaseStmt::AlterDatabase {
                 name,
                 operation: AlterDatabaseOperation::SetQuota(spec),
-            } => {
+            }) => {
                 assert_eq!(name, "mydb");
                 assert_eq!(spec.max_memory_bytes, Some(1_073_741_824));
             }
@@ -219,10 +222,10 @@ mod tests {
         let stmt = ok("ALTER DATABASE mydb SET AUDIT_DML = WRITES");
         assert_eq!(
             stmt,
-            NodedbStatement::AlterDatabase {
+            NodedbStatement::Database(DatabaseStmt::AlterDatabase {
                 name: "mydb".into(),
                 operation: AlterDatabaseOperation::SetAuditDml(AuditDmlMode::Writes),
-            }
+            })
         );
     }
 
@@ -231,10 +234,10 @@ mod tests {
         let stmt = ok("ALTER DATABASE mydb SET AUDIT_DML = ALL");
         assert_eq!(
             stmt,
-            NodedbStatement::AlterDatabase {
+            NodedbStatement::Database(DatabaseStmt::AlterDatabase {
                 name: "mydb".into(),
                 operation: AlterDatabaseOperation::SetAuditDml(AuditDmlMode::All),
-            }
+            })
         );
     }
 
@@ -243,10 +246,10 @@ mod tests {
         let stmt = ok("ALTER DATABASE mydb SET AUDIT_DML = NONE");
         assert_eq!(
             stmt,
-            NodedbStatement::AlterDatabase {
+            NodedbStatement::Database(DatabaseStmt::AlterDatabase {
                 name: "mydb".into(),
                 operation: AlterDatabaseOperation::SetAuditDml(AuditDmlMode::None),
-            }
+            })
         );
     }
 
@@ -272,10 +275,10 @@ mod tests {
         let stmt = ok("ALTER DATABASE foo SET IDLE_TIMEOUT = 1800");
         assert_eq!(
             stmt,
-            NodedbStatement::AlterDatabase {
+            NodedbStatement::Database(DatabaseStmt::AlterDatabase {
                 name: "foo".into(),
                 operation: AlterDatabaseOperation::SetIdleTimeout(1800),
-            }
+            })
         );
     }
 
@@ -284,10 +287,10 @@ mod tests {
         // 0 means "disabled" per the design.
         let stmt = ok("ALTER DATABASE foo SET IDLE_TIMEOUT = 0");
         match stmt {
-            NodedbStatement::AlterDatabase {
+            NodedbStatement::Database(DatabaseStmt::AlterDatabase {
                 operation: AlterDatabaseOperation::SetIdleTimeout(secs),
                 ..
-            } => assert_eq!(secs, 0),
+            }) => assert_eq!(secs, 0),
             other => panic!("expected SetIdleTimeout(0), got {other:?}"),
         }
     }
@@ -309,10 +312,10 @@ mod tests {
         let sql = format!("ALTER DATABASE foo SET IDLE_TIMEOUT = {MAX_IDLE_TIMEOUT_SECS}");
         let stmt = ok(&sql);
         match stmt {
-            NodedbStatement::AlterDatabase {
+            NodedbStatement::Database(DatabaseStmt::AlterDatabase {
                 operation: AlterDatabaseOperation::SetIdleTimeout(secs),
                 ..
-            } => assert_eq!(secs, MAX_IDLE_TIMEOUT_SECS),
+            }) => assert_eq!(secs, MAX_IDLE_TIMEOUT_SECS),
             other => panic!("expected SetIdleTimeout at cap, got {other:?}"),
         }
     }

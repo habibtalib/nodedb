@@ -4,7 +4,7 @@
 //! and `SHOW CONFLICT POLICY ON <name>`.
 
 use crate::ddl_ast::alter_ops::{ConflictPolicyKind, ConstraintKindKeyword};
-use crate::ddl_ast::statement::{AlterCollectionOp, NodedbStatement};
+use crate::ddl_ast::statement::{AlterCollectionOp, CollectionStmt, NodedbStatement, PolicyStmt};
 use crate::error::SqlError;
 
 /// Try to parse conflict-policy DDL statements.
@@ -47,9 +47,9 @@ fn parse_show_conflict_policy(parts: &[&str]) -> Result<NodedbStatement, SqlErro
     let name = parts.get(on_idx + 1).ok_or_else(|| SqlError::Parse {
         detail: "SHOW CONFLICT POLICY ON: missing collection name".to_string(),
     })?;
-    Ok(NodedbStatement::ShowConflictPolicy {
+    Ok(NodedbStatement::Policy(PolicyStmt::ShowConflictPolicy {
         collection: name.to_lowercase(),
-    })
+    }))
 }
 
 fn parse_alter_set_on_conflict(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
@@ -86,13 +86,15 @@ fn parse_alter_set_on_conflict(parts: &[&str]) -> Result<NodedbStatement, SqlErr
     let policy = parse_policy_keyword(policy_str)?;
     let constraint_kind = parse_constraint_kind(kind_str)?;
 
-    Ok(NodedbStatement::AlterCollection {
-        name: name.to_lowercase(),
-        operation: AlterCollectionOp::SetOnConflict {
-            policy,
-            constraint_kind,
+    Ok(NodedbStatement::Collection(
+        CollectionStmt::AlterCollection {
+            name: name.to_lowercase(),
+            operation: AlterCollectionOp::SetOnConflict {
+                policy,
+                constraint_kind,
+            },
         },
-    })
+    ))
 }
 
 fn parse_policy_keyword(s: &str) -> Result<ConflictPolicyKind, SqlError> {
@@ -149,7 +151,7 @@ mod tests {
     fn alter_last_writer_wins_unique() {
         let stmt = ok("ALTER COLLECTION agents SET ON CONFLICT LAST_WRITER_WINS FOR UNIQUE");
         match stmt {
-            NodedbStatement::AlterCollection { name, operation } => {
+            NodedbStatement::Collection(CollectionStmt::AlterCollection { name, operation }) => {
                 assert_eq!(name, "agents");
                 assert_eq!(
                     operation,
@@ -167,7 +169,7 @@ mod tests {
     fn alter_cascade_defer_foreign_key() {
         let stmt = ok("ALTER COLLECTION posts SET ON CONFLICT CASCADE_DEFER FOR FOREIGN_KEY");
         match stmt {
-            NodedbStatement::AlterCollection { name, operation } => {
+            NodedbStatement::Collection(CollectionStmt::AlterCollection { name, operation }) => {
                 assert_eq!(name, "posts");
                 assert_eq!(
                     operation,
@@ -185,7 +187,7 @@ mod tests {
     fn alter_rename_suffix_legacy_keyword() {
         let stmt = ok("ALTER COLLECTION x SET ON CONFLICT RENAME_APPEND_SUFFIX FOR NOT_NULL");
         match stmt {
-            NodedbStatement::AlterCollection { operation, .. } => {
+            NodedbStatement::Collection(CollectionStmt::AlterCollection { operation, .. }) => {
                 assert_eq!(
                     operation,
                     AlterCollectionOp::SetOnConflict {
@@ -202,7 +204,7 @@ mod tests {
     fn alter_escalate_to_dlq_check() {
         let stmt = ok("ALTER COLLECTION x SET ON CONFLICT ESCALATE_TO_DLQ FOR CHECK");
         match stmt {
-            NodedbStatement::AlterCollection { operation, .. } => {
+            NodedbStatement::Collection(CollectionStmt::AlterCollection { operation, .. }) => {
                 assert_eq!(
                     operation,
                     AlterCollectionOp::SetOnConflict {
@@ -220,9 +222,9 @@ mod tests {
         let stmt = ok("SHOW CONFLICT POLICY ON mydb");
         assert_eq!(
             stmt,
-            NodedbStatement::ShowConflictPolicy {
+            NodedbStatement::Policy(PolicyStmt::ShowConflictPolicy {
                 collection: "mydb".to_string()
-            }
+            })
         );
     }
 

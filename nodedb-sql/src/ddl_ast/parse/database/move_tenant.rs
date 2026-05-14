@@ -2,7 +2,7 @@
 
 //! `MOVE TENANT <tenant> FROM <db_a> TO <db_b>`.
 
-use crate::ddl_ast::statement::NodedbStatement;
+use crate::ddl_ast::statement::{DatabaseStmt, NodedbStatement};
 use crate::error::SqlError;
 
 pub(super) fn parse_move_tenant(parts: &[&str]) -> Result<NodedbStatement, SqlError> {
@@ -43,9 +43,9 @@ pub(super) fn parse_move_tenant(parts: &[&str]) -> Result<NodedbStatement, SqlEr
         .trim_matches('"')
         .to_string();
 
-    Ok(NodedbStatement::MoveTenant {
+    Ok(NodedbStatement::Database(DatabaseStmt::MoveTenant {
         tenant_name,
         from_db,
         to_db,
-    })
+    }))
 }
