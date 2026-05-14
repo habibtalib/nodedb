@@ -81,7 +81,7 @@ pub fn ingest_batch_with_lvc(
             .unwrap_or(default_timestamp_ms);
 
         // Build column values in schema order.
-        let mut values: Vec<ColumnValue<'_>> = Vec::with_capacity(schema.columns.len());
+        let mut values: Vec<ColumnValue> = Vec::with_capacity(schema.columns.len());
 
         for (col_name, col_type) in &schema.columns {
             match col_type {
@@ -89,14 +89,15 @@ pub fn ingest_batch_with_lvc(
                     values.push(ColumnValue::Timestamp(ts_ms));
                 }
                 ColumnType::Symbol => {
-                    // Look up tag value first, then string field value.
-                    let val = line
+                    // Look up tag value first (tags are borrowed &str), then
+                    // string field value (now an owned String after ILP unescape).
+                    let val: String = line
                         .tags
                         .iter()
                         .find(|&&(k, _)| k == col_name)
-                        .map(|&(_, v)| v)
+                        .map(|&(_, v)| v.to_string())
                         .or_else(|| find_field_str(&line.fields, col_name))
-                        .unwrap_or("");
+                        .unwrap_or_default();
                     values.push(ColumnValue::Symbol(val));
                 }
                 ColumnType::Float64 => {
@@ -142,18 +143,18 @@ pub fn ingest_batch_with_lvc(
     (accepted, rejected)
 }
 
-fn find_field_str<'a>(fields: &[(&str, FieldValue<'a>)], name: &str) -> Option<&'a str> {
-    for &(k, ref v) in fields {
-        if k == name
+fn find_field_str(fields: &[(&str, FieldValue)], name: &str) -> Option<String> {
+    for (k, v) in fields {
+        if *k == name
             && let FieldValue::Str(s) = v
         {
-            return Some(s);
+            return Some(s.clone());
         }
     }
     None
 }
 
-fn find_field_f64(fields: &[(&str, FieldValue<'_>)], name: &str) -> f64 {
+fn find_field_f64(fields: &[(&str, FieldValue)], name: &str) -> f64 {
     for &(k, ref v) in fields {
         if k == name {
             return match v {
@@ -174,11 +175,11 @@ fn find_field_f64(fields: &[(&str, FieldValue<'_>)], name: &str) -> f64 {
     f64::NAN
 }
 
-fn find_field_i64(fields: &[(&str, FieldValue<'_>)], name: &str) -> i64 {
+fn find_field_i64(fields: &[(&str, FieldValue)], name: &str) -> i64 {
     find_field_i64_opt(fields, name).unwrap_or(0)
 }
 
-fn find_field_i64_opt(fields: &[(&str, FieldValue<'_>)], name: &str) -> Option<i64> {
+fn find_field_i64_opt(fields: &[(&str, FieldValue)], name: &str) -> Option<i64> {
     for &(k, ref v) in fields {
         if k == name {
             return Some(match v {

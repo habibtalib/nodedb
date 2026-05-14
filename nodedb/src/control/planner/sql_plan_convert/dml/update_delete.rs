@@ -71,6 +71,69 @@ pub(in super::super) fn convert_update(
         return Ok(tasks);
     }
 
+    // Columnar and spatial engines have no document store; route to
+    // ColumnarOp::Update regardless of whether the WHERE reduces to PK keys.
+    if matches!(engine, EngineType::Columnar | EngineType::Spatial) {
+        // ColumnarOp::Update carries raw msgpack bytes per field; extract
+        // literals only (expressions require row-context eval not yet wired
+        // into the columnar mutation handler).
+        use crate::bridge::physical_plan::UpdateValue;
+        let mut columnar_updates: Vec<(String, Vec<u8>)> = Vec::with_capacity(updates.len());
+        for (field, update_val) in &updates {
+            match update_val {
+                UpdateValue::Literal(bytes) => {
+                    columnar_updates.push((field.clone(), bytes.clone()))
+                }
+                UpdateValue::Expr(_) => {
+                    return Err(crate::Error::BadRequest {
+                        detail: format!(
+                            "UPDATE with non-literal RHS on columnar/spatial engine \
+                             (field '{field}') is not yet supported; use a literal value"
+                        ),
+                    });
+                }
+            }
+        }
+        // When the planner resolved target_keys (PK-targeted WHERE), convert
+        // them to an Eq filter on the PK column so the columnar UPDATE handler
+        // can match and tombstone the right row.
+        let effective_filter = if !target_keys.is_empty() && !filter_bytes.is_empty() {
+            filter_bytes
+        } else if !target_keys.is_empty() {
+            // Planner pre-resolved the PK — serialize as an Eq filter
+            // so the columnar UPDATE handler can use the same scan path
+            // as a WHERE-predicate update.
+            use crate::bridge::scan_filter::{FilterOp, ScanFilter};
+            let pk_filters: Vec<ScanFilter> = target_keys
+                .iter()
+                .map(|key| ScanFilter {
+                    field: "id".to_string(),
+                    op: FilterOp::Eq,
+                    value: nodedb_types::Value::String(sql_value_to_string(key)),
+                    clauses: Vec::new(),
+                    expr: None,
+                })
+                .collect();
+            zerompk::to_msgpack_vec(&pk_filters).map_err(|e| crate::Error::Serialization {
+                format: "msgpack".into(),
+                detail: format!("pk filter encode: {e}"),
+            })?
+        } else {
+            filter_bytes
+        };
+        return Ok(vec![PhysicalTask {
+            tenant_id,
+            vshard_id: vshard,
+            database_id: ctx.database_id,
+            plan: PhysicalPlan::Columnar(ColumnarOp::Update {
+                collection: collection.into(),
+                filters: effective_filter,
+                updates: columnar_updates,
+            }),
+            post_set_op: PostSetOp::None,
+        }]);
+    }
+
     if !target_keys.is_empty() {
         let mut tasks = Vec::new();
         for key in target_keys {

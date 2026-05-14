@@ -210,6 +210,7 @@ pub fn wal_append_if_write_with_creds(
             intent: _,
             on_conflict_updates: _,
             surrogates: _,
+            schema_bytes: _,
         }) => {
             let wal_payload =
                 zerompk::to_msgpack_vec(&("columnar", collection, payload)).map_err(|e| {

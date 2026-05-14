@@ -142,8 +142,8 @@ mod tests {
                 &[
                     ColumnValue::Timestamp(1000 + i as i64),
                     ColumnValue::Float64(i as f64),
-                    ColumnValue::Symbol(hosts[i % hosts.len()]),
-                    ColumnValue::Symbol(regions[i % regions.len()]),
+                    ColumnValue::Symbol(hosts[i % hosts.len()].to_string()),
+                    ColumnValue::Symbol(regions[i % regions.len()].to_string()),
                 ],
             )
             .unwrap();

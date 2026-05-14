@@ -157,6 +157,7 @@ impl CoreLoop {
                 intent: ColumnarInsertIntent::Insert,
                 on_conflict_updates: Vec::new(),
                 surrogates: Vec::new(),
+                schema_bytes: Vec::new(),
             }),
         );
         let response = self.execute_columnar_insert(
@@ -165,6 +166,7 @@ impl CoreLoop {
             payload,
             "msgpack",
             ColumnarInsertIntent::Insert,
+            &[],
             &[],
             &[],
         );

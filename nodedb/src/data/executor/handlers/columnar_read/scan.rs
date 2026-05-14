@@ -5,6 +5,7 @@
 use nodedb_types::surrogate_bitmap::SurrogateBitmap;
 
 use crate::bridge::envelope::{ErrorCode, Response};
+use crate::bridge::expr_eval::ComputedColumn;
 use crate::bridge::scan_filter::ScanFilter;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::response_codec;
@@ -40,6 +41,10 @@ pub(in crate::data::executor) struct ColumnarScanParams<'a> {
     /// the bitmap (block boundary) and skips individual rows whose surrogate
     /// is absent from the bitmap (row boundary). `None` = no prefilter.
     pub prefilter: Option<&'a SurrogateBitmap>,
+    /// MessagePack-serialized `Vec<ComputedColumn>` for scalar projection
+    /// expressions such as JSON arrow operators. Empty slice means no
+    /// computed columns are requested.
+    pub computed_columns: &'a [u8],
 }
 
 impl CoreLoop {
@@ -59,7 +64,24 @@ impl CoreLoop {
             system_as_of_ms,
             valid_at_ms,
             prefilter,
+            computed_columns,
         } = params;
+
+        let computed_cols: Vec<ComputedColumn> = if !computed_columns.is_empty() {
+            match zerompk::from_msgpack(computed_columns) {
+                Ok(cols) => cols,
+                Err(e) => {
+                    return self.response_error(
+                        task,
+                        ErrorCode::Internal {
+                            detail: format!("computed_columns decode: {e}"),
+                        },
+                    );
+                }
+            }
+        } else {
+            Vec::new()
+        };
         let limit = if limit == 0 { 1000 } else { limit };
 
         // Scan-quiesce gate.
@@ -185,11 +207,35 @@ impl CoreLoop {
                 }
                 let mut obj = serde_json::Map::new();
                 for (i, col_def) in schema.columns.iter().enumerate() {
-                    if !projection.is_empty() && !projection.iter().any(|p| p == &col_def.name) {
+                    if !projection.is_empty()
+                        && !projection.iter().any(|p| p == &col_def.name)
+                        && !computed_cols.iter().any(|cc| cc.alias == col_def.name)
+                    {
                         continue;
                     }
                     if i < row.len() {
                         obj.insert(col_def.name.clone(), value_to_json(&row[i]));
+                    }
+                }
+                if !computed_cols.is_empty() {
+                    let doc_val = nodedb_types::Value::from(serde_json::Value::Object(obj.clone()));
+                    for cc in &computed_cols {
+                        let existing = obj.get(&cc.alias);
+                        if matches!(existing, Some(v) if !v.is_null()) {
+                            continue;
+                        }
+                        obj.insert(
+                            cc.alias.clone(),
+                            serde_json::Value::from(cc.expr.eval(&doc_val)),
+                        );
+                    }
+                    // Remove base columns that were only fetched to serve as
+                    // expression inputs but are not in the requested projection.
+                    if !projection.is_empty() {
+                        obj.retain(|k, _| {
+                            projection.iter().any(|p| p == k)
+                                || computed_cols.iter().any(|cc| &cc.alias == k)
+                        });
                     }
                 }
                 matched.push((row, serde_json::Value::Object(obj)));

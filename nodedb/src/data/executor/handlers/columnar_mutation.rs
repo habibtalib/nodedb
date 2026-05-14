@@ -8,8 +8,9 @@
 use tracing::{debug, warn};
 
 use crate::bridge::envelope::{ErrorCode, Response};
-use crate::bridge::scan_filter::{FilterOp, ScanFilter};
+use crate::bridge::scan_filter::ScanFilter;
 use crate::data::executor::core_loop::CoreLoop;
+use crate::data::executor::handlers::columnar_read::filter::row_matches_filters;
 use crate::data::executor::task::ExecutionTask;
 
 impl CoreLoop {
@@ -81,16 +82,27 @@ impl CoreLoop {
             let mut new_row = row.clone();
             for (field_name, value_bytes) in updates {
                 if let Some(col_idx) = schema.columns.iter().position(|c| c.name == *field_name) {
-                    let val: serde_json::Value = if let Ok(v) =
-                        nodedb_types::value_from_msgpack(value_bytes)
-                    {
-                        v.into()
-                    } else if let Ok(v) = sonic_rs::from_slice(value_bytes) {
-                        v
-                    } else {
-                        serde_json::Value::String(String::from_utf8_lossy(value_bytes).into_owned())
+                    let typed_val = match nodedb_types::value_from_msgpack(value_bytes) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            warn!(
+                                core = self.core_id,
+                                %collection,
+                                field = %field_name,
+                                error = %e,
+                                "columnar update: failed to decode field value as MessagePack; skipping row"
+                            );
+                            return self.response_error(
+                                task,
+                                ErrorCode::Internal {
+                                    detail: format!(
+                                        "failed to decode update value for field '{field_name}': {e}"
+                                    ),
+                                },
+                            );
+                        }
                     };
-                    new_row[col_idx] = json_to_value(&val, &schema.columns[col_idx].column_type);
+                    new_row[col_idx] = typed_val;
                 }
             }
 
@@ -203,134 +215,5 @@ impl CoreLoop {
                 },
             ),
         }
-    }
-}
-
-/// Check whether a memtable row satisfies all filter predicates (AND semantics).
-fn row_matches_filters(
-    row: &[nodedb_types::value::Value],
-    schema: &nodedb_types::columnar::ColumnarSchema,
-    filters: &[ScanFilter],
-) -> bool {
-    for filter in filters {
-        if filter.op == FilterOp::MatchAll {
-            continue;
-        }
-        let col_idx = match schema.columns.iter().position(|c| c.name == filter.field) {
-            Some(i) => i,
-            None => continue, // unknown field — skip predicate
-        };
-        if col_idx >= row.len() {
-            return false;
-        }
-        if !eval_filter(&row[col_idx], filter.op, &filter.value) {
-            return false;
-        }
-    }
-    true
-}
-
-/// Evaluate a single filter predicate against a row value.
-fn eval_filter(
-    val: &nodedb_types::value::Value,
-    op: FilterOp,
-    filter_val: &nodedb_types::value::Value,
-) -> bool {
-    use nodedb_types::value::Value;
-
-    let val_f64 = match val {
-        Value::Float(f) => Some(*f),
-        Value::Integer(i) => Some(*i as f64),
-        _ => None,
-    };
-    let filter_f64 = match filter_val {
-        Value::Float(f) => Some(*f),
-        Value::Integer(i) => Some(*i as f64),
-        _ => None,
-    };
-
-    let val_str = match val {
-        Value::String(s) => Some(s.as_str()),
-        _ => None,
-    };
-    let filter_str = match filter_val {
-        Value::String(s) => Some(s.as_str()),
-        _ => None,
-    };
-
-    match op {
-        FilterOp::Eq => {
-            if let (Some(a), Some(b)) = (val_f64, filter_f64) {
-                a == b
-            } else if let (Some(a), Some(b)) = (val_str, filter_str) {
-                a == b
-            } else {
-                false
-            }
-        }
-        FilterOp::Ne => {
-            if let (Some(a), Some(b)) = (val_f64, filter_f64) {
-                a != b
-            } else if let (Some(a), Some(b)) = (val_str, filter_str) {
-                a != b
-            } else {
-                true
-            }
-        }
-        FilterOp::Gt => val_f64.zip(filter_f64).is_some_and(|(a, b)| a > b),
-        FilterOp::Gte => val_f64.zip(filter_f64).is_some_and(|(a, b)| a >= b),
-        FilterOp::Lt => val_f64.zip(filter_f64).is_some_and(|(a, b)| a < b),
-        FilterOp::Lte => val_f64.zip(filter_f64).is_some_and(|(a, b)| a <= b),
-        FilterOp::IsNull => matches!(val, Value::Null),
-        FilterOp::IsNotNull => !matches!(val, Value::Null),
-        _ => true, // unknown/unsupported op — pass through
-    }
-}
-
-/// Convert a `serde_json::Value` to `nodedb_types::value::Value` for a given column type.
-fn json_to_value(
-    json: &serde_json::Value,
-    col_type: &nodedb_types::columnar::ColumnType,
-) -> nodedb_types::value::Value {
-    use nodedb_types::columnar::ColumnType;
-    use nodedb_types::value::Value;
-
-    match (col_type, json) {
-        (_, serde_json::Value::Null) => Value::Null,
-        (ColumnType::Int64, serde_json::Value::Number(n)) => {
-            Value::Integer(n.as_i64().unwrap_or(0))
-        }
-        (ColumnType::Float64, serde_json::Value::Number(n)) => {
-            Value::Float(n.as_f64().unwrap_or(0.0))
-        }
-        (ColumnType::Bool, serde_json::Value::Bool(b)) => Value::Bool(*b),
-        (ColumnType::String, serde_json::Value::String(s)) => Value::String(s.clone()),
-        (ColumnType::Timestamp, serde_json::Value::Number(n)) => {
-            Value::Integer(n.as_i64().unwrap_or(0))
-        }
-        (ColumnType::Timestamp, serde_json::Value::String(s)) => {
-            nodedb_types::datetime::NdbDateTime::parse(s)
-                .map(Value::NaiveDateTime)
-                .unwrap_or_else(|| Value::String(s.clone()))
-        }
-        (ColumnType::Timestamptz, serde_json::Value::Number(n)) => {
-            Value::Integer(n.as_i64().unwrap_or(0))
-        }
-        (ColumnType::Timestamptz, serde_json::Value::String(s)) => {
-            nodedb_types::datetime::NdbDateTime::parse(s)
-                .map(Value::DateTime)
-                .unwrap_or_else(|| Value::String(s.clone()))
-        }
-        // Fallback: try to coerce.
-        (_, serde_json::Value::Number(n)) => {
-            if let Some(i) = n.as_i64() {
-                Value::Integer(i)
-            } else {
-                Value::Float(n.as_f64().unwrap_or(0.0))
-            }
-        }
-        (_, serde_json::Value::String(s)) => Value::String(s.clone()),
-        (_, serde_json::Value::Bool(b)) => Value::Bool(*b),
-        _ => Value::Null,
     }
 }

@@ -88,7 +88,7 @@ mod tests {
                 &[
                     ColumnValue::Timestamp(i as i64 * 1000),
                     ColumnValue::Float64(i as f64 * 10.0),
-                    ColumnValue::Symbol(hosts[(i % 3) as usize]),
+                    ColumnValue::Symbol(hosts[(i % 3) as usize].to_string()),
                 ],
             )
             .unwrap();

@@ -75,6 +75,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_scan(
             system_as_of_ms: temporal.system_as_of_ms,
             valid_at_ms: valid_at_from_scope(temporal),
             prefilter: None,
+            computed_columns: computed_bytes.clone(),
         }),
         EngineType::Spatial => PhysicalPlan::Columnar(ColumnarOp::Scan {
             collection: collection.into(),
@@ -86,6 +87,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_scan(
             system_as_of_ms: None,
             valid_at_ms: None,
             prefilter: None,
+            computed_columns: computed_bytes.clone(),
         }),
         EngineType::KeyValue => PhysicalPlan::Kv(KvOp::Scan {
             collection: collection.into(),
@@ -246,6 +248,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_point_get(
                 system_as_of_ms: None,
                 valid_at_ms: None,
                 prefilter: None,
+                computed_columns: Vec::new(),
             })
         }
         // Timeseries should never reach here — nodedb-sql rejects point gets.

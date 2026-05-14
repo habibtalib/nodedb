@@ -525,6 +525,7 @@ mod tests {
             system_as_of_ms: None,
             valid_at_ms: None,
             prefilter: None,
+            computed_columns: Vec::new(),
         });
         assert!(plan.is_broadcast_scan());
     }

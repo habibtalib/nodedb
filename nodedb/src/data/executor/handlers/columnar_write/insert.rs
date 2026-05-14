@@ -4,7 +4,7 @@
 //! drives the per-row insert, flushes the memtable, updates spatial index.
 
 use nodedb_columnar::MutationEngine;
-use nodedb_types::columnar::ColumnType;
+use nodedb_types::columnar::{ColumnType, ColumnarSchema};
 use nodedb_types::surrogate::Surrogate;
 use nodedb_types::value::Value;
 
@@ -36,6 +36,7 @@ impl CoreLoop {
         intent: ColumnarInsertIntent,
         on_conflict_updates: &[(String, UpdateValue)],
         surrogates: &[Surrogate],
+        schema_bytes: &[u8],
     ) -> Response {
         // Parse payload: msgpack-encoded nodedb_types::Value (array or object).
         let ndb_rows: Vec<nodedb_types::Value> = match nodedb_types::value_from_msgpack(payload) {
@@ -73,7 +74,15 @@ impl CoreLoop {
         let bitemporal = self.is_bitemporal(tid, collection);
         // Ensure MutationEngine exists (auto-create on first write).
         if !self.columnar_engines.contains_key(&engine_key) {
-            let base_schema = infer_schema_from_value(&ndb_rows[0]);
+            // Prefer the DDL schema carried on `schema_bytes` over inference
+            // from the payload. Inference cannot distinguish JSON columns from
+            // plain strings because both arrive as `Value::String`.
+            let base_schema = if !schema_bytes.is_empty() {
+                zerompk::from_msgpack::<ColumnarSchema>(schema_bytes)
+                    .unwrap_or_else(|_| infer_schema_from_value(&ndb_rows[0]))
+            } else {
+                infer_schema_from_value(&ndb_rows[0])
+            };
             let schema = if bitemporal {
                 prepend_bitemporal_columns(base_schema)
             } else {

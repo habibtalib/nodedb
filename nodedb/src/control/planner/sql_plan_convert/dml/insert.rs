@@ -2,6 +2,7 @@
 
 use nodedb_sql::types::{EngineType, SqlExpr, SqlValue};
 use nodedb_types::Surrogate;
+use nodedb_types::columnar::{ColumnDef, ColumnType, ColumnarSchema};
 
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::ColumnarInsertIntent;
@@ -13,6 +14,48 @@ use super::super::convert::ConvertContext;
 use super::super::value::{
     assignments_to_update_values, row_to_msgpack, rows_to_msgpack_array, sql_value_to_string,
 };
+
+/// Build a `ColumnarSchema` from raw catalog column-type strings, then
+/// serialize it as MessagePack for the `ColumnarOp::Insert::schema_bytes` field.
+///
+/// `column_schema` is the list of `(column_name, type_str)` pairs from the
+/// DDL catalog (`stored.fields`). Unknown type strings are treated as
+/// `ColumnType::String` (matching the memtable's existing fallback).
+///
+/// The `id` column is treated as the primary key when present; all other
+/// columns are treated as nullable.
+///
+/// Returns an empty `Vec` when `column_schema` is empty (no catalog schema
+/// available — test fixtures and legacy paths).
+fn build_schema_bytes(column_schema: &[(String, String)]) -> Vec<u8> {
+    if column_schema.is_empty() {
+        return Vec::new();
+    }
+    let mut cols = Vec::with_capacity(column_schema.len());
+    let mut has_id = false;
+    for (name, type_str) in column_schema {
+        let col_type = type_str.parse::<ColumnType>().unwrap_or(ColumnType::String);
+        let is_id = name == "id" || name == "document_id";
+        if is_id {
+            has_id = true;
+            cols.push(ColumnDef::required(name.clone(), col_type).with_primary_key());
+        } else {
+            cols.push(ColumnDef::nullable(name.clone(), col_type));
+        }
+    }
+    // If no PK column found in stored.fields, inject a synthetic one.
+    if !has_id {
+        cols.insert(
+            0,
+            ColumnDef::required("id", ColumnType::String).with_primary_key(),
+        );
+    }
+    let schema = match ColumnarSchema::new(cols) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    zerompk::to_msgpack_vec(&schema).unwrap_or_default()
+}
 
 pub(super) fn assign_for_pk(
     ctx: &ConvertContext,
@@ -57,11 +100,13 @@ pub(in super::super) fn nodedb_value_to_sql(val: nodedb_types::Value) -> SqlValu
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(in super::super) fn convert_insert(
     collection: &str,
     engine: &EngineType,
     rows: &[Vec<(String, SqlValue)>],
     column_defaults: &[(String, String)],
+    column_schema: &[(String, String)],
     if_absent: bool,
     tenant_id: TenantId,
     ctx: &ConvertContext,
@@ -150,6 +195,7 @@ pub(in super::super) fn convert_insert(
             ColumnarInsertIntent::Insert
         };
         let surrogates = columnar_row_surrogates(ctx, collection, &columnar_rows)?;
+        let schema_bytes = build_schema_bytes(column_schema);
         tasks.push(PhysicalTask {
             tenant_id,
             vshard_id: vshard,
@@ -161,6 +207,7 @@ pub(in super::super) fn convert_insert(
                 intent,
                 on_conflict_updates: Vec::new(),
                 surrogates,
+                schema_bytes,
             }),
             post_set_op: PostSetOp::None,
         });
@@ -169,11 +216,13 @@ pub(in super::super) fn convert_insert(
     Ok(tasks)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(in super::super) fn convert_upsert(
     collection: &str,
     engine: &EngineType,
     rows: &[Vec<(String, SqlValue)>],
     column_defaults: &[(String, String)],
+    column_schema: &[(String, String)],
     on_conflict_updates: &[(String, SqlExpr)],
     tenant_id: TenantId,
     ctx: &ConvertContext,
@@ -232,6 +281,7 @@ pub(in super::super) fn convert_upsert(
     if !columnar_rows.is_empty() {
         let payload = rows_to_msgpack_array(&columnar_rows, column_defaults)?;
         let surrogates = columnar_row_surrogates(ctx, collection, &columnar_rows)?;
+        let schema_bytes = build_schema_bytes(column_schema);
         tasks.push(PhysicalTask {
             tenant_id,
             vshard_id: vshard,
@@ -243,6 +293,7 @@ pub(in super::super) fn convert_upsert(
                 intent: ColumnarInsertIntent::Put,
                 on_conflict_updates: on_conflict_values,
                 surrogates,
+                schema_bytes,
             }),
             post_set_op: PostSetOp::None,
         });

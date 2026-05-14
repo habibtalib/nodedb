@@ -381,6 +381,7 @@ fn convert_collection_type(
                     nullable: c.nullable,
                     is_primary_key: c.primary_key,
                     default: c.default.clone(),
+                    raw_type: None,
                 })
                 .collect();
             let pk = schema
@@ -398,6 +399,7 @@ fn convert_collection_type(
                 nullable: false,
                 is_primary_key: true,
                 default: None,
+                raw_type: None,
             }];
             // Add tracked fields from catalog.
             for (name, type_str) in &stored.fields {
@@ -407,6 +409,7 @@ fn convert_collection_type(
                     nullable: true,
                     is_primary_key: false,
                     default: None,
+                    raw_type: None,
                 });
             }
             (EngineType::DocumentSchemaless, columns, Some("id".into()))
@@ -423,6 +426,7 @@ fn convert_collection_type(
                     nullable: c.nullable,
                     is_primary_key: c.primary_key,
                     default: c.default.clone(),
+                    raw_type: None,
                 })
                 .collect();
             let pk = config
@@ -451,6 +455,7 @@ fn convert_collection_type(
                     nullable: false,
                     is_primary_key: true,
                     default: Some("UUID_V7".into()),
+                    raw_type: None,
                 });
             }
             for (name, type_str) in &stored.fields {
@@ -460,6 +465,7 @@ fn convert_collection_type(
                     nullable: true,
                     is_primary_key: false,
                     default: None,
+                    raw_type: Some(type_str.clone()),
                 });
             }
             let pk = if profile.is_timeseries() {

@@ -472,8 +472,8 @@ mod tests {
             let values = [
                 ColumnValue::Timestamp(i as i64 * 1000),
                 ColumnValue::Float64(i as f64 * 100.0),
-                ColumnValue::Symbol(qnames[i % qnames.len()]),
-                ColumnValue::Symbol(qtypes[i % qtypes.len()]),
+                ColumnValue::Symbol(qnames[i % qnames.len()].to_string()),
+                ColumnValue::Symbol(qtypes[i % qtypes.len()].to_string()),
             ];
             mt.ingest_row(series_id, &values).unwrap();
         }

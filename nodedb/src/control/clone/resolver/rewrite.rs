@@ -186,6 +186,7 @@ pub fn rewrite_plan_for_source(params: RewriteForSourceParams<'_>) -> Option<Phy
             system_as_of_ms,
             valid_at_ms,
             prefilter,
+            computed_columns,
         }) if collection == &target_qualified => Some(PhysicalPlan::Columnar(ColumnarOp::Scan {
             collection: source_qualified,
             projection: projection.clone(),
@@ -196,6 +197,7 @@ pub fn rewrite_plan_for_source(params: RewriteForSourceParams<'_>) -> Option<Phy
             system_as_of_ms: effective_source_ms.or(*system_as_of_ms),
             valid_at_ms: *valid_at_ms,
             prefilter: prefilter.clone(),
+            computed_columns: computed_columns.clone(),
         })),
 
         PhysicalPlan::Timeseries(TimeseriesOp::Scan {

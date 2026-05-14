@@ -225,11 +225,11 @@ impl Default for ColumnarMemtableConfig {
 
 /// Value types for `ingest_row()`.
 #[derive(Debug, Clone)]
-pub enum ColumnValue<'a> {
+pub enum ColumnValue {
     Timestamp(i64),
     Float64(f64),
     Int64(i64),
-    Symbol(&'a str),
+    Symbol(String),
 }
 
 /// Result of draining the columnar memtable.

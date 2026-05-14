@@ -282,6 +282,7 @@ impl CoreLoop {
                 intent,
                 on_conflict_updates,
                 surrogates,
+                schema_bytes,
             }) => self.execute_tx_columnar_insert(
                 &dummy_task,
                 collection,
@@ -290,6 +291,7 @@ impl CoreLoop {
                 *intent,
                 on_conflict_updates,
                 surrogates,
+                schema_bytes,
                 undo_log,
             ),
 

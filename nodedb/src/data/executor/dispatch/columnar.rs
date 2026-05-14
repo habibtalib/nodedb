@@ -22,6 +22,7 @@ impl CoreLoop {
                 system_as_of_ms,
                 valid_at_ms,
                 prefilter,
+                computed_columns,
             } => self.execute_columnar_scan(
                 task,
                 ColumnarScanParams {
@@ -34,6 +35,7 @@ impl CoreLoop {
                     system_as_of_ms: *system_as_of_ms,
                     valid_at_ms: *valid_at_ms,
                     prefilter: prefilter.as_ref(),
+                    computed_columns,
                 },
             ),
 
@@ -44,6 +46,7 @@ impl CoreLoop {
                 intent,
                 on_conflict_updates,
                 surrogates,
+                schema_bytes,
             } => {
                 if let Some(r) = self.check_engine_pressure(task, nodedb_mem::EngineId::Columnar) {
                     return r;
@@ -56,6 +59,7 @@ impl CoreLoop {
                     *intent,
                     on_conflict_updates,
                     surrogates,
+                    schema_bytes,
                 )
             }
 

@@ -80,6 +80,11 @@ pub enum ColumnarOp {
         /// this bitmap. `None` = no prefilter; full collection is scanned.
         #[serde(default)]
         prefilter: Option<SurrogateBitmap>,
+        /// MessagePack-serialized `Vec<ComputedColumn>` for scalar projection
+        /// expressions (e.g. JSON arrow operators). Empty when no computed
+        /// columns are present in the query.
+        #[serde(default)]
+        computed_columns: Vec<u8>,
     },
 
     /// Insert rows into a columnar memtable.
@@ -114,6 +119,15 @@ pub enum ColumnarOp {
         /// before dispatch. `vec![]` only in test fixtures (and length
         /// must equal the row count when populated).
         surrogates: Vec<Surrogate>,
+        /// MessagePack-serialized `ColumnarSchema` from the DDL catalog.
+        /// When non-empty, the Data Plane uses this schema to initialize the
+        /// memtable engine instead of inferring the schema from the payload.
+        /// This is required for columns whose SQL type is ambiguous at the
+        /// Value level (e.g. JSON arrives as `Value::String` but must be
+        /// stored in `ColumnData::Json`, not `ColumnData::String`).
+        /// Empty `vec![]` only in legacy test fixtures that do not carry schema.
+        #[serde(default)]
+        schema_bytes: Vec<u8>,
     },
 
     /// Update rows matching filter predicates.

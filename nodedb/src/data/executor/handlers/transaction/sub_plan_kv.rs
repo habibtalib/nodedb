@@ -39,6 +39,7 @@ impl CoreLoop {
         intent: ColumnarInsertIntent,
         on_conflict_updates: &[(String, UpdateValue)],
         surrogates: &[nodedb_types::Surrogate],
+        schema_bytes: &[u8],
         undo_log: &mut Vec<UndoEntry>,
     ) -> Result<Response, ErrorCode> {
         let collection_key = (task.request.tenant_id, collection.to_string());
@@ -60,6 +61,7 @@ impl CoreLoop {
             intent,
             on_conflict_updates,
             surrogates,
+            schema_bytes,
         );
         if resp.status == Status::Error {
             return Err(resp.error_code.unwrap_or(ErrorCode::Internal {

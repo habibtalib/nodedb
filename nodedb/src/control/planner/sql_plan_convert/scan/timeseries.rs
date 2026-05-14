@@ -9,7 +9,9 @@ use crate::bridge::physical_plan::*;
 use crate::types::{TenantId, VShardId};
 
 use super::super::super::physical::{PhysicalTask, PostSetOp};
-use super::super::aggregate::{agg_expr_to_pair, extract_projection_names};
+use super::super::aggregate::{
+    agg_expr_to_pair, extract_computed_columns, extract_projection_names,
+};
 use super::super::filter::serialize_filters;
 use super::super::scan_params::TimeseriesScanParams;
 use super::super::value::{row_to_msgpack, sql_value_to_string, write_msgpack_array_header};
@@ -59,6 +61,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_timeseries_scan(
     }
 
     let proj_names = extract_projection_names(projection, &[]);
+    let computed_bytes = extract_computed_columns(projection, &[])?;
     let vshard = VShardId::from_collection_in_database(ctx.database_id, collection);
     Ok(vec![PhysicalTask {
         tenant_id,
@@ -74,7 +77,7 @@ pub(in crate::control::planner::sql_plan_convert) fn convert_timeseries_scan(
             group_by: group_by.to_vec(),
             aggregates: agg_pairs,
             gap_fill: gap_fill.to_string(),
-            computed_columns: Vec::new(),
+            computed_columns: computed_bytes,
             rls_filters: Vec::new(),
             system_as_of_ms: temporal.system_as_of_ms,
             valid_at_ms: valid_at_from_scope(temporal),

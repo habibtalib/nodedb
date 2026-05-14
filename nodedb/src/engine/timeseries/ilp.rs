@@ -17,18 +17,21 @@ pub struct IlpLine<'a> {
     /// Tag key-value pairs (sorted by key for consistent hashing).
     pub tags: Vec<(&'a str, &'a str)>,
     /// Field key-value pairs.
-    pub fields: Vec<(&'a str, FieldValue<'a>)>,
+    pub fields: Vec<(&'a str, FieldValue)>,
     /// Timestamp in nanoseconds (None = server-assigned).
     pub timestamp_ns: Option<i64>,
 }
 
 /// Field value types in ILP.
 #[derive(Debug, PartialEq)]
-pub enum FieldValue<'a> {
+pub enum FieldValue {
     Float(f64),
     Int(i64),
     UInt(u64),
-    Str(&'a str),
+    /// String field. ILP string values are quoted and may contain `\"`/`\\`
+    /// escape sequences; these are unescaped on parse so the stored value is
+    /// always the original unescaped text.
+    Str(String),
     Bool(bool),
 }
 
@@ -145,7 +148,7 @@ fn parse_measurement_tags(s: &str) -> Result<MeasurementTags<'_>, IlpError> {
     Ok((measurement, tags))
 }
 
-fn parse_fields<'a>(s: &'a str) -> Result<Vec<(&'a str, FieldValue<'a>)>, IlpError> {
+fn parse_fields(s: &str) -> Result<Vec<(&str, FieldValue)>, IlpError> {
     let mut fields = Vec::new();
     for field in s.split(',') {
         let field = field.trim();
@@ -166,14 +169,20 @@ fn parse_fields<'a>(s: &'a str) -> Result<Vec<(&'a str, FieldValue<'a>)>, IlpErr
     Ok(fields)
 }
 
-fn parse_field_value(s: &str) -> Result<FieldValue<'_>, IlpError> {
+fn parse_field_value(s: &str) -> Result<FieldValue, IlpError> {
     if s.is_empty() {
         return Err(IlpError::InvalidFieldValue("empty value".into()));
     }
 
-    // String: "..."
+    // String: "..."  ILP allows \" and \\ escape sequences inside string fields.
     if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
-        return Ok(FieldValue::Str(&s[1..s.len() - 1]));
+        let inner = &s[1..s.len() - 1];
+        if inner.contains('\\') {
+            // Unescape: \" → " and \\ → \
+            let unescaped = inner.replace("\\\"", "\"").replace("\\\\", "\\");
+            return Ok(FieldValue::Str(unescaped));
+        }
+        return Ok(FieldValue::Str(inner.to_string()));
     }
 
     // Bool.
@@ -247,7 +256,10 @@ mod tests {
     #[test]
     fn string_field() {
         let line = parse_line(r#"log,host=web01 message="hello world" 1000"#).unwrap();
-        assert_eq!(line.fields[0], ("message", FieldValue::Str("hello world")));
+        assert_eq!(
+            line.fields[0],
+            ("message", FieldValue::Str("hello world".to_string()))
+        );
     }
 
     #[test]

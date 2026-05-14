@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use crate::bridge::envelope::Response;
+use crate::bridge::envelope::{ErrorCode, Response};
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;
 use crate::engine::timeseries::columnar_agg::timestamp_range_filter;
@@ -131,8 +131,19 @@ impl CoreLoop {
 
         // Apply computed columns (e.g. time_bucket) if present.
         let results = if !computed_columns_bytes.is_empty() {
-            let computed_cols: Vec<crate::bridge::expr_eval::ComputedColumn> =
-                zerompk::from_msgpack(computed_columns_bytes).unwrap_or_default();
+            let computed_cols_result: Result<Vec<crate::bridge::expr_eval::ComputedColumn>, _> =
+                zerompk::from_msgpack(computed_columns_bytes);
+            let computed_cols = match computed_cols_result {
+                Ok(cols) => cols,
+                Err(e) => {
+                    return self.response_error(
+                        task,
+                        ErrorCode::Internal {
+                            detail: format!("computed_columns deserialize failed: {e}"),
+                        },
+                    );
+                }
+            };
             if computed_cols.is_empty() {
                 results
             } else {

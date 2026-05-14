@@ -119,7 +119,7 @@ fn write_and_read_with_tags() {
             &[
                 ColumnValue::Timestamp(5000 + i as i64),
                 ColumnValue::Float64(50.0 + i as f64),
-                ColumnValue::Symbol(host),
+                ColumnValue::Symbol(host.to_string()),
             ],
         )
         .unwrap();

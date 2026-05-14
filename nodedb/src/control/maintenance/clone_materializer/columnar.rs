@@ -157,6 +157,7 @@ pub(super) async fn materialize_columnar_collection(
                     intent: ColumnarInsertIntent::InsertIfAbsent,
                     on_conflict_updates: Vec::<(String, UpdateValue)>::new(),
                     surrogates: vec![target_surrogate],
+                    schema_bytes: Vec::new(),
                 })
             };
 

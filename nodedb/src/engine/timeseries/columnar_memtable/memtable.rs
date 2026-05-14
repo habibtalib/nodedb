@@ -100,7 +100,7 @@ impl ColumnarMemtable {
     pub fn ingest_row(
         &mut self,
         series_id: SeriesId,
-        values: &[ColumnValue<'_>],
+        values: &[ColumnValue],
     ) -> crate::Result<IngestResult> {
         if self.memory_bytes >= self.config.hard_memory_limit {
             return Ok(IngestResult::Rejected);
@@ -508,8 +508,8 @@ mod tests {
             &[
                 ColumnValue::Timestamp(5000),
                 ColumnValue::Float64(99.9),
-                ColumnValue::Symbol("prod-1"),
-                ColumnValue::Symbol("us-east"),
+                ColumnValue::Symbol("prod-1".to_string()),
+                ColumnValue::Symbol("us-east".to_string()),
             ],
         );
         assert!(result.is_ok());
@@ -549,7 +549,7 @@ mod tests {
                 &[
                     ColumnValue::Timestamp(1000 + i as i64),
                     ColumnValue::Float64(1.0),
-                    ColumnValue::Symbol(&tag),
+                    ColumnValue::Symbol(tag.clone()),
                 ],
             );
             assert!(r.is_ok());
@@ -562,7 +562,7 @@ mod tests {
             &[
                 ColumnValue::Timestamp(2000),
                 ColumnValue::Float64(1.0),
-                ColumnValue::Symbol("one-too-many"),
+                ColumnValue::Symbol("one-too-many".to_string()),
             ],
         );
         assert!(r.is_err());

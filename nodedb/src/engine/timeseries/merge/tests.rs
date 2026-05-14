@@ -90,7 +90,7 @@ fn merge_with_tags() {
                 &[
                     ColumnValue::Timestamp(start + i),
                     ColumnValue::Float64(1.0),
-                    ColumnValue::Symbol(host),
+                    ColumnValue::Symbol(host.to_string()),
                 ],
             )
             .unwrap();

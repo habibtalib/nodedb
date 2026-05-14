@@ -353,7 +353,7 @@ mod tests {
                 &[
                     ColumnValue::Timestamp(i as i64),
                     ColumnValue::Float64(1.0),
-                    ColumnValue::Symbol(&tag),
+                    ColumnValue::Symbol(tag.clone()),
                 ],
             );
             assert!(r.is_ok(), "tag {i} should succeed");
@@ -365,7 +365,7 @@ mod tests {
             &[
                 ColumnValue::Timestamp(1000),
                 ColumnValue::Float64(1.0),
-                ColumnValue::Symbol("one-too-many-uuid"),
+                ColumnValue::Symbol("one-too-many-uuid".to_string()),
             ],
         );
         assert!(r.is_err());

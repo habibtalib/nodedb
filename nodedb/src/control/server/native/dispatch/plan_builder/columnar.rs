@@ -24,6 +24,7 @@ pub(crate) fn build_scan(fields: &TextFields, collection: &str) -> crate::Result
         system_as_of_ms: None,
         valid_at_ms: None,
         prefilter: None,
+        computed_columns: Vec::new(),
     }))
 }
 
@@ -55,6 +56,7 @@ pub(crate) fn build_insert(
         intent: ColumnarInsertIntent::Insert,
         on_conflict_updates: Vec::new(),
         surrogates,
+        schema_bytes: Vec::new(),
     }))
 }
 
