@@ -149,6 +149,11 @@ pub fn plan_insert(ins: &ast::Insert, catalog: &dyn SqlCatalog) -> Result<Vec<Sq
         .iter()
         .filter_map(|c| c.default.as_ref().map(|d| (c.name.clone(), d.clone())))
         .collect();
+    let column_schema: Vec<(String, String)> = info
+        .columns
+        .iter()
+        .filter_map(|c| c.raw_type.as_ref().map(|t| (c.name.clone(), t.clone())))
+        .collect();
     let rules = engine_rules::resolve_engine_rules(info.engine);
     rules.plan_insert(InsertParams {
         collection: table_name,
@@ -156,6 +161,7 @@ pub fn plan_insert(ins: &ast::Insert, catalog: &dyn SqlCatalog) -> Result<Vec<Sq
         rows,
         column_defaults,
         if_absent,
+        column_schema,
     })
 }
 
@@ -210,6 +216,11 @@ pub fn plan_upsert(ins: &ast::Insert, catalog: &dyn SqlCatalog) -> Result<Vec<Sq
         .iter()
         .filter_map(|c| c.default.as_ref().map(|d| (c.name.clone(), d.clone())))
         .collect();
+    let column_schema: Vec<(String, String)> = info
+        .columns
+        .iter()
+        .filter_map(|c| c.raw_type.as_ref().map(|t| (c.name.clone(), t.clone())))
+        .collect();
     let rules = engine_rules::resolve_engine_rules(info.engine);
     rules.plan_upsert(engine_rules::UpsertParams {
         collection: table_name,
@@ -217,6 +228,7 @@ pub fn plan_upsert(ins: &ast::Insert, catalog: &dyn SqlCatalog) -> Result<Vec<Sq
         rows,
         column_defaults,
         on_conflict_updates: Vec::new(),
+        column_schema,
     })
 }
 
@@ -275,6 +287,11 @@ fn plan_upsert_with_on_conflict(
         .iter()
         .filter_map(|c| c.default.as_ref().map(|d| (c.name.clone(), d.clone())))
         .collect();
+    let column_schema: Vec<(String, String)> = info
+        .columns
+        .iter()
+        .filter_map(|c| c.raw_type.as_ref().map(|t| (c.name.clone(), t.clone())))
+        .collect();
     let rules = engine_rules::resolve_engine_rules(info.engine);
     rules.plan_upsert(engine_rules::UpsertParams {
         collection: table_name,
@@ -282,5 +299,6 @@ fn plan_upsert_with_on_conflict(
         rows,
         column_defaults,
         on_conflict_updates,
+        column_schema,
     })
 }

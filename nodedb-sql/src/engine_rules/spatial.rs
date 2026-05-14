@@ -16,6 +16,7 @@ impl EngineRules for SpatialRules {
             rows: p.rows,
             column_defaults: p.column_defaults,
             if_absent: p.if_absent,
+            column_schema: p.column_schema,
         }])
     }
 
@@ -29,6 +30,7 @@ impl EngineRules for SpatialRules {
             rows: p.rows,
             column_defaults: p.column_defaults,
             on_conflict_updates: p.on_conflict_updates,
+            column_schema: p.column_schema,
         }])
     }
 

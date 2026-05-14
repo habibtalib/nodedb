@@ -16,6 +16,7 @@ impl EngineRules for StrictRules {
             rows: p.rows,
             column_defaults: p.column_defaults,
             if_absent: p.if_absent,
+            column_schema: vec![],
         }])
     }
 
@@ -26,6 +27,7 @@ impl EngineRules for StrictRules {
             rows: p.rows,
             column_defaults: p.column_defaults,
             on_conflict_updates: p.on_conflict_updates,
+            column_schema: vec![],
         }])
     }
 

@@ -66,4 +66,9 @@ pub struct ColumnInfo {
     pub is_primary_key: bool,
     /// Default value expression (e.g. "UUID_V7", "ULID", "NANOID(10)", "0", "'active'").
     pub default: Option<String>,
+    /// Raw type string as stored in the catalog (e.g. `"JSON"`, `"TEXT"`, `"FLOAT64"`).
+    /// `None` for columns synthesized by the planner (e.g. auto-injected `id`).
+    /// Columnar INSERT converters use this to reconstruct the exact `ColumnType`
+    /// so JSON / Geometry / UUID columns are not incorrectly inferred as String.
+    pub raw_type: Option<String>,
 }

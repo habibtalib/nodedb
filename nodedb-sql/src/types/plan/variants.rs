@@ -103,6 +103,11 @@ pub enum SqlPlan {
         /// are silently skipped instead of raising `unique_violation`. Plain
         /// `INSERT` (no `ON CONFLICT` clause) sets this to `false`.
         if_absent: bool,
+        /// Raw column type strings from the catalog: `(column_name, type_str)`.
+        /// Forwarded from `InsertParams::column_schema`. Used by columnar
+        /// converters to reconstruct the exact `ColumnType` for columns whose
+        /// `SqlDataType` is ambiguous (e.g. JSON and Bytes both map to Bytes).
+        column_schema: Vec<(String, String)>,
     },
     /// KV INSERT: key and value are fundamentally separate.
     /// Each entry is `(key, value_columns)`.
@@ -135,6 +140,9 @@ pub enum SqlPlan {
         /// When non-empty, the engine applies these per-row against the
         /// *existing* document instead of merging the inserted values.
         on_conflict_updates: Vec<(String, SqlExpr)>,
+        /// Raw column type strings from the catalog: `(column_name, type_str)`.
+        /// Mirrors `Insert::column_schema` — see that field for rationale.
+        column_schema: Vec<(String, String)>,
     },
     InsertSelect {
         target: String,

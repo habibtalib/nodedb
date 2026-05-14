@@ -20,6 +20,11 @@ pub struct InsertParams {
     /// `ON CONFLICT DO NOTHING` semantics: duplicate-PK rows are skipped
     /// silently. `false` for plain `INSERT` (raises `unique_violation`).
     pub if_absent: bool,
+    /// Raw column type strings from the catalog: `(column_name, type_str)`.
+    /// Used by columnar converters to reconstruct the exact `ColumnType` for
+    /// columns whose `SqlDataType` is ambiguous (e.g. both JSON and Bytes map
+    /// to `SqlDataType::Bytes`). Empty for engines that don't need it.
+    pub column_schema: Vec<(String, String)>,
 }
 
 /// Parameters for planning a SCAN operation.
@@ -110,6 +115,9 @@ pub struct UpsertParams {
     /// `UPSERT INTO ...`; populated when the caller is
     /// `INSERT ... ON CONFLICT ... DO UPDATE SET`.
     pub on_conflict_updates: Vec<(String, SqlExpr)>,
+    /// Raw column type strings from the catalog: `(column_name, type_str)`.
+    /// Mirrors `InsertParams::column_schema` — see that field for rationale.
+    pub column_schema: Vec<(String, String)>,
 }
 
 /// Parameters for planning an AGGREGATE operation.

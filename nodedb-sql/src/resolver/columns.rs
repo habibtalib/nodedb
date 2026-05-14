@@ -281,6 +281,7 @@ fn array_columns(view: &ArrayCatalogView) -> Vec<ColumnInfo> {
             nullable: false,
             is_primary_key: false,
             default: None,
+            raw_type: None,
         });
     }
     for a in &view.attrs {
@@ -290,6 +291,7 @@ fn array_columns(view: &ArrayCatalogView) -> Vec<ColumnInfo> {
             nullable: a.nullable,
             is_primary_key: false,
             default: None,
+            raw_type: None,
         });
     }
     cols
@@ -350,6 +352,7 @@ mod tests {
                     nullable: true,
                     is_primary_key: false,
                     default: None,
+                    raw_type: None,
                 })
                 .collect(),
             primary_key: None,
