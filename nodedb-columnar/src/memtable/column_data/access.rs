@@ -3,6 +3,7 @@
 //! Read-only access methods on `ColumnData`: validity checks, value extraction.
 
 use nodedb_types::value::Value;
+use nodedb_types::value_from_msgpack;
 
 use super::types::ColumnData;
 
@@ -22,6 +23,7 @@ impl ColumnData {
             | Self::Uuid { valid, .. }
             | Self::String { valid, .. }
             | Self::Bytes { valid, .. }
+            | Self::Json { valid, .. }
             | Self::Geometry { valid, .. }
             | Self::Vector { valid, .. }
             | Self::DictEncoded { valid, .. } => valid,
@@ -46,6 +48,7 @@ impl ColumnData {
             | Self::Uuid { valid, .. }
             | Self::String { valid, .. }
             | Self::Bytes { valid, .. }
+            | Self::Json { valid, .. }
             | Self::Geometry { valid, .. }
             | Self::Vector { valid, .. }
             | Self::DictEncoded { valid, .. } => valid,
@@ -83,6 +86,16 @@ impl ColumnData {
                 let start = offsets[row] as usize;
                 let end = offsets[row + 1] as usize;
                 Value::Bytes(data[start..end].to_vec())
+            }
+            Self::Json { data, offsets, .. } => {
+                let start = offsets[row] as usize;
+                let end = offsets[row + 1] as usize;
+                let slice = &data[start..end];
+                if slice.is_empty() {
+                    Value::Null
+                } else {
+                    value_from_msgpack(slice).unwrap_or(Value::Null)
+                }
             }
             Self::Geometry { data, offsets, .. } => {
                 let start = offsets[row] as usize;

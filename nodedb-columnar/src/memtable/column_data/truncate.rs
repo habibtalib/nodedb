@@ -81,6 +81,20 @@ impl ColumnData {
                     v.truncate(n);
                 }
             }
+            Self::Json {
+                data,
+                offsets,
+                valid,
+            } => {
+                if n < offsets.len().saturating_sub(1) {
+                    let byte_end = offsets[n] as usize;
+                    data.truncate(byte_end);
+                    offsets.truncate(n + 1);
+                }
+                if let Some(v) = valid {
+                    v.truncate(n);
+                }
+            }
             Self::Geometry {
                 data,
                 offsets,

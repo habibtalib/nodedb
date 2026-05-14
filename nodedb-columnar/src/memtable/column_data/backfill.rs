@@ -58,6 +58,13 @@ impl ColumnData {
                     v.extend(std::iter::repeat_n(false, count));
                 }
             }
+            Self::Json { offsets, valid, .. } => {
+                let last = *offsets.last().unwrap_or(&0);
+                offsets.extend(std::iter::repeat_n(last, count));
+                if let Some(v) = valid {
+                    v.extend(std::iter::repeat_n(false, count));
+                }
+            }
             Self::Geometry { offsets, valid, .. } => {
                 let last = *offsets.last().unwrap_or(&0);
                 offsets.extend(std::iter::repeat_n(last, count));

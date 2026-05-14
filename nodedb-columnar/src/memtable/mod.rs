@@ -67,7 +67,7 @@ impl ColumnarMemtable {
             if matches!(value, Value::Null) && !col_def.nullable {
                 return Err(ColumnarError::NullViolation(col_def.name.clone()));
             }
-            self.columns[i].push(value, &col_def.name)?;
+            self.columns[i].push(value, &col_def.name, &col_def.column_type)?;
         }
 
         self.row_count += 1;

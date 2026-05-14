@@ -199,8 +199,10 @@ fn select_codec(col_type: &ColumnType) -> ResolvedColumnCodec {
         | ColumnType::Bytes
         | ColumnType::Decimal { .. }
         | ColumnType::Uuid
-        | ColumnType::Ulid
-        | ColumnType::Json
+        | ColumnType::Ulid => {
+            return ResolvedColumnCodec::Lz4;
+        }
+        ColumnType::Json
         | ColumnType::Array
         | ColumnType::Set
         | ColumnType::Range

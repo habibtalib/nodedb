@@ -2,12 +2,87 @@
 
 //! Append operations on `ColumnData`: push owned values and push borrowed values.
 
+use nodedb_types::columnar::ColumnType;
 use nodedb_types::value::Value;
+use nodedb_types::value_to_msgpack;
 
 use crate::error::ColumnarError;
 
 use super::super::IngestValue;
 use super::types::ColumnData;
+
+/// Encode a `Value` as MessagePack bytes for JSON/Array/Set/Record storage.
+///
+/// For `Value::String` input, the string is first parsed as JSON so that
+/// downstream JSON path operators see a real structure rather than an opaque
+/// string literal.
+fn encode_as_msgpack(value: &Value, col_name: &str) -> Result<Vec<u8>, ColumnarError> {
+    let to_encode: std::borrow::Cow<'_, Value> = match value {
+        Value::String(s) => {
+            let parsed = sonic_rs::from_str::<serde_json::Value>(s).map_err(|e| {
+                ColumnarError::JsonParse {
+                    column: col_name.to_string(),
+                    source: e,
+                }
+            })?;
+            std::borrow::Cow::Owned(Value::from(parsed))
+        }
+        other => std::borrow::Cow::Borrowed(other),
+    };
+    value_to_msgpack(&to_encode).map_err(|e| ColumnarError::MsgpackSerialize {
+        column: col_name.to_string(),
+        source: e,
+    })
+}
+
+/// Parse a PostgreSQL range literal into a structured Value.
+///
+/// Accepts the four standard bound forms: `[lo,hi)`, `(lo,hi]`, `[lo,hi]`,
+/// `(lo,hi)`.  The bounds are stored as string tokens so the caller can
+/// interpret them as any scalar type.
+fn parse_range_literal(s: &str, col_name: &str) -> Result<Vec<u8>, ColumnarError> {
+    let s = s.trim();
+    let (lower_inclusive, rest) = if let Some(r) = s.strip_prefix('[') {
+        (true, r)
+    } else if let Some(r) = s.strip_prefix('(') {
+        (false, r)
+    } else {
+        return Err(ColumnarError::RangeParse {
+            column: col_name.to_string(),
+            literal: s.to_string(),
+        });
+    };
+
+    let (body, upper_inclusive) = if let Some(b) = rest.strip_suffix(']') {
+        (b, true)
+    } else if let Some(b) = rest.strip_suffix(')') {
+        (b, false)
+    } else {
+        return Err(ColumnarError::RangeParse {
+            column: col_name.to_string(),
+            literal: s.to_string(),
+        });
+    };
+
+    let comma = body.find(',').ok_or_else(|| ColumnarError::RangeParse {
+        column: col_name.to_string(),
+        literal: s.to_string(),
+    })?;
+    let lower = body[..comma].trim().to_string();
+    let upper = body[comma + 1..].trim().to_string();
+
+    let mut map = std::collections::HashMap::new();
+    map.insert("lower".to_string(), Value::String(lower));
+    map.insert("upper".to_string(), Value::String(upper));
+    map.insert("lower_inclusive".to_string(), Value::Bool(lower_inclusive));
+    map.insert("upper_inclusive".to_string(), Value::Bool(upper_inclusive));
+    let structured = Value::Object(map);
+
+    value_to_msgpack(&structured).map_err(|e| ColumnarError::MsgpackSerialize {
+        column: col_name.to_string(),
+        source: e,
+    })
+}
 
 impl ColumnData {
     /// Push a validity bit (if the column is nullable).
@@ -19,7 +94,12 @@ impl ColumnData {
     }
 
     /// Append a value. Returns error if type doesn't match.
-    pub(crate) fn push(&mut self, value: &Value, col_name: &str) -> Result<(), ColumnarError> {
+    pub(crate) fn push(
+        &mut self,
+        value: &Value,
+        col_name: &str,
+        col_type: &ColumnType,
+    ) -> Result<(), ColumnarError> {
         match (self, value) {
             (Self::Int64 { values, valid }, Value::Null) => {
                 values.push(0);
@@ -121,6 +201,69 @@ impl ColumnData {
                 offsets.push(data.len() as u32);
                 Self::push_valid(valid, true);
             }
+            // Bytes columns for Array/Set/Range/Record: accept string literals
+            // by parsing them (JSON for Array/Set/Record, range syntax for Range).
+            (
+                Self::Bytes {
+                    data,
+                    offsets,
+                    valid,
+                },
+                Value::String(s),
+            ) => {
+                let encoded = match col_type {
+                    ColumnType::Range => parse_range_literal(s, col_name)?,
+                    _ => encode_as_msgpack(value, col_name)?,
+                };
+                data.extend_from_slice(&encoded);
+                offsets.push(data.len() as u32);
+                Self::push_valid(valid, true);
+            }
+            (
+                Self::Bytes {
+                    data,
+                    offsets,
+                    valid,
+                },
+                Value::Object(_) | Value::Array(_),
+            ) => {
+                let encoded = encode_as_msgpack(value, col_name)?;
+                data.extend_from_slice(&encoded);
+                offsets.push(data.len() as u32);
+                Self::push_valid(valid, true);
+            }
+            // Json column: all value types — serialize as MessagePack.
+            (Self::Json { offsets, valid, .. }, Value::Null) => {
+                offsets.push(*offsets.last().unwrap_or(&0));
+                Self::push_valid(valid, false);
+            }
+            (
+                Self::Json {
+                    data,
+                    offsets,
+                    valid,
+                },
+                Value::Bytes(b),
+            ) => {
+                // Assume already MessagePack-encoded bytes.
+                data.extend_from_slice(b);
+                offsets.push(data.len() as u32);
+                Self::push_valid(valid, true);
+            }
+            (
+                Self::Json {
+                    data,
+                    offsets,
+                    valid,
+                },
+                _,
+            ) => {
+                // String → parse as JSON; Object/Array → encode directly.
+                let encoded = encode_as_msgpack(value, col_name)?;
+                data.extend_from_slice(&encoded);
+                offsets.push(data.len() as u32);
+                Self::push_valid(valid, true);
+            }
             (
                 Self::Geometry {
                     data,
@@ -198,6 +341,7 @@ impl ColumnData {
                     Self::Uuid { .. } => "Uuid",
                     Self::String { .. } => "String",
                     Self::Bytes { .. } => "Bytes",
+                    Self::Json { .. } => "Json",
                     Self::Geometry { .. } => "Geometry",
                     Self::Vector { .. } => "Vector",
                     Self::DictEncoded { .. } => "DictEncoded",
@@ -236,6 +380,14 @@ impl ColumnData {
                 Self::push_valid(valid, false);
             }
             (Self::String { offsets, valid, .. }, IngestValue::Null) => {
+                offsets.push(*offsets.last().unwrap_or(&0));
+                Self::push_valid(valid, false);
+            }
+            (Self::Bytes { offsets, valid, .. }, IngestValue::Null) => {
+                offsets.push(*offsets.last().unwrap_or(&0));
+                Self::push_valid(valid, false);
+            }
+            (Self::Json { offsets, valid, .. }, IngestValue::Null) => {
                 offsets.push(*offsets.last().unwrap_or(&0));
                 Self::push_valid(valid, false);
             }
@@ -309,6 +461,7 @@ impl ColumnData {
                     Self::Uuid { .. } => "Uuid",
                     Self::String { .. } => "String",
                     Self::Bytes { .. } => "Bytes",
+                    Self::Json { .. } => "Json",
                     Self::Geometry { .. } => "Geometry",
                     Self::Vector { .. } => "Vector",
                     Self::DictEncoded { .. } => "DictEncoded",

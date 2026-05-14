@@ -56,6 +56,18 @@ pub enum ColumnData {
         offsets: Vec<u32>,
         valid: Option<Vec<bool>>,
     },
+    /// JSON column: values serialized as MessagePack for structured access.
+    ///
+    /// Storage layout mirrors `Bytes` (offset-coded variable-length data), but
+    /// the variant is distinct so exhaustive `match` arms across the codebase
+    /// are forced to handle JSON explicitly.  Encoded by `zerompk`; decoded
+    /// back to `nodedb_types::Value` on read so JSON path operators see a
+    /// real `Value::Object` / `Value::Array`, not an opaque byte slice.
+    Json {
+        data: Vec<u8>,
+        offsets: Vec<u32>,
+        valid: Option<Vec<bool>>,
+    },
     Geometry {
         /// Stored as JSON-serialized geometry bytes.
         data: Vec<u8>,
@@ -128,6 +140,11 @@ impl ColumnData {
                 offsets: vec![0],
                 valid,
             },
+            ColumnType::Json => Self::Json {
+                data: Vec::new(),
+                offsets: vec![0],
+                valid,
+            },
             ColumnType::Geometry => Self::Geometry {
                 data: Vec::new(),
                 offsets: vec![0],
@@ -138,15 +155,13 @@ impl ColumnData {
                 dim: *dim,
                 valid,
             },
-            ColumnType::Json
-            | ColumnType::Array
-            | ColumnType::Set
-            | ColumnType::Range
-            | ColumnType::Record => Self::Bytes {
-                data: Vec::new(),
-                offsets: vec![0],
-                valid,
-            },
+            ColumnType::Array | ColumnType::Set | ColumnType::Range | ColumnType::Record => {
+                Self::Bytes {
+                    data: Vec::new(),
+                    offsets: vec![0],
+                    valid,
+                }
+            }
             ColumnType::Ulid => Self::Uuid {
                 values: Vec::new(),
                 valid,
@@ -181,6 +196,7 @@ impl ColumnData {
             Self::Uuid { values, .. } => values.len(),
             Self::String { offsets, .. } => offsets.len().saturating_sub(1),
             Self::Bytes { offsets, .. } => offsets.len().saturating_sub(1),
+            Self::Json { offsets, .. } => offsets.len().saturating_sub(1),
             Self::Geometry { offsets, .. } => offsets.len().saturating_sub(1),
             Self::Vector { data, dim, .. } => {
                 if *dim == 0 {

@@ -42,6 +42,27 @@ pub enum ColumnarError {
     #[error("value type mismatch for column '{column}': expected {expected}")]
     TypeMismatch { column: String, expected: String },
 
+    #[error("JSON parse error for column '{column}': {source}")]
+    JsonParse {
+        column: String,
+        source: sonic_rs::Error,
+    },
+
+    #[error("range literal parse error for column '{column}': invalid range literal '{literal}'")]
+    RangeParse { column: String, literal: String },
+
+    #[error("MessagePack serialization error for column '{column}': {source}")]
+    MsgpackSerialize {
+        column: String,
+        source: zerompk::Error,
+    },
+
+    #[error("MessagePack deserialization error for column '{column}': {source}")]
+    MsgpackDeserialize {
+        column: String,
+        source: zerompk::Error,
+    },
+
     #[error("null violation: column '{0}' is NOT NULL")]
     NullViolation(String),
 

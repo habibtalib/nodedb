@@ -173,7 +173,9 @@ fn encode_single_block(
             encoded.extend_from_slice(&compressed);
             Ok((encoded, stats))
         }
-        ColumnData::Bytes { data, offsets, .. } | ColumnData::Geometry { data, offsets, .. } => {
+        ColumnData::Bytes { data, offsets, .. }
+        | ColumnData::Json { data, offsets, .. }
+        | ColumnData::Geometry { data, offsets, .. } => {
             let valid_slice = &full_valid[start..end];
             let null_count = valid_slice.iter().filter(|&&v| !v).count() as u32;
 

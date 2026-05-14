@@ -100,7 +100,8 @@ pub fn compact_segment(
 
         row_values.clear();
         for (col_idx, decoded) in decoded_cols.iter().enumerate() {
-            let value = extract_row_value(decoded, row_idx, &schema.columns[col_idx].column_type);
+            let col = &schema.columns[col_idx];
+            let value = extract_row_value(decoded, row_idx, &col.column_type, &col.name)?;
             row_values.push(value);
         }
 
