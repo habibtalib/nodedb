@@ -62,4 +62,17 @@ pub enum GraphStmt {
         collection: String,
         params: crate::ddl_ast::graph_parse::FusionParams,
     },
+    /// `SHOW GRAPH STATS ['<collection>'] [VERBOSE] [AS OF SYSTEM TIME <ms>]`
+    ///
+    /// Read-only persistence-rooted stats readout. Bypasses the in-memory
+    /// CSR cache to report counts derived from the durable edge store.
+    /// `collection = None` means tenant-wide aggregate over all graph
+    /// collections. `verbose` toggles compact (one row + JSON labels
+    /// column) vs per-label (one row per (collection, label)) output.
+    /// `as_of` is system-time in ms; `None` selects the live snapshot.
+    ShowGraphStats {
+        collection: Option<String>,
+        verbose: bool,
+        as_of: Option<i64>,
+    },
 }

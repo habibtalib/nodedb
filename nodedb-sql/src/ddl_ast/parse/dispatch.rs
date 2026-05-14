@@ -4,8 +4,8 @@
 
 use super::{
     alert, backup, change_stream, cluster_admin, collection, conflict_policy, copy_from, copy_to,
-    custom_type, database, index, maintenance, materialized_view, oidc_provider, retention, rls,
-    schedule, sequence, synonym_group, tenant, trigger, user_auth,
+    custom_type, database, graph_stats, index, maintenance, materialized_view, oidc_provider,
+    retention, rls, schedule, sequence, synonym_group, tenant, trigger, user_auth,
 };
 use crate::ddl_ast::graph_parse;
 use crate::ddl_ast::statement::NodedbStatement;
@@ -59,6 +59,9 @@ pub fn parse(sql: &str) -> Option<Result<NodedbStatement, SqlError>> {
         }};
     }
 
+    // `SHOW GRAPH STATS` must be checked before the generic collection parser
+    // so its `SHOW` prefix is not consumed by `SHOW COLLECTIONS`/etc.
+    try_family!(graph_stats::try_parse(&upper, &parts, trimmed));
     // Conflict policy must be checked before the generic collection parser
     // so "SET ON CONFLICT" does not fall through to the raw-SQL path.
     try_family!(conflict_policy::try_parse(&upper, &parts, trimmed));

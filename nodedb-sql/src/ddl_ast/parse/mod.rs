@@ -11,6 +11,7 @@ mod copy_to;
 mod custom_type;
 pub mod database;
 mod dispatch;
+mod graph_stats;
 mod helpers;
 mod index;
 mod maintenance;
