@@ -251,6 +251,7 @@ impl NodeDbPgHandler {
             // identifiers like `SHOW client_encoding` or `SHOW ALL`.
             && !upper.starts_with("SHOW DATABASE ")
             && !upper.starts_with("SHOW TENANT ")
+            && !upper.starts_with("SHOW GRAPH STATS")
         {
             return self.handle_show(addr, sql_trimmed);
         }
