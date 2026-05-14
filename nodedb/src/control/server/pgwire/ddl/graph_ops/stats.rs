@@ -19,13 +19,26 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures::stream;
 use nodedb_types::DatabaseId;
 use pgwire::api::Type;
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response};
 use pgwire::error::PgWireResult;
-use tracing::debug;
+use tracing::info_span;
+
+/// Total number of `SHOW GRAPH STATS` calls served since process start.
+/// Read by the metrics endpoint via [`graph_stats_calls_total`].
+static GRAPH_STATS_CALLS: AtomicU64 = AtomicU64::new(0);
+
+/// Counter for observability. Mirrors the `broadcast_call_count()` style
+/// used elsewhere in the Control Plane. Exposed for metrics endpoints
+/// and test harnesses to assert call counts.
+#[allow(dead_code)]
+pub fn graph_stats_calls_total() -> u64 {
+    GRAPH_STATS_CALLS.load(Ordering::Relaxed)
+}
 
 use crate::bridge::envelope::PhysicalPlan;
 use crate::bridge::physical_plan::GraphOp;
@@ -44,12 +57,19 @@ pub async fn show_graph_stats(
     verbose: bool,
     as_of: Option<i64>,
 ) -> PgWireResult<Vec<Response>> {
-    debug!(
+    GRAPH_STATS_CALLS.fetch_add(1, Ordering::Relaxed);
+    let scope = if collection.is_some() {
+        "collection"
+    } else {
+        "tenant"
+    };
+    let _span = info_span!(
+        "graph.stats",
         tenant_id = identity.tenant_id.as_u64(),
-        ?collection,
+        scope = scope,
+        collection = ?collection,
         verbose,
-        ?as_of,
-        "show_graph_stats"
+        as_of = ?as_of,
     );
 
     // Validate the collection exists if a name was supplied. We resolve

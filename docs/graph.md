@@ -380,6 +380,95 @@ This is useful for organizational hierarchies, historical relationship analysis,
 
 ---
 
+## Statistics
+
+`SHOW GRAPH STATS` gives a persistence-rooted readout of a graph collection's
+node, edge, and label counts. It bypasses the in-memory CSR cache and reads
+the durable edge-store counter table, so it reflects what was persisted —
+useful for distinguishing a failed write from a failed read when a traversal
+returns an empty result.
+
+### Syntax
+
+```sql
+SHOW GRAPH STATS '<collection>'  [VERBOSE]  [AS OF SYSTEM TIME <ms>];
+SHOW GRAPH STATS                  [VERBOSE]  [AS OF SYSTEM TIME <ms>];
+```
+
+Both `VERBOSE` and `AS OF SYSTEM TIME` are optional and order-insensitive.
+Omitting the collection name returns a tenant-wide aggregate, one row per
+collection that has (or has ever had) graph edges.
+
+### Compact form (default)
+
+```sql
+SHOW GRAPH STATS 'social';
+```
+
+| collection | node_count | edge_count | distinct_label_count | labels |
+|---|---|---|---|---|
+| social | 14218 | 41902 | 5 | `[{"label":"follows","count":21504}, ...]` |
+
+The `labels` column is a JSON array — easy for drivers to parse without a
+second round-trip.
+
+### VERBOSE form
+
+```sql
+SHOW GRAPH STATS 'social' VERBOSE;
+```
+
+| collection | label | edge_count |
+|---|---|---|
+| social | follows | 21504 |
+| social | likes | 12008 |
+| social | reports_to | 5802 |
+| social | blocks | 1488 |
+| social | knows | 1100 |
+
+One row per `(collection, label)` pair — SQL-idiomatic, sortable, filterable.
+
+### Historical snapshot
+
+```sql
+SHOW GRAPH STATS 'social' AS OF SYSTEM TIME 1700000000000;
+```
+
+When `AS OF SYSTEM TIME` is provided, the stats reflect the live edges at
+that system-time cutoff. The live-snapshot path is O(1) (it reads a cached
+summary row); the historical path falls back to a prefix scan of the
+edge store and is proportional to the number of edges in the collection.
+
+### Semantics
+
+- **Persistence-rooted.** Counts come from a counter table maintained
+  atomically inside the same redb transaction as each edge put/delete.
+  The CSR cache is never consulted — a divergence between the CSR and the
+  edge store will still produce the durable answer.
+- **Live by default.** Soft-deleted (tombstoned) and GDPR-erased edges
+  are not counted unless `AS OF SYSTEM TIME` requests a snapshot from
+  before their deletion.
+- **Cross-vShard aggregation.** Origin fans the read out to every Data
+  Plane core that holds a partition of the collection, aggregates per-core
+  results, and re-derives `distinct_label_count` from the merged label set
+  (labels are not partition-disjoint across cores).
+- **Hard error on partial failure.** If any vShard fails or times out the
+  call returns a structured error — no silent truncation.
+- **Multigraph.** A pair `(src, dst)` with two different labels counts as
+  two edges, one node-pair, two distinct labels.
+- **Self-loops.** `(x, label, x)` counts as one edge, one distinct node.
+
+### Errors
+
+| Condition | sqlstate | message |
+|---|---|---|
+| Collection does not exist | `42P01` | `collection '<name>' not found` |
+| Collection is deactivated (in retention window) | `42P01` | `collection '<name>' is deactivated` |
+| Catalog unavailable | `XX000` | `catalog not available` |
+| Partial vShard failure during dispatch | `58000` | `graph stats dispatch failed: ...` |
+
+---
+
 ## Related
 
 - [Bitemporal](bitemporal.md) — Cross-engine temporal queries and audit trails
