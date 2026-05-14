@@ -54,7 +54,8 @@ pub fn required_permission(plan: &crate::bridge::envelope::PhysicalPlan) -> Perm
             | GraphOp::Algo { .. }
             | GraphOp::Match { .. }
             | GraphOp::TemporalNeighbors { .. }
-            | GraphOp::TemporalAlgorithm { .. },
+            | GraphOp::TemporalAlgorithm { .. }
+            | GraphOp::Stats { .. },
         ) => Permission::Read,
 
         PhysicalPlan::Query(

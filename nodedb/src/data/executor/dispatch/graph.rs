@@ -231,6 +231,10 @@ impl CoreLoop {
                 params,
                 system_as_of_ms,
             } => self.execute_graph_temporal_algo(task, tid, algorithm, params, *system_as_of_ms),
+
+            GraphOp::Stats { collection, as_of } => {
+                self.execute_graph_stats(task, tid, collection.as_deref(), *as_of)
+            }
         }
     }
 }

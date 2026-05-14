@@ -234,6 +234,10 @@ pub fn touched_collections(plan: &PhysicalPlan) -> Vec<String> {
                 // These ops target a named graph collection.
                 RagFusion { collection, .. } => out.push(collection.clone()),
                 TemporalNeighbors { collection, .. } => out.push(collection.clone()),
+                Stats {
+                    collection: Some(c),
+                    ..
+                } => out.push(c.clone()),
 
                 // Structural ops use node IDs, not a collection name.
                 EdgePut { .. }
@@ -248,6 +252,9 @@ pub fn touched_collections(plan: &PhysicalPlan) -> Vec<String> {
                 | Algo { .. }
                 | Match { .. }
                 | TemporalAlgorithm { .. }
+                | Stats {
+                    collection: None, ..
+                }
                 | SetNodeLabels { .. }
                 | RemoveNodeLabels { .. } => {}
             }

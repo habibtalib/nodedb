@@ -102,6 +102,7 @@ impl PhysicalPlan {
                 | PhysicalPlan::Graph(GraphOp::Match { .. })
                 | PhysicalPlan::Graph(GraphOp::TemporalNeighbors { .. })
                 | PhysicalPlan::Graph(GraphOp::TemporalAlgorithm { .. })
+                | PhysicalPlan::Graph(GraphOp::Stats { .. })
                 | PhysicalPlan::Vector(VectorOp::Search { .. })
                 | PhysicalPlan::Text(TextOp::Search { .. })
                 | PhysicalPlan::Text(TextOp::HybridSearch { .. })

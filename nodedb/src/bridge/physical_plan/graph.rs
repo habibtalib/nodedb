@@ -235,4 +235,17 @@ pub enum GraphOp {
         /// to plain `Algo`).
         system_as_of_ms: Option<i64>,
     },
+
+    /// Read persistent graph-stats counters from the edge store.
+    ///
+    /// `collection = Some` returns stats for one `(tenant, collection)` pair.
+    /// `collection = None` returns stats for every collection that has
+    /// edges (or had any, per cold-start rebuild) for this tenant.
+    ///
+    /// `as_of = None` is the O(1) live-snapshot path (reads the cached
+    /// summary row). `as_of = Some(ms)` falls back to a historical scan.
+    Stats {
+        collection: Option<String>,
+        as_of: Option<i64>,
+    },
 }

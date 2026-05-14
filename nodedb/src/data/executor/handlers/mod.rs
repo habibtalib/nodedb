@@ -20,6 +20,7 @@ pub mod graph_algo;
 pub mod graph_match;
 pub mod graph_rag;
 pub mod graph_rag_triple;
+pub mod graph_stats;
 pub mod graph_temporal;
 pub(super) mod grouping_sets_exec;
 pub mod insert_select;

@@ -163,7 +163,16 @@ pub fn label_prefix(collection: &str) -> String {
 ///
 /// Historical snapshot queries are implemented via the `as_of` parameter on
 /// [`EdgeStore::collection_stats`] and [`EdgeStore::tenant_stats`].
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    zerompk::ToMessagePack,
+    zerompk::FromMessagePack,
+)]
+#[msgpack(map)]
 pub struct CollectionStats {
     pub collection: String,
     pub edge_count: u64,
