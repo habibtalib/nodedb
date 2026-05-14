@@ -305,6 +305,7 @@ fn surrogate_round_trip_all_engines() {
                 intent: ColumnarInsertIntent::Insert,
                 on_conflict_updates: Vec::new(),
                 surrogates: COL_SURS.iter().copied().map(Surrogate::new).collect(),
+                schema_bytes: Vec::new(),
             }),
         );
     }

@@ -307,6 +307,7 @@ fn rollback_matrix_columnar_then_doc_fail() {
                     intent: ColumnarInsertIntent::Insert,
                     on_conflict_updates: Vec::new(),
                     surrogates: Vec::new(),
+                    schema_bytes: Vec::new(),
                 }),
                 doc_insert_conflict("conflict_coll"),
             ],
@@ -368,6 +369,7 @@ fn rollback_matrix_columnar_count_after_rollback() {
             intent: ColumnarInsertIntent::Insert,
             on_conflict_updates: Vec::new(),
             surrogates: Vec::new(),
+            schema_bytes: Vec::new(),
         }),
     );
 
@@ -387,6 +389,7 @@ fn rollback_matrix_columnar_count_after_rollback() {
                     intent: ColumnarInsertIntent::Insert,
                     on_conflict_updates: Vec::new(),
                     surrogates: Vec::new(),
+                    schema_bytes: Vec::new(),
                 }),
                 doc_insert_conflict("conflict_coll"),
             ],

@@ -227,6 +227,7 @@ pub fn columnar_insert(collection: &str, id: &str, val: i64) -> PhysicalPlan {
         intent: ColumnarInsertIntent::Insert,
         on_conflict_updates: Vec::new(),
         surrogates: Vec::new(),
+        schema_bytes: Vec::new(),
     })
 }
 

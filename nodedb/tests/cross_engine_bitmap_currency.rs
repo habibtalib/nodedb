@@ -349,6 +349,7 @@ fn document_scan_bitmap_filters_columnar_aggregate() {
             intent: ColumnarInsertIntent::Insert,
             on_conflict_updates: Vec::new(),
             surrogates: all_surrogates.clone(),
+            schema_bytes: Vec::new(),
         }),
     );
 
@@ -385,6 +386,7 @@ fn document_scan_bitmap_filters_columnar_aggregate() {
             system_as_of_ms: None,
             valid_at_ms: None,
             prefilter: Some(doc_bitmap.clone()),
+            computed_columns: Vec::new(),
         }),
     );
     let filtered_ids = extract_ids(&filtered_payload);

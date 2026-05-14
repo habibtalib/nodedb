@@ -217,6 +217,7 @@ fn columnar_insert_byte_identical() {
                 intent: ColumnarInsertIntent::Insert,
                 on_conflict_updates: Vec::new(),
                 surrogates: Vec::new(),
+                schema_bytes: Vec::new(),
             })
         })
         .collect();

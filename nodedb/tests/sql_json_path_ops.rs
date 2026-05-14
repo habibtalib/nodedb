@@ -331,3 +331,305 @@ async fn hash_arrow_out_of_bounds_array_path_returns_null() {
         "out-of-bounds index should yield NULL (empty string)"
     );
 }
+
+// ── JSONB columns on the columnar storage core ────────────────────────────
+//
+// The columnar engine and its peers (timeseries, spatial) share one storage
+// memtable. A TEXT literal inserted into a `JSONB` column must be parsed and
+// re-encoded so JSON path operators see real JSON, not an opaque string.
+// Document engines (strict + schemaless) already do this; the columnar
+// family must match — otherwise `meta->>'k'` silently returns nothing while
+// `SELECT meta` still prints the JSON text, hiding the breakage.
+
+#[tokio::test]
+async fn columnar_json_literal_arrow_returns_field() {
+    let srv = TestServer::start().await;
+    srv.exec(
+        "CREATE COLLECTION cj (id STRING NOT NULL PRIMARY KEY, meta JSONB) \
+         WITH (engine='columnar')",
+    )
+    .await
+    .unwrap();
+
+    srv.exec("INSERT INTO cj (id, meta) VALUES ('a', '{\"k\":1}')")
+        .await
+        .unwrap();
+
+    let rows = srv
+        .query_rows("SELECT meta->>'k' FROM cj WHERE id = 'a'")
+        .await
+        .expect("query should succeed");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0][0], "1",
+        "->>'k' on a columnar JSONB column must return the parsed field, \
+         not empty (silent-failure regression guard)"
+    );
+}
+
+#[tokio::test]
+async fn columnar_json_literal_contains_filter() {
+    let srv = TestServer::start().await;
+    srv.exec(
+        "CREATE COLLECTION cj_contains (id STRING NOT NULL PRIMARY KEY, meta JSONB) \
+         WITH (engine='columnar')",
+    )
+    .await
+    .unwrap();
+
+    srv.exec("INSERT INTO cj_contains (id, meta) VALUES ('r1', '{\"a\":1,\"b\":2}')")
+        .await
+        .unwrap();
+    srv.exec("INSERT INTO cj_contains (id, meta) VALUES ('r2', '{\"a\":1}')")
+        .await
+        .unwrap();
+
+    let rows = srv
+        .query_rows("SELECT id FROM cj_contains WHERE meta @> '{\"b\":2}' ORDER BY id")
+        .await
+        .expect("query should succeed");
+    assert_eq!(
+        rows.len(),
+        1,
+        "@> on a columnar JSONB column must filter against parsed JSON"
+    );
+    assert_eq!(rows[0][0], "r1");
+}
+
+#[tokio::test]
+async fn columnar_json_literal_where_filter() {
+    let srv = TestServer::start().await;
+    srv.exec(
+        "CREATE COLLECTION cj_where (id STRING NOT NULL PRIMARY KEY, meta JSONB) \
+         WITH (engine='columnar')",
+    )
+    .await
+    .unwrap();
+
+    srv.exec("INSERT INTO cj_where (id, meta) VALUES ('r1', '{\"status\":\"active\"}')")
+        .await
+        .unwrap();
+    srv.exec("INSERT INTO cj_where (id, meta) VALUES ('r2', '{\"status\":\"inactive\"}')")
+        .await
+        .unwrap();
+
+    let rows = srv
+        .query_rows("SELECT id FROM cj_where WHERE meta->>'status' = 'active' ORDER BY id")
+        .await
+        .expect("query should succeed");
+    assert_eq!(
+        rows.len(),
+        1,
+        "WHERE meta->>'status' must compare parsed JSON"
+    );
+    assert_eq!(rows[0][0], "r1");
+}
+
+#[tokio::test]
+async fn columnar_json_update_reparses_string() {
+    let srv = TestServer::start().await;
+    srv.exec(
+        "CREATE COLLECTION cj_upd (id STRING NOT NULL PRIMARY KEY, meta JSONB) \
+         WITH (engine='columnar')",
+    )
+    .await
+    .unwrap();
+
+    srv.exec("INSERT INTO cj_upd (id, meta) VALUES ('a', '{\"k\":1}')")
+        .await
+        .unwrap();
+    srv.exec("UPDATE cj_upd SET meta = '{\"k\":2}' WHERE id = 'a'")
+        .await
+        .unwrap();
+
+    let rows = srv
+        .query_rows("SELECT meta->>'k' FROM cj_upd WHERE id = 'a'")
+        .await
+        .expect("query should succeed");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0][0], "2",
+        "UPDATE setting a JSONB column from a string literal must parse it; \
+         silent string storage breaks JSON operators on the updated row"
+    );
+}
+
+#[tokio::test]
+async fn timeseries_json_literal_arrow_returns_field() {
+    let srv = TestServer::start().await;
+    srv.exec(
+        "CREATE COLLECTION tsj (id STRING NOT NULL PRIMARY KEY, ts TIMESTAMP, meta JSONB) \
+         WITH (engine='timeseries', time_key='ts')",
+    )
+    .await
+    .unwrap();
+
+    srv.exec(
+        "INSERT INTO tsj (id, ts, meta) VALUES \
+         ('a', '2026-01-01T00:00:00Z', '{\"k\":1}')",
+    )
+    .await
+    .unwrap();
+
+    let rows = srv
+        .query_rows("SELECT meta->>'k' FROM tsj WHERE id = 'a'")
+        .await
+        .expect("query should succeed");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0][0], "1",
+        "->>'k' on a timeseries JSONB column must return the parsed field"
+    );
+}
+
+#[tokio::test]
+async fn spatial_json_literal_arrow_returns_field() {
+    let srv = TestServer::start().await;
+    srv.exec(
+        "CREATE COLLECTION spj \
+         COLUMNS (id TEXT, location GEOMETRY, meta JSONB) \
+         WITH (engine='spatial')",
+    )
+    .await
+    .unwrap();
+
+    srv.exec(
+        "INSERT INTO spj (id, location, meta) VALUES \
+         ('a', ST_Point(-122.4, 37.8), '{\"k\":1}')",
+    )
+    .await
+    .unwrap();
+
+    let rows = srv
+        .query_rows("SELECT meta->>'k' FROM spj WHERE id = 'a'")
+        .await
+        .expect("query should succeed");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0][0], "1",
+        "->>'k' on a spatial JSONB column must return the parsed field"
+    );
+}
+
+// ── Sibling column types backed by the same ColumnData::Bytes reuse ──────
+//
+// ColumnType::{Array,Set,Range,Record} all map to ColumnData::Bytes in the
+// columnar memtable (see nodedb-columnar/src/memtable/column_data/types.rs).
+// They share the exact missing-arm pattern as Json: a Value::String destined
+// for any of these column types falls into the type-mismatch fallback
+// instead of being parsed and re-encoded. INSERT either errors out or
+// silently stores the raw literal — neither is a round-trippable column.
+//
+// Each test asserts the bug-class invariant: INSERT of a literal must
+// succeed, SELECT must return a row, and the projected value must not be
+// the verbatim input string (which would indicate opaque storage with no
+// parse). These tests fail today and force the design discussion of what
+// the parse spec for each type is — they pass once the type has a real
+// encoder that mirrors the strict path.
+
+#[tokio::test]
+async fn columnar_array_column_literal_round_trips() {
+    let srv = TestServer::start().await;
+    srv.exec(
+        "CREATE COLLECTION ca (id STRING NOT NULL PRIMARY KEY, tags ARRAY) \
+         WITH (engine='columnar')",
+    )
+    .await
+    .expect("CREATE COLLECTION with ARRAY column must succeed");
+
+    srv.exec("INSERT INTO ca (id, tags) VALUES ('r1', '[1,2,3]')")
+        .await
+        .expect(
+            "INSERT of a literal into an ARRAY column must succeed — \
+             silent type-mismatch fallback is the bug",
+        );
+
+    let rows = srv
+        .query_rows("SELECT tags FROM ca WHERE id = 'r1'")
+        .await
+        .expect("SELECT of an ARRAY column must succeed");
+    assert_eq!(
+        rows.len(),
+        1,
+        "ARRAY column must round-trip the inserted row"
+    );
+    assert!(
+        !rows[0][0].is_empty(),
+        "ARRAY column must return a non-empty representation, not silently dropped"
+    );
+}
+
+#[tokio::test]
+async fn columnar_set_column_literal_round_trips() {
+    let srv = TestServer::start().await;
+    srv.exec(
+        "CREATE COLLECTION cs (id STRING NOT NULL PRIMARY KEY, members SET) \
+         WITH (engine='columnar')",
+    )
+    .await
+    .expect("CREATE COLLECTION with SET column must succeed");
+
+    srv.exec("INSERT INTO cs (id, members) VALUES ('r1', '[1,2,3]')")
+        .await
+        .expect("INSERT of a literal into a SET column must succeed");
+
+    let rows = srv
+        .query_rows("SELECT members FROM cs WHERE id = 'r1'")
+        .await
+        .expect("SELECT of a SET column must succeed");
+    assert_eq!(rows.len(), 1);
+    assert!(
+        !rows[0][0].is_empty(),
+        "SET column must return a non-empty representation"
+    );
+}
+
+#[tokio::test]
+async fn columnar_range_column_literal_round_trips() {
+    let srv = TestServer::start().await;
+    srv.exec(
+        "CREATE COLLECTION cr (id STRING NOT NULL PRIMARY KEY, span RANGE) \
+         WITH (engine='columnar')",
+    )
+    .await
+    .expect("CREATE COLLECTION with RANGE column must succeed");
+
+    srv.exec("INSERT INTO cr (id, span) VALUES ('r1', '[1,10)')")
+        .await
+        .expect("INSERT of a literal into a RANGE column must succeed");
+
+    let rows = srv
+        .query_rows("SELECT span FROM cr WHERE id = 'r1'")
+        .await
+        .expect("SELECT of a RANGE column must succeed");
+    assert_eq!(rows.len(), 1);
+    assert!(
+        !rows[0][0].is_empty(),
+        "RANGE column must return a non-empty representation"
+    );
+}
+
+#[tokio::test]
+async fn columnar_record_column_literal_round_trips() {
+    let srv = TestServer::start().await;
+    srv.exec(
+        "CREATE COLLECTION crec (id STRING NOT NULL PRIMARY KEY, payload RECORD) \
+         WITH (engine='columnar')",
+    )
+    .await
+    .expect("CREATE COLLECTION with RECORD column must succeed");
+
+    srv.exec("INSERT INTO crec (id, payload) VALUES ('r1', '{\"a\":1,\"b\":2}')")
+        .await
+        .expect("INSERT of a literal into a RECORD column must succeed");
+
+    let rows = srv
+        .query_rows("SELECT payload FROM crec WHERE id = 'r1'")
+        .await
+        .expect("SELECT of a RECORD column must succeed");
+    assert_eq!(rows.len(), 1);
+    assert!(
+        !rows[0][0].is_empty(),
+        "RECORD column must return a non-empty representation"
+    );
+}
