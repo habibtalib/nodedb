@@ -2,68 +2,17 @@
 
 //! The [`NodedbStatement`] enum — one variant per DDL command.
 
+pub mod auth;
+pub mod collection;
+pub mod maintenance;
+
+pub use auth::*;
+pub use collection::*;
+pub use maintenance::*;
+
 pub use super::alter_ops::{AlterCollectionOp, AlterRoleOp, AlterUserOp};
 pub use super::graph_types::{GraphDirection, GraphProperties};
 pub use nodedb_types::{AuditDmlMode, QuotaSpec};
-
-/// Temporal anchor for a `CLONE DATABASE` statement.
-///
-/// Every `match` on this enum must be exhaustive — no `_ =>` arms.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CloneAsOf {
-    /// Use the source database's current commit LSN at clone time.
-    /// Corresponds to the bare `CLONE DATABASE … FROM …` form or the
-    /// explicit `… AS OF SYSTEM TIME LATEST` form.
-    Latest,
-    /// Use the LSN corresponding to the given milliseconds-since-epoch
-    /// timestamp, resolved via the `LsnMsAnchor` mechanism.
-    ///
-    /// Corresponds to `… AS OF SYSTEM TIME <ms>`.
-    SystemTimeMs(i64),
-}
-
-/// Operations available on `ALTER DATABASE <name> <operation>`.
-///
-/// Every variant must be matched exhaustively — no `_ =>` arms anywhere.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AlterDatabaseOperation {
-    /// `ALTER DATABASE <name> RENAME TO <new_name>`
-    Rename { new_name: String },
-    /// `ALTER DATABASE <name> SET QUOTA (max_memory_bytes = ..., ...)`
-    ///
-    /// All fields in the spec are optional; absent fields leave the existing
-    /// quota value unchanged (merged at apply time with the stored record or
-    /// `QuotaRecord::DEFAULT`).
-    SetQuota(QuotaSpec),
-    /// `ALTER DATABASE <name> SET DEFAULT` — marks this database as the
-    /// per-user default for future sessions. Returns
-    /// `FEATURE_NOT_YET_IMPLEMENTED` until the per-user default-database
-    /// binding lands; the canonical path is
-    /// `ALTER USER <name> SET DEFAULT DATABASE <db>`.
-    SetDefault,
-    /// `ALTER DATABASE <name> MATERIALIZE` — triggers background materialization
-    /// of a cloned database. Returns `FEATURE_NOT_YET_IMPLEMENTED` until the
-    /// clone/mirror subsystem lands.
-    Materialize,
-    /// `ALTER DATABASE <name> PROMOTE` — promotes a mirror to writable primary.
-    /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the mirror subsystem lands.
-    Promote,
-    /// `ALTER DATABASE <name> SET AUDIT_DML = <mode>` — sets the DML audit level.
-    SetAuditDml(AuditDmlMode),
-    /// `ALTER DATABASE <name> SET IDLE_TIMEOUT = <secs>` — sets the idle session
-    /// timeout in seconds for sessions in this database. `0` disables the per-database
-    /// timeout (falls back to the global `idle_timeout_secs` setting).
-    SetIdleTimeout(u64),
-}
-
-/// Operations available on `ALTER TENANT <name> IN DATABASE <db> <operation>`.
-///
-/// Every variant must be matched exhaustively — no `_ =>` arms anywhere.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AlterTenantOperation {
-    /// `ALTER TENANT <name> IN DATABASE <db> SET QUOTA (...)`
-    SetQuota(QuotaSpec),
-}
 
 /// Typed representation of every NodeDB DDL statement.
 ///
@@ -753,38 +702,4 @@ pub enum NodedbStatement {
         delimiter: Option<char>,
         header: bool,
     },
-}
-
-/// One `WHEN <claim_name> = '<value>' SET ...` clause inside a
-/// `CREATE OIDC PROVIDER` or `ALTER OIDC PROVIDER` statement.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OidcClaimMappingClause {
-    pub claim_name: String,
-    pub claim_value: String,
-    /// Optional default database ID to grant for matching tokens.
-    pub default_database: Option<u64>,
-    /// Additional database IDs accessible to matching tokens.
-    pub add_databases: Vec<u64>,
-    /// Role names to grant to matching tokens.
-    pub add_roles: Vec<String>,
-}
-
-/// Source for `COPY ... TO`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CopyToSource {
-    /// `COPY <collection> TO '<path>'` — export from a named collection.
-    Collection(String),
-    /// `COPY (SELECT ...) TO '<path>'` — export from an arbitrary query.
-    Query(String),
-}
-
-/// Format for `COPY ... FROM` bulk import.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CopyFormat {
-    /// One JSON object per line (`.ndjson` / `.jsonl`).
-    Ndjson,
-    /// A JSON array of objects (`.json`).
-    JsonArray,
-    /// CSV with an optional header row (`.csv`).
-    Csv,
 }
