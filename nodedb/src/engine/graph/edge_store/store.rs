@@ -12,6 +12,8 @@ use std::sync::Arc;
 use nodedb_types::TenantId;
 use redb::{Database, TableDefinition};
 
+use super::stats::GRAPH_STATS;
+
 /// `(collection, src, label, dst)` — a base-edge identity (no version suffix).
 pub(super) type BaseKey = (String, String, String, String);
 
@@ -82,6 +84,9 @@ impl EdgeStore {
             let _ = write_txn
                 .open_table(REVERSE_EDGES)
                 .map_err(|e| redb_err("open reverse_edges", e))?;
+            let _ = write_txn
+                .open_table(GRAPH_STATS)
+                .map_err(|e| redb_err("open graph_stats", e))?;
         }
         write_txn.commit().map_err(|e| redb_err("commit", e))?;
 

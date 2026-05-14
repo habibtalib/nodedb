@@ -64,8 +64,9 @@ pub(super) fn try_parse(
             .collect();
         if ms_token.is_empty() {
             return Some(Err(SqlError::Parse {
-                detail: "SHOW GRAPH STATS: AS OF SYSTEM TIME expects an integer millisecond literal"
-                    .to_string(),
+                detail:
+                    "SHOW GRAPH STATS: AS OF SYSTEM TIME expects an integer millisecond literal"
+                        .to_string(),
             }));
         }
         match ms_token.parse::<i64>() {

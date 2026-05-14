@@ -8,6 +8,7 @@ use super::keys::{
     versioned_edge_key,
 };
 use super::payload::EdgeValuePayload;
+use crate::engine::graph::edge_store::stats::update::{decrement_for_delete, increment_for_insert};
 use crate::engine::graph::edge_store::store::{EDGES, EdgeStore, REVERSE_EDGES, redb_err};
 
 impl EdgeStore {
@@ -43,6 +44,7 @@ impl EdgeStore {
             edges
                 .insert((t, fwd.as_str()), payload.as_slice())
                 .map_err(|e| redb_err("insert versioned edge", e))?;
+            drop(edges);
 
             let mut rev_t = write_txn
                 .open_table(REVERSE_EDGES)
@@ -50,6 +52,17 @@ impl EdgeStore {
             rev_t
                 .insert((t, rev.as_str()), &[] as &[u8])
                 .map_err(|e| redb_err("insert reverse", e))?;
+            drop(rev_t);
+
+            increment_for_insert(
+                &write_txn,
+                t,
+                edge.collection,
+                edge.label,
+                edge.src,
+                edge.dst,
+                system_from,
+            )?;
         }
         write_txn.commit().map_err(|e| redb_err("commit", e))?;
         Ok(())
@@ -154,6 +167,7 @@ impl EdgeStore {
             edges
                 .insert((t, fwd.as_str()), sentinel)
                 .map_err(|e| redb_err("insert sentinel edge", e))?;
+            drop(edges);
 
             let mut rev_t = write_txn
                 .open_table(REVERSE_EDGES)
@@ -161,6 +175,17 @@ impl EdgeStore {
             rev_t
                 .insert((t, rev.as_str()), sentinel)
                 .map_err(|e| redb_err("insert sentinel reverse", e))?;
+            drop(rev_t);
+
+            decrement_for_delete(
+                &write_txn,
+                t,
+                edge.collection,
+                edge.label,
+                edge.src,
+                edge.dst,
+                system_from,
+            )?;
         }
         write_txn
             .commit()

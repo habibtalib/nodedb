@@ -5,9 +5,11 @@ pub mod purge;
 pub mod query;
 pub mod scan;
 pub mod snapshot;
+pub mod stats;
 pub mod store;
 pub mod temporal;
 
+pub use stats::CollectionStats;
 pub use store::{Direction, Edge, EdgeRecord, EdgeStore};
 pub use temporal::{
     EdgeRef, EdgeValuePayload, GDPR_ERASURE_SENTINEL, SYSTEM_TIME_WIDTH, TOMBSTONE_SENTINEL,
