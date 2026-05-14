@@ -13,6 +13,7 @@ mod algo;
 mod edge;
 pub(super) mod rag_fusion;
 mod response;
+mod stats;
 mod traverse;
 
 use pgwire::api::results::Response;
@@ -103,6 +104,11 @@ pub async fn dispatch_typed(
         NodedbStatement::Graph(GraphStmt::GraphRagFusion { collection, params }) => {
             Some(rag_fusion::rag_fusion(state, identity, collection, params).await)
         }
+        NodedbStatement::Graph(GraphStmt::ShowGraphStats {
+            collection,
+            verbose,
+            as_of,
+        }) => Some(stats::show_graph_stats(state, identity, collection, verbose, as_of).await),
         // Non-graph NodedbStatement variants (CreateCollection, DropCollection,
         // etc.) return None so the caller can route them to the correct handler.
         _ => None,

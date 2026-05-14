@@ -100,9 +100,16 @@ pub(super) async fn dispatch(
     // Graph DSL (`GRAPH ...`) and `MATCH` flow through the typed
     // AST. Parsing is done by `nodedb_sql::ddl_ast::graph_parse`,
     // which is quote- and brace-aware — handlers never see raw SQL.
+    //
+    // `SHOW GRAPH STATS` is recognised here too even though its
+    // leading keyword is `SHOW`: the typed-AST family treats it as a
+    // graph-overlay statement, and the parser dispatches it to a
+    // graph-area family before any generic SHOW handler can claim
+    // the `SHOW` prefix.
     if upper.starts_with("GRAPH ")
         || upper.starts_with("MATCH ")
         || upper.starts_with("OPTIONAL MATCH ")
+        || upper.starts_with("SHOW GRAPH STATS")
     {
         match nodedb_sql::ddl_ast::parse(sql) {
             Some(Err(e)) => {
