@@ -18,7 +18,7 @@ mod traverse;
 use pgwire::api::results::Response;
 use pgwire::error::PgWireResult;
 
-use nodedb_sql::ddl_ast::NodedbStatement;
+use nodedb_sql::ddl_ast::statement::{GraphStmt, NodedbStatement};
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
@@ -33,44 +33,44 @@ pub async fn dispatch_typed(
     stmt: NodedbStatement,
 ) -> Option<PgWireResult<Vec<Response>>> {
     match stmt {
-        NodedbStatement::GraphInsertEdge {
+        NodedbStatement::Graph(GraphStmt::GraphInsertEdge {
             collection,
             src,
             dst,
             label,
             properties,
-        } => {
+        }) => {
             Some(edge::insert_edge(state, identity, collection, src, dst, label, properties).await)
         }
-        NodedbStatement::GraphDeleteEdge {
+        NodedbStatement::Graph(GraphStmt::GraphDeleteEdge {
             collection,
             src,
             dst,
             label,
-        } => Some(edge::delete_edge(state, identity, collection, src, dst, label).await),
-        NodedbStatement::GraphSetLabels {
+        }) => Some(edge::delete_edge(state, identity, collection, src, dst, label).await),
+        NodedbStatement::Graph(GraphStmt::GraphSetLabels {
             node_id,
             labels,
             remove,
-        } => Some(edge::set_node_labels(state, identity, node_id, labels, remove).await),
-        NodedbStatement::GraphTraverse {
+        }) => Some(edge::set_node_labels(state, identity, node_id, labels, remove).await),
+        NodedbStatement::Graph(GraphStmt::GraphTraverse {
             start,
             depth,
             edge_label,
             direction,
-        } => Some(traverse::traverse(state, identity, start, depth, edge_label, direction).await),
-        NodedbStatement::GraphNeighbors {
+        }) => Some(traverse::traverse(state, identity, start, depth, edge_label, direction).await),
+        NodedbStatement::Graph(GraphStmt::GraphNeighbors {
             node,
             edge_label,
             direction,
-        } => Some(traverse::neighbors(state, identity, node, edge_label, direction).await),
-        NodedbStatement::GraphPath {
+        }) => Some(traverse::neighbors(state, identity, node, edge_label, direction).await),
+        NodedbStatement::Graph(GraphStmt::GraphPath {
             src,
             dst,
             max_depth,
             edge_label,
-        } => Some(traverse::shortest_path(state, identity, src, dst, max_depth, edge_label).await),
-        NodedbStatement::GraphAlgo {
+        }) => Some(traverse::shortest_path(state, identity, src, dst, max_depth, edge_label).await),
+        NodedbStatement::Graph(GraphStmt::GraphAlgo {
             algorithm,
             collection,
             edge_label,
@@ -82,7 +82,7 @@ pub async fn dispatch_typed(
             source_node,
             direction,
             mode,
-        } => Some(
+        }) => Some(
             algo::algo(
                 state,
                 identity,
@@ -100,7 +100,7 @@ pub async fn dispatch_typed(
             )
             .await,
         ),
-        NodedbStatement::GraphRagFusion { collection, params } => {
+        NodedbStatement::Graph(GraphStmt::GraphRagFusion { collection, params }) => {
             Some(rag_fusion::rag_fusion(state, identity, collection, params).await)
         }
         // Non-graph NodedbStatement variants (CreateCollection, DropCollection,

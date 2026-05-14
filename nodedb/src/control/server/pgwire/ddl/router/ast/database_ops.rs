@@ -5,7 +5,7 @@
 use pgwire::api::results::Response;
 use pgwire::error::PgWireResult;
 
-use nodedb_sql::ddl_ast::NodedbStatement;
+use nodedb_sql::ddl_ast::statement::{DatabaseStmt, NodedbStatement};
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::ddl::database::{
@@ -36,11 +36,11 @@ pub(super) fn try_dispatch_database(
     stmt: &NodedbStatement,
 ) -> Option<PgWireResult<Vec<Response>>> {
     match stmt {
-        NodedbStatement::CreateDatabase {
+        NodedbStatement::Database(DatabaseStmt::CreateDatabase {
             name,
             if_not_exists,
             options,
-        } => Some(handle_create_database(
+        }) => Some(handle_create_database(
             state,
             identity,
             name,
@@ -48,60 +48,66 @@ pub(super) fn try_dispatch_database(
             options,
         )),
 
-        NodedbStatement::DropDatabase {
+        NodedbStatement::Database(DatabaseStmt::DropDatabase {
             name,
             if_exists,
             cascade,
-        } => Some(handle_drop_database(
+        }) => Some(handle_drop_database(
             state, identity, name, *if_exists, *cascade,
         )),
 
-        NodedbStatement::AlterDatabase { name, operation } => {
+        NodedbStatement::Database(DatabaseStmt::AlterDatabase { name, operation }) => {
             Some(handle_alter_database(state, identity, name, operation))
         }
 
-        NodedbStatement::ShowDatabases => Some(handle_show_databases(state, identity)),
+        NodedbStatement::Database(DatabaseStmt::ShowDatabases) => {
+            Some(handle_show_databases(state, identity))
+        }
 
-        NodedbStatement::ShowDatabaseQuota { name } => {
+        NodedbStatement::Database(DatabaseStmt::ShowDatabaseQuota { name }) => {
             Some(handle_show_database_quota(state, identity, name))
         }
 
-        NodedbStatement::ShowDatabaseUsage { name } => {
+        NodedbStatement::Database(DatabaseStmt::ShowDatabaseUsage { name }) => {
             Some(handle_show_database_usage(state, identity, name))
         }
 
-        NodedbStatement::ShowDatabaseLineage { name } => {
+        NodedbStatement::Database(DatabaseStmt::ShowDatabaseLineage { name }) => {
             Some(handle_show_database_lineage(state, identity, name))
         }
 
-        NodedbStatement::AlterTenant {
+        NodedbStatement::Database(DatabaseStmt::AlterTenant {
             name,
             database,
             operation,
-        } => Some(handle_alter_tenant_quota(
+        }) => Some(handle_alter_tenant_quota(
             state, identity, name, database, operation,
         )),
 
-        NodedbStatement::ShowTenantQuotaInDatabase { name, database } => Some(
-            handle_show_tenant_quota_in_database(state, identity, name, database),
-        ),
+        NodedbStatement::Database(DatabaseStmt::ShowTenantQuotaInDatabase { name, database }) => {
+            Some(handle_show_tenant_quota_in_database(
+                state, identity, name, database,
+            ))
+        }
 
-        NodedbStatement::ShowTenantUsageInDatabase { name, database } => Some(
-            handle_show_tenant_usage_in_database(state, identity, name, database),
-        ),
+        NodedbStatement::Database(DatabaseStmt::ShowTenantUsageInDatabase { name, database }) => {
+            Some(handle_show_tenant_usage_in_database(
+                state, identity, name, database,
+            ))
+        }
 
         // UseDatabase is handled before the DDL router in execute_single_sql;
         // if it reaches here, something went wrong in the call chain.
-        NodedbStatement::UseDatabase { name } => Some(Err(sqlstate_error(
+        NodedbStatement::Database(DatabaseStmt::UseDatabase { name }) => Some(Err(sqlstate_error(
             "XX000",
             &format!("USE DATABASE {name}: reached router after expected intercept"),
         ))),
 
-        NodedbStatement::CloneDatabase {
+        NodedbStatement::Database(DatabaseStmt::CloneDatabase {
             new_name,
             source_name,
             as_of,
-        } => {
+        }) => {
             use crate::control::server::pgwire::ddl::database::clone::CloneDatabaseParams;
             Some(handle_clone_database(
                 state,
@@ -114,12 +120,12 @@ pub(super) fn try_dispatch_database(
             ))
         }
 
-        NodedbStatement::MirrorDatabase {
+        NodedbStatement::Database(DatabaseStmt::MirrorDatabase {
             local_name,
             source_cluster,
             source_database,
             mode,
-        } => Some(handle_mirror_database(
+        }) => Some(handle_mirror_database(
             state,
             identity,
             local_name,
@@ -128,16 +134,16 @@ pub(super) fn try_dispatch_database(
             *mode,
         )),
 
-        NodedbStatement::ShowDatabaseMirrorStatus { name } => Some(
+        NodedbStatement::Database(DatabaseStmt::ShowDatabaseMirrorStatus { name }) => Some(
             handle_show_database_mirror_status(state, identity, name.as_deref()),
         ),
 
-        NodedbStatement::MoveTenant { .. } => {
+        NodedbStatement::Database(DatabaseStmt::MoveTenant { .. }) => {
             // Async — handled in try_dispatch_async (async_ops.rs).
             None
         }
 
-        NodedbStatement::BackupDatabase { name, .. } => {
+        NodedbStatement::Database(DatabaseStmt::BackupDatabase { name, .. }) => {
             // Gate: DatabaseOwner(db) or higher before the placeholder return.
             // Resolve db_id first; unknown name returns 3D000, not 42501.
             let catalog = match state.credentials.catalog() {
@@ -175,7 +181,7 @@ pub(super) fn try_dispatch_database(
             )))
         }
 
-        NodedbStatement::RestoreDatabase { name, .. } => {
+        NodedbStatement::Database(DatabaseStmt::RestoreDatabase { name, .. }) => {
             // Gate: Superuser required before the placeholder return.
             // The target database may not exist yet; if it doesn't, pass db_id=None.
             let db_id_opt = state

@@ -5,7 +5,9 @@
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
-use nodedb_sql::ddl_ast::NodedbStatement;
+use nodedb_sql::ddl_ast::statement::{
+    AutomationStmt, CollectionStmt, NodedbStatement, PolicyStmt, StreamViewStmt,
+};
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
@@ -27,33 +29,33 @@ pub(super) fn try_dispatch_guards(
 ) -> Option<PgWireResult<Vec<Response>>> {
     match stmt {
         // ── IF NOT EXISTS: swallow duplicate-creation errors ──────
-        NodedbStatement::CreateCollection {
+        NodedbStatement::Collection(CollectionStmt::CreateCollection {
             name,
             if_not_exists: true,
             ..
-        } => {
+        }) => {
             if collection_exists(state, identity, name, database_id) {
                 return Some(Ok(vec![Response::Execution(Tag::new("CREATE COLLECTION"))]));
             }
             None // fall through to legacy CREATE handler
         }
 
-        NodedbStatement::CreateTable {
+        NodedbStatement::Collection(CollectionStmt::CreateTable {
             name,
             if_not_exists: true,
             ..
-        } => {
+        }) => {
             if collection_exists(state, identity, name, database_id) {
                 return Some(Ok(vec![Response::Execution(Tag::new("CREATE TABLE"))]));
             }
             None // fall through to schema dispatcher
         }
 
-        NodedbStatement::CreateSequence {
+        NodedbStatement::Collection(CollectionStmt::CreateSequence {
             name,
             if_not_exists: true,
             ..
-        } => {
+        }) => {
             if sequence_exists(state, identity, name) {
                 return Some(Ok(vec![Response::Execution(Tag::new("CREATE SEQUENCE"))]));
             }
@@ -65,55 +67,55 @@ pub(super) fn try_dispatch_guards(
         // existence-check matrix. No guard short-circuit needed.
 
         // ── IF EXISTS: swallow not-found errors on DROP ──────────
-        NodedbStatement::DropIndex {
+        NodedbStatement::Collection(CollectionStmt::DropIndex {
             if_exists: true, ..
-        } => None,
+        }) => None,
 
-        NodedbStatement::DropTrigger {
+        NodedbStatement::Automation(AutomationStmt::DropTrigger {
             name,
             if_exists: true,
             ..
-        } => {
+        }) => {
             if !trigger_exists(state, identity, name) {
                 return Some(Ok(vec![Response::Execution(Tag::new("DROP TRIGGER"))]));
             }
             None
         }
 
-        NodedbStatement::DropSchedule {
+        NodedbStatement::Automation(AutomationStmt::DropSchedule {
             name,
             if_exists: true,
-        } => {
+        }) => {
             if !schedule_exists(state, identity, name) {
                 return Some(Ok(vec![Response::Execution(Tag::new("DROP SCHEDULE"))]));
             }
             None
         }
 
-        NodedbStatement::DropSequence {
+        NodedbStatement::Collection(CollectionStmt::DropSequence {
             name,
             if_exists: true,
-        } => {
+        }) => {
             if !sequence_exists(state, identity, name) {
                 return Some(Ok(vec![Response::Execution(Tag::new("DROP SEQUENCE"))]));
             }
             None
         }
 
-        NodedbStatement::DropAlert {
+        NodedbStatement::Automation(AutomationStmt::DropAlert {
             name,
             if_exists: true,
-        } => {
+        }) => {
             if !alert_exists(state, identity, name) {
                 return Some(Ok(vec![Response::Execution(Tag::new("DROP ALERT"))]));
             }
             None
         }
 
-        NodedbStatement::DropRetentionPolicy {
+        NodedbStatement::Policy(PolicyStmt::DropRetentionPolicy {
             name,
             if_exists: true,
-        } => {
+        }) => {
             if !retention_policy_exists(state, identity, name) {
                 return Some(Ok(vec![Response::Execution(Tag::new(
                     "DROP RETENTION POLICY",
@@ -122,10 +124,10 @@ pub(super) fn try_dispatch_guards(
             None
         }
 
-        NodedbStatement::DropChangeStream {
+        NodedbStatement::StreamView(StreamViewStmt::DropChangeStream {
             name,
             if_exists: true,
-        } => {
+        }) => {
             if !change_stream_exists(state, identity, name) {
                 return Some(Ok(vec![Response::Execution(Tag::new(
                     "DROP CHANGE STREAM",
@@ -134,10 +136,10 @@ pub(super) fn try_dispatch_guards(
             None
         }
 
-        NodedbStatement::DropMaterializedView {
+        NodedbStatement::StreamView(StreamViewStmt::DropMaterializedView {
             name,
             if_exists: true,
-        } => {
+        }) => {
             if !materialized_view_exists(state, identity, name) {
                 return Some(Ok(vec![Response::Execution(Tag::new(
                     "DROP MATERIALIZED VIEW",
@@ -146,10 +148,10 @@ pub(super) fn try_dispatch_guards(
             None
         }
 
-        NodedbStatement::DropContinuousAggregate {
+        NodedbStatement::StreamView(StreamViewStmt::DropContinuousAggregate {
             name,
             if_exists: true,
-        } => {
+        }) => {
             if !continuous_aggregate_exists(state, identity, name) {
                 return Some(Ok(vec![Response::Execution(Tag::new(
                     "DROP CONTINUOUS AGGREGATE",
@@ -158,11 +160,11 @@ pub(super) fn try_dispatch_guards(
             None
         }
 
-        NodedbStatement::DropRlsPolicy {
+        NodedbStatement::Policy(PolicyStmt::DropRlsPolicy {
             name,
             collection,
             if_exists: true,
-        } => {
+        }) => {
             let tid = identity.tenant_id.as_u64();
             if !state.rls.policy_exists(tid, collection, name) {
                 return Some(Ok(vec![Response::Execution(Tag::new("DROP RLS POLICY"))]));
@@ -170,11 +172,11 @@ pub(super) fn try_dispatch_guards(
             None
         }
 
-        NodedbStatement::DropConsumerGroup {
+        NodedbStatement::StreamView(StreamViewStmt::DropConsumerGroup {
             name,
             stream,
             if_exists: true,
-        } => {
+        }) => {
             let tid = identity.tenant_id.as_u64();
             if state.group_registry.get(tid, stream, name).is_none() {
                 return Some(Ok(vec![Response::Execution(Tag::new(

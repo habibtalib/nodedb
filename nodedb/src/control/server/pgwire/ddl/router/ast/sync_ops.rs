@@ -5,7 +5,10 @@
 use pgwire::api::results::Response;
 use pgwire::error::PgWireResult;
 
-use nodedb_sql::ddl_ast::NodedbStatement;
+use nodedb_sql::ddl_ast::statement::{
+    AuthStmt, AutomationStmt, ClusterStmt, CollectionStmt, DatabaseStmt, NodedbStatement,
+    PolicyStmt, StreamViewStmt,
+};
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::ddl::alert::alter_alert;
@@ -49,13 +52,13 @@ pub(super) fn try_dispatch_sync(
         // handler honours `if_exists` correctly; previously the text-
         // based dispatcher read `parts[2]` and would treat "IF" as the
         // name.
-        NodedbStatement::DropCollection {
+        NodedbStatement::Collection(CollectionStmt::DropCollection {
             name,
             if_exists,
             purge,
             cascade,
             cascade_force,
-        } => Some(drop_collection(
+        }) => Some(drop_collection(
             state,
             identity,
             name,
@@ -65,41 +68,41 @@ pub(super) fn try_dispatch_sync(
             *cascade_force,
         )),
 
-        NodedbStatement::GrantRole { role, username } => {
+        NodedbStatement::Auth(AuthStmt::GrantRole { role, username }) => {
             Some(grant_role(state, identity, role, username))
         }
 
-        NodedbStatement::RevokeRole { role, username } => {
+        NodedbStatement::Auth(AuthStmt::RevokeRole { role, username }) => {
             Some(revoke_role(state, identity, role, username))
         }
 
-        NodedbStatement::AlterAlert { name, action } => {
+        NodedbStatement::Automation(AutomationStmt::AlterAlert { name, action }) => {
             Some(alter_alert(state, identity, name, action))
         }
 
-        NodedbStatement::AlterChangeStream { name, action } => {
+        NodedbStatement::StreamView(StreamViewStmt::AlterChangeStream { name, action }) => {
             Some(alter_change_stream(state, identity, name, action))
         }
 
-        NodedbStatement::BackupTenant { .. } => {
+        NodedbStatement::Database(DatabaseStmt::BackupTenant { .. }) => {
             Some(Err(super::super::super::super::types::sqlstate_error(
                 "0A000",
                 "use `COPY (BACKUP TENANT <id>) TO STDOUT` to stream backup bytes to the client",
             )))
         }
 
-        NodedbStatement::RestoreTenant { .. } => {
+        NodedbStatement::Database(DatabaseStmt::RestoreTenant { .. }) => {
             Some(Err(super::super::super::super::types::sqlstate_error(
                 "0A000",
                 "use `COPY tenant_restore(<id>) FROM STDIN` to stream backup bytes from the client",
             )))
         }
 
-        NodedbStatement::AlterTrigger {
+        NodedbStatement::Automation(AutomationStmt::AlterTrigger {
             name,
             action,
             new_owner,
-        } => Some(alter_trigger(
+        }) => Some(alter_trigger(
             state,
             identity,
             name,
@@ -107,18 +110,18 @@ pub(super) fn try_dispatch_sync(
             new_owner.as_deref(),
         )),
 
-        NodedbStatement::AlterRaftGroup {
+        NodedbStatement::Cluster(ClusterStmt::AlterRaftGroup {
             group_id,
             action,
             node_id,
-        } => Some(alter_raft_group(state, identity, group_id, action, node_id)),
+        }) => Some(alter_raft_group(state, identity, group_id, action, node_id)),
 
-        NodedbStatement::GrantPermission {
+        NodedbStatement::Auth(AuthStmt::GrantPermission {
             permission,
             target_type,
             target_name,
             grantee,
-        } => Some(grant_permission(
+        }) => Some(grant_permission(
             state,
             identity,
             permission,
@@ -127,20 +130,20 @@ pub(super) fn try_dispatch_sync(
             grantee,
         )),
 
-        NodedbStatement::GrantDatabasePermission {
+        NodedbStatement::Auth(AuthStmt::GrantDatabasePermission {
             permission,
             db_name,
             grantee,
-        } => Some(grant_database(
+        }) => Some(grant_database(
             state, identity, permission, db_name, grantee,
         )),
 
-        NodedbStatement::RevokePermission {
+        NodedbStatement::Auth(AuthStmt::RevokePermission {
             permission,
             target_type,
             target_name,
             grantee,
-        } => Some(revoke_permission(
+        }) => Some(revoke_permission(
             state,
             identity,
             permission,
@@ -149,19 +152,19 @@ pub(super) fn try_dispatch_sync(
             grantee,
         )),
 
-        NodedbStatement::RevokeDatabasePermission {
+        NodedbStatement::Auth(AuthStmt::RevokeDatabasePermission {
             permission,
             db_name,
             grantee,
-        } => Some(revoke_database(
+        }) => Some(revoke_database(
             state, identity, permission, db_name, grantee,
         )),
 
-        NodedbStatement::AlterSchedule {
+        NodedbStatement::Automation(AutomationStmt::AlterSchedule {
             name,
             action,
             cron_expr,
-        } => Some(alter_schedule(
+        }) => Some(alter_schedule(
             state,
             identity,
             name,
@@ -169,12 +172,12 @@ pub(super) fn try_dispatch_sync(
             cron_expr.as_deref(),
         )),
 
-        NodedbStatement::AlterRetentionPolicy {
+        NodedbStatement::Policy(PolicyStmt::AlterRetentionPolicy {
             name,
             action,
             set_key,
             set_value,
-        } => Some(alter_retention_policy(
+        }) => Some(alter_retention_policy(
             state,
             identity,
             name,
@@ -183,11 +186,11 @@ pub(super) fn try_dispatch_sync(
             set_value.as_deref(),
         )),
 
-        NodedbStatement::AlterSequence {
+        NodedbStatement::Collection(CollectionStmt::AlterSequence {
             name,
             action,
             with_value,
-        } => Some(alter_sequence(
+        }) => Some(alter_sequence(
             state,
             identity,
             name,
@@ -195,17 +198,17 @@ pub(super) fn try_dispatch_sync(
             with_value.as_deref(),
         )),
 
-        NodedbStatement::CreateConsumerGroup {
+        NodedbStatement::StreamView(StreamViewStmt::CreateConsumerGroup {
             group_name,
             stream_name,
-        } => Some(create_consumer_group(
+        }) => Some(create_consumer_group(
             state,
             identity,
             group_name,
             stream_name,
         )),
 
-        NodedbStatement::CreateAlert {
+        NodedbStatement::Automation(AutomationStmt::CreateAlert {
             name,
             collection,
             where_filter,
@@ -216,7 +219,7 @@ pub(super) fn try_dispatch_sync(
             recover_after,
             severity,
             notify_targets_raw,
-        } => Some(create_alert(
+        }) => Some(create_alert(
             state,
             identity,
             &CreateAlertRequest {
@@ -233,7 +236,7 @@ pub(super) fn try_dispatch_sync(
             },
         )),
 
-        NodedbStatement::CreateRlsPolicy {
+        NodedbStatement::Policy(PolicyStmt::CreateRlsPolicy {
             name,
             collection,
             policy_type,
@@ -241,7 +244,7 @@ pub(super) fn try_dispatch_sync(
             is_restrictive,
             on_deny_raw,
             tenant_id_override,
-        } => Some(create_rls_policy(
+        }) => Some(create_rls_policy(
             state,
             identity,
             &CreateRlsPolicyRequest {
@@ -255,7 +258,7 @@ pub(super) fn try_dispatch_sync(
             },
         )),
 
-        NodedbStatement::CreateSequence {
+        NodedbStatement::Collection(CollectionStmt::CreateSequence {
             name,
             if_not_exists: false,
             start,
@@ -268,7 +271,7 @@ pub(super) fn try_dispatch_sync(
             reset_period_raw,
             gap_free,
             scope,
-        } => Some(create_sequence(
+        }) => Some(create_sequence(
             state,
             identity,
             name,
@@ -284,12 +287,12 @@ pub(super) fn try_dispatch_sync(
             scope.as_deref(),
         )),
 
-        NodedbStatement::CreateUser {
+        NodedbStatement::Auth(AuthStmt::CreateUser {
             username,
             password,
             role,
             tenant_id,
-        } => Some(create_user(
+        }) => Some(create_user(
             state,
             identity,
             username,
@@ -298,21 +301,21 @@ pub(super) fn try_dispatch_sync(
             *tenant_id,
         )),
 
-        NodedbStatement::AlterUser { username, op } => {
+        NodedbStatement::Auth(AuthStmt::AlterUser { username, op }) => {
             Some(alter_user(state, identity, username, op))
         }
 
-        NodedbStatement::ShowPermissions {
+        NodedbStatement::Auth(AuthStmt::ShowPermissions {
             on_collection,
             for_grantee,
-        } => Some(show_permissions(
+        }) => Some(show_permissions(
             state,
             identity,
             on_collection.as_deref(),
             for_grantee.as_deref(),
         )),
 
-        NodedbStatement::AlterRole { name, sub_op } => {
+        NodedbStatement::Auth(AuthStmt::AlterRole { name, sub_op }) => {
             Some(alter_role_typed(state, identity, name, sub_op))
         }
 

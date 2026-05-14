@@ -114,7 +114,9 @@ pub(super) async fn dispatch(
             Some(Ok(stmt)) => {
                 if matches!(
                     stmt,
-                    nodedb_sql::ddl_ast::NodedbStatement::MatchQuery { .. }
+                    nodedb_sql::ddl_ast::NodedbStatement::Graph(
+                        nodedb_sql::ddl_ast::statement::GraphStmt::MatchQuery { .. }
+                    )
                 ) {
                     return Some(super::super::match_ops::match_query(state, identity, sql).await);
                 }

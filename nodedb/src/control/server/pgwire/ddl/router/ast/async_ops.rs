@@ -5,7 +5,10 @@
 use pgwire::api::results::Response;
 use pgwire::error::PgWireResult;
 
-use nodedb_sql::ddl_ast::NodedbStatement;
+use nodedb_sql::ddl_ast::statement::{
+    AuthStmt, AutomationStmt, CollectionStmt, DatabaseStmt, MiscStmt, NodedbStatement, PolicyStmt,
+    StreamViewStmt,
+};
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::ddl::change_stream::create_change_stream;
@@ -47,7 +50,7 @@ pub(super) async fn try_dispatch_async(
     database_id: DatabaseId,
 ) -> Option<PgWireResult<Vec<Response>>> {
     match stmt {
-        NodedbStatement::CreateTrigger {
+        NodedbStatement::Automation(AutomationStmt::CreateTrigger {
             or_replace,
             execution_mode,
             name,
@@ -61,7 +64,7 @@ pub(super) async fn try_dispatch_async(
             priority,
             security,
             body_sql,
-        } => Some(create_trigger(
+        }) => Some(create_trigger(
             state,
             identity,
             *or_replace,
@@ -79,14 +82,14 @@ pub(super) async fn try_dispatch_async(
             body_sql,
         )),
 
-        NodedbStatement::CreateSchedule {
+        NodedbStatement::Automation(AutomationStmt::CreateSchedule {
             name,
             cron_expr,
             body_sql,
             scope,
             missed_policy,
             allow_overlap,
-        } => Some(create_schedule(
+        }) => Some(create_schedule(
             state,
             identity,
             &CreateScheduleRequest {
@@ -99,11 +102,11 @@ pub(super) async fn try_dispatch_async(
             },
         )),
 
-        NodedbStatement::CreateChangeStream {
+        NodedbStatement::StreamView(StreamViewStmt::CreateChangeStream {
             name,
             collection,
             with_clause_raw,
-        } => Some(create_change_stream(
+        }) => Some(create_change_stream(
             state,
             identity,
             name,
@@ -111,23 +114,23 @@ pub(super) async fn try_dispatch_async(
             with_clause_raw,
         )),
 
-        NodedbStatement::CreateMaterializedView {
+        NodedbStatement::StreamView(StreamViewStmt::CreateMaterializedView {
             name,
             source,
             query_sql,
             refresh_mode,
-        } => Some(
+        }) => Some(
             create_materialized_view(state, identity, name, source, query_sql, refresh_mode).await,
         ),
 
-        NodedbStatement::CreateContinuousAggregate {
+        NodedbStatement::StreamView(StreamViewStmt::CreateContinuousAggregate {
             name,
             source,
             bucket_raw,
             aggregate_exprs_raw,
             group_by,
             with_clause_raw,
-        } => Some(
+        }) => Some(
             create_continuous_aggregate(
                 state,
                 identity,
@@ -143,12 +146,12 @@ pub(super) async fn try_dispatch_async(
             .await,
         ),
 
-        NodedbStatement::CreateRetentionPolicy {
+        NodedbStatement::Policy(PolicyStmt::CreateRetentionPolicy {
             name,
             collection,
             body_raw,
             eval_interval_raw,
-        } => Some(
+        }) => Some(
             create_retention_policy(
                 state,
                 identity,
@@ -160,14 +163,14 @@ pub(super) async fn try_dispatch_async(
             .await,
         ),
 
-        NodedbStatement::CreateIndex {
+        NodedbStatement::Collection(CollectionStmt::CreateIndex {
             unique,
             index_name,
             collection,
             field,
             case_insensitive,
             where_condition,
-        } => Some(
+        }) => Some(
             create_index(
                 state,
                 identity,
@@ -183,7 +186,7 @@ pub(super) async fn try_dispatch_async(
             .await,
         ),
 
-        NodedbStatement::CreateCollection {
+        NodedbStatement::Collection(CollectionStmt::CreateCollection {
             name,
             if_not_exists: _,
             engine,
@@ -191,7 +194,7 @@ pub(super) async fn try_dispatch_async(
             options,
             flags,
             balanced_raw,
-        } => {
+        }) => {
             let result = create_collection(
                 state,
                 identity,
@@ -218,7 +221,7 @@ pub(super) async fn try_dispatch_async(
             Some(result)
         }
 
-        NodedbStatement::CreateTable {
+        NodedbStatement::Collection(CollectionStmt::CreateTable {
             name,
             // Both false (normal create) and true (IF NOT EXISTS — guard
             // already returned early if the collection existed) fall through
@@ -229,7 +232,7 @@ pub(super) async fn try_dispatch_async(
             options,
             flags,
             balanced_raw,
-        } => {
+        }) => {
             let result = create_table(
                 state,
                 identity,
@@ -256,47 +259,49 @@ pub(super) async fn try_dispatch_async(
             Some(result)
         }
 
-        NodedbStatement::AlterCollection { name, operation } => {
+        NodedbStatement::Collection(CollectionStmt::AlterCollection { name, operation }) => {
             Some(dispatch_alter_collection(state, identity, name, operation).await)
         }
 
-        NodedbStatement::ShowConflictPolicy { collection } => {
+        NodedbStatement::Policy(PolicyStmt::ShowConflictPolicy { collection }) => {
             Some(show_conflict_policy(state, identity, collection).await)
         }
 
-        NodedbStatement::CreateSynonymGroup { name, terms } => {
+        NodedbStatement::Policy(PolicyStmt::CreateSynonymGroup { name, terms }) => {
             Some(create_synonym_group(state, identity, name, terms).await)
         }
 
-        NodedbStatement::DropSynonymGroup { name, if_exists } => {
+        NodedbStatement::Policy(PolicyStmt::DropSynonymGroup { name, if_exists }) => {
             Some(drop_synonym_group(state, identity, name, *if_exists).await)
         }
 
-        NodedbStatement::ShowSynonymGroups => Some(show_synonym_groups(state, identity)),
+        NodedbStatement::Policy(PolicyStmt::ShowSynonymGroups) => {
+            Some(show_synonym_groups(state, identity))
+        }
 
-        NodedbStatement::CreateEnumType { name, labels } => {
+        NodedbStatement::Policy(PolicyStmt::CreateEnumType { name, labels }) => {
             Some(create_enum_type(state, identity, name, labels).await)
         }
 
-        NodedbStatement::CreateCompositeType { name, fields } => {
+        NodedbStatement::Policy(PolicyStmt::CreateCompositeType { name, fields }) => {
             Some(create_composite_type(state, identity, name, fields).await)
         }
 
-        NodedbStatement::DropType { name, if_exists } => {
+        NodedbStatement::Policy(PolicyStmt::DropType { name, if_exists }) => {
             Some(drop_type(state, identity, name, *if_exists).await)
         }
 
-        NodedbStatement::AlterTypeAddValue { type_name, label } => {
+        NodedbStatement::Policy(PolicyStmt::AlterTypeAddValue { type_name, label }) => {
             Some(alter_type_add_value(state, identity, type_name, label).await)
         }
 
-        NodedbStatement::ShowTypes => Some(show_types(state, identity)),
+        NodedbStatement::Policy(PolicyStmt::ShowTypes) => Some(show_types(state, identity)),
 
-        NodedbStatement::Reindex {
+        NodedbStatement::Collection(CollectionStmt::Reindex {
             collection,
             index_name,
             concurrent,
-        } => Some(
+        }) => Some(
             super::super::super::maintenance::handle_reindex(
                 state,
                 identity,
@@ -307,13 +312,13 @@ pub(super) async fn try_dispatch_async(
             .await,
         ),
 
-        NodedbStatement::CopyFromFile {
+        NodedbStatement::Misc(MiscStmt::CopyFromFile {
             collection,
             path,
             format,
             delimiter,
             header,
-        } => Some(
+        }) => Some(
             copy_from_file(
                 state,
                 identity,
@@ -329,13 +334,13 @@ pub(super) async fn try_dispatch_async(
             .await,
         ),
 
-        NodedbStatement::CopyToFile {
+        NodedbStatement::Misc(MiscStmt::CopyToFile {
             source,
             path,
             format,
             delimiter,
             header,
-        } => Some(
+        }) => Some(
             copy_to_file(
                 state,
                 identity,
@@ -348,19 +353,19 @@ pub(super) async fn try_dispatch_async(
             .await,
         ),
 
-        NodedbStatement::MoveTenant {
+        NodedbStatement::Database(DatabaseStmt::MoveTenant {
             tenant_name,
             from_db,
             to_db,
-        } => Some(handle_move_tenant(state, identity, tenant_name, from_db, to_db).await),
+        }) => Some(handle_move_tenant(state, identity, tenant_name, from_db, to_db).await),
 
-        NodedbStatement::CreateOidcProvider {
+        NodedbStatement::Auth(AuthStmt::CreateOidcProvider {
             name,
             issuer,
             jwks_uri,
             audience,
             claim_mappings,
-        } => Some(
+        }) => Some(
             create_oidc_provider(
                 state,
                 identity,
@@ -373,16 +378,18 @@ pub(super) async fn try_dispatch_async(
             .await,
         ),
 
-        NodedbStatement::AlterOidcProviderClaimMapping {
+        NodedbStatement::Auth(AuthStmt::AlterOidcProviderClaimMapping {
             name,
             claim_mappings,
-        } => Some(alter_oidc_provider_claim_mapping(state, identity, name, claim_mappings).await),
+        }) => Some(alter_oidc_provider_claim_mapping(state, identity, name, claim_mappings).await),
 
-        NodedbStatement::DropOidcProvider { name, if_exists } => {
+        NodedbStatement::Auth(AuthStmt::DropOidcProvider { name, if_exists }) => {
             Some(drop_oidc_provider(state, identity, name, *if_exists).await)
         }
 
-        NodedbStatement::ShowOidcProviders => Some(show_oidc_providers(state, identity)),
+        NodedbStatement::Auth(AuthStmt::ShowOidcProviders) => {
+            Some(show_oidc_providers(state, identity))
+        }
 
         _ => None,
     }
