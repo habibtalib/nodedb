@@ -80,6 +80,18 @@ pub struct GraphStats {
 }
 
 impl GraphStats {
+    /// Column names of the wire row shape produced by
+    /// `SHOW GRAPH STATS [<'collection'>]`. Single source of truth — the
+    /// parser validates against this, and clients use it to build the
+    /// `columns` slice in tests so the two never drift.
+    pub const EXPECTED_COLUMNS: [&'static str; 5] = [
+        "collection",
+        "node_count",
+        "edge_count",
+        "distinct_label_count",
+        "labels",
+    ];
+
     pub fn zero(collection: impl Into<String>) -> Self {
         Self {
             collection: collection.into(),
@@ -90,11 +102,11 @@ impl GraphStats {
         }
     }
 
-    /// Parse the wire shape produced by `SHOW GRAPH STATS '<collection>'`
-    /// into a typed `GraphStats`. Used by both the native and the pgwire
-    /// remote clients — keeping a single parser here is what makes the
-    /// `wire_shape:` smoke-probe error messages a meaningful diagnostic
-    /// rather than a coincidence between two copies.
+    /// Parse the wire shape produced by `SHOW GRAPH STATS [<'collection'>]`
+    /// into a vec of `GraphStats`, one entry per row. Used by both the
+    /// native and the pgwire remote clients — keeping a single parser here
+    /// is what makes the `wire_shape:` smoke-probe error messages a
+    /// meaningful diagnostic rather than a coincidence between two copies.
     ///
     /// Expected columns: `(collection, node_count, edge_count,
     /// distinct_label_count, labels)`, where `labels` is a JSON array of
@@ -104,40 +116,43 @@ impl GraphStats {
     /// (extended-query / native typed) or `Value::String` (pgwire simple
     /// query text protocol); both shapes are accepted.
     ///
-    /// Column-shape mismatches surface as errors (this is exactly the
-    /// bug class the smoke probe is designed to trap, so no fallback);
-    /// empty columns + empty rows return a zero-stats row keyed on the
-    /// requested collection (matches Lite when nothing has been written).
+    /// Column-shape mismatches surface as errors (this is exactly the bug
+    /// class the smoke probe is designed to trap, so no fallback); empty
+    /// rows return an empty vec — callers decide how to interpret no rows.
     pub fn parse_show_stats_response(
-        requested_collection: &str,
         columns: &[String],
         rows: &[Vec<crate::value::Value>],
-    ) -> crate::error::NodeDbResult<Self> {
+    ) -> crate::error::NodeDbResult<Vec<Self>> {
         use crate::error::NodeDbError;
 
-        const EXPECTED: [&str; 5] = [
-            "collection",
-            "node_count",
-            "edge_count",
-            "distinct_label_count",
-            "labels",
-        ];
-
-        if columns.len() != EXPECTED.len()
-            || columns.iter().zip(EXPECTED.iter()).any(|(a, b)| a != b)
+        if columns.len() != Self::EXPECTED_COLUMNS.len()
+            || columns
+                .iter()
+                .zip(Self::EXPECTED_COLUMNS.iter())
+                .any(|(a, b)| a != b)
         {
             if !columns.is_empty() {
                 return Err(NodeDbError::storage(format!(
                     "wire_shape: SHOW GRAPH STATS returned unexpected columns: {columns:?}"
                 )));
             }
-            return Ok(Self::zero(requested_collection));
+            // No columns and no rows: treat as empty result.
+            return Ok(Vec::new());
         }
 
-        let row = match rows.first() {
-            Some(r) => r,
-            None => return Ok(Self::zero(requested_collection)),
-        };
+        if rows.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut out = Vec::with_capacity(rows.len());
+        for row in rows {
+            out.push(Self::parse_one_row(row)?);
+        }
+        Ok(out)
+    }
+
+    fn parse_one_row(row: &[crate::value::Value]) -> crate::error::NodeDbResult<Self> {
+        use crate::error::NodeDbError;
 
         let coll_name = row
             .first()
@@ -235,51 +250,59 @@ mod tests {
     }
 
     #[test]
-    fn parse_show_stats_well_formed_row() {
+    fn parse_show_stats_multi_row() {
         use crate::value::Value;
-        let columns = vec![
-            "collection".to_string(),
-            "node_count".to_string(),
-            "edge_count".to_string(),
-            "distinct_label_count".to_string(),
-            "labels".to_string(),
-        ];
+        let columns: Vec<String> = GraphStats::EXPECTED_COLUMNS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let labels_json = r#"[{"label":"KNOWS","count":3},{"label":"OWNS","count":2}]"#;
-        let rows = vec![vec![
-            Value::String("social".into()),
-            // pgwire simple-query text protocol arrives as strings;
-            // the native protocol arrives as integers — both shapes are accepted.
-            Value::String("10".into()),
-            Value::Integer(5),
-            Value::String("2".into()),
-            Value::String(labels_json.into()),
-        ]];
-        let stats = GraphStats::parse_show_stats_response("social", &columns, &rows).unwrap();
-        assert_eq!(stats.collection, "social");
-        assert_eq!(stats.node_count, 10);
-        assert_eq!(stats.edge_count, 5);
-        assert_eq!(stats.distinct_label_count, 2);
-        assert_eq!(stats.labels, vec![("KNOWS".into(), 3), ("OWNS".into(), 2),]);
+        let rows = vec![
+            vec![
+                Value::String("social".into()),
+                // pgwire simple-query text protocol arrives as strings;
+                // the native protocol arrives as integers — both shapes are accepted.
+                Value::String("10".into()),
+                Value::Integer(5),
+                Value::String("2".into()),
+                Value::String(labels_json.into()),
+            ],
+            vec![
+                Value::String("comms".into()),
+                Value::Integer(3),
+                Value::Integer(2),
+                Value::Integer(1),
+                Value::String(r#"[{"label":"CALLS","count":2}]"#.into()),
+            ],
+        ];
+        let result = GraphStats::parse_show_stats_response(&columns, &rows).unwrap();
+        assert_eq!(result.len(), 2);
+        let social = &result[0];
+        assert_eq!(social.collection, "social");
+        assert_eq!(social.node_count, 10);
+        assert_eq!(social.edge_count, 5);
+        assert_eq!(social.distinct_label_count, 2);
+        assert_eq!(social.labels, vec![("KNOWS".into(), 3), ("OWNS".into(), 2)]);
+        let comms = &result[1];
+        assert_eq!(comms.collection, "comms");
+        assert_eq!(comms.edge_count, 2);
+        assert_eq!(comms.labels, vec![("CALLS".into(), 2)]);
     }
 
     #[test]
-    fn parse_show_stats_empty_rows_returns_zero() {
-        let columns = vec![
-            "collection".to_string(),
-            "node_count".to_string(),
-            "edge_count".to_string(),
-            "distinct_label_count".to_string(),
-            "labels".to_string(),
-        ];
-        let stats = GraphStats::parse_show_stats_response("social", &columns, &[]).unwrap();
-        assert_eq!(stats.collection, "social");
-        assert_eq!(stats.edge_count, 0);
+    fn parse_show_stats_empty_rows_returns_empty_vec() {
+        let columns: Vec<String> = GraphStats::EXPECTED_COLUMNS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let result = GraphStats::parse_show_stats_response(&columns, &[]).unwrap();
+        assert!(result.is_empty());
     }
 
     #[test]
     fn parse_show_stats_wrong_columns_errors() {
         let columns = vec!["id".to_string(), "count".to_string()];
-        let err = GraphStats::parse_show_stats_response("social", &columns, &[]).unwrap_err();
+        let err = GraphStats::parse_show_stats_response(&columns, &[]).unwrap_err();
         assert!(
             err.to_string().contains("unexpected columns"),
             "error should mention unexpected columns: {err}"
@@ -287,10 +310,9 @@ mod tests {
     }
 
     #[test]
-    fn parse_show_stats_no_columns_no_rows_returns_zero() {
-        let stats = GraphStats::parse_show_stats_response("social", &[], &[]).unwrap();
-        assert_eq!(stats.collection, "social");
-        assert_eq!(stats.edge_count, 0);
+    fn parse_show_stats_no_columns_no_rows_returns_empty_vec() {
+        let result = GraphStats::parse_show_stats_response(&[], &[]).unwrap();
+        assert!(result.is_empty());
     }
 
     #[test]

@@ -104,8 +104,12 @@ impl NodeDb for NativeClient {
         self.graph_delete_edge_impl(collection, edge_id).await
     }
 
-    async fn graph_stats(&self, collection: &str) -> NodeDbResult<GraphStats> {
-        self.graph_stats_impl(collection).await
+    async fn graph_stats(
+        &self,
+        collection: Option<&str>,
+        as_of: Option<i64>,
+    ) -> NodeDbResult<Vec<GraphStats>> {
+        self.graph_stats_impl(collection, as_of).await
     }
 
     async fn document_get(&self, collection: &str, id: &str) -> NodeDbResult<Option<Document>> {

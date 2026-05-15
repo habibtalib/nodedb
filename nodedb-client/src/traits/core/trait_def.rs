@@ -122,16 +122,28 @@ pub trait NodeDb: NodeDbMarker {
     /// On Remote: `GRAPH DELETE EDGE IN '<collection>' FROM '<src>' TO '<dst>' TYPE '<label>'`.
     async fn graph_delete_edge(&self, collection: &str, edge_id: &EdgeId) -> NodeDbResult<()>;
 
-    /// Read aggregated graph statistics for `collection`.
+    /// Read aggregated graph statistics.
     ///
-    /// Returns global edge count, distinct node count, distinct label
-    /// count, and per-label edge counts (sorted ascending by label).
-    /// Reads what was *persisted* in the edge store, bypassing any
-    /// in-memory CSR view.
+    /// When `collection` is `Some(name)`, returns statistics for that one
+    /// collection — a vec of length 0 (no edges recorded) or 1. When
+    /// `collection` is `None`, returns one `GraphStats` per collection that
+    /// has edges (tenant-wide). Each entry contains the global edge count,
+    /// distinct node count, distinct label count, and per-label edge counts
+    /// (sorted ascending by label name). Reads what was *persisted* in the
+    /// edge store, bypassing any in-memory CSR view.
+    ///
+    /// `as_of` pins the read to a past system-time epoch (milliseconds
+    /// since Unix epoch). When `None`, the live (current) state is
+    /// returned. Bitemporal reads are supported on Origin; the Lite backend
+    /// returns an error when `as_of` is `Some`.
     ///
     /// On Lite: direct read of the local edge store.
-    /// On Remote: `SHOW GRAPH STATS '<collection>'` over pgwire.
-    async fn graph_stats(&self, collection: &str) -> NodeDbResult<GraphStats>;
+    /// On Remote: `SHOW GRAPH STATS [<'collection'>] [AS OF SYSTEM TIME <ms>]`.
+    async fn graph_stats(
+        &self,
+        collection: Option<&str>,
+        as_of: Option<i64>,
+    ) -> NodeDbResult<Vec<GraphStats>>;
 
     // ─── Document Operations ─────────────────────────────────────────
 
@@ -530,8 +542,12 @@ mod tests {
             Ok(())
         }
 
-        async fn graph_stats(&self, collection: &str) -> NodeDbResult<GraphStats> {
-            Ok(GraphStats::zero(collection))
+        async fn graph_stats(
+            &self,
+            collection: Option<&str>,
+            _as_of: Option<i64>,
+        ) -> NodeDbResult<Vec<GraphStats>> {
+            Ok(vec![GraphStats::zero(collection.unwrap_or("mock"))])
         }
 
         async fn document_get(
@@ -595,12 +611,22 @@ mod tests {
     #[tokio::test]
     async fn mock_graph_stats_returns_zero() {
         let db = MockDb;
-        let stats = db.graph_stats("social").await.unwrap();
+        let result = db.graph_stats(Some("social"), None).await.unwrap();
+        assert_eq!(result.len(), 1);
+        let stats = &result[0];
         assert_eq!(stats.collection, "social");
         assert_eq!(stats.node_count, 0);
         assert_eq!(stats.edge_count, 0);
         assert_eq!(stats.distinct_label_count, 0);
         assert!(stats.labels.is_empty());
+    }
+
+    #[tokio::test]
+    async fn mock_graph_stats_tenant_wide_uses_mock_key() {
+        let db = MockDb;
+        let result = db.graph_stats(None, None).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].collection, "mock");
     }
 
     #[tokio::test]
