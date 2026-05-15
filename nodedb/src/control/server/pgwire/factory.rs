@@ -149,14 +149,7 @@ impl AuthSource for NodeDbAuthSource {
 
 fn nodedb_parameter_provider() -> DefaultServerParameterProvider {
     let mut params = DefaultServerParameterProvider::default();
-    // Source from the workspace version so this tracks the actual build
-    // instead of drifting behind every release (see issue: server_version
-    // stuck at 0.1.0).
-    params.server_version = format!(
-        "{} (pgwire {})",
-        crate::control::server::server_version_string(),
-        env!("CARGO_PKG_VERSION")
-    );
+    params.server_version = format!("NodeDB {}", crate::version::VERSION);
     params
 }
 
