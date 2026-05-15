@@ -75,7 +75,7 @@ pub use document::Document;
 pub use dropped_collection::DroppedCollection;
 pub use error::NodeDbError;
 pub use filter::{EdgeFilter, MetadataFilter};
-pub use graph::Direction;
+pub use graph::{Direction, GraphStats};
 pub use hlc::{Hlc, HlcClock};
 pub use hnsw::{HnswCheckpoint, HnswNodeSnapshot, HnswParams};
 pub use id::{

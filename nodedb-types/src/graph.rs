@@ -4,6 +4,40 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Aggregate stats for a single graph collection (or the full edge store
+/// when no collection is specified).
+///
+/// Returned by [`NodeDb::graph_stats`]. Wire-safe: serializes to/from
+/// MessagePack so the value can cross the Data-Plane boundary unchanged.
+///
+/// The `node_count` field counts distinct node IDs observed as edge
+/// endpoints (not necessarily all nodes ever inserted). For Origin, this
+/// equals `distinct_node_count` from the persistent stats table; for Lite,
+/// it is derived from the CRDT edge store at query time.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    zerompk::ToMessagePack,
+    zerompk::FromMessagePack,
+)]
+#[msgpack(map)]
+pub struct GraphStats {
+    /// Name of the collection (or `"__edges"` on Lite when no collection is
+    /// supplied).
+    pub collection: String,
+    /// Distinct node IDs that appear as an edge source or destination.
+    pub node_count: u64,
+    /// Total number of edges in the collection.
+    pub edge_count: u64,
+    /// Number of distinct edge label strings.
+    pub distinct_label_count: u64,
+    /// Per-label edge counts, sorted ascending by label name.
+    pub labels: Vec<(String, u64)>,
+}
+
 /// Edge traversal direction.
 #[derive(
     Debug,

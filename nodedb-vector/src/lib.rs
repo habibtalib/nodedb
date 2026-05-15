@@ -48,20 +48,25 @@ pub mod index_config;
 // IVF-PQ index (large datasets).
 pub mod ivf;
 
-// NVMe mmap tier (requires libc).
+// NVMe mmap tier (requires libc + memmap2; not available on wasm32).
+#[cfg(not(target_arch = "wasm32"))]
 pub mod mmap_segment;
 
-// Background HNSW builder thread.
+// Background HNSW builder thread (depends on collection; not on wasm32).
+#[cfg(not(target_arch = "wasm32"))]
 pub mod builder;
 
-// Full VectorCollection with segment lifecycle.
+// Full VectorCollection with segment lifecycle (not on wasm32).
+#[cfg(not(target_arch = "wasm32"))]
 pub mod collection;
 
 // Re-exports for unconditionally compiled types.
 pub use adaptive_filter::{
     FilterStrategy, FilterThresholds, adaptive_search, estimate_selectivity, select_strategy,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use builder::{BuildSender, CompleteReceiver};
+#[cfg(not(target_arch = "wasm32"))]
 pub use collection::{BuildComplete, BuildRequest, StorageTier, VectorCollection};
 pub use flat::FlatIndex;
 pub use index_config::{IndexConfig, IndexType};
