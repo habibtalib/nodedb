@@ -1,6 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Wire frame format and message-type discriminants.
+//!
+//! Additional opcodes beyond what the module-level doc in `mod.rs` lists:
+//! - `0xA2` VectorInsert (client → server)
+//! - `0xA3` VectorInsertAck (server → client)
+//! - `0xA4` VectorDelete (client → server)
+//! - `0xA5` VectorDeleteAck (server → client)
+//! - `0xA6` FtsIndex (client → server)
+//! - `0xA7` FtsIndexAck (server → client)
+//! - `0xA8` FtsDelete (client → server)
+//! - `0xA9` FtsDeleteAck (server → client)
+//! - `0xAA` SpatialInsert (client → server)
+//! - `0xAB` SpatialInsertAck (server → client)
+//! - `0xAC` SpatialDelete (client → server)
+//! - `0xAD` SpatialDeleteAck (server → client)
 
 /// Sync message type identifiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +76,34 @@ pub enum SyncMessageType {
     ArrayReject = 0x96,
     /// Array catchup request (client → server, 0x97).
     ArrayCatchupRequest = 0x97,
+    /// Columnar batch insert (client → server, 0xA0).
+    ColumnarInsert = 0xA0,
+    /// Columnar insert acknowledgment (server → client, 0xA1).
+    ColumnarInsertAck = 0xA1,
+    /// Vector insert (client → server, 0xA2).
+    VectorInsert = 0xA2,
+    /// Vector insert acknowledgment (server → client, 0xA3).
+    VectorInsertAck = 0xA3,
+    /// Vector delete (client → server, 0xA4).
+    VectorDelete = 0xA4,
+    /// Vector delete acknowledgment (server → client, 0xA5).
+    VectorDeleteAck = 0xA5,
+    /// FTS document index (client → server, 0xA6).
+    FtsIndex = 0xA6,
+    /// FTS index acknowledgment (server → client, 0xA7).
+    FtsIndexAck = 0xA7,
+    /// FTS document delete (client → server, 0xA8).
+    FtsDelete = 0xA8,
+    /// FTS delete acknowledgment (server → client, 0xA9).
+    FtsDeleteAck = 0xA9,
+    /// Spatial geometry insert (client → server, 0xAA).
+    SpatialInsert = 0xAA,
+    /// Spatial insert acknowledgment (server → client, 0xAB).
+    SpatialInsertAck = 0xAB,
+    /// Spatial geometry delete (client → server, 0xAC).
+    SpatialDelete = 0xAC,
+    /// Spatial delete acknowledgment (server → client, 0xAD).
+    SpatialDeleteAck = 0xAD,
     PingPong = 0xFF,
 }
 
@@ -97,6 +139,20 @@ impl SyncMessageType {
             0x95 => Some(Self::ArrayAck),
             0x96 => Some(Self::ArrayReject),
             0x97 => Some(Self::ArrayCatchupRequest),
+            0xA0 => Some(Self::ColumnarInsert),
+            0xA1 => Some(Self::ColumnarInsertAck),
+            0xA2 => Some(Self::VectorInsert),
+            0xA3 => Some(Self::VectorInsertAck),
+            0xA4 => Some(Self::VectorDelete),
+            0xA5 => Some(Self::VectorDeleteAck),
+            0xA6 => Some(Self::FtsIndex),
+            0xA7 => Some(Self::FtsIndexAck),
+            0xA8 => Some(Self::FtsDelete),
+            0xA9 => Some(Self::FtsDeleteAck),
+            0xAA => Some(Self::SpatialInsert),
+            0xAB => Some(Self::SpatialInsertAck),
+            0xAC => Some(Self::SpatialDelete),
+            0xAD => Some(Self::SpatialDeleteAck),
             0xFF => Some(Self::PingPong),
             _ => None,
         }

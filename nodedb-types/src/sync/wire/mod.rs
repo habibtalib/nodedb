@@ -34,16 +34,34 @@
 //! - `0x95` ArrayAck (client → server)
 //! - `0x96` ArrayReject (server → client)
 //! - `0x97` ArrayCatchupRequest (client → server)
+//! - `0xA0` ColumnarInsert (client → server)
+//! - `0xA1` ColumnarInsertAck (server → client)
+//! - `0xA2` VectorInsert (client → server)
+//! - `0xA3` VectorInsertAck (server → client)
+//! - `0xA4` VectorDelete (client → server)
+//! - `0xA5` VectorDeleteAck (server → client)
+//! - `0xA6` FtsIndex (client → server)
+//! - `0xA7` FtsIndexAck (server → client)
+//! - `0xA8` FtsDelete (client → server)
+//! - `0xA9` FtsDeleteAck (server → client)
+//! - `0xAA` SpatialInsert (client → server)
+//! - `0xAB` SpatialInsertAck (server → client)
+//! - `0xAC` SpatialDelete (client → server)
+//! - `0xAD` SpatialDeleteAck (server → client)
 //! - `0xFF` Ping/Pong (bidirectional)
 
 pub mod array;
+pub mod columnar;
 pub mod delta;
 pub mod frame;
+pub mod fts;
 pub mod presence;
 pub mod resync;
 pub mod session;
 pub mod shape;
+pub mod spatial;
 pub mod timeseries;
+pub mod vector;
 
 #[cfg(test)]
 mod tests;
@@ -52,8 +70,10 @@ pub use array::{
     ArrayAckMsg, ArrayCatchupRequestMsg, ArrayDeltaBatchMsg, ArrayDeltaMsg, ArrayRejectMsg,
     ArrayRejectReason, ArraySchemaSyncMsg, ArraySnapshotChunkMsg, ArraySnapshotMsg,
 };
+pub use columnar::{ColumnarInsertAckMsg, ColumnarInsertMsg};
 pub use delta::{CollectionPurgedMsg, DeltaAckMsg, DeltaPushMsg, DeltaRejectMsg};
 pub use frame::{SyncFrame, SyncMessageType};
+pub use fts::{FtsDeleteAckMsg, FtsDeleteMsg, FtsIndexAckMsg, FtsIndexMsg};
 pub use presence::{PeerPresence, PresenceBroadcastMsg, PresenceLeaveMsg, PresenceUpdateMsg};
 pub use resync::{ResyncReason, ResyncRequestMsg, ThrottleMsg};
 pub use session::{
@@ -62,4 +82,6 @@ pub use session::{
 pub use shape::{
     ShapeDeltaMsg, ShapeSnapshotMsg, ShapeSubscribeMsg, ShapeUnsubscribeMsg, VectorClockSyncMsg,
 };
+pub use spatial::{SpatialDeleteAckMsg, SpatialDeleteMsg, SpatialInsertAckMsg, SpatialInsertMsg};
 pub use timeseries::{DefinitionSyncMsg, TimeseriesAckMsg, TimeseriesPushMsg};
+pub use vector::{VectorDeleteAckMsg, VectorDeleteMsg, VectorInsertAckMsg, VectorInsertMsg};

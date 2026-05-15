@@ -50,6 +50,9 @@ pub enum Namespace {
     ArrayOpLog = 10,
     /// Array sync pending queue: ops waiting for transport delivery.
     ArrayDelta = 11,
+    /// Full-text search engine: posting lists, doc-length maps, BM25 stats,
+    /// fieldnorm blobs, segment bytes, and surrogate maps.
+    Fts = 12,
 }
 
 impl Namespace {
@@ -68,6 +71,7 @@ impl Namespace {
             9 => Some(Self::Array),
             10 => Some(Self::ArrayOpLog),
             11 => Some(Self::ArrayDelta),
+            12 => Some(Self::Fts),
             _ => None,
         }
     }
@@ -79,10 +83,10 @@ mod tests {
 
     #[test]
     fn namespace_roundtrip() {
-        for v in 0u8..=11 {
+        for v in 0u8..=12 {
             let ns = Namespace::from_u8(v).unwrap();
             assert_eq!(ns as u8, v);
         }
-        assert!(Namespace::from_u8(12).is_none());
+        assert!(Namespace::from_u8(13).is_none());
     }
 }
