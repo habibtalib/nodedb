@@ -10,8 +10,8 @@ use nodedb_types::result::{QueryResult, SearchResult};
 use nodedb_types::text_search::TextSearchParams;
 use nodedb_types::value::Value;
 
-use crate::remote_parse::quote_identifier;
 use crate::row_decode::parse_dropped_collection_rows;
+use crate::sql_escape::{quote_identifier, quote_string_literal};
 
 use super::super::sql::translate_params;
 use super::core::NodeDbRemote;
@@ -96,11 +96,11 @@ impl NodeDbRemote {
         let _ = params;
         let coll = quote_identifier(collection);
         let field_quoted = quote_identifier(field);
-        let q_escaped = query.replace('\'', "''");
+        let q_lit = quote_string_literal(query);
         let sql = format!(
-            "SELECT id, bm25_score({field_quoted}, '{q_escaped}') AS score \
+            "SELECT id, bm25_score({field_quoted}, {q_lit}) AS score \
              FROM {coll} \
-             WHERE text_match({field_quoted}, '{q_escaped}') \
+             WHERE text_match({field_quoted}, {q_lit}) \
              LIMIT {top_k}"
         );
 

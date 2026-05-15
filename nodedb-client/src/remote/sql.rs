@@ -14,7 +14,8 @@ use nodedb_types::error::{NodeDbError, NodeDbResult};
 use nodedb_types::filter::MetadataFilter;
 use nodedb_types::value::Value;
 
-use crate::remote_parse::{format_vector_array, quote_identifier};
+use crate::remote_parse::format_vector_array;
+use crate::sql_escape::{quote_identifier, quote_string_literal};
 
 /// Build the SQL for a vector search.
 ///
@@ -138,7 +139,7 @@ fn render_sql_literal(v: &Value) -> NodeDbResult<String> {
         Value::Bool(b) => Ok(if *b { "TRUE".into() } else { "FALSE".into() }),
         Value::Integer(i) => Ok(i.to_string()),
         Value::Float(f) => Ok(f.to_string()),
-        Value::String(s) => Ok(format!("'{}'", s.replace('\'', "''"))),
+        Value::String(s) => Ok(quote_string_literal(s)),
         other => Err(NodeDbError::storage(format!(
             "metadata filter value cannot be rendered as a SQL literal: {other:?}"
         ))),

@@ -86,13 +86,6 @@ pub(crate) fn json_to_value(v: &serde_json::Value) -> Value {
     }
 }
 
-/// Quote a SQL identifier to prevent injection. Doubles any internal
-/// double-quotes and wraps in double-quotes: `foo` → `"foo"`.
-pub(crate) fn quote_identifier(name: &str) -> String {
-    let escaped = name.replace('"', "\"\"");
-    format!("\"{escaped}\"")
-}
-
 /// Format an f32 slice as a SQL ARRAY literal: `ARRAY[0.1,0.2,0.3]`.
 pub(crate) fn format_vector_array(v: &[f32]) -> String {
     let inner: Vec<String> = v.iter().map(|f| format!("{f}")).collect();

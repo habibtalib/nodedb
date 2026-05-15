@@ -9,7 +9,8 @@ use nodedb_types::error::{NodeDbError, NodeDbResult};
 use nodedb_types::filter::MetadataFilter;
 use nodedb_types::result::SearchResult;
 
-use crate::remote_parse::{format_vector_array, quote_identifier};
+use crate::remote_parse::format_vector_array;
+use crate::sql_escape::quote_identifier;
 
 use super::super::parse::parse_vector_search_json;
 use super::super::sql::{build_vector_search_sql, render_metadata_filter_public};

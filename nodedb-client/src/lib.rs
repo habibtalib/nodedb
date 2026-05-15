@@ -19,6 +19,12 @@ pub mod traits;
 /// row shape regardless of which transport delivered the row.
 mod row_decode;
 
+/// Shared SQL escaping helpers (string-literal and identifier quoting).
+/// Used by both the native and the remote clients — one implementation
+/// per escape rule, no per-feature duplicates.
+#[cfg(any(feature = "native", feature = "remote"))]
+mod sql_escape;
+
 #[cfg(feature = "remote")]
 pub mod remote;
 #[cfg(feature = "remote")]

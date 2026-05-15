@@ -8,7 +8,8 @@ use nodedb_types::document::Document;
 use nodedb_types::error::{NodeDbError, NodeDbResult};
 use nodedb_types::value::Value;
 
-use crate::remote_parse::{json_to_value, quote_identifier};
+use crate::remote_parse::json_to_value;
+use crate::sql_escape::quote_identifier;
 
 use super::core::NodeDbRemote;
 

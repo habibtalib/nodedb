@@ -9,7 +9,8 @@ use nodedb_types::protocol::{OpCode, TextFields};
 use nodedb_types::result::SearchResult;
 
 use super::super::response_parse::parse_search_results;
-use super::core::{NativeClient, sql_quote_identifier, sql_quote_string_literal};
+use super::core::NativeClient;
+use crate::sql_escape::{quote_identifier, quote_string_literal};
 
 impl NativeClient {
     pub(super) async fn vector_search_impl(
@@ -48,10 +49,10 @@ impl NativeClient {
         };
         let sql = format!(
             "INSERT INTO {} (id, embedding, metadata) VALUES ({}, {}, {})",
-            sql_quote_identifier(collection),
-            sql_quote_string_literal(id),
+            quote_identifier(collection),
+            quote_string_literal(id),
             format_f32_array(embedding),
-            sql_quote_string_literal(&meta_json),
+            quote_string_literal(&meta_json),
         );
         let mut conn = self.pool.acquire().await?;
         conn.execute_sql(&sql).await?;
@@ -61,8 +62,8 @@ impl NativeClient {
     pub(super) async fn vector_delete_impl(&self, collection: &str, id: &str) -> NodeDbResult<()> {
         let sql = format!(
             "DELETE FROM {} WHERE id = {}",
-            sql_quote_identifier(collection),
-            sql_quote_string_literal(id),
+            quote_identifier(collection),
+            quote_string_literal(id),
         );
         let mut conn = self.pool.acquire().await?;
         conn.execute_sql(&sql).await?;
