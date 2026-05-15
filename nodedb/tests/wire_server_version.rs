@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Wire surfaces that announce a server version must source the value from
+//! `crate::version::VERSION`, never an embedded literal. Format conventions
+//! differ per protocol: pgwire uses `"NodeDB X"`, native uses `"NodeDB/X"`,
+//! RESP uses bare `X` after `nodedb_version:`.
+
+mod common;
+
+use common::pgwire_harness::TestServer;
+use nodedb::version::VERSION;
+
+#[tokio::test]
+async fn pgwire_show_server_version_tracks_workspace_version() {
+    let srv = TestServer::start().await;
+    let rows = srv.query_text("SHOW server_version").await.unwrap();
+    assert_eq!(rows, vec![format!("NodeDB {VERSION}")]);
+}
+
+/// No file under `src/control/server/` may embed digits directly inside a
+/// `"NodeDB ..."`, `"NodeDB/..."`, or `nodedb_version:...` literal — every
+/// wire-surface version must format `crate::version::VERSION` in.
+#[test]
+fn no_hardcoded_version_literal_in_server_wire_surfaces() {
+    use std::path::PathBuf;
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("control")
+        .join("server");
+
+    let patterns: &[&str] = &[
+        r#""NodeDB "#,
+        r#""NodeDB/"#,
+        r#""nodedb_version:"#,
+        r#"nodedb_version:"#,
+    ];
+
+    let mut offenders: Vec<String> = Vec::new();
+    walk_rs(&root, &mut |path, contents| {
+        for (lineno, line) in contents.lines().enumerate() {
+            for pat in patterns {
+                if let Some(idx) = line.find(pat) {
+                    let after = &line[idx + pat.len()..];
+                    if after.starts_with(|c: char| c.is_ascii_digit()) {
+                        offenders.push(format!(
+                            "{}:{}: {}",
+                            path.display(),
+                            lineno + 1,
+                            line.trim()
+                        ));
+                    }
+                }
+            }
+        }
+    });
+
+    assert!(
+        offenders.is_empty(),
+        "wire-surface version literal must source from `crate::version::VERSION`:\n  {}",
+        offenders.join("\n  ")
+    );
+}
+
+fn walk_rs(dir: &std::path::Path, f: &mut impl FnMut(&std::path::Path, &str)) {
+    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_rs(&path, f);
+        } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+            let contents = std::fs::read_to_string(&path).unwrap();
+            f(&path, &contents);
+        }
+    }
+}

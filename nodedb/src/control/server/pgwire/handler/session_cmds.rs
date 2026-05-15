@@ -235,7 +235,7 @@ impl NodeDbPgHandler {
         }
 
         let value = match param.as_str() {
-            "server_version" => Some("NodeDB 0.1.0".to_owned()),
+            "server_version" => Some(format!("NodeDB {}", crate::version::VERSION)),
             "server_encoding" => Some("UTF8".into()),
             _ => self.sessions.get_parameter(addr, &param),
         };

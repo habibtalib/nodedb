@@ -415,7 +415,8 @@ async fn handle_dbsize(session: &RespSession, state: &SharedState) -> RespValue 
 
 async fn handle_info(_cmd: &RespCommand, session: &RespSession, _state: &SharedState) -> RespValue {
     let info = format!(
-        "# Server\r\nnodedb_version:0.1.0\r\n\r\n# Keyspace\r\ndb:{}\r\n",
+        "# Server\r\nnodedb_version:{}\r\n\r\n# Keyspace\r\ndb:{}\r\n",
+        crate::version::VERSION,
         session.collection
     );
     RespValue::bulk(info.into_bytes())

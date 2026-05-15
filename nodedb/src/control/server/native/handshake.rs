@@ -87,7 +87,7 @@ where
     let ack = HelloAckFrame {
         proto_version: proto_ver,
         capabilities: hello.capabilities, // echo back what client offered (server supports all for v1)
-        server_version: format!("NodeDB/{}", env!("CARGO_PKG_VERSION")),
+        server_version: format!("NodeDB/{}", crate::version::VERSION),
         limits: limits.clone(),
     };
     let ack_bytes = ack.encode();
