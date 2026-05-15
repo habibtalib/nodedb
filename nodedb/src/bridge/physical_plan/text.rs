@@ -83,6 +83,28 @@ pub enum TextOp {
         score_alias: Option<String>,
     },
 
+    /// Index a document into the inverted FTS index.
+    ///
+    /// Used by the sync path when a Lite client sends an `FtsIndex` frame.
+    /// Origin assigns a surrogate for `(collection, doc_id)` on the Control
+    /// Plane before dispatch; `surrogate` is the pre-assigned value.
+    FtsIndexDoc {
+        collection: String,
+        /// Pre-assigned global surrogate for `(collection, doc_id)`.
+        surrogate: nodedb_types::Surrogate,
+        /// Concatenated text to index.
+        text: String,
+    },
+
+    /// Remove a document from the inverted FTS index.
+    ///
+    /// Used by the sync path when a Lite client sends an `FtsDelete` frame.
+    FtsDeleteDoc {
+        collection: String,
+        /// Pre-assigned global surrogate for `(collection, doc_id)`.
+        surrogate: nodedb_types::Surrogate,
+    },
+
     /// Three-source hybrid search: vector + BM25 text + graph BFS, fused via weighted RRF.
     ///
     /// Extends `HybridSearch` with an optional graph BFS leg. The graph leg

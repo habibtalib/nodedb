@@ -39,6 +39,7 @@ pub mod rls_eval;
 pub mod snapshot;
 pub mod sort_utils;
 pub mod spatial;
+pub mod spatial_sync;
 pub(super) mod spill;
 pub mod text_search;
 pub mod text_search_triple;

@@ -122,7 +122,22 @@ impl CoreLoop {
         }
 
         // Default: HNSW collection.
-        let Some(collection_ref) = self.vector_collections.get(&index_key) else {
+        // If the specific field-named index does not exist, fall back to the
+        // empty-field index. This handles data synced from NodeDB-Lite (which
+        // uses collection-level storage, not named-field storage) being
+        // searched via a field-specific SQL query (e.g. vector_distance(embedding, ...)).
+        let effective_key =
+            if !self.vector_collections.contains_key(&index_key) && !field_name.is_empty() {
+                let fallback_key = CoreLoop::vector_index_key(tid, collection, "");
+                if self.vector_collections.contains_key(&fallback_key) {
+                    fallback_key
+                } else {
+                    index_key
+                }
+            } else {
+                index_key
+            };
+        let Some(collection_ref) = self.vector_collections.get(&effective_key) else {
             return self.response_error(task, ErrorCode::NotFound);
         };
         if collection_ref.is_empty() {

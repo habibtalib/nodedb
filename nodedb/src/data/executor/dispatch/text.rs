@@ -72,6 +72,57 @@ impl CoreLoop {
                 score_alias.as_deref(),
             ),
 
+            TextOp::FtsIndexDoc {
+                collection,
+                surrogate,
+                text,
+            } => {
+                use nodedb_types::TenantId;
+
+                let tenant_id = TenantId::new(tid);
+                match self
+                    .inverted
+                    .index_document(tenant_id, collection, *surrogate, text)
+                {
+                    Ok(()) => self.response_ok(task),
+                    Err(e) => {
+                        tracing::warn!(
+                            core = self.core_id,
+                            %collection,
+                            surrogate = surrogate.as_u32(),
+                            error = %e,
+                            "FtsIndexDoc: inverted index write failed"
+                        );
+                        self.response_error(task, e)
+                    }
+                }
+            }
+
+            TextOp::FtsDeleteDoc {
+                collection,
+                surrogate,
+            } => {
+                use nodedb_types::TenantId;
+
+                let tenant_id = TenantId::new(tid);
+                match self
+                    .inverted
+                    .remove_document(tenant_id, collection, *surrogate)
+                {
+                    Ok(()) => self.response_ok(task),
+                    Err(e) => {
+                        tracing::warn!(
+                            core = self.core_id,
+                            %collection,
+                            surrogate = surrogate.as_u32(),
+                            error = %e,
+                            "FtsDeleteDoc: inverted index removal failed"
+                        );
+                        self.response_error(task, e)
+                    }
+                }
+            }
+
             TextOp::HybridSearchTriple {
                 collection,
                 query_vector,

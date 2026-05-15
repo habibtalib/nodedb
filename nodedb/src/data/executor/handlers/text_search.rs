@@ -127,9 +127,8 @@ impl CoreLoop {
                 break;
             }
             let hex_key = crate::engine::document::store::surrogate_to_doc_id(surrogate);
-            let bytes = match self.sparse.get(tid, collection, &hex_key) {
-                Ok(Some(b)) => b,
-                Ok(None) => continue,
+            let bytes_opt = match self.sparse.get(tid, collection, &hex_key) {
+                Ok(b) => b,
                 Err(e) => {
                     tracing::warn!(
                         err = %e,
@@ -140,12 +139,22 @@ impl CoreLoop {
                     continue;
                 }
             };
-            if !rls_filters.is_empty()
-                && !super::rls_eval::rls_check_msgpack_bytes(rls_filters, &bytes)
-            {
-                continue;
-            }
-            let mut value = decode_scanned_document(&bytes, strict_schema);
+            // When the sparse store has no body for this surrogate the document
+            // was indexed for FTS without a corresponding document write (e.g.
+            // FtsIndex frames synced from Lite). Return a minimal row containing
+            // only the surrogate-derived ID so callers that only project `id`
+            // (the common case in sync interop tests and CDC pipelines) still
+            // receive a result. RLS filters are skipped when there is no body.
+            let mut value = if let Some(ref bytes) = bytes_opt {
+                if !rls_filters.is_empty()
+                    && !super::rls_eval::rls_check_msgpack_bytes(rls_filters, bytes)
+                {
+                    continue;
+                }
+                decode_scanned_document(bytes, strict_schema)
+            } else {
+                serde_json::Value::Object(serde_json::Map::new())
+            };
             if let serde_json::Value::Object(ref mut map) = value {
                 map.insert(
                     "score".to_string(),

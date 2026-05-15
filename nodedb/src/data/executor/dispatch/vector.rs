@@ -252,6 +252,13 @@ impl CoreLoop {
                 *quantization,
                 payload_indexes,
             ),
+
+            VectorOp::DeleteBySurrogate {
+                collection,
+                surrogate,
+                field_name,
+            } => self
+                .execute_vector_delete_by_surrogate(task, tid, collection, *surrogate, field_name),
         }
     }
 }

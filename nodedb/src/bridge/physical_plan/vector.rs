@@ -98,6 +98,18 @@ pub enum VectorOp {
     /// Soft-delete a vector by internal node ID.
     Delete { collection: String, vector_id: u32 },
 
+    /// Soft-delete a vector by surrogate (sync inbound path).
+    ///
+    /// The Data Plane resolves `surrogate → HNSW node_id` via the
+    /// `surrogate_to_local` map and tombstones the node.  If the surrogate
+    /// is not found the op is a no-op (idempotent).
+    DeleteBySurrogate {
+        collection: String,
+        surrogate: nodedb_types::Surrogate,
+        /// Named vector field; empty = default field.
+        field_name: String,
+    },
+
     /// Set vector index parameters for a collection.
     SetParams {
         collection: String,

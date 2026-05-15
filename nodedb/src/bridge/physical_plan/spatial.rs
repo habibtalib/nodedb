@@ -2,7 +2,7 @@
 
 //! Spatial engine operations dispatched to the Data Plane.
 
-use nodedb_types::{SurrogateBitmap, geometry::Geometry};
+use nodedb_types::{Surrogate, SurrogateBitmap, geometry::Geometry};
 
 /// Spatial predicate type for R-tree index scan.
 #[derive(
@@ -39,6 +39,30 @@ pub enum SpatialPredicate {
     zerompk::FromMessagePack,
 )]
 pub enum SpatialOp {
+    /// Insert a geometry into the R-tree index for a document.
+    ///
+    /// Used by the sync inbound path to replicate spatial data from Lite to Origin.
+    /// The R-tree and sparse document store are keyed by the hex-encoded
+    /// `surrogate` (matching direct `INSERT INTO` semantics), so the
+    /// cross-engine prefilter bitmap intersect works without translation.
+    Insert {
+        collection: String,
+        field: String,
+        /// Stable global surrogate for the row, assigned on the Control Plane.
+        surrogate: Surrogate,
+        /// Typed geometry, deserialised on the Control Plane from wire bytes.
+        geometry: Geometry,
+    },
+    /// Remove a document's geometry from the R-tree index.
+    ///
+    /// Used by the sync inbound path. Keyed by the same hex-encoded surrogate
+    /// used at insert time.
+    Delete {
+        collection: String,
+        field: String,
+        /// Stable global surrogate for the row.
+        surrogate: Surrogate,
+    },
     /// R-tree index scan with spatial predicate and exact refinement.
     Scan {
         collection: String,

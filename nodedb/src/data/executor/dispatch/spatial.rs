@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-//! Dispatch for SpatialOp variants (scan).
+//! Dispatch for SpatialOp variants (scan, insert, delete).
 
 use crate::bridge::envelope::Response;
 use crate::bridge::physical_plan::SpatialOp;
@@ -16,6 +16,19 @@ impl CoreLoop {
         op: &SpatialOp,
     ) -> Response {
         match op {
+            SpatialOp::Insert {
+                collection,
+                field,
+                surrogate,
+                geometry,
+            } => self.execute_spatial_insert(task, tid, collection, field, *surrogate, geometry),
+
+            SpatialOp::Delete {
+                collection,
+                field,
+                surrogate,
+            } => self.execute_spatial_delete(task, tid, collection, field, *surrogate),
+
             SpatialOp::Scan {
                 collection,
                 field,

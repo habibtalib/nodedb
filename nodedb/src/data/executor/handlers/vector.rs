@@ -302,6 +302,50 @@ impl CoreLoop {
         }
     }
 
+    /// Delete a vector by surrogate (sync inbound path).
+    ///
+    /// Resolves `surrogate → HNSW node_id` via `surrogate_to_local`, then
+    /// delegates to the standard delete path.  If the surrogate is not
+    /// present in any index for `collection`, the op is a no-op (idempotent).
+    pub(in crate::data::executor) fn execute_vector_delete_by_surrogate(
+        &mut self,
+        task: &ExecutionTask,
+        tid: u64,
+        collection: &str,
+        surrogate: Surrogate,
+        field_name: &str,
+    ) -> Response {
+        let tenant = TenantId::new(tid);
+        let index_key = CoreLoop::vector_index_key(tid, collection, field_name);
+        let fallback_key = (tenant, collection.to_string());
+
+        let resolved_key = if self.vector_collections.contains_key(&index_key) {
+            Some(index_key)
+        } else if self.vector_collections.contains_key(&fallback_key) {
+            Some(fallback_key)
+        } else {
+            None
+        };
+
+        let Some(key) = resolved_key else {
+            // Collection not found — treat as idempotent success for sync.
+            return self.response_ok(task);
+        };
+
+        let node_id = self
+            .vector_collections
+            .get(&key)
+            .and_then(|c| c.surrogate_to_local.get(&surrogate).copied());
+
+        match node_id {
+            Some(vid) => self.execute_vector_delete(task, tid, collection, vid),
+            None => {
+                // Surrogate not present — idempotent.
+                self.response_ok(task)
+            }
+        }
+    }
+
     pub(in crate::data::executor) fn execute_set_vector_params(
         &mut self,
         params: SetVectorParamsInput<'_>,
