@@ -55,7 +55,7 @@ impl SyncSession {
             let identity = AuthenticatedIdentity {
                 user_id: 0,
                 username: "sync-client".into(),
-                tenant_id: TenantId::new(0),
+                tenant_id: TenantId::new(1),
                 auth_method: crate::control::security::identity::AuthMethod::Trust,
                 roles: vec![crate::control::security::identity::Role::ReadWrite],
                 is_superuser: false,

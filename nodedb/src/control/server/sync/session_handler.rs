@@ -14,7 +14,11 @@ use nodedb_types::sync::wire::array::{
 };
 
 use super::listener::SyncListenerState;
-use super::wire::{DeltaPushMsg, PresenceUpdateMsg, SyncMessageType, TimeseriesPushMsg};
+use super::wire::{
+    ColumnarInsertMsg, DeltaPushMsg, FtsDeleteMsg, FtsIndexMsg, PresenceUpdateMsg,
+    SpatialDeleteMsg, SpatialInsertMsg, SyncMessageType, TimeseriesPushMsg, VectorDeleteMsg,
+    VectorInsertMsg,
+};
 
 use crate::control::state::SharedState;
 
@@ -78,7 +82,52 @@ pub(super) async fn handle_sync_session(
     let mut array_delivery_rx: Option<tokio::sync::mpsc::Receiver<Vec<u8>>> = None;
     let mut array_delivery_registered = false;
 
-    while let Some(msg_result) = ws.next().await {
+    let mut definition_sync_rx: Option<tokio::sync::mpsc::Receiver<Vec<u8>>> = None;
+    let mut definition_sync_registered = false;
+
+    loop {
+        // Flush any outbound definition-sync frames before blocking. This
+        // handles the window between registration and the next WS message.
+        if let Some(ref mut rx) = definition_sync_rx {
+            while let Ok(frame_bytes) = rx.try_recv() {
+                if ws.send(Message::Binary(frame_bytes.into())).await.is_err() {
+                    return;
+                }
+            }
+        }
+
+        // Await the next inbound message OR a definition-sync frame, whichever
+        // arrives first.  Without this select! the handler would block on
+        // ws.next() indefinitely when no client traffic is expected, starving
+        // the server-push delivery path.
+        let msg_result = if let Some(ref mut rx) = definition_sync_rx {
+            tokio::select! {
+                biased;
+                ws_msg = ws.next() => {
+                    match ws_msg {
+                        Some(r) => r,
+                        None => break,
+                    }
+                }
+                frame_bytes = rx.recv() => {
+                    match frame_bytes {
+                        Some(bytes) => {
+                            if ws.send(Message::Binary(bytes.into())).await.is_err() {
+                                break;
+                            }
+                            continue;
+                        }
+                        None => break,
+                    }
+                }
+            }
+        } else {
+            match ws.next().await {
+                Some(r) => r,
+                None => break,
+            }
+        };
+
         match msg_result {
             Ok(Message::Binary(data)) => {
                 if let Some(frame) = super::wire::SyncFrame::from_bytes(&data) {
@@ -137,6 +186,148 @@ pub(super) async fn handle_sync_session(
                             } else {
                                 let dispatcher = super::timeseries_handler::NoOpDispatcher;
                                 session.handle_timeseries_push(&ts_msg, &dispatcher).await
+                            };
+                            if let Some(ack) = ack {
+                                let ack_bytes = ack.to_bytes();
+                                if ws.send(Message::Binary(ack_bytes.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
+                    if frame.msg_type == SyncMessageType::ColumnarInsert {
+                        if let Some(col_msg) = frame.decode_body::<ColumnarInsertMsg>() {
+                            let ack = if let Some(shared) = shared.as_ref() {
+                                let dispatcher =
+                                    super::columnar_handler::SharedStateColumnarDispatcher {
+                                        shared,
+                                    };
+                                session.handle_columnar_insert(&col_msg, &dispatcher).await
+                            } else {
+                                let dispatcher = super::columnar_handler::NoOpColumnarDispatcher;
+                                session.handle_columnar_insert(&col_msg, &dispatcher).await
+                            };
+                            if let Some(ack) = ack {
+                                let ack_bytes = ack.to_bytes();
+                                if ws.send(Message::Binary(ack_bytes.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
+                    if frame.msg_type == SyncMessageType::VectorInsert {
+                        if let Some(vec_msg) = frame.decode_body::<VectorInsertMsg>() {
+                            let ack = if let Some(shared) = shared.as_ref() {
+                                let dispatcher =
+                                    super::vector_handler::SharedStateVectorDispatcher { shared };
+                                session.handle_vector_insert(&vec_msg, &dispatcher).await
+                            } else {
+                                let dispatcher = super::vector_handler::NoOpVectorDispatcher;
+                                session.handle_vector_insert(&vec_msg, &dispatcher).await
+                            };
+                            if let Some(ack) = ack {
+                                let ack_bytes = ack.to_bytes();
+                                if ws.send(Message::Binary(ack_bytes.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
+                    if frame.msg_type == SyncMessageType::VectorDelete {
+                        if let Some(vec_msg) = frame.decode_body::<VectorDeleteMsg>() {
+                            let ack = if let Some(shared) = shared.as_ref() {
+                                let dispatcher =
+                                    super::vector_handler::SharedStateVectorDispatcher { shared };
+                                session.handle_vector_delete(&vec_msg, &dispatcher).await
+                            } else {
+                                let dispatcher = super::vector_handler::NoOpVectorDispatcher;
+                                session.handle_vector_delete(&vec_msg, &dispatcher).await
+                            };
+                            if let Some(ack) = ack {
+                                let ack_bytes = ack.to_bytes();
+                                if ws.send(Message::Binary(ack_bytes.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
+                    if frame.msg_type == SyncMessageType::FtsIndex {
+                        if let Some(fts_msg) = frame.decode_body::<FtsIndexMsg>() {
+                            let ack = if let Some(shared) = shared.as_ref() {
+                                let dispatcher =
+                                    super::fts_handler::SharedStateFtsDispatcher { shared };
+                                session.handle_fts_index(&fts_msg, &dispatcher).await
+                            } else {
+                                let dispatcher = super::fts_handler::NoOpFtsDispatcher;
+                                session.handle_fts_index(&fts_msg, &dispatcher).await
+                            };
+                            if let Some(ack) = ack {
+                                let ack_bytes = ack.to_bytes();
+                                if ws.send(Message::Binary(ack_bytes.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
+                    if frame.msg_type == SyncMessageType::FtsDelete {
+                        if let Some(fts_msg) = frame.decode_body::<FtsDeleteMsg>() {
+                            let ack = if let Some(shared) = shared.as_ref() {
+                                let dispatcher =
+                                    super::fts_handler::SharedStateFtsDispatcher { shared };
+                                session.handle_fts_delete(&fts_msg, &dispatcher).await
+                            } else {
+                                let dispatcher = super::fts_handler::NoOpFtsDispatcher;
+                                session.handle_fts_delete(&fts_msg, &dispatcher).await
+                            };
+                            if let Some(ack) = ack {
+                                let ack_bytes = ack.to_bytes();
+                                if ws.send(Message::Binary(ack_bytes.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
+                    if frame.msg_type == SyncMessageType::SpatialInsert {
+                        if let Some(sp_msg) = frame.decode_body::<SpatialInsertMsg>() {
+                            let ack = if let Some(shared) = shared.as_ref() {
+                                let dispatcher =
+                                    super::spatial_handler::SharedStateSpatialDispatcher { shared };
+                                session.handle_spatial_insert(&sp_msg, &dispatcher).await
+                            } else {
+                                let dispatcher = super::spatial_handler::NoOpSpatialDispatcher;
+                                session.handle_spatial_insert(&sp_msg, &dispatcher).await
+                            };
+                            if let Some(ack) = ack {
+                                let ack_bytes = ack.to_bytes();
+                                if ws.send(Message::Binary(ack_bytes.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
+                    if frame.msg_type == SyncMessageType::SpatialDelete {
+                        if let Some(sp_msg) = frame.decode_body::<SpatialDeleteMsg>() {
+                            let ack = if let Some(shared) = shared.as_ref() {
+                                let dispatcher =
+                                    super::spatial_handler::SharedStateSpatialDispatcher { shared };
+                                session.handle_spatial_delete(&sp_msg, &dispatcher).await
+                            } else {
+                                let dispatcher = super::spatial_handler::NoOpSpatialDispatcher;
+                                session.handle_spatial_delete(&sp_msg, &dispatcher).await
                             };
                             if let Some(ack) = ack {
                                 let ack_bytes = ack.to_bytes();
@@ -261,6 +452,15 @@ pub(super) async fn handle_sync_session(
         }
 
         if session.authenticated
+            && !definition_sync_registered
+            && let Some(shared) = shared.as_ref()
+        {
+            let rx = shared.definition_sync_fanout.register(session_id.clone());
+            definition_sync_rx = Some(rx);
+            definition_sync_registered = true;
+        }
+
+        if session.authenticated
             && !presence_registered
             && let Some(shared) = shared.as_ref()
         {
@@ -287,6 +487,14 @@ pub(super) async fn handle_sync_session(
         }
 
         if let Some(ref mut rx) = array_delivery_rx {
+            while let Ok(frame_bytes) = rx.try_recv() {
+                if ws.send(Message::Binary(frame_bytes.into())).await.is_err() {
+                    break;
+                }
+            }
+        }
+
+        if let Some(ref mut rx) = definition_sync_rx {
             while let Ok(frame_bytes) = rx.try_recv() {
                 if ws.send(Message::Binary(frame_bytes.into())).await.is_err() {
                     break;
@@ -343,6 +551,10 @@ pub(super) async fn handle_sync_session(
     if array_delivery_registered && let Some(shared) = shared.as_ref() {
         shared.array_delivery.unregister(&session_id);
         shared.array_subscriber_cursors.remove_session(&session_id);
+    }
+
+    if definition_sync_registered && let Some(shared) = shared.as_ref() {
+        shared.definition_sync_fanout.unregister(&session_id);
     }
 
     if presence_registered && let Some(shared) = shared.as_ref() {

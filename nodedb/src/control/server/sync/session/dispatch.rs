@@ -113,6 +113,31 @@ impl SyncSession {
                 SyncFrame::try_encode(SyncMessageType::TimeseriesAck, &ack)
             }
             SyncMessageType::TimeseriesAck => None,
+            // ColumnarInsert is intercepted in session_handler before reaching here.
+            // ColumnarInsertAck is server→client; receiving it here means a mis-wired
+            // client — ignore silently.
+            SyncMessageType::ColumnarInsert | SyncMessageType::ColumnarInsertAck => None,
+            // VectorInsert / VectorDelete are intercepted in session_handler before
+            // reaching here. VectorInsertAck / VectorDeleteAck are server→client;
+            // receiving them here means a mis-wired client — ignore silently.
+            SyncMessageType::VectorInsert
+            | SyncMessageType::VectorDelete
+            | SyncMessageType::VectorInsertAck
+            | SyncMessageType::VectorDeleteAck => None,
+            // FtsIndex / FtsDelete are intercepted in session_handler before
+            // reaching here. FtsIndexAck / FtsDeleteAck are server→client;
+            // receiving them here means a mis-wired client — ignore silently.
+            SyncMessageType::FtsIndex
+            | SyncMessageType::FtsDelete
+            | SyncMessageType::FtsIndexAck
+            | SyncMessageType::FtsDeleteAck => None,
+            // SpatialInsert / SpatialDelete are intercepted in session_handler
+            // before reaching here. The Ack variants are server→client; receiving
+            // them here means a mis-wired client — ignore silently.
+            SyncMessageType::SpatialInsert
+            | SyncMessageType::SpatialDelete
+            | SyncMessageType::SpatialInsertAck
+            | SyncMessageType::SpatialDeleteAck => None,
             SyncMessageType::ResyncRequest => {
                 if let Some(msg) = frame.decode_body::<ResyncRequestMsg>() {
                     warn!(
