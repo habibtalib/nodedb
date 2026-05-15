@@ -34,7 +34,16 @@ fn build_schema_bytes(column_schema: &[(String, String)]) -> Vec<u8> {
     let mut cols = Vec::with_capacity(column_schema.len());
     let mut has_id = false;
     for (name, type_str) in column_schema {
-        let col_type = type_str.parse::<ColumnType>().unwrap_or(ColumnType::String);
+        // `type_str` may contain SQL modifiers such as `NOT NULL` or `PRIMARY KEY`
+        // (e.g. "BIGINT NOT NULL"). Strip everything after the first token so that
+        // `ColumnType::from_str` receives the bare type name (e.g. "BIGINT").
+        let bare_type = type_str
+            .split_whitespace()
+            .next()
+            .unwrap_or(type_str.as_str());
+        let col_type = bare_type
+            .parse::<ColumnType>()
+            .unwrap_or(ColumnType::String);
         let is_id = name == "id" || name == "document_id";
         if is_id {
             has_id = true;

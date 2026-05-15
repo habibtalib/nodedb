@@ -77,28 +77,60 @@ impl CoreLoop {
         let valid_from_ms = i64::MIN;
         let valid_until_ms = i64::MAX;
 
-        // Check if this collection uses strict (Binary Tuple) encoding.
-        let stored = if let Some(config) = self.doc_configs.get(&config_key)
+        // Strict (Binary Tuple) encoding pipeline. Runs in two steps under
+        // a single doc-config lookup:
+        //   (1) When the schema has an auto-generated `_rowid` primary key
+        //       (injected by `build_strict_schema` when no explicit PK is
+        //       declared), the client INSERT payload won't contain it.
+        //       Inject it from the surrogate before encoding so the NOT NULL
+        //       constraint is satisfied.
+        //   (2) Encode the (possibly-injected) MessagePack into Binary Tuple.
+        // Downstream indexing reads the rebound `value` so it sees the
+        // injected `_rowid` alongside the user's fields.
+        let value_with_rowid: Vec<u8>;
+        let (value, stored): (&[u8], Vec<u8>) = if let Some(config) =
+            self.doc_configs.get(&config_key)
             && let crate::bridge::physical_plan::StorageMode::Strict { ref schema } =
                 config.storage_mode
         {
-            if bitemporal && schema.bitemporal {
+            let encoded_input: &[u8] = if schema
+                .columns
+                .first()
+                .is_some_and(|c| c.name == "_rowid" && !c.nullable)
+                && let Ok(mut decoded) = nodedb_types::json_from_msgpack(value)
+                && let serde_json::Value::Object(ref mut obj) = decoded
+                && !obj.contains_key("_rowid")
+            {
+                obj.insert(
+                    "_rowid".to_string(),
+                    serde_json::Value::Number((surrogate.0 as i64).into()),
+                );
+                value_with_rowid =
+                    nodedb_types::json_to_msgpack(&decoded).unwrap_or_else(|_| value.to_vec());
+                &value_with_rowid
+            } else {
+                value
+            };
+
+            let stored = if bitemporal && schema.bitemporal {
                 super::super::super::strict_format::bytes_to_binary_tuple_bitemporal(
-                    value,
+                    encoded_input,
                     schema,
                     sys_from_ms,
                     valid_from_ms,
                     valid_until_ms,
                 )
             } else {
-                super::super::super::strict_format::bytes_to_binary_tuple(value, schema)
+                super::super::super::strict_format::bytes_to_binary_tuple(encoded_input, schema)
             }
             .map_err(|e| crate::Error::Serialization {
                 format: "binary_tuple".into(),
                 detail: e.to_string(),
-            })?
+            })?;
+
+            (encoded_input, stored)
         } else {
-            value.to_vec()
+            (value, value.to_vec())
         };
 
         // Bitemporal collections version every write: read the current
