@@ -371,6 +371,25 @@ mod tests {
         assert!(parse("INSERT INTO users VALUES (1)").is_none());
     }
 
+    #[test]
+    fn create_function_returns_none() {
+        // CREATE FUNCTION and CREATE PROCEDURE are handled by the text-based
+        // function router, not the DDL AST dispatcher.
+        assert!(
+            parse("CREATE OR REPLACE FUNCTION double_int(x INT) RETURNS INT AS SELECT x * 2")
+                .is_none(),
+            "expected None for CREATE FUNCTION"
+        );
+        assert!(
+            parse("CREATE FUNCTION foo(x INT) RETURNS INT AS SELECT x").is_none(),
+            "expected None for CREATE FUNCTION"
+        );
+        assert!(
+            parse("CREATE OR REPLACE PROCEDURE noop_proc() AS BEGIN END").is_none(),
+            "expected None for CREATE PROCEDURE"
+        );
+    }
+
     // ── graph dispatch (token-aware) ────────────────────────────────────────
 
     /// `MATCH` as first real token routes to the graph parser.

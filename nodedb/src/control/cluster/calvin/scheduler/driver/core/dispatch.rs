@@ -51,6 +51,7 @@ impl Scheduler {
                     VectorOp::Insert { collection, .. }
                     | VectorOp::BatchInsert { collection, .. }
                     | VectorOp::Delete { collection, .. }
+                    | VectorOp::DeleteBySurrogate { collection, .. }
                     | VectorOp::SparseInsert { collection, .. }
                     | VectorOp::SparseDelete { collection, .. }
                     | VectorOp::MultiVectorInsert { collection, .. },

@@ -56,6 +56,23 @@ pub(super) fn is_dsl_statement(sql: &str) -> bool {
     if may_be_ddl && nodedb_sql::ddl_ast::parse(sql).is_some() {
         return true;
     }
+    // Function, procedure, and aggregate DDL handled by the text-based DDL
+    // router (function::dispatch) but not recognised by nodedb_sql::ddl_ast::parse.
+    // Route through execute_sql so the DDL router intercepts them.
+    if may_be_ddl
+        && (upper.starts_with("CREATE OR REPLACE FUNCTION ")
+            || upper.starts_with("CREATE FUNCTION ")
+            || upper.starts_with("CREATE OR REPLACE AGGREGATE FUNCTION ")
+            || upper.starts_with("CREATE AGGREGATE FUNCTION ")
+            || upper.starts_with("CREATE OR REPLACE PROCEDURE ")
+            || upper.starts_with("CREATE PROCEDURE ")
+            || upper.starts_with("DROP FUNCTION ")
+            || upper.starts_with("DROP PROCEDURE ")
+            || upper.starts_with("ALTER FUNCTION ")
+            || upper.starts_with("CALL "))
+    {
+        return true;
+    }
     upper.starts_with("SEARCH ")
         || upper.starts_with("GRAPH ")
         || upper.starts_with("MATCH ")

@@ -82,7 +82,14 @@ pub fn required_permission(plan: &crate::bridge::envelope::PhysicalPlan) -> Perm
             | TextOp::PhraseSearch { .. },
         ) => Permission::Read,
 
+        PhysicalPlan::Text(TextOp::FtsIndexDoc { .. } | TextOp::FtsDeleteDoc { .. }) => {
+            Permission::Write
+        }
+
         PhysicalPlan::Spatial(SpatialOp::Scan { .. }) => Permission::Read,
+        PhysicalPlan::Spatial(SpatialOp::Insert { .. } | SpatialOp::Delete { .. }) => {
+            Permission::Write
+        }
 
         PhysicalPlan::Columnar(ColumnarOp::Scan { .. } | ColumnarOp::MaterializeScan { .. }) => {
             Permission::Read
@@ -103,6 +110,7 @@ pub fn required_permission(plan: &crate::bridge::envelope::PhysicalPlan) -> Perm
             VectorOp::Insert { .. }
             | VectorOp::BatchInsert { .. }
             | VectorOp::Delete { .. }
+            | VectorOp::DeleteBySurrogate { .. }
             | VectorOp::SparseInsert { .. }
             | VectorOp::SparseDelete { .. }
             | VectorOp::MultiVectorInsert { .. }

@@ -78,6 +78,7 @@ pub fn is_write_plan(plan: &PhysicalPlan) -> bool {
             VectorOp::Insert { .. }
                 | VectorOp::BatchInsert { .. }
                 | VectorOp::Delete { .. }
+                | VectorOp::DeleteBySurrogate { .. }
                 | VectorOp::SparseInsert { .. }
                 | VectorOp::SparseDelete { .. }
                 | VectorOp::MultiVectorInsert { .. }
@@ -309,7 +310,8 @@ fn collection_name_from_plan(plan: &PhysicalPlan) -> String {
         PhysicalPlan::Vector(
             VectorOp::Insert { collection, .. }
             | VectorOp::BatchInsert { collection, .. }
-            | VectorOp::Delete { collection, .. },
+            | VectorOp::Delete { collection, .. }
+            | VectorOp::DeleteBySurrogate { collection, .. },
         ) => collection.clone(),
         PhysicalPlan::Graph(
             GraphOp::EdgePut { collection, .. } | GraphOp::EdgeDelete { collection, .. },

@@ -211,7 +211,8 @@ pub fn touched_collections(plan: &PhysicalPlan) -> Vec<String> {
                 | MultiVectorInsert { collection, .. }
                 | MultiVectorDelete { collection, .. }
                 | MultiVectorScoreSearch { collection, .. }
-                | DirectUpsert { collection, .. } => out.push(collection.clone()),
+                | DirectUpsert { collection, .. }
+                | DeleteBySurrogate { collection, .. } => out.push(collection.clone()),
             }
         }
 
@@ -223,7 +224,9 @@ pub fn touched_collections(plan: &PhysicalPlan) -> Vec<String> {
                 | BM25ScoreScan { collection, .. }
                 | HybridSearch { collection, .. }
                 | HybridSearchTriple { collection, .. }
-                | PhraseSearch { collection, .. } => out.push(collection.clone()),
+                | PhraseSearch { collection, .. }
+                | FtsIndexDoc { collection, .. }
+                | FtsDeleteDoc { collection, .. } => out.push(collection.clone()),
             }
         }
 
@@ -285,6 +288,9 @@ pub fn touched_collections(plan: &PhysicalPlan) -> Vec<String> {
             use SpatialOp::*;
             match op {
                 Scan { collection, .. } => out.push(collection.clone()),
+                // Sync ingest ops target a collection but do not produce
+                // versioned read output — no version-set entry needed.
+                Insert { .. } | Delete { .. } => {}
             }
         }
 
