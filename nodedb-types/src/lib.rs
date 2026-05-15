@@ -23,6 +23,7 @@ pub mod collection_config;
 pub mod columnar;
 pub mod conversion;
 pub mod datetime;
+pub mod diagnostic;
 pub mod document;
 pub mod dropped_collection;
 pub mod error;
