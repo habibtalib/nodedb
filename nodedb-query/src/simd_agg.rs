@@ -412,7 +412,7 @@ unsafe fn wasm_sum_f64_inner(values: &[f64]) -> f64 {
     let chunks = values.len() / 2;
     let ptr = values.as_ptr();
     for i in 0..chunks {
-        let v = v128_load(ptr.add(i * 2) as *const v128);
+        let v = unsafe { v128_load(ptr.add(i * 2) as *const v128) };
         acc = f64x2_add(acc, v);
     }
     let mut sum = f64x2_extract_lane::<0>(acc) + f64x2_extract_lane::<1>(acc);
@@ -438,7 +438,7 @@ unsafe fn wasm_min_f64_inner(values: &[f64]) -> f64 {
     let chunks = values.len() / 2;
     let ptr = values.as_ptr();
     for i in 0..chunks {
-        let v = v128_load(ptr.add(i * 2) as *const v128);
+        let v = unsafe { v128_load(ptr.add(i * 2) as *const v128) };
         acc = f64x2_min(acc, v);
     }
     let mut m = f64x2_extract_lane::<0>(acc).min(f64x2_extract_lane::<1>(acc));
@@ -466,7 +466,7 @@ unsafe fn wasm_max_f64_inner(values: &[f64]) -> f64 {
     let chunks = values.len() / 2;
     let ptr = values.as_ptr();
     for i in 0..chunks {
-        let v = v128_load(ptr.add(i * 2) as *const v128);
+        let v = unsafe { v128_load(ptr.add(i * 2) as *const v128) };
         acc = f64x2_max(acc, v);
     }
     let mut m = f64x2_extract_lane::<0>(acc).max(f64x2_extract_lane::<1>(acc));
