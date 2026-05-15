@@ -160,8 +160,18 @@ impl<B: FtsBackend> FtsIndex<B> {
         Ok(())
     }
 
-    /// Flush the active memtable to an immutable segment.
-    fn flush_memtable(&self, tid: u64, collection: &str) -> Result<(), FtsIndexError<B::Error>> {
+    /// Flush the active memtable to an immutable segment in the backend.
+    ///
+    /// Calling this before serializing the index guarantees that all posting
+    /// data written since the last spill threshold is captured in the backend's
+    /// segment storage rather than the in-memory memtable.  Callers that
+    /// checkpoint the index (e.g., NodeDB-Lite flush) must call this once per
+    /// active index before persisting.
+    pub fn flush_memtable(
+        &self,
+        tid: u64,
+        collection: &str,
+    ) -> Result<(), FtsIndexError<B::Error>> {
         let drained = self.memtable.drain();
         if drained.is_empty() {
             return Ok(());
