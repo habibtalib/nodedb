@@ -29,6 +29,7 @@ pub mod double_write;
 pub mod error;
 pub mod group_commit;
 pub mod lazy_reader;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod mmap_reader;
 pub mod preamble;
 pub mod reader;

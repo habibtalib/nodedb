@@ -39,10 +39,11 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::os::unix::fs::OpenOptionsExt as _;
 
 use crate::align::{AlignedBuf, DEFAULT_ALIGNMENT, is_aligned};
 use crate::error::{Result, WalError};
@@ -168,6 +169,7 @@ impl DoubleWriteBuffer {
 
         let mut opts = OpenOptions::new();
         opts.read(true).write(true).create(true).truncate(false);
+        #[cfg(not(target_arch = "wasm32"))]
         if mode == DwbMode::Direct {
             opts.custom_flags(libc::O_DIRECT);
         }
@@ -351,55 +353,67 @@ impl DoubleWriteBuffer {
     /// a crash. Each slot is self-describing: the record's own CRC validates
     /// whether the slot contains usable data.
     pub fn recover_record(&mut self, target_lsn: u64) -> Result<Option<WalRecord>> {
-        // Under O_DIRECT, reads must also use aligned buffers and aligned
-        // lengths. Read one full aligned slot at a time, then parse.
-        let mut slot = AlignedBuf::new(DWB_SLOT_STRIDE, DEFAULT_ALIGNMENT)?;
-
-        for i in 0..DWB_CAPACITY as u32 {
-            let offset = slot_offset(i);
-            // SAFETY: slot.as_mut_ptr is valid for `capacity()` bytes.
-            let read = unsafe {
-                libc::pread(
-                    self.file.as_raw_fd(),
-                    slot.as_mut_ptr() as *mut libc::c_void,
-                    DWB_SLOT_STRIDE,
-                    offset as libc::off_t,
-                )
-            };
-            if read <= 0 {
-                continue;
-            }
-            // SAFETY: the kernel populated `read` bytes starting at the buffer.
-            let bytes: &[u8] = unsafe { std::slice::from_raw_parts(slot.as_ptr(), read as usize) };
-            if bytes.len() < 4 + HEADER_SIZE {
-                continue;
-            }
-
-            let mut arr4 = [0u8; 4];
-            arr4.copy_from_slice(&bytes[0..4]);
-            let total_size = u32::from_le_bytes(arr4) as usize;
-            if !(HEADER_SIZE..=DWB_SLOT_PAYLOAD_MAX).contains(&total_size)
-                || bytes.len() < 4 + total_size
-            {
-                continue;
-            }
-
-            let mut header_buf = [0u8; HEADER_SIZE];
-            header_buf.copy_from_slice(&bytes[4..4 + HEADER_SIZE]);
-            let header = RecordHeader::from_bytes(&header_buf);
-            if header.magic != WAL_MAGIC || header.lsn != target_lsn {
-                continue;
-            }
-
-            let payload_len = total_size - HEADER_SIZE;
-            let payload = bytes[4 + HEADER_SIZE..4 + HEADER_SIZE + payload_len].to_vec();
-            let record = WalRecord { header, payload };
-            if record.verify_checksum().is_ok() {
-                return Ok(Some(record));
-            }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = target_lsn;
+            return Ok(None);
         }
 
-        Ok(None)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use std::os::unix::io::AsRawFd as _;
+
+            // Under O_DIRECT, reads must also use aligned buffers and aligned
+            // lengths. Read one full aligned slot at a time, then parse.
+            let mut slot = AlignedBuf::new(DWB_SLOT_STRIDE, DEFAULT_ALIGNMENT)?;
+
+            for i in 0..DWB_CAPACITY as u32 {
+                let offset = slot_offset(i);
+                // SAFETY: slot.as_mut_ptr is valid for `capacity()` bytes.
+                let read = unsafe {
+                    libc::pread(
+                        self.file.as_raw_fd(),
+                        slot.as_mut_ptr() as *mut libc::c_void,
+                        DWB_SLOT_STRIDE,
+                        offset as libc::off_t,
+                    )
+                };
+                if read <= 0 {
+                    continue;
+                }
+                // SAFETY: the kernel populated `read` bytes starting at the buffer.
+                let bytes: &[u8] =
+                    unsafe { std::slice::from_raw_parts(slot.as_ptr(), read as usize) };
+                if bytes.len() < 4 + HEADER_SIZE {
+                    continue;
+                }
+
+                let mut arr4 = [0u8; 4];
+                arr4.copy_from_slice(&bytes[0..4]);
+                let total_size = u32::from_le_bytes(arr4) as usize;
+                if !(HEADER_SIZE..=DWB_SLOT_PAYLOAD_MAX).contains(&total_size)
+                    || bytes.len() < 4 + total_size
+                {
+                    continue;
+                }
+
+                let mut header_buf = [0u8; HEADER_SIZE];
+                header_buf.copy_from_slice(&bytes[4..4 + HEADER_SIZE]);
+                let header = RecordHeader::from_bytes(&header_buf);
+                if header.magic != WAL_MAGIC || header.lsn != target_lsn {
+                    continue;
+                }
+
+                let payload_len = total_size - HEADER_SIZE;
+                let payload = bytes[4 + HEADER_SIZE..4 + HEADER_SIZE + payload_len].to_vec();
+                let record = WalRecord { header, payload };
+                if record.verify_checksum().is_ok() {
+                    return Ok(Some(record));
+                }
+            }
+
+            Ok(None)
+        }
     }
 }
 
@@ -426,25 +440,38 @@ fn full_capacity_slice(buf: &AlignedBuf) -> &[u8] {
 }
 
 /// `pwrite`-retry helper that handles short writes.
-fn pwrite_all(file: &File, mut data: &[u8], mut offset: u64) -> Result<()> {
-    let fd = file.as_raw_fd();
-    while !data.is_empty() {
-        let n = unsafe {
-            libc::pwrite(
-                fd,
-                data.as_ptr() as *const libc::c_void,
-                data.len(),
-                offset as libc::off_t,
-            )
-        };
-        if n < 0 {
-            return Err(WalError::Io(std::io::Error::last_os_error()));
+fn pwrite_all(file: &File, data: &[u8], offset: u64) -> Result<()> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::os::unix::io::AsRawFd as _;
+        let fd = file.as_raw_fd();
+        let mut remaining = data;
+        let mut write_offset = offset;
+        while !remaining.is_empty() {
+            let n = unsafe {
+                libc::pwrite(
+                    fd,
+                    remaining.as_ptr() as *const libc::c_void,
+                    remaining.len(),
+                    write_offset as libc::off_t,
+                )
+            };
+            if n < 0 {
+                return Err(WalError::Io(std::io::Error::last_os_error()));
+            }
+            let n = n as usize;
+            remaining = &remaining[n..];
+            write_offset += n as u64;
         }
-        let n = n as usize;
-        data = &data[n..];
-        offset += n as u64;
+        Ok(())
     }
-    Ok(())
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (file, data, offset);
+        Err(WalError::Unsupported {
+            detail: "O_DIRECT pwrite not available on wasm32",
+        })
+    }
 }
 
 #[cfg(test)]

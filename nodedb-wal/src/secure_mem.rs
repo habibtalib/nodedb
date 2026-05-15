@@ -11,6 +11,7 @@
 //! On platforms where mlock is not available (e.g. some WASM targets) the
 //! calls are no-ops.
 
+#[cfg(all(unix, not(target_arch = "wasm32")))]
 use tracing::warn;
 
 /// A 32-byte key held in memory, mlocked against swap.
@@ -26,6 +27,7 @@ impl SecureKey {
     /// If mlock fails, logs a warning and continues — startup is not aborted.
     pub fn new(bytes: [u8; 32]) -> Self {
         let mut boxed = Box::new(bytes);
+        #[cfg(all(unix, not(target_arch = "wasm32")))]
         mlock_best_effort(boxed.as_mut_ptr() as *mut libc::c_void, 32);
         Self { bytes: boxed }
     }
@@ -43,6 +45,7 @@ impl Drop for SecureKey {
         for byte in self.bytes.iter_mut() {
             unsafe { std::ptr::write_volatile(byte, 0u8) };
         }
+        #[cfg(all(unix, not(target_arch = "wasm32")))]
         munlock_best_effort(self.bytes.as_mut_ptr() as *mut libc::c_void, 32);
     }
 }
@@ -50,42 +53,36 @@ impl Drop for SecureKey {
 /// Public convenience wrapper for mlocking raw key bytes from `crypto.rs`.
 ///
 /// Locks `len` bytes starting at `ptr`. Best-effort: logs a warning on failure.
+/// No-op on non-Unix targets.
 pub fn mlock_key_bytes(ptr: *mut u8, len: usize) {
+    #[cfg(all(unix, not(target_arch = "wasm32")))]
     mlock_best_effort(ptr as *mut libc::c_void, len);
+    #[cfg(not(all(unix, not(target_arch = "wasm32"))))]
+    let _ = (ptr, len);
 }
 
 /// Attempt to mlock `len` bytes starting at `ptr`.
 ///
-/// Logs a warning if mlock fails. No-op on non-Unix targets.
+/// Logs a warning if mlock fails.
+#[cfg(all(unix, not(target_arch = "wasm32")))]
 fn mlock_best_effort(ptr: *mut libc::c_void, len: usize) {
-    #[cfg(unix)]
-    {
-        let rc = unsafe { libc::mlock(ptr, len) };
-        if rc != 0 {
-            warn!(
-                "mlock failed for {} bytes (errno {}): key may be swapped to disk \
-                 under extreme memory pressure. Increase RLIMIT_MEMLOCK if this \
-                 is a concern.",
-                len,
-                std::io::Error::last_os_error()
-            );
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (ptr, len);
+    let rc = unsafe { libc::mlock(ptr, len) };
+    if rc != 0 {
+        warn!(
+            "mlock failed for {} bytes (errno {}): key may be swapped to disk \
+             under extreme memory pressure. Increase RLIMIT_MEMLOCK if this \
+             is a concern.",
+            len,
+            std::io::Error::last_os_error()
+        );
     }
 }
 
 /// Attempt to munlock `len` bytes starting at `ptr`. Best-effort, no error.
+#[cfg(all(unix, not(target_arch = "wasm32")))]
 fn munlock_best_effort(ptr: *mut libc::c_void, len: usize) {
-    #[cfg(unix)]
     unsafe {
         libc::munlock(ptr, len);
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (ptr, len);
     }
 }
 
@@ -109,6 +106,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(unix, not(target_arch = "wasm32")))]
     fn mlock_graceful_on_linux() {
         // mlock with a stack pointer that may or may not succeed depending on
         // RLIMIT_MEMLOCK. Either way we must not panic.

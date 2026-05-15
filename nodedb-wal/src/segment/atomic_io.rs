@@ -20,7 +20,6 @@
 
 use std::fs;
 use std::io::Write;
-use std::os::unix::io::AsRawFd;
 use std::path::Path;
 
 use crate::error::{Result, WalError};
@@ -104,6 +103,7 @@ pub fn read_checkpoint_dontneed(path: &Path) -> Result<Vec<u8>> {
 
     #[cfg(unix)]
     {
+        use std::os::unix::io::AsRawFd as _;
         // Safe: `file` owns the fd for the duration of the call; len fits in
         // off_t on all supported platforms (checkpoint files are << i64::MAX).
         let ret = unsafe {

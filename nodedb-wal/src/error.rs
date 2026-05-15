@@ -72,6 +72,10 @@ pub enum WalError {
     /// a byte slice during unit-level use).
     #[error("invalid WAL payload: {detail}")]
     InvalidPayload { detail: String },
+
+    /// Operation is not supported on the current platform (e.g. wasm32).
+    #[error("WAL operation not supported on this platform: {detail}")]
+    Unsupported { detail: &'static str },
 }
 
 pub type Result<T> = std::result::Result<T, WalError>;

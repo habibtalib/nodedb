@@ -21,11 +21,13 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 crc32c = { workspace = true }
 libc = { workspace = true }
-memmap2 = { workspace = true }
 io-uring = { workspace = true, optional = true }
 aes-gcm = { workspace = true }
 getrandom = { workspace = true }
 zeroize = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+memmap2 = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
