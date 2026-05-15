@@ -56,6 +56,18 @@ pub fn drop_trigger(
         state.trigger_registry.unregister(tenant_id, &name);
     }
 
+    // Broadcast deletion to connected Lite sessions.
+    {
+        use nodedb_types::sync::wire::DefinitionSyncMsg;
+        let msg = DefinitionSyncMsg {
+            definition_type: "trigger".into(),
+            name: name.clone(),
+            action: "delete".into(),
+            payload: vec![],
+        };
+        state.definition_sync_fanout.broadcast(&msg);
+    }
+
     state.audit_record(
         crate::control::security::audit::AuditEvent::AdminAction,
         Some(identity.tenant_id),

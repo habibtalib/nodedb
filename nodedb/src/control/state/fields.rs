@@ -248,6 +248,11 @@ pub struct SharedState {
     pub hwm_store: Option<Arc<crate::event::cross_shard::HwmStore>>,
     /// Kafka bridge producer manager.
     pub kafka_manager: crate::event::kafka::KafkaManager,
+    /// Definition sync fanout: broadcasts `DefinitionSync` (0x70) frames to
+    /// all connected Lite sessions after a successful DDL commit
+    /// (CREATE/DROP FUNCTION, TRIGGER, PROCEDURE).
+    pub definition_sync_fanout:
+        std::sync::Arc<crate::control::server::sync::definition_fanout::DefinitionSyncFanout>,
     /// CRDT sync delivery: pushes outbound deltas to connected Lite sessions.
     pub crdt_sync_delivery: Arc<crate::event::crdt_sync::CrdtSyncDelivery>,
     /// CRDT delta packager: converts WriteEvents to outbound deltas.

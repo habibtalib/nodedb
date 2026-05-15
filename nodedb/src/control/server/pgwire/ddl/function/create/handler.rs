@@ -121,6 +121,9 @@ pub fn create_function(
         let _ = catalog.put_dependencies("function", tenant_id, &stored.name, &deps);
     }
 
+    // Broadcast to connected Lite sessions after the catalog commit is durable.
+    emit_function_put(state, &stored);
+
     state.audit_record(
         crate::control::security::audit::AuditEvent::AdminAction,
         Some(identity.tenant_id),
@@ -129,4 +132,54 @@ pub fn create_function(
     );
 
     Ok(vec![Response::Execution(Tag::new("CREATE FUNCTION"))])
+}
+
+/// Encode the stored function into a `DefinitionSyncMsg` and broadcast to
+/// all connected Lite sessions.
+///
+/// Called after `propose_and_apply` succeeds — the catalog mutation is
+/// durable before this runs, so no Lite client can receive a definition
+/// that gets rolled back.
+fn emit_function_put(
+    state: &crate::control::state::SharedState,
+    stored: &crate::control::security::catalog::StoredFunction,
+) {
+    use nodedb_types::sync::wire::DefinitionSyncMsg;
+
+    // Build the Lite-compatible JSON payload from the stored function.
+    // LiteStoredFunction has a subset of fields; serialize only what Lite
+    // expects so the schema stays forward-compatible.
+    let lite_params: Vec<serde_json::Value> = stored
+        .parameters
+        .iter()
+        .map(|p| serde_json::json!({ "name": p.name, "data_type": p.data_type }))
+        .collect();
+
+    let payload_json = serde_json::json!({
+        "name": stored.name,
+        "parameters": lite_params,
+        "return_type": stored.return_type,
+        "body_sql": stored.body_sql,
+        "owner": stored.owner,
+        "created_at": stored.created_at,
+    });
+
+    match sonic_rs::to_vec(&payload_json) {
+        Ok(payload) => {
+            let msg = DefinitionSyncMsg {
+                definition_type: "function".into(),
+                name: stored.name.clone(),
+                action: "put".into(),
+                payload,
+            };
+            state.definition_sync_fanout.broadcast(&msg);
+        }
+        Err(e) => {
+            tracing::warn!(
+                name = %stored.name,
+                error = %e,
+                "definition_sync: failed to serialize function payload; skipping broadcast"
+            );
+        }
+    }
 }

@@ -76,6 +76,18 @@ pub fn drop_procedure(
             .map_err(|e| sqlstate_error("XX000", &format!("catalog write: {e}")))?;
     }
 
+    // Broadcast deletion to connected Lite sessions.
+    {
+        use nodedb_types::sync::wire::DefinitionSyncMsg;
+        let msg = DefinitionSyncMsg {
+            definition_type: "procedure".into(),
+            name: name.clone(),
+            action: "delete".into(),
+            payload: vec![],
+        };
+        state.definition_sync_fanout.broadcast(&msg);
+    }
+
     state.audit_record(
         crate::control::security::audit::AuditEvent::AdminAction,
         Some(identity.tenant_id),

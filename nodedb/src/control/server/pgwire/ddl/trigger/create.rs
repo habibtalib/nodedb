@@ -115,6 +115,9 @@ pub fn create_trigger(
         state.trigger_registry.register(stored.clone());
     }
 
+    // Broadcast to connected Lite sessions after the catalog commit is durable.
+    emit_trigger_put(state, &stored);
+
     state.audit_record(
         crate::control::security::audit::AuditEvent::AdminAction,
         Some(identity.tenant_id),
@@ -129,6 +132,60 @@ pub fn create_trigger(
     );
 
     Ok(vec![Response::Execution(Tag::new("CREATE TRIGGER"))])
+}
+
+/// Encode the stored trigger and broadcast a `DefinitionSyncMsg` to all
+/// connected Lite sessions after the catalog commit is durable.
+fn emit_trigger_put(
+    state: &crate::control::state::SharedState,
+    stored: &crate::control::security::catalog::trigger_types::StoredTrigger,
+) {
+    use nodedb_types::sync::wire::DefinitionSyncMsg;
+
+    let mut events: Vec<&str> = Vec::new();
+    if stored.events.on_insert {
+        events.push("INSERT");
+    }
+    if stored.events.on_update {
+        events.push("UPDATE");
+    }
+    if stored.events.on_delete {
+        events.push("DELETE");
+    }
+
+    let payload_json = serde_json::json!({
+        "name": stored.name,
+        "collection": stored.collection,
+        "timing": stored.timing.as_str(),
+        "events": events,
+        "granularity": stored.granularity.as_str(),
+        "when_condition": stored.when_condition,
+        "body_sql": stored.body_sql,
+        "priority": stored.priority,
+        "enabled": stored.enabled,
+        "execution_mode": stored.execution_mode.as_str(),
+        "owner": stored.owner,
+        "created_at": stored.created_at,
+    });
+
+    match sonic_rs::to_vec(&payload_json) {
+        Ok(payload) => {
+            let msg = DefinitionSyncMsg {
+                definition_type: "trigger".into(),
+                name: stored.name.clone(),
+                action: "put".into(),
+                payload,
+            };
+            state.definition_sync_fanout.broadcast(&msg);
+        }
+        Err(e) => {
+            tracing::warn!(
+                name = %stored.name,
+                error = %e,
+                "definition_sync: failed to serialize trigger payload; skipping broadcast"
+            );
+        }
+    }
 }
 
 fn parse_execution_mode(s: &str) -> TriggerExecutionMode {

@@ -288,6 +288,9 @@ impl SharedState {
             cross_shard_metrics: None,
             hwm_store: None,
             kafka_manager: crate::event::kafka::KafkaManager::new(shutdown.raw_receiver()),
+            definition_sync_fanout: std::sync::Arc::new(
+                crate::control::server::sync::definition_fanout::DefinitionSyncFanout::new(),
+            ),
             crdt_sync_delivery: Arc::new(crate::event::crdt_sync::CrdtSyncDelivery::new()),
             delta_packager: Arc::new(crate::event::crdt_sync::DeltaPackager::new()),
             mv_persistence: {
