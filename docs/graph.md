@@ -405,9 +405,9 @@ collection that has (or has ever had) graph edges.
 SHOW GRAPH STATS 'social';
 ```
 
-| collection | node_count | edge_count | distinct_label_count | labels |
-|---|---|---|---|---|
-| social | 14218 | 41902 | 5 | `[{"label":"follows","count":21504}, ...]` |
+| collection | node_count | edge_count | distinct_label_count | labels                                     |
+| ---------- | ---------- | ---------- | -------------------- | ------------------------------------------ |
+| social     | 14218      | 41902      | 5                    | `[{"label":"follows","count":21504}, ...]` |
 
 The `labels` column is a JSON array — easy for drivers to parse without a
 second round-trip.
@@ -418,13 +418,13 @@ second round-trip.
 SHOW GRAPH STATS 'social' VERBOSE;
 ```
 
-| collection | label | edge_count |
-|---|---|---|
-| social | follows | 21504 |
-| social | likes | 12008 |
-| social | reports_to | 5802 |
-| social | blocks | 1488 |
-| social | knows | 1100 |
+| collection | label      | edge_count |
+| ---------- | ---------- | ---------- |
+| social     | follows    | 21504      |
+| social     | likes      | 12008      |
+| social     | reports_to | 5802       |
+| social     | blocks     | 1488       |
+| social     | knows      | 1100       |
 
 One row per `(collection, label)` pair — SQL-idiomatic, sortable, filterable.
 
@@ -460,12 +460,12 @@ edge store and is proportional to the number of edges in the collection.
 
 ### Errors
 
-| Condition | sqlstate | message |
-|---|---|---|
-| Collection does not exist | `42P01` | `collection '<name>' not found` |
-| Collection is deactivated (in retention window) | `42P01` | `collection '<name>' is deactivated` |
-| Catalog unavailable | `XX000` | `catalog not available` |
-| Partial vShard failure during dispatch | `58000` | `graph stats dispatch failed: ...` |
+| Condition                                       | sqlstate | message                              |
+| ----------------------------------------------- | -------- | ------------------------------------ |
+| Collection does not exist                       | `42P01`  | `collection '<name>' not found`      |
+| Collection is deactivated (in retention window) | `42P01`  | `collection '<name>' is deactivated` |
+| Catalog unavailable                             | `XX000`  | `catalog not available`              |
+| Partial vShard failure during dispatch          | `58000`  | `graph stats dispatch failed: ...`   |
 
 ---
 

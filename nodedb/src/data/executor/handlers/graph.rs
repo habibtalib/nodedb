@@ -17,6 +17,7 @@
 //! `deleted_nodes` dangling-edge tracker via `mark_node_deleted` /
 //! `is_node_deleted`. No `scoped_node()` wrapping at this layer.
 
+use nodedb_types::diagnostic::DiagnosticLayer;
 use tracing::{debug, warn};
 
 use crate::bridge::envelope::{ErrorCode, Response};
@@ -281,7 +282,7 @@ impl CoreLoop {
         match super::super::response_codec::encode(&result) {
             Ok(payload) => self.response_with_payload(task, payload),
             Err(e) => {
-                warn!(core = self.core_id, error = %e, "graph hop serialization failed");
+                warn!(core = self.core_id, layer = DiagnosticLayer::WireShape.as_str(), error = %e, "graph hop serialization failed");
                 self.response_error(
                     task,
                     ErrorCode::Internal {
@@ -320,7 +321,7 @@ impl CoreLoop {
         match super::super::response_codec::encode(&result) {
             Ok(payload) => self.response_with_payload(task, payload),
             Err(e) => {
-                warn!(core = self.core_id, error = %e, "graph neighbors serialization failed");
+                warn!(core = self.core_id, layer = DiagnosticLayer::WireShape.as_str(), error = %e, "graph neighbors serialization failed");
                 self.response_error(
                     task,
                     ErrorCode::Internal {
@@ -393,6 +394,7 @@ impl CoreLoop {
             Err(e) => {
                 warn!(
                     core = self.core_id,
+                    layer = DiagnosticLayer::WireShape.as_str(),
                     error = %e,
                     "graph neighbors-multi serialization failed"
                 );

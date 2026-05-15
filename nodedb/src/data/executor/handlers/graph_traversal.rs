@@ -2,6 +2,7 @@
 
 //! GraphPath and GraphSubgraph handlers for `CoreLoop`.
 
+use nodedb_types::diagnostic::DiagnosticLayer;
 use tracing::{debug, warn};
 
 use crate::bridge::envelope::{ErrorCode, Response};
@@ -42,7 +43,7 @@ impl CoreLoop {
                 match crate::data::executor::response_codec::encode(&path) {
                     Ok(payload) => self.response_with_payload(task, payload),
                     Err(e) => {
-                        warn!(core = self.core_id, error = %e, "graph path serialization failed");
+                        warn!(core = self.core_id, layer = DiagnosticLayer::WireShape.as_str(), error = %e, "graph path serialization failed");
                         self.response_error(
                             task,
                             ErrorCode::Internal {
@@ -99,7 +100,7 @@ impl CoreLoop {
         match crate::data::executor::response_codec::encode(&result) {
             Ok(payload) => self.response_with_payload(task, payload),
             Err(e) => {
-                warn!(core = self.core_id, error = %e, "graph subgraph serialization failed");
+                warn!(core = self.core_id, layer = DiagnosticLayer::WireShape.as_str(), error = %e, "graph subgraph serialization failed");
                 self.response_error(
                     task,
                     ErrorCode::Internal {

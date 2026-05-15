@@ -23,6 +23,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures::stream;
 use nodedb_types::DatabaseId;
+use nodedb_types::diagnostic::DiagnosticLayer;
 use pgwire::api::Type;
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response};
 use pgwire::error::PgWireResult;
@@ -65,6 +66,7 @@ pub async fn show_graph_stats(
     };
     let _span = info_span!(
         "graph.stats",
+        layer = DiagnosticLayer::WritePath.as_str(),
         tenant_id = identity.tenant_id.as_u64(),
         scope = scope,
         collection = ?collection,
