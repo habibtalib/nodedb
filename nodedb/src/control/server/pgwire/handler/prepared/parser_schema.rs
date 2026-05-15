@@ -10,11 +10,16 @@ use nodedb_types::DatabaseId;
 use pgwire::api::Type;
 use pgwire::api::results::FieldInfo;
 
-/// Return true if `sql` starts with a DSL keyword that `plan_sql` cannot parse.
+/// Return true if `sql` starts with a DSL or DDL keyword that `plan_sql`
+/// cannot parse and must be routed through `execute_sql` at Execute time.
 ///
 /// Mirrors the prefix checks in `ddl/router/dsl.rs` so the extended-query
 /// Parse handler can mark such statements as DSL passthroughs and route them
 /// through the DSL dispatcher at Execute time.
+///
+/// NodeDB-specific DDL (`CREATE COLLECTION`, `DROP COLLECTION`, etc.) is also
+/// included here because `execute_planned_sql_with_params` uses the standard
+/// SQL planner (sqlparser) which does not recognise NodeDB extensions.
 pub(super) fn is_dsl_statement(sql: &str) -> bool {
     let upper = sql.trim().to_uppercase();
     // `SEARCH ... USING VECTOR(...)` is preprocessor-rewritten into canonical
@@ -23,6 +28,33 @@ pub(super) fn is_dsl_statement(sql: &str) -> bool {
     // passthrough.
     if upper.starts_with("SEARCH ") && upper.contains("USING VECTOR") {
         return false;
+    }
+    // NodeDB DDL: `ddl_ast::parse` recognises these but `plan_sql` does not.
+    // Route through `execute_sql` so the DDL router handles them. The full
+    // parser tokenises and tries ~20 family dispatchers, so gate on the
+    // first keyword first — most Parse messages carry plain SELECT/INSERT.
+    let first_token = upper.split_whitespace().next().unwrap_or("");
+    let may_be_ddl = matches!(
+        first_token,
+        "CREATE"
+            | "DROP"
+            | "ALTER"
+            | "SHOW"
+            | "DESCRIBE"
+            | "GRANT"
+            | "REVOKE"
+            | "ANALYZE"
+            | "COPY"
+            | "BACKUP"
+            | "RESTORE"
+            | "UNDROP"
+            | "REINDEX"
+            | "REMOVE"
+            | "REBALANCE"
+            | "COMPACT"
+    );
+    if may_be_ddl && nodedb_sql::ddl_ast::parse(sql).is_some() {
+        return true;
     }
     upper.starts_with("SEARCH ")
         || upper.starts_with("GRAPH ")
