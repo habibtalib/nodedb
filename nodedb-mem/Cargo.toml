@@ -15,10 +15,12 @@ categories = ["memory-management", "concurrency"]
 [dependencies]
 thiserror = { workspace = true }
 tracing = { workspace = true }
+nodedb-types = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tikv-jemallocator = { workspace = true }
 tikv-jemalloc-ctl = { workspace = true }
 libc = { workspace = true }
-nodedb-types = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

@@ -4,6 +4,9 @@
 //!
 //! Provides jemalloc introspection to report actual RSS, mapped memory,
 //! and arena statistics alongside the governor's logical budget tracking.
+//!
+//! On wasm32 the standard allocator is used; `SystemMemoryStats::query()`
+//! always returns `None` because jemalloc introspection is unavailable.
 
 /// System memory statistics from jemalloc.
 #[derive(Debug, Clone)]
@@ -40,35 +43,44 @@ pub struct SystemMemoryStats {
 impl SystemMemoryStats {
     /// Query jemalloc for current system memory statistics.
     ///
-    /// Returns `None` if jemalloc introspection is unavailable.
+    /// Returns `None` if jemalloc introspection is unavailable (including on
+    /// wasm32 where the standard allocator is used instead of jemalloc).
     pub fn query() -> Option<Self> {
-        // Trigger a stats epoch refresh.
-        let _ = tikv_jemalloc_ctl::epoch::advance();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Trigger a stats epoch refresh.
+            let _ = tikv_jemalloc_ctl::epoch::advance();
 
-        let allocated = tikv_jemalloc_ctl::stats::allocated::read().ok()?;
-        let active = tikv_jemalloc_ctl::stats::active::read().ok()?;
-        let mapped = tikv_jemalloc_ctl::stats::mapped::read().ok()?;
-        let retained = tikv_jemalloc_ctl::stats::retained::read().ok()?;
-        let resident = tikv_jemalloc_ctl::stats::resident::read().ok()?;
+            let allocated = tikv_jemalloc_ctl::stats::allocated::read().ok()?;
+            let active = tikv_jemalloc_ctl::stats::active::read().ok()?;
+            let mapped = tikv_jemalloc_ctl::stats::mapped::read().ok()?;
+            let retained = tikv_jemalloc_ctl::stats::retained::read().ok()?;
+            let resident = tikv_jemalloc_ctl::stats::resident::read().ok()?;
 
-        // Fragmentation: how much of jemalloc's active memory is wasted.
-        // active = pages the allocator has obtained from the OS.
-        // allocated = bytes the application is actually using.
-        // The difference is internal fragmentation + free-list overhead.
-        let fragmentation_ratio = if active > 0 {
-            (active.saturating_sub(allocated)) as f64 / active as f64
-        } else {
-            0.0
-        };
+            // Fragmentation: how much of jemalloc's active memory is wasted.
+            // active = pages the allocator has obtained from the OS.
+            // allocated = bytes the application is actually using.
+            // The difference is internal fragmentation + free-list overhead.
+            let fragmentation_ratio = if active > 0 {
+                (active.saturating_sub(allocated)) as f64 / active as f64
+            } else {
+                0.0
+            };
 
-        Some(Self {
-            rss_bytes: resident,
-            allocated_bytes: allocated,
-            active_bytes: active,
-            mapped_bytes: mapped,
-            retained_bytes: retained,
-            fragmentation_ratio,
-        })
+            Some(Self {
+                rss_bytes: resident,
+                allocated_bytes: allocated,
+                active_bytes: active,
+                mapped_bytes: mapped,
+                retained_bytes: retained,
+                fragmentation_ratio,
+            })
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            // wasm32 uses the standard allocator; jemalloc introspection is unavailable.
+            None
+        }
     }
 
     /// Returns `true` if fragmentation exceeds the warning threshold (25%).
