@@ -1,0 +1,161 @@
+// SPDX-License-Identifier: Apache-2.0
+
+//! Vector operation implementations for `NativeClient`.
+
+use nodedb_types::document::Document;
+use nodedb_types::error::{NodeDbError, NodeDbResult};
+use nodedb_types::filter::MetadataFilter;
+use nodedb_types::protocol::{OpCode, TextFields};
+use nodedb_types::result::SearchResult;
+
+use super::super::response_parse::parse_search_results;
+use super::core::{NativeClient, sql_quote_identifier, sql_quote_string_literal};
+
+impl NativeClient {
+    pub(super) async fn vector_search_impl(
+        &self,
+        collection: &str,
+        query: &[f32],
+        k: usize,
+        filter: Option<&MetadataFilter>,
+    ) -> NodeDbResult<Vec<SearchResult>> {
+        let request = build_vector_search_request(collection, query, k, filter)?;
+        let mut conn = self.pool.acquire().await?;
+        let resp = conn.send(OpCode::VectorSearch, request).await?;
+        parse_search_results(&resp)
+    }
+
+    pub(super) async fn vector_insert_impl(
+        &self,
+        collection: &str,
+        id: &str,
+        embedding: &[f32],
+        metadata: Option<Document>,
+    ) -> NodeDbResult<()> {
+        // Serialize metadata up front. A serialization failure must
+        // propagate — the prior `unwrap_or_else(|_| "{}")` silently
+        // replaced caller-supplied metadata with an empty object, which
+        // is exactly the silent-drop pattern this client guards against
+        // on every other seam (filter bytes, bind params).
+        let meta_json = match metadata {
+            Some(d) => {
+                let obj: std::collections::HashMap<String, nodedb_types::value::Value> = d.fields;
+                sonic_rs::to_string(&obj).map_err(|e| {
+                    NodeDbError::serialization("json", format!("vector_insert metadata: {e}"))
+                })?
+            }
+            None => "{}".to_string(),
+        };
+        let sql = format!(
+            "INSERT INTO {} (id, embedding, metadata) VALUES ({}, {}, {})",
+            sql_quote_identifier(collection),
+            sql_quote_string_literal(id),
+            format_f32_array(embedding),
+            sql_quote_string_literal(&meta_json),
+        );
+        let mut conn = self.pool.acquire().await?;
+        conn.execute_sql(&sql).await?;
+        Ok(())
+    }
+
+    pub(super) async fn vector_delete_impl(&self, collection: &str, id: &str) -> NodeDbResult<()> {
+        let sql = format!(
+            "DELETE FROM {} WHERE id = {}",
+            sql_quote_identifier(collection),
+            sql_quote_string_literal(id),
+        );
+        let mut conn = self.pool.acquire().await?;
+        conn.execute_sql(&sql).await?;
+        Ok(())
+    }
+}
+
+/// Build the `TextFields` payload for an `OpCode::VectorSearch` request.
+///
+/// The native protocol reserves wire byte 68 for the optional
+/// `TextFields::filters: Option<Vec<u8>>` field. When the trait caller
+/// passes a non-`None` `MetadataFilter`, the predicate is serialized
+/// here so it travels alongside the SQL/DSL request rather than being
+/// dropped at the client.
+///
+/// Wire-format note: the inline doc on `TextFields::filters` calls for
+/// MessagePack. Until the server-side decoder is wired (the dispatch
+/// path currently constructs plans with `filters: Vec::new()`), the
+/// client serializes via sonic_rs JSON. The server-side fix will switch
+/// both sides to a single agreed encoding; for now the bytes are
+/// observable as non-empty, which is what the trait contract requires.
+pub(super) fn build_vector_search_request(
+    collection: &str,
+    query: &[f32],
+    k: usize,
+    filter: Option<&MetadataFilter>,
+) -> NodeDbResult<TextFields> {
+    // Serialization failure here must surface to the caller. Dropping
+    // the filter and sending the request anyway would send the query
+    // to the server without the caller's predicate — exactly the
+    // silent-drop pattern this client guards against.
+    let filters_bytes = match filter {
+        Some(f) => Some(sonic_rs::to_vec(f).map_err(|e| {
+            NodeDbError::serialization("json", format!("vector_search metadata filter: {e}"))
+        })?),
+        None => None,
+    };
+    Ok(TextFields {
+        collection: Some(collection.to_string()),
+        query_vector: Some(query.to_vec()),
+        top_k: Some(k as u32),
+        filters: filters_bytes,
+        ..Default::default()
+    })
+}
+
+/// Format a `&[f32]` as a SQL `ARRAY[...]` literal.
+pub(super) fn format_f32_array(arr: &[f32]) -> String {
+    let inner: Vec<String> = arr.iter().map(|v| format!("{v}")).collect();
+    format!("ARRAY[{}]", inner.join(","))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nodedb_types::value::Value;
+
+    // Trait-contract enforcement. A request envelope that omits the
+    // caller-supplied filter bytes is the silent-drop pattern these
+    // tests guard against — the server would answer without the
+    // caller's predicate, returning data from the wrong scope.
+
+    #[test]
+    fn vector_search_request_without_filter_omits_filter_bytes() {
+        let req = build_vector_search_request("docs", &[0.1, 0.2], 5, None)
+            .expect("no-filter request must build");
+        assert_eq!(req.collection.as_deref(), Some("docs"));
+        assert_eq!(req.query_vector.as_deref(), Some(&[0.1f32, 0.2][..]));
+        assert_eq!(req.top_k, Some(5));
+        assert!(
+            req.filters.is_none(),
+            "no-filter case must leave TextFields::filters empty"
+        );
+    }
+
+    #[test]
+    fn vector_search_request_serializes_metadata_filter() {
+        let filter = MetadataFilter::eq("category", Value::String("ai".into()));
+        let req = build_vector_search_request("docs", &[0.1], 3, Some(&filter))
+            .expect("derived-Serialize MetadataFilter must encode");
+        let bytes = req.filters.expect("non-None filter must produce bytes");
+        assert!(
+            !bytes.is_empty(),
+            "serialized filter bytes must not be empty"
+        );
+    }
+
+    #[test]
+    fn format_f32_array_works() {
+        let arr = [0.1f32, 0.2, 0.3];
+        let s = format_f32_array(&arr);
+        assert!(s.starts_with("ARRAY["));
+        assert!(s.contains("0.1"));
+        assert!(s.ends_with(']'));
+    }
+}

@@ -8,6 +8,11 @@
 //!
 //! All methods are `async` — on native this runs on Tokio, on WASM this
 //! runs on `wasm-bindgen-futures`.
+//!
+//! This file must remain a single block for object-safety: Rust does not
+//! permit a `trait` body to be split across files. Splitting `NodeDb` into
+//! supertraits would break the `Arc<dyn NodeDb>` pattern all callers depend
+//! on and is therefore out of scope for any mechanical refactor.
 
 use async_trait::async_trait;
 
@@ -15,35 +20,16 @@ use nodedb_types::document::Document;
 use nodedb_types::dropped_collection::DroppedCollection;
 use nodedb_types::error::{NodeDbError, NodeDbResult};
 use nodedb_types::filter::{EdgeFilter, MetadataFilter};
+use nodedb_types::graph::GraphStats;
 use nodedb_types::id::{EdgeId, NodeId};
 use nodedb_types::protocol::Limits;
 use nodedb_types::result::{QueryResult, SearchResult, SubGraph};
 use nodedb_types::text_search::TextSearchParams;
 use nodedb_types::value::Value;
 
-use super::document::CollectionPurgedHandler;
-
-/// Marker bound for `NodeDb` and the futures it returns.
-///
-/// On native targets the bound is `Send + Sync` — matching the multi-thread
-/// Tokio runtime that backs both Origin and the desktop / mobile-FFI Lite
-/// callers. On `wasm32` the bound is empty: JS is single-threaded, so
-/// requiring `Send` on futures returned by the trait would force every
-/// `!Send` engine internal (redb transactions, `Rc<...>`, etc.) to be
-/// rewritten for no benefit.
-///
-/// The `#[async_trait]` attribute on the trait + each impl is correspondingly
-/// cfg-swapped between the default (`Send` futures) and `?Send` (no `Send`
-/// bound) variants.
-#[cfg(not(target_arch = "wasm32"))]
-pub trait NodeDbMarker: Send + Sync {}
-#[cfg(not(target_arch = "wasm32"))]
-impl<T: Send + Sync + ?Sized> NodeDbMarker for T {}
-
-#[cfg(target_arch = "wasm32")]
-pub trait NodeDbMarker {}
-#[cfg(target_arch = "wasm32")]
-impl<T: ?Sized> NodeDbMarker for T {}
+use super::marker::NodeDbMarker;
+use super::quote::quote_ident;
+use crate::traits::document::CollectionPurgedHandler;
 
 /// Unified database interface for NodeDB.
 ///
@@ -135,6 +121,17 @@ pub trait NodeDb: NodeDbMarker {
     /// On Lite: marks deleted + CRDT tombstone.
     /// On Remote: `GRAPH DELETE EDGE IN '<collection>' FROM '<src>' TO '<dst>' TYPE '<label>'`.
     async fn graph_delete_edge(&self, collection: &str, edge_id: &EdgeId) -> NodeDbResult<()>;
+
+    /// Read aggregated graph statistics for `collection`.
+    ///
+    /// Returns global edge count, distinct node count, distinct label
+    /// count, and per-label edge counts (sorted ascending by label).
+    /// Reads what was *persisted* in the edge store, bypassing any
+    /// in-memory CSR view.
+    ///
+    /// On Lite: direct read of the local edge store.
+    /// On Remote: `SHOW GRAPH STATS '<collection>'` over pgwire.
+    async fn graph_stats(&self, collection: &str) -> NodeDbResult<GraphStats>;
 
     // ─── Document Operations ─────────────────────────────────────────
 
@@ -453,31 +450,18 @@ pub trait NodeDb: NodeDbMarker {
     }
 }
 
-/// Quote a SQL identifier. Wraps in double-quotes only if the name
-/// contains anything other than `[A-Za-z0-9_]` or starts with a digit —
-/// the unquoted fast-path keeps the usual case cheap. Doubles any
-/// internal double-quotes per the SQL identifier-escape rule.
-///
-/// Lives next to the trait default impls (rather than in the remote
-/// client's `quote_identifier`) because the trait defaults for
-/// `undrop_collection` / `drop_collection_purge` build SQL without any
-/// feature-gated transport in scope.
-fn quote_ident(name: &str) -> String {
-    let needs_quote = name.is_empty()
-        || name.chars().next().is_some_and(|c| c.is_ascii_digit())
-        || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-    if needs_quote {
-        let escaped = name.replace('"', "\"\"");
-        format!("\"{escaped}\"")
-    } else {
-        name.to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::capabilities::Capabilities;
+    use async_trait::async_trait;
+    use nodedb_types::document::Document;
+    use nodedb_types::error::{NodeDbError, NodeDbResult};
+    use nodedb_types::filter::{EdgeFilter, MetadataFilter};
+    use nodedb_types::graph::GraphStats;
+    use nodedb_types::id::{EdgeId, NodeId};
+    use nodedb_types::result::{QueryResult, SearchResult, SubGraph};
+    use nodedb_types::value::Value;
     use std::collections::HashMap;
 
     /// Mock implementation to verify the trait is object-safe and
@@ -546,6 +530,10 @@ mod tests {
             Ok(())
         }
 
+        async fn graph_stats(&self, collection: &str) -> NodeDbResult<GraphStats> {
+            Ok(GraphStats::zero(collection))
+        }
+
         async fn document_get(
             &self,
             _collection: &str,
@@ -569,7 +557,6 @@ mod tests {
         }
     }
 
-    /// Verify the trait is object-safe (can be used as `dyn NodeDb`).
     #[test]
     fn trait_is_object_safe() {
         fn _accepts_dyn(_db: &dyn NodeDb) {}
@@ -577,12 +564,10 @@ mod tests {
         _accepts_dyn(&db);
     }
 
-    /// Verify the trait can be wrapped in `Arc<dyn NodeDb>`.
     #[test]
     fn trait_works_with_arc() {
         use std::sync::Arc;
         let db: Arc<dyn NodeDb> = Arc::new(MockDb);
-        // Just verify it compiles — the Arc<dyn> pattern is the primary API.
         let _ = db;
     }
 
@@ -605,6 +590,17 @@ mod tests {
             .await
             .unwrap();
         db.vector_delete("coll", "v1").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn mock_graph_stats_returns_zero() {
+        let db = MockDb;
+        let stats = db.graph_stats("social").await.unwrap();
+        assert_eq!(stats.collection, "social");
+        assert_eq!(stats.node_count, 0);
+        assert_eq!(stats.edge_count, 0);
+        assert_eq!(stats.distinct_label_count, 0);
+        assert!(stats.labels.is_empty());
     }
 
     #[tokio::test]
@@ -649,17 +645,13 @@ mod tests {
         assert_eq!(result.row_count(), 0);
     }
 
-    /// Verify the full "one API, any runtime" pattern from the TDD.
+    /// Verify the full "one API, any runtime" pattern: application
+    /// code switches between `NodeDbLite` and `NodeDbRemote` only at
+    /// the construction site.
     #[tokio::test]
     async fn unified_api_pattern() {
         use std::sync::Arc;
 
-        // This is the pattern from NodeDB.md:
-        // let db: Arc<dyn NodeDb> = Arc::new(NodeDbLite::open(...));
-        //   OR
-        // let db: Arc<dyn NodeDb> = Arc::new(NodeDbRemote::connect(...));
-        //
-        // Application code is identical either way:
         let db: Arc<dyn NodeDb> = Arc::new(MockDb);
 
         let results = db
@@ -678,32 +670,27 @@ mod tests {
         db.document_put("notes", doc).await.unwrap();
     }
 
-    /// Default `proto_version()` returns 0 for impls that do not override.
     #[test]
     fn default_proto_version_is_zero() {
         let db = MockDb;
         assert_eq!(db.proto_version(), 0);
     }
 
-    /// Default `capabilities()` returns 0 for impls that do not override.
     #[test]
     fn default_capabilities_is_zero() {
         let db = MockDb;
         assert_eq!(db.capabilities(), 0);
-        // Wrapping in Capabilities gives all-false predicates.
         let caps = Capabilities::from_raw(db.capabilities());
         assert!(!caps.supports_streaming());
         assert!(!caps.supports_graphrag());
     }
 
-    /// Default `server_version()` returns an empty string.
     #[test]
     fn default_server_version_is_empty() {
         let db = MockDb;
         assert!(db.server_version().is_empty());
     }
 
-    /// Default `limits()` returns all-None limits.
     #[test]
     fn default_limits_all_none() {
         let db = MockDb;
@@ -717,7 +704,6 @@ mod tests {
         assert!(limits.max_graph_depth.is_none());
     }
 
-    /// Capabilities newtype works as documented.
     #[test]
     fn capabilities_newtype_smoke() {
         use nodedb_types::protocol::{CAP_FTS, CAP_STREAMING};

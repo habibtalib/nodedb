@@ -4,4 +4,6 @@ pub mod builder;
 pub mod client;
 pub mod connection;
 pub mod pool;
-mod response_parse;
+pub(crate) mod response_parse;
+
+pub use client::NativeClient;
