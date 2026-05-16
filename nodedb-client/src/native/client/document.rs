@@ -8,8 +8,8 @@ use nodedb_types::document::Document;
 use nodedb_types::error::{NodeDbError, NodeDbResult};
 use nodedb_types::protocol::{OpCode, TextFields};
 
-use super::super::response_parse::json_to_value;
 use super::core::NativeClient;
+use nodedb_types::conversion::json_to_value;
 
 impl NativeClient {
     pub(super) async fn document_get_impl(
