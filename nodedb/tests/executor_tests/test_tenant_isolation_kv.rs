@@ -4,8 +4,8 @@
 //!
 //! Tenant A puts a key. Tenant B gets the same key — must get NotFound.
 
-use nodedb::bridge::envelope::{ErrorCode, PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::KvOp;
+use nodedb::bridge::envelope::{ErrorCode, Status};
+use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
 use crate::helpers::*;
 

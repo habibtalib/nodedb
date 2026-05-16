@@ -18,13 +18,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nodedb::bridge::dispatch::{BridgeResponse, CoreChannelDataSide, Dispatcher};
-use nodedb::bridge::envelope::{Payload, PhysicalPlan, Response, Status};
-use nodedb::bridge::physical_plan::MetaOp;
+use nodedb::bridge::envelope::{Payload, Response, Status};
 use nodedb::config::auth::AuthMode;
 use nodedb::control::server::pgwire::listener::PgListener;
 use nodedb::control::startup::{StartupPhase, StartupSequencer};
 use nodedb::control::state::SharedState;
 use nodedb::types::Lsn;
+use nodedb_physical::physical_plan::{MetaOp, PhysicalPlan};
 
 mod common;
 

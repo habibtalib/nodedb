@@ -3,9 +3,8 @@
 //! Multi-core broadcast join and inline hash join tests.
 
 use crate::helpers::{make_ctx_with_id, send_ok};
-use nodedb::bridge::envelope::PhysicalPlan;
-use nodedb::bridge::physical_plan::{DocumentOp, KvOp, QueryOp};
 use nodedb::data::executor::response_codec;
+use nodedb_physical::physical_plan::{DocumentOp, KvOp, PhysicalPlan, QueryOp};
 
 use super::basic_scans::build_msgpack_map;
 

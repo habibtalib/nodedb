@@ -6,8 +6,8 @@
 //! cannot contaminate Tenant A's search results.  After Tenant B's inserts,
 //! Tenant A's search must return the same count of results it returned before.
 
-use nodedb::bridge::envelope::{PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::VectorOp;
+use nodedb::bridge::envelope::Status;
+use nodedb_physical::physical_plan::{PhysicalPlan, VectorOp};
 use nodedb_types::vector_distance::DistanceMetric;
 
 use crate::helpers::*;

@@ -3,10 +3,11 @@
 //! Basic scan and roundtrip tests: KV, document, merge, and broadcast merge.
 
 use crate::helpers::{make_ctx, send_ok};
-use nodedb::bridge::envelope::PhysicalPlan;
-use nodedb::bridge::physical_plan::{DocumentOp, EnforcementOptions, KvOp, StorageMode};
 use nodedb::data::executor::handlers::join;
 use nodedb::data::executor::response_codec;
+use nodedb_physical::physical_plan::{
+    DocumentOp, EnforcementOptions, KvOp, PhysicalPlan, StorageMode,
+};
 use nodedb_types::columnar::{ColumnDef, ColumnType, StrictSchema};
 
 pub(super) fn build_msgpack_map(fields: &[(&str, &str)]) -> Vec<u8> {

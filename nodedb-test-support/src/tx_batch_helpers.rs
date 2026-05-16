@@ -7,14 +7,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nodedb::bridge::dispatch::{BridgeRequest, BridgeResponse};
-use nodedb::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
-use nodedb::bridge::physical_plan::{
-    AggregateSpec, ColumnarInsertIntent, ColumnarOp, CrdtOp, DocumentOp, GraphOp, KvOp, QueryOp,
-    TimeseriesOp, VectorOp,
-};
+use nodedb::bridge::envelope::{Priority, Request, Status};
 use nodedb::data::executor::core_loop::CoreLoop;
 use nodedb::types::*;
 use nodedb_bridge::buffer::{Consumer, Producer, RingBuffer};
+use nodedb_physical::physical_plan::{
+    AggregateSpec, ColumnarInsertIntent, ColumnarOp, CrdtOp, DocumentOp, GraphOp, KvOp,
+    PhysicalPlan, QueryOp, TimeseriesOp, VectorOp,
+};
 use nodedb_types::OrdinalClock;
 
 // ── Core setup ──────────────────────────────────────────────────────────────

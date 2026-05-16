@@ -6,8 +6,8 @@
 //! cannot contaminate Tenant A's scan results.  After Tenant B's ingest, Tenant A
 //! must see the same row count as before.
 
-use nodedb::bridge::envelope::{PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::TimeseriesOp;
+use nodedb::bridge::envelope::Status;
+use nodedb_physical::physical_plan::{PhysicalPlan, TimeseriesOp};
 
 use crate::helpers::*;
 

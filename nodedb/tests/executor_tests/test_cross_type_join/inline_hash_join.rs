@@ -3,9 +3,8 @@
 //! Inline hash join test: two pre-computed payloads joined with qualified left-side keys.
 
 use crate::helpers::{make_ctx, send_ok};
-use nodedb::bridge::envelope::PhysicalPlan;
-use nodedb::bridge::physical_plan::{DocumentOp, QueryOp};
 use nodedb::data::executor::response_codec;
+use nodedb_physical::physical_plan::{DocumentOp, PhysicalPlan, QueryOp};
 
 use super::basic_scans::build_msgpack_map;
 

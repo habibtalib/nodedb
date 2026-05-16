@@ -5,8 +5,10 @@
 //! Creates data across multiple engines as Tenant A, purges, then verifies
 //! zero remaining data. Tenant B's data must be unaffected.
 
-use nodedb::bridge::envelope::{ErrorCode, PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::{DocumentOp, GraphOp, KvOp, MetaOp, TimeseriesOp};
+use nodedb::bridge::envelope::{ErrorCode, Status};
+use nodedb_physical::physical_plan::{
+    DocumentOp, GraphOp, KvOp, MetaOp, PhysicalPlan, TimeseriesOp,
+};
 
 use crate::helpers::*;
 

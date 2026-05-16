@@ -42,11 +42,11 @@ mod common;
 use common::tx_batch_helpers::*;
 
 #[cfg(feature = "failpoints")]
-use nodedb::bridge::envelope::{ErrorCode, PhysicalPlan, Status};
-#[cfg(feature = "failpoints")]
-use nodedb::bridge::physical_plan::{KvOp, MetaOp};
+use nodedb::bridge::envelope::{ErrorCode, Status};
 #[cfg(feature = "failpoints")]
 use nodedb::fail_point::{FailAction, FailGuard};
+#[cfg(feature = "failpoints")]
+use nodedb_physical::physical_plan::{KvOp, MetaOp, PhysicalPlan};
 #[cfg(feature = "failpoints")]
 use nodedb_types::TenantId as NodedbTenantId;
 
@@ -326,7 +326,8 @@ fn calvin_static_replay_sees_only_committed_data() {
     // Commit a reference write before the panic batch.
     {
         use nodedb::bridge::dispatch::BridgeRequest;
-        use nodedb::bridge::envelope::{PhysicalPlan, Priority, Request};
+        use nodedb::bridge::envelope::{Priority, Request};
+        use nodedb_physical::physical_plan::PhysicalPlan;
         use std::time::{Duration, Instant};
 
         let make_req = |plan: PhysicalPlan| Request {
@@ -409,7 +410,8 @@ fn calvin_static_replay_sees_only_committed_data() {
     };
 
     use nodedb::bridge::dispatch::BridgeRequest;
-    use nodedb::bridge::envelope::{PhysicalPlan, Priority, Request};
+    use nodedb::bridge::envelope::{Priority, Request};
+    use nodedb_physical::physical_plan::PhysicalPlan;
     use std::time::{Duration, Instant};
 
     let make_req2 = |plan: PhysicalPlan| Request {

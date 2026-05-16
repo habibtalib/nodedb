@@ -14,6 +14,7 @@ path = "src/lib.rs"
 # Production crates this harness drives.
 nodedb = { workspace = true }
 nodedb-array = { workspace = true }
+nodedb-physical = { workspace = true }
 nodedb-bridge = { workspace = true }
 nodedb-cluster = { workspace = true }
 nodedb-mem = { workspace = true }

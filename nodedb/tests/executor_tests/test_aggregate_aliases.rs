@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::helpers::{make_ctx, payload_value, send_ok};
-use nodedb::bridge::envelope::PhysicalPlan;
-use nodedb::bridge::physical_plan::{AggregateSpec, DocumentOp, QueryOp};
 use nodedb::bridge::scan_filter::{FilterOp, ScanFilter};
+use nodedb_physical::physical_plan::{AggregateSpec, DocumentOp, PhysicalPlan, QueryOp};
 
 #[test]
 fn aggregate_output_uses_user_alias_but_having_reads_canonical_key() {

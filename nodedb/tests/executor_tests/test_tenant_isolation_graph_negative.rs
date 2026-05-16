@@ -6,9 +6,9 @@
 //! cannot contaminate Tenant A's neighbor results.  After Tenant B's inserts,
 //! Tenant A's neighbor query must return exactly its own edges.
 
-use nodedb::bridge::envelope::{PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::GraphOp;
+use nodedb::bridge::envelope::Status;
 use nodedb::engine::graph::edge_store::Direction;
+use nodedb_physical::physical_plan::{GraphOp, PhysicalPlan};
 
 use crate::helpers::*;
 

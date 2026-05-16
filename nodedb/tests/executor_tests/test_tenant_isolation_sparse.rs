@@ -5,8 +5,8 @@
 //! Tenant A inserts a document. Tenant B queries the same collection name
 //! and document_id — must get NotFound, not Tenant A's data.
 
-use nodedb::bridge::envelope::{PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::DocumentOp;
+use nodedb::bridge::envelope::Status;
+use nodedb_physical::physical_plan::{DocumentOp, PhysicalPlan};
 
 use crate::helpers::*;
 

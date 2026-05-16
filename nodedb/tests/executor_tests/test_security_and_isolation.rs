@@ -7,9 +7,9 @@
 //! 3. WAL replay: deterministic traces
 //! 4. Mixed-engine isolation: protected-tier not evicted under budget
 
-use nodedb::bridge::envelope::{PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::{DocumentOp, GraphOp, VectorOp};
+use nodedb::bridge::envelope::Status;
 use nodedb::control::security::audit::NoopAuditEmitter;
+use nodedb_physical::physical_plan::{DocumentOp, GraphOp, PhysicalPlan, VectorOp};
 use nodedb_types::vector_distance::DistanceMetric;
 
 const NOOP: &NoopAuditEmitter = &NoopAuditEmitter;

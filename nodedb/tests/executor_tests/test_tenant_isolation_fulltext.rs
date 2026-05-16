@@ -4,8 +4,8 @@
 //!
 //! Tenant A indexes documents with text. Tenant B searches — must get zero results.
 
-use nodedb::bridge::envelope::{PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::{DocumentOp, TextOp};
+use nodedb::bridge::envelope::Status;
+use nodedb_physical::physical_plan::{DocumentOp, PhysicalPlan, TextOp};
 
 use crate::helpers::*;
 

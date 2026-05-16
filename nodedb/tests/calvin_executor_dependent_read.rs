@@ -8,10 +8,10 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use nodedb::bridge::physical_plan::meta::PassiveReadKeyId;
 use nodedb::control::cluster::calvin::scheduler::driver::barrier::{
     PendingDependentBarrier, ReadResultEvent,
 };
+use nodedb_physical::physical_plan::meta::PassiveReadKeyId;
 use nodedb_types::{TenantId, Value};
 
 use nodedb::control::cluster::calvin::scheduler::lock_manager::LockKey;

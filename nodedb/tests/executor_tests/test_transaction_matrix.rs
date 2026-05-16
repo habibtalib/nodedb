@@ -15,8 +15,10 @@
 //! Adding a new write-trackable engine: add a row to each matrix table here.
 //! Adding a new engine pair: add one test function following the existing pattern.
 
-use nodedb::bridge::envelope::{ErrorCode, PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::{CrdtOp, DocumentOp, GraphOp, MetaOp, TextOp, VectorOp};
+use nodedb::bridge::envelope::{ErrorCode, Status};
+use nodedb_physical::physical_plan::{
+    CrdtOp, DocumentOp, GraphOp, MetaOp, PhysicalPlan, TextOp, VectorOp,
+};
 
 use crate::helpers::*;
 
@@ -528,7 +530,7 @@ fn rollback_matrix_fts_side_effect_rolled_back() {
 
 #[test]
 fn rollback_matrix_spatial_not_written_in_tx_path() {
-    use nodedb::bridge::physical_plan::{SpatialOp, SpatialPredicate};
+    use nodedb_physical::physical_plan::{SpatialOp, SpatialPredicate};
     use nodedb_types::geometry::Geometry;
 
     let (mut core, mut tx, mut rx, _dir) = make_core();

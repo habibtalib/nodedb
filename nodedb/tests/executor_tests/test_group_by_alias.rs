@@ -6,9 +6,8 @@
 //! and positional (1-based) references. Tests the full path from SQL string →
 //! nodedb_sql planner → sql_plan_convert → PhysicalPlan → Data Plane → response.
 
-use nodedb::bridge::envelope::PhysicalPlan;
-use nodedb::bridge::physical_plan::TimeseriesOp;
 use nodedb::control::planner::sql_plan_convert::{ConvertContext, convert};
+use nodedb_physical::physical_plan::{PhysicalPlan, TimeseriesOp};
 use nodedb_sql::types::{CollectionInfo, EngineType, SqlCatalog, SqlPlan};
 
 use crate::helpers::*;

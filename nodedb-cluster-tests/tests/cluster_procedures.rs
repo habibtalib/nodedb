@@ -8,12 +8,12 @@
 //! - Replicated constraint violations produce DeltaReject with CompensationHint
 //! - Procedure body parsing with transaction control statements
 
-use nodedb::bridge::envelope::PhysicalPlan;
-use nodedb::bridge::physical_plan::DocumentOp;
 use nodedb::control::planner::procedural::ast::*;
 use nodedb::control::planner::procedural::executor::transaction::ProcedureTransactionCtx;
 use nodedb::control::planner::procedural::parse_block;
 use nodedb::types::{DatabaseId, TenantId, VShardId};
+use nodedb_physical::physical_plan::{DocumentOp, PhysicalPlan};
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 use nodedb_types::sync::compensation::CompensationHint;
 use nodedb_types::sync::wire::DeltaRejectMsg;
 
@@ -73,7 +73,7 @@ fn tx_ctx_commit_yields_independent_tasks() {
     let mut ctx = ProcedureTransactionCtx::new();
 
     // Simulate two DML statements in a procedure body.
-    ctx.buffer_task(nodedb::control::planner::physical::PhysicalTask {
+    ctx.buffer_task(PhysicalTask {
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(0),
         database_id: DatabaseId::DEFAULT,
@@ -84,9 +84,9 @@ fn tx_ctx_commit_yields_independent_tasks() {
             surrogate: nodedb_types::Surrogate::ZERO,
             pk_bytes: Vec::new(),
         }),
-        post_set_op: nodedb::control::planner::physical::PostSetOp::None,
+        post_set_op: PostSetOp::None,
     });
-    ctx.buffer_task(nodedb::control::planner::physical::PhysicalTask {
+    ctx.buffer_task(PhysicalTask {
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(0),
         database_id: DatabaseId::DEFAULT,
@@ -97,7 +97,7 @@ fn tx_ctx_commit_yields_independent_tasks() {
             pk_bytes: Vec::new(),
             returning: None,
         }),
-        post_set_op: nodedb::control::planner::physical::PostSetOp::None,
+        post_set_op: PostSetOp::None,
     });
 
     // COMMIT flushes both tasks.
@@ -126,7 +126,7 @@ fn procedure_can_target_multiple_vshards() {
     let mut ctx = ProcedureTransactionCtx::new();
 
     // Task on vshard 0
-    ctx.buffer_task(nodedb::control::planner::physical::PhysicalTask {
+    ctx.buffer_task(PhysicalTask {
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(0),
         database_id: DatabaseId::DEFAULT,
@@ -137,10 +137,10 @@ fn procedure_can_target_multiple_vshards() {
             surrogate: nodedb_types::Surrogate::ZERO,
             pk_bytes: Vec::new(),
         }),
-        post_set_op: nodedb::control::planner::physical::PostSetOp::None,
+        post_set_op: PostSetOp::None,
     });
     // Task on vshard 1 (different shard)
-    ctx.buffer_task(nodedb::control::planner::physical::PhysicalTask {
+    ctx.buffer_task(PhysicalTask {
         tenant_id: TenantId::new(1),
         vshard_id: VShardId::new(1),
         database_id: DatabaseId::DEFAULT,
@@ -151,7 +151,7 @@ fn procedure_can_target_multiple_vshards() {
             surrogate: nodedb_types::Surrogate::ZERO,
             pk_bytes: Vec::new(),
         }),
-        post_set_op: nodedb::control::planner::physical::PostSetOp::None,
+        post_set_op: PostSetOp::None,
     });
 
     let tasks = ctx.take_buffered_tasks();

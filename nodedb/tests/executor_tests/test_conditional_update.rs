@@ -9,9 +9,9 @@
 //! - TransactionBatch does not auto-abort on 0-row conditional update
 //! - PointUpdate returns affected count
 
-use nodedb::bridge::envelope::{PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::{DocumentOp, MetaOp};
+use nodedb::bridge::envelope::Status;
 use nodedb::bridge::scan_filter::ScanFilter;
+use nodedb_physical::physical_plan::{DocumentOp, MetaOp, PhysicalPlan, UpdateValue};
 
 use crate::helpers::*;
 
@@ -102,9 +102,7 @@ fn bulk_update_returns_affected_count() {
     let filter_bytes = zerompk::to_msgpack_vec(&filters).unwrap();
     let updates = vec![(
         "stock".to_string(),
-        nodedb::bridge::physical_plan::UpdateValue::Literal(
-            nodedb_types::json_to_msgpack(&serde_json::json!(99)).unwrap(),
-        ),
+        UpdateValue::Literal(nodedb_types::json_to_msgpack(&serde_json::json!(99)).unwrap()),
     )];
 
     let payload = send_ok(
@@ -144,7 +142,7 @@ fn conditional_decrement_stops_at_zero() {
         let new_stock = current_stock.saturating_sub(1);
         let updates = vec![(
             "stock".to_string(),
-            nodedb::bridge::physical_plan::UpdateValue::Literal(
+            UpdateValue::Literal(
                 nodedb_types::json_to_msgpack(&serde_json::json!(new_stock)).unwrap(),
             ),
         )];
@@ -190,9 +188,7 @@ fn bulk_update_zero_match_returns_zero_affected() {
     let filter_bytes = zerompk::to_msgpack_vec(&filters).unwrap();
     let updates = vec![(
         "stock".to_string(),
-        nodedb::bridge::physical_plan::UpdateValue::Literal(
-            nodedb_types::json_to_msgpack(&serde_json::json!(999)).unwrap(),
-        ),
+        UpdateValue::Literal(nodedb_types::json_to_msgpack(&serde_json::json!(999)).unwrap()),
     )];
 
     let payload = send_ok(
@@ -223,9 +219,7 @@ fn bulk_update_returning_returns_updated_documents() {
     let filter_bytes = zerompk::to_msgpack_vec(&filters).unwrap();
     let updates = vec![(
         "stock".to_string(),
-        nodedb::bridge::physical_plan::UpdateValue::Literal(
-            nodedb_types::json_to_msgpack(&serde_json::json!(0)).unwrap(),
-        ),
+        UpdateValue::Literal(nodedb_types::json_to_msgpack(&serde_json::json!(0)).unwrap()),
     )];
 
     let payload = send_ok(
@@ -255,9 +249,7 @@ fn bulk_update_returning_zero_match_returns_affected_zero() {
     let filter_bytes = zerompk::to_msgpack_vec(&filters).unwrap();
     let updates = vec![(
         "stock".to_string(),
-        nodedb::bridge::physical_plan::UpdateValue::Literal(
-            nodedb_types::json_to_msgpack(&serde_json::json!(999)).unwrap(),
-        ),
+        UpdateValue::Literal(nodedb_types::json_to_msgpack(&serde_json::json!(999)).unwrap()),
     )];
 
     let payload = send_ok(
@@ -285,9 +277,7 @@ fn point_update_returns_affected_count() {
 
     let updates = vec![(
         "stock".to_string(),
-        nodedb::bridge::physical_plan::UpdateValue::Literal(
-            nodedb_types::json_to_msgpack(&serde_json::json!(5)).unwrap(),
-        ),
+        UpdateValue::Literal(nodedb_types::json_to_msgpack(&serde_json::json!(5)).unwrap()),
     )];
 
     let payload = send_ok(
@@ -317,9 +307,7 @@ fn point_update_returning_returns_updated_document() {
 
     let updates = vec![(
         "stock".to_string(),
-        nodedb::bridge::physical_plan::UpdateValue::Literal(
-            nodedb_types::json_to_msgpack(&serde_json::json!(7)).unwrap(),
-        ),
+        UpdateValue::Literal(nodedb_types::json_to_msgpack(&serde_json::json!(7)).unwrap()),
     )];
 
     let payload = send_ok(
@@ -374,7 +362,7 @@ fn transaction_batch_does_not_abort_on_zero_row_update() {
                     filters: filters_match,
                     updates: vec![(
                         "stock".to_string(),
-                        nodedb::bridge::physical_plan::UpdateValue::Literal(
+                        UpdateValue::Literal(
                             nodedb_types::json_to_msgpack(&serde_json::json!(0)).unwrap(),
                         ),
                     )],
@@ -386,7 +374,7 @@ fn transaction_batch_does_not_abort_on_zero_row_update() {
                     filters: filters_nomatch,
                     updates: vec![(
                         "stock".to_string(),
-                        nodedb::bridge::physical_plan::UpdateValue::Literal(
+                        UpdateValue::Literal(
                             nodedb_types::json_to_msgpack(&serde_json::json!(999)).unwrap(),
                         ),
                     )],

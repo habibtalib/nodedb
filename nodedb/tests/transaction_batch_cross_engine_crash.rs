@@ -17,11 +17,11 @@ use common::tx_batch_helpers::*;
 #[cfg(feature = "failpoints")]
 use nodedb::bridge::dispatch::BridgeRequest;
 #[cfg(feature = "failpoints")]
-use nodedb::bridge::envelope::{ErrorCode, PhysicalPlan, Status};
-#[cfg(feature = "failpoints")]
-use nodedb::bridge::physical_plan::MetaOp;
+use nodedb::bridge::envelope::{ErrorCode, Status};
 #[cfg(feature = "failpoints")]
 use nodedb::fail_point::{FailAction, FailGuard};
+#[cfg(feature = "failpoints")]
+use nodedb_physical::physical_plan::{MetaOp, PhysicalPlan};
 
 /// Push a TransactionBatch through the bridge, tick once, return the response.
 /// Panic-from-fail-point is now handled inside the handler — `tick()` never

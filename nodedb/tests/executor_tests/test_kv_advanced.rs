@@ -3,8 +3,8 @@
 //! Advanced KV integration tests: protocol simulation, cross-engine,
 //! TTL+CDC, CRDT sync, secondary index stress.
 
-use nodedb::bridge::envelope::{PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::KvOp;
+use nodedb::bridge::envelope::Status;
+use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
 use crate::helpers::*;
 
@@ -165,7 +165,7 @@ fn kv_protocol_command_sequence() {
 
 #[test]
 fn kv_and_vector_coexist() {
-    use nodedb::bridge::physical_plan::VectorOp;
+    use nodedb_physical::physical_plan::VectorOp;
     use nodedb_types::vector_distance::DistanceMetric;
 
     let (mut core, mut tx, mut rx, _dir) = make_core();

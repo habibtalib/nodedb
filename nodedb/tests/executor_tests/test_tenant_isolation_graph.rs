@@ -4,8 +4,8 @@
 //!
 //! Tenant A inserts edges. Tenant B queries neighbors — must get zero results.
 
-use nodedb::bridge::envelope::{PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::GraphOp;
+use nodedb::bridge::envelope::Status;
+use nodedb_physical::physical_plan::{GraphOp, PhysicalPlan};
 
 use crate::helpers::*;
 

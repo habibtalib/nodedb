@@ -5,8 +5,8 @@
 //! Verifies that Tenant B writing to the same collection + document_id as Tenant A
 //! cannot overwrite or delete Tenant A's document.
 
-use nodedb::bridge::envelope::{ErrorCode, PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::DocumentOp;
+use nodedb::bridge::envelope::{ErrorCode, Status};
+use nodedb_physical::physical_plan::{DocumentOp, PhysicalPlan};
 
 use crate::helpers::*;
 

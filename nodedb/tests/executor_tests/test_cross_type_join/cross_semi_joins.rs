@@ -3,10 +3,11 @@
 //! Cross-join and semi-join tests with inline scalar aggregate subqueries.
 
 use crate::helpers::{make_ctx, send_ok};
-use nodedb::bridge::envelope::PhysicalPlan;
-use nodedb::bridge::physical_plan::{AggregateSpec, DocumentOp, JoinProjection, QueryOp};
 use nodedb::bridge::scan_filter::{FilterOp, ScanFilter};
 use nodedb::data::executor::response_codec;
+use nodedb_physical::physical_plan::{
+    AggregateSpec, DocumentOp, JoinProjection, PhysicalPlan, QueryOp,
+};
 
 #[test]
 fn cross_join_uses_inline_right_scalar_aggregate_for_post_filter() {

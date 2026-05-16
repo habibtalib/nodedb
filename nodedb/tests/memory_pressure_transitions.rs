@@ -133,10 +133,10 @@ fn critical_pressure_halves_read_depth_and_increments_metric() {
 
 #[test]
 fn critical_check_engine_pressure_increments_metric() {
-    use nodedb::bridge::envelope::{PhysicalPlan, Priority, Request};
-    use nodedb::bridge::physical_plan::VectorOp;
+    use nodedb::bridge::envelope::{Priority, Request};
     use nodedb::data::executor::task::ExecutionTask;
     use nodedb::types::*;
+    use nodedb_physical::physical_plan::{PhysicalPlan, VectorOp};
     use nodedb_types::{Surrogate, TraceId};
     use std::time::{Duration, Instant};
 
@@ -189,10 +189,10 @@ fn critical_check_engine_pressure_increments_metric() {
 
 #[test]
 fn emergency_pressure_suspends_reads_and_increments_metric() {
-    use nodedb::bridge::envelope::{ErrorCode, PhysicalPlan, Priority, Request};
-    use nodedb::bridge::physical_plan::VectorOp;
+    use nodedb::bridge::envelope::{ErrorCode, Priority, Request};
     use nodedb::data::executor::task::ExecutionTask;
     use nodedb::types::*;
+    use nodedb_physical::physical_plan::{PhysicalPlan, VectorOp};
     use nodedb_types::{Surrogate, TraceId};
     use std::time::{Duration, Instant};
 

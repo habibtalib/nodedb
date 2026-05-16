@@ -144,11 +144,11 @@ fn parse_no_exception_block() {
 // Transaction context: buffer + savepoint + rollback
 // ---------------------------------------------------------------------------
 
-fn dummy_task(id: &str) -> nodedb::control::planner::physical::PhysicalTask {
-    use nodedb::bridge::envelope::PhysicalPlan;
-    use nodedb::bridge::physical_plan::DocumentOp;
+fn dummy_task(id: &str) -> nodedb_physical::physical_task::PhysicalTask {
+    use nodedb_physical::physical_plan::{DocumentOp, PhysicalPlan};
+    use nodedb_physical::physical_task::PostSetOp;
 
-    nodedb::control::planner::physical::PhysicalTask {
+    nodedb_physical::physical_task::PhysicalTask {
         tenant_id: nodedb::types::TenantId::new(1),
         vshard_id: nodedb::types::VShardId::new(0),
         database_id: nodedb::types::DatabaseId::DEFAULT,
@@ -159,7 +159,7 @@ fn dummy_task(id: &str) -> nodedb::control::planner::physical::PhysicalTask {
             surrogate: nodedb_types::Surrogate::ZERO,
             pk_bytes: Vec::new(),
         }),
-        post_set_op: nodedb::control::planner::physical::PostSetOp::None,
+        post_set_op: PostSetOp::None,
     }
 }
 

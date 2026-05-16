@@ -3,9 +3,8 @@
 //! Integration tests for graph engine operations.
 
 use nodedb::bridge::dispatch::BridgeRequest;
-use nodedb::bridge::envelope::PhysicalPlan;
-use nodedb::bridge::physical_plan::{GraphOp, VectorOp};
 use nodedb::engine::graph::edge_store::Direction;
+use nodedb_physical::physical_plan::{GraphOp, PhysicalPlan, VectorOp};
 
 use crate::helpers::*;
 

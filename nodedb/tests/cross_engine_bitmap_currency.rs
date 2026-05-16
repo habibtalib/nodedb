@@ -22,14 +22,14 @@
 use std::time::{Duration, Instant};
 
 use nodedb::bridge::dispatch::{BridgeRequest, BridgeResponse};
-use nodedb::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
-use nodedb::bridge::physical_plan::{
-    ColumnarInsertIntent, ColumnarOp, DocumentOp, QueryOp, VectorOp,
-};
+use nodedb::bridge::envelope::{Priority, Request, Status};
 use nodedb::data::executor::core_loop::CoreLoop;
 use nodedb::data::executor::response_codec::decode_payload_to_json;
 use nodedb::types::*;
 use nodedb_bridge::buffer::{Consumer, Producer, RingBuffer};
+use nodedb_physical::physical_plan::{
+    ColumnarInsertIntent, ColumnarOp, DocumentOp, PhysicalPlan, QueryOp, VectorOp,
+};
 use nodedb_types::vector_distance::DistanceMetric;
 use nodedb_types::{Surrogate, SurrogateBitmap};
 

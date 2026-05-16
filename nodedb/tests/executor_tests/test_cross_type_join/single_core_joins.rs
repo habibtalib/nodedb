@@ -3,10 +3,9 @@
 //! Single-core hash join and self-join tests.
 
 use crate::helpers::{make_ctx, send_ok};
-use nodedb::bridge::envelope::PhysicalPlan;
-use nodedb::bridge::physical_plan::{DocumentOp, JoinProjection, KvOp, QueryOp};
 use nodedb::bridge::scan_filter::{FilterOp, ScanFilter};
 use nodedb::data::executor::response_codec;
+use nodedb_physical::physical_plan::{DocumentOp, JoinProjection, KvOp, PhysicalPlan, QueryOp};
 
 use super::basic_scans::build_msgpack_map;
 

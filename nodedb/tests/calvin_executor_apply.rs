@@ -12,11 +12,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nodedb::bridge::dispatch::{BridgeRequest, BridgeResponse};
-use nodedb::bridge::envelope::{ErrorCode, PhysicalPlan, Priority, Request, Status};
-use nodedb::bridge::physical_plan::{KvOp, MetaOp, VectorOp};
+use nodedb::bridge::envelope::{ErrorCode, Priority, Request, Status};
 use nodedb::data::executor::core_loop::CoreLoop;
 use nodedb::types::*;
 use nodedb_bridge::buffer::{Consumer, Producer, RingBuffer};
+use nodedb_physical::physical_plan::{KvOp, MetaOp, PhysicalPlan, VectorOp};
 use nodedb_types::OrdinalClock;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

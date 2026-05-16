@@ -122,8 +122,8 @@ fn make_definer_trigger(name: &str, collection: &str, owner: &str) -> StoredTrig
 
 #[test]
 fn classify_point_put_as_insert() {
-    use nodedb::bridge::envelope::PhysicalPlan;
-    use nodedb::bridge::physical_plan::DocumentOp;
+    use nodedb_physical::physical_plan::DocumentOp;
+    use nodedb_physical::physical_plan::PhysicalPlan;
 
     let plan = PhysicalPlan::Document(DocumentOp::PointPut {
         collection: "orders".into(),
@@ -140,8 +140,8 @@ fn classify_point_put_as_insert() {
 
 #[test]
 fn classify_point_delete() {
-    use nodedb::bridge::envelope::PhysicalPlan;
-    use nodedb::bridge::physical_plan::DocumentOp;
+    use nodedb_physical::physical_plan::DocumentOp;
+    use nodedb_physical::physical_plan::PhysicalPlan;
 
     let plan = PhysicalPlan::Document(DocumentOp::PointDelete {
         collection: "orders".into(),
@@ -158,8 +158,8 @@ fn classify_point_delete() {
 
 #[test]
 fn classify_point_update() {
-    use nodedb::bridge::envelope::PhysicalPlan;
-    use nodedb::bridge::physical_plan::DocumentOp;
+    use nodedb_physical::physical_plan::DocumentOp;
+    use nodedb_physical::physical_plan::PhysicalPlan;
 
     let plan = PhysicalPlan::Document(DocumentOp::PointUpdate {
         collection: "users".into(),
@@ -176,8 +176,8 @@ fn classify_point_update() {
 
 #[test]
 fn classify_bulk_delete() {
-    use nodedb::bridge::envelope::PhysicalPlan;
-    use nodedb::bridge::physical_plan::DocumentOp;
+    use nodedb_physical::physical_plan::DocumentOp;
+    use nodedb_physical::physical_plan::PhysicalPlan;
 
     let plan = PhysicalPlan::Document(DocumentOp::BulkDelete {
         collection: "logs".into(),
@@ -193,8 +193,8 @@ fn classify_bulk_delete() {
 
 #[test]
 fn classify_scan_returns_none() {
-    use nodedb::bridge::envelope::PhysicalPlan;
-    use nodedb::bridge::physical_plan::DocumentOp;
+    use nodedb_physical::physical_plan::DocumentOp;
+    use nodedb_physical::physical_plan::PhysicalPlan;
 
     let plan = PhysicalPlan::Document(DocumentOp::Scan {
         collection: "orders".into(),
@@ -215,8 +215,8 @@ fn classify_scan_returns_none() {
 
 #[test]
 fn classify_vector_op_returns_none() {
-    use nodedb::bridge::envelope::PhysicalPlan;
-    use nodedb::bridge::physical_plan::VectorOp;
+    use nodedb_physical::physical_plan::PhysicalPlan;
+    use nodedb_physical::physical_plan::VectorOp;
 
     let plan = PhysicalPlan::Vector(VectorOp::Insert {
         collection: "embeddings".into(),
@@ -630,8 +630,8 @@ fn triggers_sorted_by_priority_across_timings() {
 
 #[test]
 fn classify_point_put_deserializes_json_value() {
-    use nodedb::bridge::envelope::PhysicalPlan;
-    use nodedb::bridge::physical_plan::DocumentOp;
+    use nodedb_physical::physical_plan::DocumentOp;
+    use nodedb_physical::physical_plan::PhysicalPlan;
 
     let value = serde_json::to_vec(&serde_json::json!({"name": "Alice", "age": 30})).unwrap();
     let plan = PhysicalPlan::Document(DocumentOp::PointPut {
@@ -655,8 +655,8 @@ fn classify_point_put_deserializes_json_value() {
 
 #[test]
 fn classify_point_put_deserializes_msgpack_value() {
-    use nodedb::bridge::envelope::PhysicalPlan;
-    use nodedb::bridge::physical_plan::DocumentOp;
+    use nodedb_physical::physical_plan::DocumentOp;
+    use nodedb_physical::physical_plan::PhysicalPlan;
 
     let value = nodedb_types::json_to_msgpack(&serde_json::json!({"key": "val"})).unwrap();
     let plan = PhysicalPlan::Document(DocumentOp::PointPut {

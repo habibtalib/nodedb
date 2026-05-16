@@ -7,13 +7,12 @@
 //! - Trigger definition registry behavior
 //! - EventSource exhaustive coverage for trigger dispatch decisions
 
-use nodedb::bridge::envelope::PhysicalPlan;
-use nodedb::bridge::physical_plan::DocumentOp;
 use nodedb::control::trigger::TriggerRegistry;
 use nodedb::control::trigger::registry::DmlEvent;
 use nodedb::event::cross_shard::types::CrossShardWriteRequest;
 use nodedb::event::types::{EventSource, RowId, WriteEvent, WriteOp};
 use nodedb::types::{Lsn, TenantId, VShardId};
+use nodedb_physical::physical_plan::{DocumentOp, PhysicalPlan};
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
