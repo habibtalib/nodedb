@@ -212,6 +212,7 @@ impl CoreLoop {
                 current.ef_construction
             },
             metric: current.metric,
+            dtype: current.dtype,
         };
 
         coll.set_params(new_params.clone());

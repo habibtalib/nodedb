@@ -56,6 +56,7 @@ pub mod typeguard;
 pub mod value;
 pub mod vector_ann;
 pub mod vector_distance;
+pub mod vector_dtype;
 pub mod vector_index_stats;
 pub mod vector_model;
 pub mod wire_version;

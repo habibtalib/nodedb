@@ -3,6 +3,7 @@
 //! Shared HNSW types used by both Origin and Lite vector engines.
 
 use crate::vector_distance::DistanceMetric;
+use crate::vector_dtype::VectorStorageDtype;
 use serde::{Deserialize, Serialize};
 
 /// HNSW index parameters shared between Origin and Lite.
@@ -16,6 +17,10 @@ pub struct HnswParams {
     pub ef_construction: usize,
     /// Distance metric for similarity computation.
     pub metric: DistanceMetric,
+    /// On-disk + in-memory vector storage dtype. Defaults to F32 for
+    /// backward compatibility with indexes created before this field existed.
+    #[serde(default)]
+    pub dtype: VectorStorageDtype,
 }
 
 impl Default for HnswParams {
@@ -25,6 +30,7 @@ impl Default for HnswParams {
             m0: 32,
             ef_construction: 200,
             metric: DistanceMetric::Cosine,
+            dtype: VectorStorageDtype::F32,
         }
     }
 }

@@ -1,47 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! HNSW graph structure — nodes, parameters, core index operations.
-//!
-//! Production implementation per Malkov & Yashunin (2018).
-//! FP32 construction for structural integrity; heuristic neighbor selection.
-
 use std::cell::RefCell;
 
+use crate::distance::dispatch::distance_typed;
 use crate::distance::distance;
+use crate::dtype::cast_from_f32;
 use crate::hnsw::arena::BeamSearchArena;
+use nodedb_types::vector_dtype::VectorStorageDtype;
 
-// Re-export shared params from nodedb-types.
+use super::types::{Node, NodeStorage, Xorshift64};
+use super::{ARENA_INITIAL_CAPACITY, MAX_LAYER_CAP};
 pub use nodedb_types::hnsw::HnswParams;
-
-/// Initial arena capacity used when constructing a new [`HnswIndex`].
-///
-/// Sized to cover `ef_construction = 200` (the default) without needing a
-/// reallocation on the first insert or search.
-pub(crate) const ARENA_INITIAL_CAPACITY: usize = 256;
-
-/// Hard cap on the layer assigned to any node during insertion.
-/// Standard HNSW practice — prevents pathological RNG draws from inflating
-/// `max_layer` and slowing every subsequent search.
-pub const MAX_LAYER_CAP: usize = 16;
-
-/// Result of a k-NN search.
-#[derive(Debug, Clone)]
-pub struct SearchResult {
-    /// Internal node identifier (insertion order).
-    pub id: u32,
-    /// Distance from the query vector.
-    pub distance: f32,
-}
-
-/// A node in the HNSW graph.
-pub struct Node {
-    /// Full-precision vector data.
-    pub vector: Vec<f32>,
-    /// Neighbors at each layer this node participates in.
-    pub neighbors: Vec<Vec<u32>>,
-    /// Tombstone flag for soft-deletion.
-    pub deleted: bool,
-}
 
 /// Hierarchical Navigable Small World graph index.
 ///
@@ -103,46 +72,6 @@ impl HnswIndex {
                 self.nodes[i].neighbors = layers;
             }
         }
-    }
-}
-
-/// Lightweight xorshift64 PRNG for layer assignment.
-pub struct Xorshift64(pub u64);
-
-impl Xorshift64 {
-    pub fn new(seed: u64) -> Self {
-        Self(seed.max(1))
-    }
-
-    pub fn next_f64(&mut self) -> f64 {
-        self.0 ^= self.0 << 13;
-        self.0 ^= self.0 >> 7;
-        self.0 ^= self.0 << 17;
-        (self.0 as f64) / (u64::MAX as f64)
-    }
-}
-
-/// Ordered candidate for priority queues during search and construction.
-#[derive(Clone, Copy, PartialEq)]
-pub struct Candidate {
-    pub dist: f32,
-    pub id: u32,
-}
-
-impl Eq for Candidate {}
-
-impl PartialOrd for Candidate {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Candidate {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.dist
-            .partial_cmp(&other.dist)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(self.id.cmp(&other.id))
     }
 }
 
@@ -240,8 +169,38 @@ impl HnswIndex {
         self.dim
     }
 
+    /// Storage dtype this index was constructed with.
+    pub fn dtype(&self) -> VectorStorageDtype {
+        self.params.dtype
+    }
+
+    /// Returns a `&[f32]` view of the stored vector for node `id`.
+    ///
+    /// Returns `Some` only when the index dtype is `F32`. For `F16` or `BF16`
+    /// indexes this method returns `None` — use [`Self::get_vector_bytes`]
+    /// instead and decode via [`crate::dtype::cast_to_f32`] if an f32 view is
+    /// needed.
+    ///
+    /// In debug builds, calling this on a non-F32 index triggers a
+    /// `debug_assert!` to flag misuse early. In release builds the
+    /// `debug_assert!` is a no-op and `None` is returned silently.
     pub fn get_vector(&self, id: u32) -> Option<&[f32]> {
-        self.nodes.get(id as usize).map(|n| n.vector.as_slice())
+        debug_assert!(
+            self.params.dtype == VectorStorageDtype::F32,
+            "get_vector: called on non-F32 index (dtype={}); use get_vector_bytes instead",
+            self.params.dtype,
+        );
+        self.nodes
+            .get(id as usize)
+            .and_then(|n| n.storage.as_f32_slice())
+    }
+
+    /// Dtype-agnostic byte view of the stored vector for node `id`.
+    ///
+    /// Returns `None` if `id` is out of range. Pair the returned slice with
+    /// [`Self::dtype`] to interpret the encoding.
+    pub fn get_vector_bytes(&self, id: u32) -> Option<&[u8]> {
+        self.nodes.get(id as usize).map(|n| n.storage.as_bytes())
     }
 
     pub fn params(&self) -> &HnswParams {
@@ -263,7 +222,7 @@ impl HnswIndex {
 
     /// Approximate memory usage in bytes (vector data + neighbor lists).
     pub fn memory_usage_bytes(&self) -> usize {
-        let vector_bytes = self.nodes.len() * self.dim * std::mem::size_of::<f32>();
+        let vector_bytes = self.nodes.len() * self.params.dtype.bytes_for_dim(self.dim);
         let neighbor_bytes: usize = self
             .nodes
             .iter()
@@ -278,9 +237,21 @@ impl HnswIndex {
         vector_bytes + neighbor_bytes + node_overhead
     }
 
-    /// Export all vectors for snapshot transfer.
+    /// Export all vectors as F32 for snapshot transfer.
+    ///
+    /// For F32 indexes this is a clone. For F16/BF16 indexes each vector is
+    /// decoded to F32 on the fly.
     pub fn export_vectors(&self) -> Vec<Vec<f32>> {
-        self.nodes.iter().map(|n| n.vector.clone()).collect()
+        self.nodes
+            .iter()
+            .map(|n| match &n.storage {
+                NodeStorage::F32(v) => v.clone(),
+                NodeStorage::Bytes { dtype, bytes } => {
+                    crate::dtype::cast_to_f32(bytes, *dtype, self.dim)
+                        .expect("export_vectors: byte-length invariant violated")
+                }
+            })
+            .collect()
     }
 
     /// Export all neighbor lists for snapshot transfer.
@@ -300,13 +271,46 @@ impl HnswIndex {
         layer.min(MAX_LAYER_CAP)
     }
 
-    /// Compute distance between a query vector and a stored node.
-    pub(crate) fn dist_to_node(&self, query: &[f32], node_id: u32) -> f32 {
-        distance(
-            query,
-            &self.nodes[node_id as usize].vector,
+    /// Compute distance between a pre-encoded query and a stored node.
+    ///
+    /// `query_bytes` must already be encoded in `self.params.dtype`; callers
+    /// encode once at the top of search/insert and pass the same buffer to
+    /// every `dist_to_node` call within that operation.
+    pub(crate) fn dist_to_node(&self, query_bytes: &[u8], node_id: u32) -> f32 {
+        let node_bytes = self.nodes[node_id as usize].storage.as_bytes();
+        distance_typed(
             self.params.metric,
+            self.params.dtype,
+            query_bytes,
+            node_bytes,
+            self.dim,
         )
+        .expect("dist_to_node: byte-length mismatch; byte lengths are validated at insert")
+    }
+
+    /// Compute distance between a query given as `&[f32]` and a stored node.
+    ///
+    /// For F32 indexes this is a direct call to `distance`. For F16/BF16
+    /// indexes the query is encoded to the storage dtype on each call, which
+    /// is an allocation. Prefer pre-encoding the query once via
+    /// [`crate::dtype::cast_from_f32`] and calling [`Self::dist_to_node`]
+    /// for hot-path code such as search.
+    #[allow(dead_code)]
+    pub(crate) fn dist_to_node_f32(&self, query: &[f32], node_id: u32) -> f32 {
+        match self.params.dtype {
+            VectorStorageDtype::F32 => distance(
+                query,
+                self.nodes[node_id as usize]
+                    .storage
+                    .as_f32_slice()
+                    .expect("F32 dtype must have F32 storage"),
+                self.params.metric,
+            ),
+            _ => {
+                let query_bytes = cast_from_f32(query, self.params.dtype);
+                self.dist_to_node(&query_bytes, node_id)
+            }
+        }
     }
 
     /// Max neighbors allowed at a given layer.
@@ -374,7 +378,7 @@ impl HnswIndex {
                 })
                 .collect();
             new_nodes.push(Node {
-                vector: node.vector,
+                storage: node.storage,
                 neighbors: remapped_neighbors,
                 deleted: false,
             });
@@ -410,6 +414,17 @@ impl HnswIndex {
 mod tests {
     use super::*;
     use crate::distance::DistanceMetric;
+    use nodedb_types::vector_dtype::VectorStorageDtype;
+
+    fn make_params(dtype: VectorStorageDtype) -> HnswParams {
+        HnswParams {
+            m: 4,
+            m0: 8,
+            ef_construction: 32,
+            metric: DistanceMetric::L2,
+            dtype,
+        }
+    }
 
     #[test]
     fn create_empty_index() {
@@ -426,12 +441,93 @@ mod tests {
         assert_eq!(p.m0, 32);
         assert_eq!(p.ef_construction, 200);
         assert_eq!(p.metric, DistanceMetric::Cosine);
+        assert_eq!(p.dtype, VectorStorageDtype::F32);
     }
 
     #[test]
     fn candidate_ordering() {
-        let a = Candidate { dist: 0.1, id: 1 };
-        let b = Candidate { dist: 0.5, id: 2 };
+        let a = super::super::types::Candidate { dist: 0.1, id: 1 };
+        let b = super::super::types::Candidate { dist: 0.5, id: 2 };
         assert!(a < b);
+    }
+
+    #[test]
+    fn f32_default_unchanged() {
+        let mut idx = HnswIndex::with_seed(3, make_params(VectorStorageDtype::F32), 1);
+        assert_eq!(idx.dtype(), VectorStorageDtype::F32);
+        for i in 0..10u32 {
+            idx.insert(vec![i as f32, 0.0, 0.0]).unwrap();
+        }
+        // get_vector works on F32 indexes.
+        let v = idx.get_vector(3).unwrap();
+        assert_eq!(v[0], 3.0_f32);
+        // get_vector_bytes also works.
+        assert_eq!(idx.get_vector_bytes(3).unwrap().len(), 12); // 3 dims * 4 bytes
+    }
+
+    #[test]
+    fn f16_insert_search_smoke() {
+        let mut idx = HnswIndex::with_seed(3, make_params(VectorStorageDtype::F16), 42);
+        assert_eq!(idx.dtype(), VectorStorageDtype::F16);
+        for i in 0..10u32 {
+            idx.insert(vec![i as f32, 0.0, 0.0]).unwrap();
+        }
+        let results = idx.search(&[5.0, 0.0, 0.0], 3, 32);
+        assert_eq!(results.len(), 3);
+        // Results must be in monotonically non-decreasing distance order.
+        for w in results.windows(2) {
+            assert!(
+                w[0].distance <= w[1].distance,
+                "results not sorted: {:?}",
+                results
+            );
+        }
+    }
+
+    #[test]
+    fn bf16_insert_search_smoke() {
+        let mut idx = HnswIndex::with_seed(3, make_params(VectorStorageDtype::BF16), 42);
+        assert_eq!(idx.dtype(), VectorStorageDtype::BF16);
+        for i in 0..10u32 {
+            idx.insert(vec![i as f32, 0.0, 0.0]).unwrap();
+        }
+        let results = idx.search(&[5.0, 0.0, 0.0], 3, 32);
+        assert_eq!(results.len(), 3);
+        for w in results.windows(2) {
+            assert!(
+                w[0].distance <= w[1].distance,
+                "results not sorted: {:?}",
+                results
+            );
+        }
+    }
+
+    #[test]
+    fn get_vector_returns_none_on_non_f32_dtype() {
+        let mut idx = HnswIndex::with_seed(3, make_params(VectorStorageDtype::F16), 1);
+        idx.insert(vec![1.0, 2.0, 3.0]).unwrap();
+        // get_vector_bytes works for F16; get_vector does not (returns None in
+        // release, fires debug_assert in dev — so we only assert None in release).
+        assert!(idx.get_vector_bytes(0).is_some());
+        #[cfg(not(debug_assertions))]
+        assert!(idx.get_vector(0).is_none());
+    }
+
+    #[test]
+    fn get_vector_bytes_works_for_all_dtypes() {
+        for (dtype, expected_byte_len) in [
+            (VectorStorageDtype::F32, 12usize), // 3 dims * 4 bytes
+            (VectorStorageDtype::F16, 6usize),  // 3 dims * 2 bytes
+            (VectorStorageDtype::BF16, 6usize), // 3 dims * 2 bytes
+        ] {
+            let mut idx = HnswIndex::with_seed(3, make_params(dtype), 1);
+            idx.insert(vec![1.0, 2.0, 3.0]).unwrap();
+            let bytes = idx.get_vector_bytes(0).expect("must be Some for valid id");
+            assert_eq!(
+                bytes.len(),
+                expected_byte_len,
+                "wrong byte len for dtype={dtype:?}"
+            );
+        }
     }
 }

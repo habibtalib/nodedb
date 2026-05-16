@@ -17,6 +17,7 @@ pub mod batch_distance;
 pub mod codec_index;
 pub mod delta;
 pub mod distance;
+pub mod dtype;
 pub mod error;
 pub mod hnsw;
 pub mod hybrid;

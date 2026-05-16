@@ -31,6 +31,7 @@ fn prefetch_t0(ptr: *const u8) {
 
 use roaring::RoaringBitmap;
 
+use crate::dtype::cast_from_f32;
 use crate::hnsw::graph::{Candidate, HnswIndex, SearchResult};
 
 impl HnswIndex {
@@ -51,17 +52,19 @@ impl HnswIndex {
             return Vec::new();
         };
 
+        let query_bytes = cast_from_f32(query, self.params.dtype);
+
         // Phase 1: Greedy descent from top layer to layer 1.
         let mut current_ep = ep;
         for layer in (1..=self.max_layer).rev() {
-            let results = search_layer(self, query, current_ep, 1, layer, None, 0);
+            let results = search_layer(self, &query_bytes, current_ep, 1, layer, None, 0);
             if let Some(nearest) = results.first() {
                 current_ep = nearest.id;
             }
         }
 
         // Phase 2: Beam search at layer 0.
-        let results = search_layer(self, query, current_ep, ef, 0, None, 0);
+        let results = search_layer(self, &query_bytes, current_ep, ef, 0, None, 0);
 
         results
             .into_iter()
@@ -107,15 +110,25 @@ impl HnswIndex {
             return Vec::new();
         };
 
+        let query_bytes = cast_from_f32(query, self.params.dtype);
+
         let mut current_ep = ep;
         for layer in (1..=self.max_layer).rev() {
-            let results = search_layer(self, query, current_ep, 1, layer, None, 0);
+            let results = search_layer(self, &query_bytes, current_ep, 1, layer, None, 0);
             if let Some(nearest) = results.first() {
                 current_ep = nearest.id;
             }
         }
 
-        let results = search_layer(self, query, current_ep, ef, 0, Some(filter), id_offset);
+        let results = search_layer(
+            self,
+            &query_bytes,
+            current_ep,
+            ef,
+            0,
+            Some(filter),
+            id_offset,
+        );
 
         results
             .into_iter()
@@ -167,7 +180,7 @@ impl HnswIndex {
 /// amortised zero-allocation steady state.
 pub(crate) fn search_layer(
     index: &HnswIndex,
-    query: &[f32],
+    query_bytes: &[u8],
     entry_point: u32,
     ef: usize,
     layer: usize,
@@ -181,7 +194,7 @@ pub(crate) fn search_layer(
 
     arena.visited.insert(entry_point);
 
-    let ep_dist = index.dist_to_node(query, entry_point);
+    let ep_dist = index.dist_to_node(query_bytes, entry_point);
     let ep_candidate = Candidate {
         dist: ep_dist,
         id: entry_point,
@@ -220,14 +233,13 @@ pub(crate) fn search_layer(
             break;
         }
 
-        // Prefetch the vector of the next candidate before touching this
+        // Prefetch the vector bytes of the next candidate before touching this
         // iteration's neighbor list, so it lands in cache by the time the
         // inner loop calls dist_to_node on it.
         if let Some(Reverse(next)) = candidates.peek()
             && let Some(node) = index.nodes.get(next.id as usize)
-            && let Some(v) = node.vector.first()
         {
-            prefetch_t0(v as *const f32 as *const u8);
+            prefetch_t0(node.storage.as_bytes().as_ptr());
         }
 
         let neighbors = index.neighbors_at(current.id, layer);
@@ -240,7 +252,7 @@ pub(crate) fn search_layer(
                 continue;
             }
 
-            let dist = index.dist_to_node(query, neighbor_id);
+            let dist = index.dist_to_node(query_bytes, neighbor_id);
             let neighbor = Candidate {
                 dist,
                 id: neighbor_id,
@@ -287,6 +299,7 @@ mod tests {
                 m0: 32,
                 ef_construction: 100,
                 metric: DistanceMetric::L2,
+                dtype: nodedb_types::vector_dtype::VectorStorageDtype::F32,
             },
             42,
         );
@@ -313,6 +326,7 @@ mod tests {
                 m0: 8,
                 ef_construction: 16,
                 metric: DistanceMetric::L2,
+                dtype: nodedb_types::vector_dtype::VectorStorageDtype::F32,
             },
             1,
         );

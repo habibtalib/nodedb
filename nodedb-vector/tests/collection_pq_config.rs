@@ -21,6 +21,7 @@ fn params() -> HnswParams {
         m0: 32,
         ef_construction: 100,
         metric: DistanceMetric::L2,
+        ..HnswParams::default()
     }
 }
 

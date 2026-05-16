@@ -133,6 +133,7 @@ impl CoreLoop {
                         m0: m * 2,
                         ef_construction,
                         metric: metric_enum,
+                        dtype: nodedb_types::vector_dtype::VectorStorageDtype::F32,
                     };
                     self.vector_params.insert(index_key, params);
                     tracing::debug!(

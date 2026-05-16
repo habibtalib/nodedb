@@ -287,6 +287,7 @@ impl VectorCollection {
             m0: snap.params_m0,
             ef_construction: snap.params_ef_construction,
             metric,
+            dtype: nodedb_types::vector_dtype::VectorStorageDtype::F32,
         };
 
         let mut growing = FlatIndex::new(snap.dim, metric);

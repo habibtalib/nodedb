@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use crate::distance::DistanceMetric;
 use crate::hnsw::arena::BeamSearchArena;
 use crate::hnsw::flat_neighbors::FlatNeighborStore;
-use crate::hnsw::graph::{ARENA_INITIAL_CAPACITY, HnswIndex, Node, Xorshift64};
+use crate::hnsw::graph::{ARENA_INITIAL_CAPACITY, HnswIndex, Node, NodeStorage, Xorshift64};
 
 /// Magic header for rkyv-serialized HNSW snapshots (6 bytes).
 const HNSW_RKYV_MAGIC: &[u8; 6] = b"RKHNS\0";
@@ -50,7 +50,7 @@ impl HnswIndex {
             entry_point: self.entry_point,
             max_layer: self.max_layer,
             rng_state: self.rng.0,
-            node_vectors: self.nodes.iter().map(|n| n.vector.clone()).collect(),
+            node_vectors: self.export_vectors(),
             node_neighbors: if let Some(ref flat) = self.flat_neighbors {
                 flat.to_nested(self.nodes.len())
             } else {
@@ -119,7 +119,7 @@ impl HnswIndex {
             .into_iter()
             .zip(snap.node_deleted)
             .map(|(vector, deleted)| Node {
-                vector,
+                storage: NodeStorage::F32(vector),
                 neighbors: Vec::new(),
                 deleted,
             })
@@ -133,6 +133,7 @@ impl HnswIndex {
                 m0: snap.m0,
                 ef_construction: snap.ef_construction,
                 metric,
+                dtype: nodedb_types::vector_dtype::VectorStorageDtype::F32,
             },
             nodes,
             entry_point: snap.entry_point,
@@ -157,6 +158,7 @@ mod tests {
                 m0: 8,
                 ef_construction: 32,
                 metric: DistanceMetric::L2,
+                dtype: nodedb_types::vector_dtype::VectorStorageDtype::F32,
             },
             12345,
         )
