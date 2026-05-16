@@ -178,6 +178,9 @@ arc-swap = "1"
 # Safe transmutation for f32/u8 slice casts
 bytemuck = { version = "1", features = ["derive"] }
 
+# IEEE 754 half-precision (f16) and brain-float (bf16) types
+half = { version = "2", features = ["bytemuck"] }
+
 # WebSocket
 tokio-tungstenite = "0.29"
 

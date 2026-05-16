@@ -29,6 +29,8 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 roaring = { workspace = true }
 
+bytemuck = { workspace = true }
+half = { workspace = true }
 crc32c = { workspace = true }
 arc-swap = { workspace = true }
 
