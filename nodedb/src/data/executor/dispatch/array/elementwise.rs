@@ -16,9 +16,9 @@ use nodedb_array::types::ArrayId;
 use nodedb_types::{SurrogateBitmap, Value};
 
 use crate::bridge::envelope::{ErrorCode, Response};
-use crate::bridge::physical_plan::ArrayBinaryOp;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;
+use nodedb_physical::physical_plan::ArrayBinaryOp;
 
 use super::convert::sparse_tile_to_array_cells;
 use super::encode::encode_value_rows;

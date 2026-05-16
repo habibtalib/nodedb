@@ -161,7 +161,7 @@ pub async fn run_apply_loop(
                         ref values,
                     } => {
                         let decoded_values: Vec<(
-                            crate::bridge::physical_plan::meta::PassiveReadKeyId,
+                            nodedb_physical::physical_plan::meta::PassiveReadKeyId,
                             nodedb_types::Value,
                         )> = match zerompk::from_msgpack(values) {
                             Ok(decoded) => decoded,

@@ -162,7 +162,7 @@ pub struct Response {
     pub error_code: Option<ErrorCode>,
 }
 
-pub use super::physical_plan::PhysicalPlan;
+pub use nodedb_physical::physical_plan::PhysicalPlan;
 
 /// Request priority. Higher priority requests are scheduled first on the Data Plane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -336,7 +336,7 @@ impl From<crate::Error> for ErrorCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bridge::physical_plan::{DocumentOp, MetaOp};
+    use nodedb_physical::physical_plan::{DocumentOp, MetaOp};
     use std::time::Duration;
 
     fn sample_request() -> Request {

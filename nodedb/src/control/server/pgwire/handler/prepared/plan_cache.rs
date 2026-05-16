@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use nodedb_cluster::DescriptorId;
 
 use crate::control::planner::descriptor_set::DescriptorVersionSet;
-use crate::control::planner::physical::PhysicalTask;
+use nodedb_physical::physical_task::PhysicalTask;
 
 /// Monotonic schema version counter retained for backwards
 /// compatibility with metrics and tracing callers that still
@@ -155,10 +155,10 @@ fn hash_sql(sql: &str) -> u64 {
 mod tests {
     use super::*;
     use crate::bridge::envelope::PhysicalPlan;
-    use crate::bridge::physical_plan::MetaOp;
-    use crate::control::planner::physical::PostSetOp;
     use crate::types::{TenantId, VShardId};
     use nodedb_cluster::DescriptorKind;
+    use nodedb_physical::physical_plan::MetaOp;
+    use nodedb_physical::physical_task::PostSetOp;
 
     fn dummy_tasks() -> Vec<PhysicalTask> {
         vec![PhysicalTask {

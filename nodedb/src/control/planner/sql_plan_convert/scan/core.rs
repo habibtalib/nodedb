@@ -5,10 +5,9 @@
 use nodedb_sql::types::{EngineType, Filter, SqlValue};
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::*;
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::*;
 
-use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::aggregate::{
     extract_computed_columns, extract_projection_names, serialize_window_functions,
 };
@@ -19,6 +18,7 @@ use super::super::value::{
     extract_time_range, sql_value_to_bytes, sql_value_to_nodedb_value, sql_value_to_string,
 };
 use super::helpers::valid_at_from_scope;
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 pub(in crate::control::planner::sql_plan_convert) fn convert_scan(
     p: ScanParams<'_>,

@@ -19,10 +19,10 @@ use futures::stream;
 use pgwire::api::results::{DataRowEncoder, QueryResponse, Response};
 use pgwire::error::PgWireResult;
 
-use crate::bridge::physical_plan::{KvOp, PhysicalPlan};
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::types::{DatabaseId, TraceId, VShardId};
+use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
 /// Handle `SELECT TRANSFER(collection, source_key, dest_key, field, amount)`
 pub async fn transfer(

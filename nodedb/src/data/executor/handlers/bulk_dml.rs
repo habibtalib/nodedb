@@ -8,13 +8,13 @@
 use tracing::{debug, warn};
 
 use crate::bridge::envelope::{ErrorCode, Response};
-use crate::bridge::physical_plan::ReturningSpec;
 use crate::bridge::scan_filter::ScanFilter;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::doc_format;
 use crate::data::executor::handlers::returning_rows;
 use crate::data::executor::response_codec;
 use crate::data::executor::task::ExecutionTask;
+use nodedb_physical::physical_plan::ReturningSpec;
 
 impl CoreLoop {
     /// Scan documents in a collection matching the given filters.
@@ -47,7 +47,8 @@ impl CoreLoop {
         // Check if this is a strict (Binary Tuple) collection.
         let config_key = (crate::types::TenantId::new(tid), collection.to_string());
         let strict_schema = self.doc_configs.get(&config_key).and_then(|c| {
-            if let crate::bridge::physical_plan::StorageMode::Strict { ref schema } = c.storage_mode
+            if let nodedb_physical::physical_plan::StorageMode::Strict { ref schema } =
+                c.storage_mode
             {
                 Some(schema.clone())
             } else {
@@ -85,7 +86,7 @@ impl CoreLoop {
 pub(in crate::data::executor) struct BulkUpdateParams<'a> {
     pub collection: &'a str,
     pub filter_bytes: &'a [u8],
-    pub updates: &'a [(String, crate::bridge::physical_plan::UpdateValue)],
+    pub updates: &'a [(String, nodedb_physical::physical_plan::UpdateValue)],
     pub returning: Option<&'a ReturningSpec>,
     pub ollp_predicted_surrogates: Option<&'a [u32]>,
 }
@@ -169,7 +170,8 @@ impl CoreLoop {
 
         // Check if this is a strict (Binary Tuple) collection.
         let strict_schema = self.doc_configs.get(&config_key).and_then(|c| {
-            if let crate::bridge::physical_plan::StorageMode::Strict { ref schema } = c.storage_mode
+            if let nodedb_physical::physical_plan::StorageMode::Strict { ref schema } =
+                c.storage_mode
             {
                 Some(schema.clone())
             } else {
@@ -211,13 +213,13 @@ impl CoreLoop {
                     if let Some(obj) = doc.as_object_mut() {
                         for (field, update_val) in updates {
                             let val: serde_json::Value = match update_val {
-                                crate::bridge::physical_plan::UpdateValue::Literal(bytes) => {
+                                nodedb_physical::physical_plan::UpdateValue::Literal(bytes) => {
                                     match nodedb_types::json_from_msgpack(bytes) {
                                         Ok(v) => v,
                                         Err(_) => continue,
                                     }
                                 }
-                                crate::bridge::physical_plan::UpdateValue::Expr(expr) => {
+                                nodedb_physical::physical_plan::UpdateValue::Expr(expr) => {
                                     let result: nodedb_types::Value = expr.eval(&eval_doc);
                                     result.into()
                                 }

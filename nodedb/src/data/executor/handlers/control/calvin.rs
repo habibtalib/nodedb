@@ -30,12 +30,12 @@ use nodedb_cluster::calvin::types::PassiveReadKey;
 use nodedb_types::Value;
 
 use crate::bridge::envelope::{ErrorCode, Response};
-use crate::bridge::physical_plan::PhysicalPlan;
-use crate::bridge::physical_plan::meta::PassiveReadKeyId;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::response_codec;
 use crate::data::executor::task::ExecutionTask;
 use crate::types::TenantId;
+use nodedb_physical::physical_plan::PhysicalPlan;
+use nodedb_physical::physical_plan::meta::PassiveReadKeyId;
 
 use std::collections::BTreeMap;
 

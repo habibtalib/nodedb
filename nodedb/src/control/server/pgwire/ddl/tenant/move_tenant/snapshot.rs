@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 
-use crate::bridge::physical_plan::{MetaOp, PhysicalPlan};
+use nodedb_physical::physical_plan::{MetaOp, PhysicalPlan};
 
 use crate::control::server::pgwire::ddl::sync_dispatch;
 use crate::control::state::SharedState;

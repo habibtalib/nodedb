@@ -30,10 +30,10 @@ use tracing::{debug, info, warn};
 
 use crate::bridge::dispatch::Dispatcher;
 use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::request_tracker::RequestTracker;
 use crate::types::{DatabaseId, Lsn, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
 use crate::wal::WalManager;
+use nodedb_physical::physical_plan::MetaOp;
 
 /// Monotonic counter for checkpoint request IDs.
 /// Uses a high base to avoid collision with session-generated request IDs.

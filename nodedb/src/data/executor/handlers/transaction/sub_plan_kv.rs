@@ -10,11 +10,11 @@
 use nodedb_columnar::pk_index::RowLocation;
 
 use crate::bridge::envelope::{ErrorCode, Response, Status};
-use crate::bridge::physical_plan::ColumnarInsertIntent;
-use crate::bridge::physical_plan::document::UpdateValue;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;
 use crate::types::TenantId;
+use nodedb_physical::physical_plan::ColumnarInsertIntent;
+use nodedb_physical::physical_plan::document::UpdateValue;
 
 use super::undo::UndoEntry;
 

@@ -5,7 +5,7 @@
 use nodedb_types::protocol::TextFields;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::KvOp;
+use nodedb_physical::physical_plan::KvOp;
 
 pub(crate) fn build_scan(fields: &TextFields, collection: &str) -> crate::Result<PhysicalPlan> {
     let cursor = fields.cursor.clone().unwrap_or_default();

@@ -25,9 +25,9 @@ use std::time::SystemTime;
 use tracing::{Instrument, debug, info_span};
 
 use crate::Error;
-use crate::bridge::physical_plan::PhysicalPlan;
 use crate::control::state::SharedState;
 use crate::types::{DatabaseId, TenantId, TraceId};
+use nodedb_physical::physical_plan::PhysicalPlan;
 
 use super::dispatcher::{default_deadline_ms, dispatch_route};
 use super::fuser::fuse_payloads;
@@ -396,8 +396,8 @@ impl Gateway {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bridge::physical_plan::{KvOp, PhysicalPlan};
     use crate::control::gateway::plan_cache::SqlKey;
+    use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
     fn kv_get(col: &str) -> PhysicalPlan {
         PhysicalPlan::Kv(KvOp::Get {

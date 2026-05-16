@@ -89,30 +89,6 @@ impl std::str::FromStr for Direction {
     }
 }
 
-/// Aggregated graph statistics for a single collection.
-///
-/// Mirrors the row shape returned by `SHOW GRAPH STATS '<collection>'`
-/// on Origin and the equivalent direct-engine read on Lite. Values are
-/// the global counts after cross-core aggregation; `labels` is sorted
-/// ascending by label name.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    zerompk::ToMessagePack,
-    zerompk::FromMessagePack,
-)]
-pub struct GraphStats {
-    pub collection: String,
-    pub node_count: u64,
-    pub edge_count: u64,
-    pub distinct_label_count: u64,
-    pub labels: Vec<(String, u64)>,
-}
-
 impl GraphStats {
     /// Column names of the wire row shape produced by
     /// `SHOW GRAPH STATS [<'collection'>]`. Single source of truth — the

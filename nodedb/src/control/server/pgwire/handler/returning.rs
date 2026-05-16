@@ -9,7 +9,7 @@
 //! QueryResponse with one column per projected field.
 
 // Re-export bridge types so callers only import from this module.
-pub(super) use crate::bridge::physical_plan::{ReturningColumns, ReturningItem, ReturningSpec};
+pub(super) use nodedb_physical::physical_plan::{ReturningColumns, ReturningItem, ReturningSpec};
 
 use crate::Error;
 

@@ -18,9 +18,9 @@ use std::sync::atomic::Ordering;
 use tracing::{debug, info};
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::TimeseriesOp;
 use crate::control::state::SharedState;
 use crate::types::{TenantId, TraceId, VShardId};
+use nodedb_physical::physical_plan::TimeseriesOp;
 use nodedb_types::Lsn;
 
 /// Max WAL records to read per catch-up cycle. Bounds memory to

@@ -4,8 +4,8 @@
 
 use std::net::SocketAddr;
 
-use crate::control::planner::physical::PhysicalTask;
 use crate::types::Lsn;
+use nodedb_physical::physical_task::PhysicalTask;
 
 use super::state::TransactionState;
 use super::store::SessionStore;

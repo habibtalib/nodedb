@@ -12,8 +12,8 @@
 use rust_decimal::Decimal;
 
 use crate::bridge::envelope::ErrorCode;
-use crate::bridge::physical_plan::MaterializedSumBinding;
 use crate::engine::sparse::btree::SparseEngine;
+use nodedb_physical::physical_plan::MaterializedSumBinding;
 
 /// Apply materialized sum updates for all bindings on a source INSERT.
 ///

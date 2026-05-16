@@ -2,7 +2,6 @@
 
 pub mod dispatch;
 pub mod envelope;
-pub mod physical_plan;
 pub mod quiesce;
 pub mod slab;
 

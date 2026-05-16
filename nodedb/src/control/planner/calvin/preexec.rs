@@ -19,10 +19,10 @@
 
 use nodedb_types::TenantId;
 
-use crate::bridge::physical_plan::{DocumentOp, PhysicalPlan};
 use crate::control::server::dispatch_utils::dispatch_to_data_plane;
 use crate::control::state::SharedState;
 use crate::types::{TraceId, VShardId};
+use nodedb_physical::physical_plan::{DocumentOp, PhysicalPlan};
 
 /// Dispatch a pre-execution scan for the given collection and serialized
 /// filter bytes. Returns the sorted list of matching surrogate u32 values.

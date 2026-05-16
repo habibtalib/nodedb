@@ -168,10 +168,10 @@ mod tests {
 
     use crate::bridge::dispatch::{BridgeRequest, BridgeResponse};
     use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
-    use crate::bridge::physical_plan::ArrayOp;
     use crate::data::executor::core_loop::CoreLoop;
     use crate::engine::array::wal::ArrayPutCell;
     use crate::types::*;
+    use nodedb_physical::physical_plan::ArrayOp;
 
     fn make_request(plan: PhysicalPlan, id: u64) -> Request {
         Request {

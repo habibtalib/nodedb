@@ -2,7 +2,7 @@
 
 //! Index path declaration for secondary indexes.
 
-use crate::bridge::physical_plan::RegisteredIndexState;
+use nodedb_physical::physical_plan::RegisteredIndexState;
 
 /// Index path declaration for automatic secondary index extraction.
 ///
@@ -55,7 +55,7 @@ impl IndexPath {
     /// `DocumentOp::Register`. Parses the optional partial-index
     /// predicate eagerly so every write-path invocation reuses the
     /// same parsed AST.
-    pub fn from_registered(spec: &crate::bridge::physical_plan::RegisteredIndex) -> Self {
+    pub fn from_registered(spec: &nodedb_physical::physical_plan::RegisteredIndex) -> Self {
         let is_array = spec.path.ends_with("[]");
         let path = spec
             .path

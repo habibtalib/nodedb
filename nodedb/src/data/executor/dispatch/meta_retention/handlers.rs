@@ -15,10 +15,10 @@
 use nodedb_types::TenantId;
 
 use crate::bridge::envelope::{ErrorCode, Response};
-use crate::bridge::physical_plan::MetaOp;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::response_codec;
 use crate::data::executor::task::ExecutionTask;
+use nodedb_physical::physical_plan::MetaOp;
 
 impl CoreLoop {
     /// Shared entry point for every `MetaOp::TemporalPurge*` variant.

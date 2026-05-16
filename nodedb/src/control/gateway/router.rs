@@ -20,7 +20,7 @@
 use nodedb_cluster::routing::{RoutingTable, vshard_for_collection};
 use nodedb_types::id::DatabaseId;
 
-use crate::bridge::physical_plan::PhysicalPlan;
+use nodedb_physical::physical_plan::PhysicalPlan;
 
 use super::route::{RouteDecision, TaskRoute};
 use super::version_set::touched_collections;
@@ -158,7 +158,7 @@ fn primary_vshard(plan: &PhysicalPlan, database_id: DatabaseId) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bridge::physical_plan::{DocumentOp, KvOp, PhysicalPlan};
+    use nodedb_physical::physical_plan::{DocumentOp, KvOp, PhysicalPlan};
 
     fn single_node_table() -> RoutingTable {
         RoutingTable::uniform(1, &[1], 1)

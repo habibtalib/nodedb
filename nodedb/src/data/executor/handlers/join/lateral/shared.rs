@@ -3,9 +3,9 @@
 //! Shared helpers for LATERAL join handlers.
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::{DocumentOp, JoinProjection};
 use crate::bridge::scan_filter::{FilterOp, ScanFilter};
 use crate::data::executor::handlers::join::{binary_row_project, merge_join_docs_binary};
+use nodedb_physical::physical_plan::{DocumentOp, JoinProjection};
 use nodedb_query::msgpack_scan;
 
 pub(super) const MAX_RESULT_ROWS: usize = 100_000;

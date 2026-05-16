@@ -2,7 +2,7 @@
 
 use nodedb_sql::types::SqlPlan;
 
-use crate::control::planner::physical::PhysicalTask;
+use nodedb_physical::physical_task::PhysicalTask;
 use crate::types::TenantId;
 
 use super::ConvertContext;

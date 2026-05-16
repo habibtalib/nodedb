@@ -22,8 +22,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::core::SpillCore;
-use crate::bridge::physical_plan::AggregateSpec;
 use crate::data::executor::handlers::accum::GroupState;
+use nodedb_physical::physical_plan::AggregateSpec;
 
 /// Spill-to-disk manager for the schemaless GROUP BY path.
 pub(in crate::data::executor::handlers) struct GroupBySpiller {
@@ -128,8 +128,8 @@ mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
 
-    use crate::bridge::physical_plan::AggregateSpec;
     use crate::data::executor::handlers::accum::GroupState;
+    use nodedb_physical::physical_plan::AggregateSpec;
     use nodedb_types::Value;
 
     use super::GroupBySpiller;

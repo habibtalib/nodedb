@@ -9,10 +9,10 @@ use nodedb_query::msgpack_scan;
 use sonic_rs;
 
 use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Response};
-use crate::bridge::physical_plan::QueryOp;
 use crate::control::arrow_convert;
 use crate::control::state::SharedState;
 use crate::types::{DatabaseId, Lsn, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
+use nodedb_physical::physical_plan::QueryOp;
 
 /// Total number of `broadcast_to_all_cores` / `broadcast_count_to_all_cores`
 /// invocations since process start. Exposed so callers (including test

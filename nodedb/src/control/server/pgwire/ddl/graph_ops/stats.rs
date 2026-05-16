@@ -42,13 +42,13 @@ pub fn graph_stats_calls_total() -> u64 {
 }
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::GraphOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::broadcast::broadcast_to_all_cores;
 use crate::control::server::pgwire::types::sqlstate_error;
 use crate::control::state::SharedState;
 use crate::engine::graph::edge_store::stats::CollectionStats;
 use crate::types::TraceId;
+use nodedb_physical::physical_plan::GraphOp;
 
 /// `SHOW GRAPH STATS ['<collection>'] [VERBOSE] [AS OF SYSTEM TIME <ms>]`.
 pub async fn show_graph_stats(

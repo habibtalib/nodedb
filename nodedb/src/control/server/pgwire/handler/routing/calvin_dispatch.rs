@@ -14,9 +14,9 @@ use crate::control::planner::calvin::{
     DispatchOutcome, build_dependent_tx_class, dispatch_calvin_or_fast, dispatch_dependent_read,
     is_dependent_predicate, predicate_class,
 };
-use crate::control::planner::physical::PhysicalTask;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::types::TenantId;
+use nodedb_physical::physical_task::PhysicalTask;
 
 use super::super::super::types::error_to_sqlstate;
 use super::super::core::NodeDbPgHandler;

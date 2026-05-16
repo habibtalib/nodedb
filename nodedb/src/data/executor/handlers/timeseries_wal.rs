@@ -7,7 +7,6 @@
 //! per partition (not max_ts — safe with out-of-order data).
 
 use crate::bridge::envelope::{PhysicalPlan, Priority, Request};
-use crate::bridge::physical_plan::{ColumnarInsertIntent, ColumnarOp, TimeseriesOp};
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::{ExecutionTask, TaskState};
 use crate::engine::timeseries::columnar_memtable::{
@@ -15,6 +14,7 @@ use crate::engine::timeseries::columnar_memtable::{
 };
 use crate::types::DatabaseId;
 use crate::types::ReadConsistency;
+use nodedb_physical::physical_plan::{ColumnarInsertIntent, ColumnarOp, TimeseriesOp};
 use nodedb_types::timeseries::MetricSample;
 
 /// Default timeseries memtable configuration for replay and auto-creation.

@@ -64,9 +64,9 @@ impl<'a> FtsDispatcher for SharedStateFtsDispatcher<'a> {
         text: String,
     ) -> crate::Result<()> {
         use crate::bridge::envelope::PhysicalPlan;
-        use crate::bridge::physical_plan::TextOp;
         use crate::control::server::dispatch_utils::dispatch_to_data_plane_with_source;
         use crate::event::EventSource;
+        use nodedb_physical::physical_plan::TextOp;
 
         let plan = PhysicalPlan::Text(TextOp::FtsIndexDoc {
             collection,
@@ -94,9 +94,9 @@ impl<'a> FtsDispatcher for SharedStateFtsDispatcher<'a> {
         surrogate: Surrogate,
     ) -> crate::Result<()> {
         use crate::bridge::envelope::PhysicalPlan;
-        use crate::bridge::physical_plan::TextOp;
         use crate::control::server::dispatch_utils::dispatch_to_data_plane_with_source;
         use crate::event::EventSource;
+        use nodedb_physical::physical_plan::TextOp;
 
         let plan = PhysicalPlan::Text(TextOp::FtsDeleteDoc {
             collection,

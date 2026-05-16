@@ -18,9 +18,9 @@ use nodedb_cluster::distributed_array::merge::ArrayAggPartial;
 use nodedb_types::SurrogateBitmap;
 
 use crate::bridge::envelope::{ErrorCode, Response};
-use crate::bridge::physical_plan::ArrayReducer;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;
+use nodedb_physical::physical_plan::ArrayReducer;
 
 use super::aggregate_helpers::{
     AggCell, agg_result_to_partial, apply_surrogate_filter, coord_to_agg_cell, coord_to_group_key,

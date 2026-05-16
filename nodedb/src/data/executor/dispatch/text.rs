@@ -3,7 +3,7 @@
 //! Text (FTS) operation dispatch.
 
 use crate::bridge::envelope::Response;
-use crate::bridge::physical_plan::TextOp;
+use nodedb_physical::physical_plan::TextOp;
 
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;

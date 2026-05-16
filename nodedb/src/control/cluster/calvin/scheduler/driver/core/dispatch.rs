@@ -10,11 +10,11 @@ use nodedb_cluster::calvin::types::SequencedTxn;
 
 use super::scheduler::Scheduler;
 use crate::bridge::envelope::{Priority, Request};
-use crate::bridge::physical_plan::PhysicalPlan;
-use crate::bridge::physical_plan::meta::MetaOp;
-use crate::bridge::physical_plan::{CrdtOp, DocumentOp, GraphOp, KvOp, TimeseriesOp, VectorOp};
 use crate::control::cluster::calvin::scheduler::lock_manager::{LockKey, TxnId};
 use crate::types::{DatabaseId, ReadConsistency, VShardId};
+use nodedb_physical::physical_plan::PhysicalPlan;
+use nodedb_physical::physical_plan::meta::MetaOp;
+use nodedb_physical::physical_plan::{CrdtOp, DocumentOp, GraphOp, KvOp, TimeseriesOp, VectorOp};
 
 impl Scheduler {
     fn local_calvin_plans(
@@ -62,7 +62,7 @@ impl Scheduler {
                 PhysicalPlan::Timeseries(TimeseriesOp::Ingest { collection, .. }) => {
                     collection.as_str()
                 }
-                PhysicalPlan::Columnar(crate::bridge::physical_plan::ColumnarOp::Insert {
+                PhysicalPlan::Columnar(nodedb_physical::physical_plan::ColumnarOp::Insert {
                     collection,
                     ..
                 }) => collection.as_str(),
@@ -228,7 +228,7 @@ impl Scheduler {
         keys: std::collections::BTreeSet<LockKey>,
         lock_acquired_time: Instant,
         injected_reads: std::collections::BTreeMap<
-            crate::bridge::physical_plan::meta::PassiveReadKeyId,
+            nodedb_physical::physical_plan::meta::PassiveReadKeyId,
             nodedb_types::Value,
         >,
     ) {

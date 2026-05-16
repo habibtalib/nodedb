@@ -118,7 +118,7 @@ mod tests {
             alias: "rn".into(),
             func_name: "row_number".into(),
             args: vec![],
-            partition_by: vec!["dept".into()],
+            partition_by: vec![SqlExpr::Column("dept".into())],
             order_by: vec![],
             frame: WindowFrame::default(),
         };
@@ -136,8 +136,8 @@ mod tests {
             alias: "running_total".into(),
             func_name: "sum".into(),
             args: vec![SqlExpr::Column("salary".into())],
-            partition_by: vec!["dept".into()],
-            order_by: vec![("salary".into(), true)],
+            partition_by: vec![SqlExpr::Column("dept".into())],
+            order_by: vec![(SqlExpr::Column("salary".into()), true)],
             frame: WindowFrame::default(),
         };
         evaluate_window_functions(&mut rows, &[spec]);
@@ -156,7 +156,7 @@ mod tests {
             func_name: "percent_rank".into(),
             args: vec![],
             partition_by: vec![],
-            order_by: vec![("n".into(), true)],
+            order_by: vec![(SqlExpr::Column("n".into()), true)],
             frame: WindowFrame::default(),
         };
         evaluate_window_functions(&mut rows, &[spec]);
@@ -182,7 +182,7 @@ mod tests {
             func_name: "percent_rank".into(),
             args: vec![],
             partition_by: vec![],
-            order_by: vec![("n".into(), true)],
+            order_by: vec![(SqlExpr::Column("n".into()), true)],
             frame: WindowFrame::default(),
         };
         evaluate_window_functions(&mut rows, &[spec]);
@@ -200,7 +200,7 @@ mod tests {
             func_name: "cume_dist".into(),
             args: vec![],
             partition_by: vec![],
-            order_by: vec![("n".into(), true)],
+            order_by: vec![(SqlExpr::Column("n".into()), true)],
             frame: WindowFrame::default(),
         };
         evaluate_window_functions(&mut rows, &[spec]);
@@ -224,7 +224,7 @@ mod tests {
             func_name: "cume_dist".into(),
             args: vec![],
             partition_by: vec![],
-            order_by: vec![("n".into(), true)],
+            order_by: vec![(SqlExpr::Column("n".into()), true)],
             frame: WindowFrame::default(),
         };
         evaluate_window_functions(&mut rows, &[spec]);
@@ -246,7 +246,7 @@ mod tests {
                 SqlExpr::Literal(nodedb_types::Value::Integer(2)),
             ],
             partition_by: vec![],
-            order_by: vec![("n".into(), true)],
+            order_by: vec![(SqlExpr::Column("n".into()), true)],
             frame: WindowFrame::default(),
         };
         evaluate_window_functions(&mut rows, &[spec]);

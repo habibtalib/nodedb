@@ -6,9 +6,9 @@ use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
-use crate::bridge::physical_plan::VectorOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use nodedb_physical::physical_plan::VectorOp;
 
 use super::insert_parse::{
     dispatch_plan, extract_vector_fields, fields_to_insert_sql, fire_before_triggers,

@@ -8,8 +8,8 @@ use nodedb_array::schema::ArraySchema;
 use nodedb_array::types::ArrayId;
 
 use crate::bridge::envelope::{ErrorCode, Response};
-use crate::bridge::physical_plan::ArrayOp;
 use nodedb_mem;
+use nodedb_physical::physical_plan::ArrayOp;
 
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::dispatch::array::aggregate::AggParams;

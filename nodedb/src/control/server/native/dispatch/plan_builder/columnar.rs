@@ -7,8 +7,8 @@ use nodedb_types::protocol::TextFields;
 use sonic_rs::{JsonContainerTrait, JsonValueTrait};
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::{ColumnarInsertIntent, ColumnarOp};
 use crate::control::server::native::dispatch::DispatchCtx;
+use nodedb_physical::physical_plan::{ColumnarInsertIntent, ColumnarOp};
 
 pub(crate) fn build_scan(fields: &TextFields, collection: &str) -> crate::Result<PhysicalPlan> {
     let limit = fields.limit.unwrap_or(10_000) as usize;

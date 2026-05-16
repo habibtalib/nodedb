@@ -6,8 +6,8 @@ use nodedb_types::protocol::TextFields;
 use sonic_rs;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::CrdtOp;
 use crate::control::state::SharedState;
+use nodedb_physical::physical_plan::CrdtOp;
 
 use super::require_doc_id;
 

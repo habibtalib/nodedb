@@ -4,12 +4,12 @@
 
 use super::*;
 use crate::Error;
-use crate::bridge::physical_plan::{DocumentOp, PhysicalPlan};
 use crate::control::planner::calvin::types::{DispatchClass, DispatchOutcome};
-use crate::control::planner::physical::{PhysicalTask, PostSetOp};
 use crate::control::server::pgwire::session::TransactionState;
 use crate::control::server::pgwire::session::cross_shard_mode::CrossShardTxnMode;
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::{DocumentOp, PhysicalPlan};
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 fn doc_insert_task(vshard: u32) -> PhysicalTask {
     PhysicalTask {

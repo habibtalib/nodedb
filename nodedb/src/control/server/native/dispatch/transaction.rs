@@ -7,10 +7,10 @@ use nodedb_types::id::DatabaseId;
 use nodedb_types::protocol::NativeResponse;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::gateway::GatewayErrorMap;
 use crate::control::gateway::core::QueryContext as GatewayQueryContext;
-use crate::control::planner::physical::{PhysicalTask, PostSetOp};
+use nodedb_physical::physical_plan::MetaOp;
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 use super::super::super::dispatch_utils;
 use super::{DispatchCtx, error_to_native};

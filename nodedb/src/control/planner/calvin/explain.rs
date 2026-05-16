@@ -7,8 +7,8 @@
 
 use crate::control::planner::calvin::dispatch::classify_dispatch;
 use crate::control::planner::calvin::types::DispatchClass;
-use crate::control::planner::physical::PhysicalTask;
 use crate::control::server::pgwire::session::cross_shard_mode::CrossShardTxnMode;
+use nodedb_physical::physical_task::PhysicalTask;
 
 /// Generate the Calvin dispatch preamble row for EXPLAIN output.
 ///
@@ -73,9 +73,9 @@ pub fn calvin_explain_preamble(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bridge::physical_plan::{DocumentOp, PhysicalPlan};
-    use crate::control::planner::physical::{PhysicalTask, PostSetOp};
     use crate::types::{TenantId, VShardId};
+    use nodedb_physical::physical_plan::{DocumentOp, PhysicalPlan};
+    use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
     fn doc_insert_task(vshard: u32) -> PhysicalTask {
         PhysicalTask {

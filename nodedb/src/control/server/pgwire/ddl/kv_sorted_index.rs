@@ -17,10 +17,10 @@ use pgwire::api::results::{DataRowEncoder, FieldInfo, QueryResponse, Response};
 use pgwire::error::PgWireResult;
 use sonic_rs;
 
-use crate::bridge::physical_plan::{KvOp, PhysicalPlan};
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::types::{DatabaseId, TraceId, VShardId};
+use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
 /// Handle `CREATE SORTED INDEX name ON collection (col DIR, ...) KEY key_col [WINDOW ...]`
 pub async fn create_sorted_index(

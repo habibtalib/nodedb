@@ -22,7 +22,7 @@ pub(super) fn apply_rank(
     rows: &mut [(String, serde_json::Value)],
     indices: &[usize],
     alias: &str,
-    order_by: &[(String, bool)],
+    order_by: &[(SqlExpr, bool)],
 ) {
     if indices.is_empty() {
         return;
@@ -46,7 +46,7 @@ pub(super) fn apply_dense_rank(
     rows: &mut [(String, serde_json::Value)],
     indices: &[usize],
     alias: &str,
-    order_by: &[(String, bool)],
+    order_by: &[(SqlExpr, bool)],
 ) {
     if indices.is_empty() {
         return;
@@ -100,7 +100,7 @@ pub(super) fn apply_percent_rank(
     rows: &mut [(String, serde_json::Value)],
     indices: &[usize],
     alias: &str,
-    order_by: &[(String, bool)],
+    order_by: &[(SqlExpr, bool)],
 ) {
     let total = indices.len();
     if total == 0 {
@@ -130,7 +130,7 @@ pub(super) fn apply_cume_dist(
     rows: &mut [(String, serde_json::Value)],
     indices: &[usize],
     alias: &str,
-    order_by: &[(String, bool)],
+    order_by: &[(SqlExpr, bool)],
 ) {
     let total = indices.len();
     if total == 0 {

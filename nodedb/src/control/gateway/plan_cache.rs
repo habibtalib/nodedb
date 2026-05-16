@@ -20,7 +20,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::bridge::physical_plan::PhysicalPlan;
+use nodedb_physical::physical_plan::PhysicalPlan;
 
 use super::version_set::GatewayVersionSet;
 
@@ -257,8 +257,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::bridge::physical_plan::{KvOp, PhysicalPlan};
     use crate::control::gateway::version_set::GatewayVersionSet;
+    use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
     fn kv_plan(collection: &str) -> Arc<PhysicalPlan> {
         Arc::new(PhysicalPlan::Kv(KvOp::Get {

@@ -79,7 +79,7 @@ impl SessionStore {
         sql: &str,
         current_version: F,
     ) -> Option<(
-        Vec<crate::control::planner::physical::PhysicalTask>,
+        Vec<nodedb_physical::physical_task::PhysicalTask>,
         crate::control::planner::descriptor_set::DescriptorVersionSet,
     )>
     where
@@ -98,7 +98,7 @@ impl SessionStore {
         &self,
         addr: &SocketAddr,
         sql: &str,
-        tasks: Vec<crate::control::planner::physical::PhysicalTask>,
+        tasks: Vec<nodedb_physical::physical_task::PhysicalTask>,
         versions: crate::control::planner::descriptor_set::DescriptorVersionSet,
     ) {
         let mut sessions = self.sessions.write().unwrap_or_else(|p| p.into_inner());

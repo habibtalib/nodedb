@@ -9,12 +9,12 @@ use nodedb_types::surrogate::Surrogate;
 use nodedb_types::value::Value;
 
 use crate::bridge::envelope::{ErrorCode, Payload, Response, Status};
-use crate::bridge::physical_plan::ColumnarInsertIntent;
-use crate::bridge::physical_plan::document::UpdateValue;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::handlers::upsert::apply_on_conflict_updates;
 use crate::data::executor::response_codec;
 use crate::data::executor::task::ExecutionTask;
+use nodedb_physical::physical_plan::ColumnarInsertIntent;
+use nodedb_physical::physical_plan::document::UpdateValue;
 
 use super::schema::{
     infer_schema_from_value, ndb_field_to_value, prepend_bitemporal_columns, row_values_to_object,

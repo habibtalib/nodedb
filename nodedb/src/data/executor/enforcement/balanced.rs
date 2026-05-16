@@ -11,7 +11,7 @@ use rust_decimal::Decimal;
 use std::collections::HashMap;
 
 use crate::bridge::envelope::ErrorCode;
-use crate::bridge::physical_plan::BalancedDef;
+use nodedb_physical::physical_plan::BalancedDef;
 
 /// A single insert tracked for balance validation.
 pub struct InsertEntry {

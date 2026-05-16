@@ -147,6 +147,13 @@ impl Ord for Candidate {
 }
 
 impl HnswIndex {
+    /// The distance metric this index was built with. Search-time metric
+    /// overrides must match this; differing metrics require either rebuilding
+    /// the index or a metric-aware re-rank pass.
+    pub fn metric(&self) -> crate::distance::DistanceMetric {
+        self.params.metric
+    }
+
     /// Create a new empty HNSW index.
     pub fn new(dim: usize, params: HnswParams) -> Self {
         let initial_capacity = params.ef_construction.max(ARENA_INITIAL_CAPACITY);

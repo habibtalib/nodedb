@@ -3,10 +3,10 @@
 //! KV operation dispatch for transaction batches.
 
 use crate::bridge::envelope::{ErrorCode, Response, Status};
-use crate::bridge::physical_plan::KvOp;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;
 use crate::engine::kv::current_ms;
+use nodedb_physical::physical_plan::KvOp;
 
 use super::undo::UndoEntry;
 

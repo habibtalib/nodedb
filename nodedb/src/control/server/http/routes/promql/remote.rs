@@ -11,7 +11,6 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use prost::Message;
 
-use crate::bridge::physical_plan::{PhysicalPlan, TimeseriesOp};
 use crate::control::gateway::GatewayErrorMap;
 use crate::control::gateway::core::QueryContext;
 use crate::control::promql::remote_proto::{
@@ -21,6 +20,7 @@ use crate::control::promql::remote_proto::{
 use crate::control::promql::{self, types::DEFAULT_LOOKBACK_MS};
 use crate::control::server::http::auth::{AppState, ResolvedIdentity};
 use crate::types::{DatabaseId, TraceId, VShardId};
+use nodedb_physical::physical_plan::{PhysicalPlan, TimeseriesOp};
 
 /// POST `/obsv/api/v1/write` — Prometheus remote write endpoint.
 ///

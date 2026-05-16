@@ -8,12 +8,12 @@ use nodedb_sql::temporal::TemporalScope;
 use nodedb_sql::types_array::ArrayReducerAst;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::{ArrayOp, ClusterArrayOp};
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::{ArrayOp, ClusterArrayOp};
 
-use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
 use super::helpers::{load_entry, map_reducer};
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 pub(crate) fn convert_agg(
     name: &str,

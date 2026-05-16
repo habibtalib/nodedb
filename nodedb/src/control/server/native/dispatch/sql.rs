@@ -7,9 +7,9 @@ use nodedb_types::protocol::NativeResponse;
 use nodedb_types::value::Value;
 
 use crate::bridge::envelope::{Response, Status};
-use crate::control::planner::physical::PhysicalTask;
 use crate::control::server::pgwire::session::TransactionState;
 use crate::data::executor::response_codec;
+use nodedb_physical::physical_task::PhysicalTask;
 
 use super::pgwire_bridge::pgwire_result_to_native;
 use super::sql_gateway::dispatch_task_via_gateway;
@@ -257,7 +257,7 @@ async fn dispatch_task(ctx: &DispatchCtx<'_>, task: PhysicalTask) -> crate::Resu
     if matches!(
         task.plan,
         crate::bridge::envelope::PhysicalPlan::Document(
-            crate::bridge::physical_plan::DocumentOp::InsertSelect { .. }
+            nodedb_physical::physical_plan::DocumentOp::InsertSelect { .. }
         )
     ) {
         return broadcast_count_to_all_cores(
@@ -274,7 +274,7 @@ async fn dispatch_task(ctx: &DispatchCtx<'_>, task: PhysicalTask) -> crate::Resu
     if matches!(
         task.plan,
         crate::bridge::envelope::PhysicalPlan::Array(
-            crate::bridge::physical_plan::ArrayOp::DropArray { .. }
+            nodedb_physical::physical_plan::ArrayOp::DropArray { .. }
         )
     ) {
         return broadcast_count_to_all_cores(
@@ -511,7 +511,7 @@ fn value_to_sql_literal(v: &Value) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use crate::bridge::envelope::PhysicalPlan;
-    use crate::bridge::physical_plan::{ColumnarOp, DocumentOp};
+    use nodedb_physical::physical_plan::{ColumnarOp, DocumentOp};
 
     #[test]
     fn columnar_scan_is_broadcast() {

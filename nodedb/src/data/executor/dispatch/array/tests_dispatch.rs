@@ -27,10 +27,10 @@ use nodedb_types::{Surrogate, SurrogateBitmap};
 
 use crate::bridge::dispatch::{BridgeRequest, BridgeResponse};
 use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
-use crate::bridge::physical_plan::{ArrayBinaryOp, ArrayOp, ArrayReducer};
 use crate::data::executor::core_loop::CoreLoop;
 use crate::engine::array::wal::ArrayPutCell;
 use crate::types::*;
+use nodedb_physical::physical_plan::{ArrayBinaryOp, ArrayOp, ArrayReducer};
 
 fn make_request(plan: PhysicalPlan, id: u64) -> Request {
     Request {
@@ -561,7 +561,7 @@ fn elementwise_schema_hash_mismatch_errors() {
 
 #[test]
 fn vector_search_with_array_surrogate_prefilter() {
-    use crate::bridge::physical_plan::VectorOp;
+    use nodedb_physical::physical_plan::VectorOp;
     use nodedb_types::vector_distance::DistanceMetric;
 
     // 2D array tiling chr × pos, cells bound to surrogates 1..=10.

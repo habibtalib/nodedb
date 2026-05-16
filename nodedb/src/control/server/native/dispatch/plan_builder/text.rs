@@ -5,7 +5,7 @@
 use nodedb_types::protocol::TextFields;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::TextOp;
+use nodedb_physical::physical_plan::TextOp;
 
 pub(crate) fn build_search(fields: &TextFields, collection: &str) -> crate::Result<PhysicalPlan> {
     let query_text = fields

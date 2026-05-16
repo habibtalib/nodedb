@@ -7,7 +7,7 @@
 //!
 //! Triggers do NOT use this — they dispatch DML immediately.
 
-use crate::control::planner::physical::PhysicalTask;
+use nodedb_physical::physical_task::PhysicalTask;
 
 /// Buffered transaction context for stored procedure execution.
 ///
@@ -96,9 +96,9 @@ impl ProcedureTransactionCtx {
 mod tests {
     use super::*;
     use crate::bridge::envelope::PhysicalPlan;
-    use crate::bridge::physical_plan::DocumentOp;
-    use crate::control::planner::physical::PostSetOp;
     use crate::types::{TenantId, VShardId};
+    use nodedb_physical::physical_plan::DocumentOp;
+    use nodedb_physical::physical_task::PostSetOp;
 
     fn dummy_task(id: &str) -> PhysicalTask {
         PhysicalTask {

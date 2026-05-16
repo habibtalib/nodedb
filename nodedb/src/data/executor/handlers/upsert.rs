@@ -32,7 +32,7 @@ impl CoreLoop {
         document_id: &str,
         surrogate: Surrogate,
         value: &[u8],
-        on_conflict_updates: &[(String, crate::bridge::physical_plan::UpdateValue)],
+        on_conflict_updates: &[(String, nodedb_physical::physical_plan::UpdateValue)],
     ) -> Response {
         let row_key = surrogate_to_doc_id(surrogate);
         let row_key = row_key.as_str();
@@ -47,7 +47,7 @@ impl CoreLoop {
         // Detect strict storage mode for this collection.
         let config_key = (crate::types::TenantId::new(tid), collection.to_string());
         let strict_schema = self.doc_configs.get(&config_key).and_then(|config| {
-            if let crate::bridge::physical_plan::StorageMode::Strict { ref schema } =
+            if let nodedb_physical::physical_plan::StorageMode::Strict { ref schema } =
                 config.storage_mode
             {
                 Some(schema.clone())
@@ -291,7 +291,7 @@ impl CoreLoop {
 pub(in crate::data::executor) fn apply_on_conflict_updates(
     existing: nodedb_types::Value,
     excluded: &nodedb_types::Value,
-    updates: &[(String, crate::bridge::physical_plan::UpdateValue)],
+    updates: &[(String, nodedb_physical::physical_plan::UpdateValue)],
 ) -> nodedb_types::Value {
     let mut obj = match existing {
         nodedb_types::Value::Object(map) => map,
@@ -306,13 +306,13 @@ pub(in crate::data::executor) fn apply_on_conflict_updates(
     let snapshot = nodedb_types::Value::Object(obj.clone());
     for (field, update_val) in updates {
         let new_val: nodedb_types::Value = match update_val {
-            crate::bridge::physical_plan::UpdateValue::Literal(bytes) => {
+            nodedb_physical::physical_plan::UpdateValue::Literal(bytes) => {
                 match nodedb_types::value_from_msgpack(bytes) {
                     Ok(v) => v,
                     Err(_) => continue,
                 }
             }
-            crate::bridge::physical_plan::UpdateValue::Expr(expr) => {
+            nodedb_physical::physical_plan::UpdateValue::Expr(expr) => {
                 expr.eval_with_excluded(&snapshot, excluded)
             }
         };

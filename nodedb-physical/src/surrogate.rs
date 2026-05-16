@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Surrogate-allocation contract used by the shared SqlPlan → PhysicalPlan
+//! converter. Origin's WAL-durable, Raft-replicated allocator implements this
+//! trait; Lite supplies its own local-monotonic implementation.
+//!
+//! Synchronous-only: the converter runs on the Control Plane in `Send + Sync`
+//! code paths. Origin's async surrogate-fetch work stays internal to its impl
+//! and is hidden behind this sync facade.
+
+use nodedb_types::Surrogate;
+
+/// Errors a [`SurrogateAssigner`] may return.
+///
+/// The error surface is deliberately narrow — the converter does not need to
+/// distinguish more cases. Origin's rich allocator errors collapse to one of
+/// these at the trait boundary; the original error is preserved in
+/// [`SurrogateAssignError::Backend`]'s message.
+#[derive(Debug, thiserror::Error)]
+pub enum SurrogateAssignError {
+    #[error("surrogate registry lock poisoned")]
+    LockPoisoned,
+    #[error("surrogate backend: {0}")]
+    Backend(String),
+}
+
+/// Allocate stable, cross-engine surrogates for `(collection, pk_bytes)`.
+///
+/// Implementations must be:
+/// - **idempotent**: repeated calls for the same `(collection, pk_bytes)`
+///   return the same `Surrogate`;
+/// - **monotonic**: every allocated value is greater than every previously
+///   allocated value within the same allocator;
+/// - **`Send + Sync`**: the converter holds a reference across `await`
+///   points on the Control Plane.
+pub trait SurrogateAssigner: Send + Sync {
+    /// Highest surrogate ever issued by this assigner. `0` on a fresh
+    /// allocator. Used by CLONE DATABASE to capture an AS-OF cutoff.
+    fn current_hwm(&self) -> u32;
+
+    /// Resolve `(collection, pk_bytes)` to a stable surrogate. Allocate
+    /// on the first call; return the persisted value on every subsequent
+    /// call (UPSERT preserves the surrogate).
+    fn assign(&self, collection: &str, pk_bytes: &[u8]) -> Result<Surrogate, SurrogateAssignError>;
+}

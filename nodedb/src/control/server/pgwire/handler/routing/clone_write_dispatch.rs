@@ -17,16 +17,16 @@ use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use nodedb_types::{CloneStatus, DatabaseId, Lsn, Surrogate, TenantId};
 
 use crate::bridge::envelope::{Priority, Request, Response, Status};
-use crate::bridge::physical_plan::{DocumentOp, KvOp, PhysicalPlan};
 use crate::control::clone::copyup::{
     CopyUpParams, KvCopyUpParams, perform_clone_copyup, perform_kv_clone_copyup,
 };
 use crate::control::clone::tombstone::{
     KvTombstoneParams, TombstoneParams, perform_clone_tombstone, perform_kv_clone_tombstone,
 };
-use crate::control::planner::physical::PhysicalTask;
 use crate::control::state::SharedState;
 use crate::types::{ReadConsistency, RequestId, TraceId, VShardId};
+use nodedb_physical::physical_plan::{DocumentOp, KvOp, PhysicalPlan};
+use nodedb_physical::physical_task::PhysicalTask;
 
 use super::super::core::NodeDbPgHandler;
 

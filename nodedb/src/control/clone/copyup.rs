@@ -18,9 +18,9 @@ use std::time::Duration;
 use nodedb_types::{CloneOrigin, DatabaseId, Surrogate, TenantId};
 
 use crate::bridge::envelope::{Priority, Request, Status};
-use crate::bridge::physical_plan::{DocumentOp, KvOp, PhysicalPlan};
 use crate::control::state::SharedState;
 use crate::types::{ReadConsistency, RequestId, TraceId, VShardId};
+use nodedb_physical::physical_plan::{DocumentOp, KvOp, PhysicalPlan};
 
 /// Parameters for a KV copy-up operation.
 pub struct KvCopyUpParams<'a> {

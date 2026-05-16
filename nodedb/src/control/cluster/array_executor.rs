@@ -34,11 +34,11 @@ use nodedb_types::SurrogateBitmap;
 use zerompk;
 
 use crate::bridge::envelope::{Priority, Request};
-use crate::bridge::physical_plan::{ArrayOp, ArrayReducer, PhysicalPlan};
 use crate::control::state::SharedState;
 use crate::data::executor::response_codec::ArraySliceResponse;
 use crate::event::types::EventSource;
 use crate::types::{DatabaseId, ReadConsistency, TenantId, TraceId, VShardId};
+use nodedb_physical::physical_plan::{ArrayOp, ArrayReducer, PhysicalPlan};
 
 /// Timeout for a single shard-side array operation dispatched through the
 /// local SPSC bridge. This bounds how long the cluster handler waits for the

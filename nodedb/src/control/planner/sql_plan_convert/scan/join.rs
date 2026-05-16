@@ -7,10 +7,9 @@ use nodedb_sql::planner::bitmap_emit::predicate::BitmapHint;
 use nodedb_sql::types::{Filter, SqlPlan};
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::*;
 use crate::types::{DatabaseId, VShardId};
+use nodedb_physical::physical_plan::*;
 
-use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::aggregate::{
     extract_collection_name, extract_join_projection_specs, extract_scan_alias,
 };
@@ -18,6 +17,7 @@ use super::super::convert::convert_one;
 use super::super::filter::{expr_filter_qualified, serialize_filters};
 use super::super::scan_params::JoinPlanParams;
 use super::super::value::sql_value_to_string;
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 /// Serialize WHERE filters + non-equi join condition into a single `Vec<u8>`.
 ///

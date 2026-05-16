@@ -120,7 +120,7 @@ pub async fn tree_sum(
                 .map_err(|e| sqlstate_error("XX000", &format!("surrogate lookup: {e}")))?
                 .unwrap_or(nodedb_types::Surrogate::ZERO);
             let get_plan =
-                PhysicalPlan::Document(crate::bridge::physical_plan::DocumentOp::PointGet {
+                PhysicalPlan::Document(nodedb_physical::physical_plan::DocumentOp::PointGet {
                     collection: coll_name.clone(),
                     document_id: node_id.clone(),
                     surrogate,

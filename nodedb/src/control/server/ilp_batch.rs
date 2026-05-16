@@ -6,11 +6,11 @@ use sonic_rs;
 use tracing::warn;
 
 use crate::bridge::envelope::{Payload, PhysicalPlan, Response, Status};
-use crate::bridge::physical_plan::TimeseriesOp;
 use crate::control::gateway::GatewayErrorMap;
 use crate::control::gateway::core::QueryContext;
 use crate::control::state::SharedState;
 use crate::types::{DatabaseId, Lsn, RequestId, TenantId, TraceId, VShardId};
+use nodedb_physical::physical_plan::TimeseriesOp;
 
 /// EWMA-based rate estimator for adaptive ILP batch sizing.
 pub(super) struct IlpRateEstimator {

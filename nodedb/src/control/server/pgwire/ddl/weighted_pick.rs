@@ -19,12 +19,12 @@ use pgwire::error::PgWireResult;
 use sonic_rs;
 
 use crate::bridge::envelope::{PhysicalPlan, Status};
-use crate::bridge::physical_plan::KvOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::engine::random::alias::AliasTable;
 use crate::engine::random::csprng::SeedableRng;
 use crate::types::{DatabaseId, TraceId, VShardId};
+use nodedb_physical::physical_plan::KvOp;
 
 /// Handle `SELECT * FROM WEIGHTED_PICK('collection', weight => 'col', count => N, ...)`
 pub async fn weighted_pick(

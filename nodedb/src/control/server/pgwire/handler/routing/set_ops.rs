@@ -4,7 +4,7 @@
 //!
 //! Operates on raw msgpack payloads — no decode/re-encode round-trip.
 
-use crate::control::planner::physical::PostSetOp;
+use nodedb_physical::physical_task::PostSetOp;
 
 use super::super::plan::{PlanKind, payload_to_response};
 

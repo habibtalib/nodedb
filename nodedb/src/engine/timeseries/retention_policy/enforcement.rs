@@ -20,10 +20,10 @@ use tokio::sync::watch;
 use tracing::{info, warn};
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::state::SharedState;
 use crate::engine::timeseries::retention_policy::RetentionPolicyRegistry;
 use crate::types::TenantId;
+use nodedb_physical::physical_plan::MetaOp;
 
 /// Spawn the retention policy enforcement loop as a background Tokio task.
 ///

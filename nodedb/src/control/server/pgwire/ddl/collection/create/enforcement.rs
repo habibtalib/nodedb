@@ -110,7 +110,7 @@ pub fn find_materialized_sum_bindings(
     catalog: &SystemCatalog,
     tenant_id: u64,
     collection_name: &str,
-) -> Vec<crate::bridge::physical_plan::MaterializedSumBinding> {
+) -> Vec<nodedb_physical::physical_plan::MaterializedSumBinding> {
     let all_collections = catalog
         .load_collections_for_tenant(DatabaseId::DEFAULT, tenant_id)
         .unwrap_or_default();
@@ -119,7 +119,7 @@ pub fn find_materialized_sum_bindings(
     for target_coll in &all_collections {
         for def in &target_coll.materialized_sums {
             if def.source_collection == collection_name {
-                bindings.push(crate::bridge::physical_plan::MaterializedSumBinding {
+                bindings.push(nodedb_physical::physical_plan::MaterializedSumBinding {
                     target_collection: def.target_collection.clone(),
                     target_column: def.target_column.clone(),
                     join_column: def.join_column.clone(),
@@ -137,7 +137,7 @@ pub fn find_materialized_sum_bindings(
 /// `FieldDefinition` entries (via `field_defs`).
 pub fn build_generated_column_specs(
     coll: &StoredCollection,
-) -> Vec<crate::bridge::physical_plan::GeneratedColumnSpec> {
+) -> Vec<nodedb_physical::physical_plan::GeneratedColumnSpec> {
     let mut specs = Vec::new();
 
     let schema_json = coll.timeseries_config.as_deref().unwrap_or("");
@@ -146,7 +146,7 @@ pub fn build_generated_column_specs(
             if let Some(ref expr_json) = col.generated_expr
                 && let Ok(expr) = sonic_rs::from_str::<crate::bridge::expr_eval::SqlExpr>(expr_json)
             {
-                specs.push(crate::bridge::physical_plan::GeneratedColumnSpec {
+                specs.push(nodedb_physical::physical_plan::GeneratedColumnSpec {
                     name: col.name.clone(),
                     expr,
                     depends_on: col.generated_deps.clone(),
@@ -162,7 +162,7 @@ pub fn build_generated_column_specs(
                 sonic_rs::from_str::<crate::bridge::expr_eval::SqlExpr>(&field_def.value_expr)
             && !specs.iter().any(|s| s.name == field_def.name)
         {
-            specs.push(crate::bridge::physical_plan::GeneratedColumnSpec {
+            specs.push(nodedb_physical::physical_plan::GeneratedColumnSpec {
                 name: field_def.name.clone(),
                 expr,
                 depends_on: field_def.generated_deps.clone(),

@@ -5,13 +5,13 @@
 use nodedb_sql::types::{Projection, SqlPlan, SqlValue};
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::*;
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::*;
 
-use super::super::physical::{PhysicalTask, PostSetOp};
 use super::convert::{ConvertContext, convert_one};
 use super::expr::inline_cte;
 use super::value::sql_value_to_string;
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 pub(super) fn convert_constant_result(
     columns: &[String],

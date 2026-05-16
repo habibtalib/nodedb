@@ -8,13 +8,13 @@ use nodedb_array::types::ArrayId;
 use nodedb_sql::types_array::{ArrayCoordLiteral, ArrayInsertRow};
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::{ArrayOp, ClusterArrayOp};
 use crate::engine::array::wal::{ArrayDeleteCell, ArrayPutCell};
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::{ArrayOp, ClusterArrayOp};
 
-use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
 use super::helpers::{coerce_attrs, coerce_coords};
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 pub(in super::super) fn convert_insert_array(
     name: &str,

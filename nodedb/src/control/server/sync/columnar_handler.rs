@@ -60,9 +60,9 @@ impl<'a> ColumnarDispatcher for SharedStateColumnarDispatcher<'a> {
         schema_bytes: Vec<u8>,
     ) -> crate::Result<u64> {
         use crate::bridge::envelope::PhysicalPlan;
-        use crate::bridge::physical_plan::columnar::{ColumnarInsertIntent, ColumnarOp};
         use crate::control::server::dispatch_utils::dispatch_to_data_plane_with_source;
         use crate::event::EventSource;
+        use nodedb_physical::physical_plan::columnar::{ColumnarInsertIntent, ColumnarOp};
         use nodedb_types::columnar::ColumnarSchema;
         use nodedb_types::value::Value;
         use std::collections::HashMap;

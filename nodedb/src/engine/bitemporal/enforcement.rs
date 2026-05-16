@@ -26,8 +26,8 @@ use tracing::{info, warn};
 
 use super::registry::{BitemporalEngineKind, BitemporalRetentionRegistry, Entry};
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::state::SharedState;
+use nodedb_physical::physical_plan::MetaOp;
 
 /// Default tick interval when no shorter deadline is needed. One hour
 /// matches the timeseries retention loop's default; operators can lower

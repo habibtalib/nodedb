@@ -16,10 +16,10 @@ use tracing::debug;
 use super::accum::GroupState;
 use super::spill::groupby::GroupBySpiller;
 use crate::bridge::envelope::{ErrorCode, Response};
-use crate::bridge::physical_plan::AggregateSpec;
 use crate::bridge::scan_filter::ScanFilter;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;
+use nodedb_physical::physical_plan::AggregateSpec;
 use nodedb_query::agg_key::canonical_agg_key;
 use nodedb_query::msgpack_scan;
 

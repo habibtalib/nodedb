@@ -237,7 +237,7 @@ impl QueryContext {
         sql: &str,
         tenant_id: crate::types::TenantId,
         database_id: crate::types::DatabaseId,
-    ) -> crate::Result<Vec<super::physical::PhysicalTask>> {
+    ) -> crate::Result<Vec<nodedb_physical::physical_task::PhysicalTask>> {
         self.plan_with_nodedb_sql(sql, tenant_id, database_id)
             .map(|(t, _)| t)
     }
@@ -256,7 +256,7 @@ impl QueryContext {
         tenant_id: crate::types::TenantId,
         database_id: crate::types::DatabaseId,
     ) -> crate::Result<(
-        Vec<super::physical::PhysicalTask>,
+        Vec<nodedb_physical::physical_task::PhysicalTask>,
         super::descriptor_set::DescriptorVersionSet,
     )> {
         let inputs = match &self.catalog_inputs {
@@ -320,7 +320,7 @@ impl QueryContext {
         tenant_id: crate::types::TenantId,
         database_id: crate::types::DatabaseId,
         sec: &PlanSecurityContext<'_>,
-    ) -> crate::Result<Vec<super::physical::PhysicalTask>> {
+    ) -> crate::Result<Vec<nodedb_physical::physical_task::PhysicalTask>> {
         self.plan_sql_with_rls_returning(sql, tenant_id, database_id, sec, false)
             .await
     }
@@ -333,7 +333,7 @@ impl QueryContext {
         database_id: crate::types::DatabaseId,
         sec: &PlanSecurityContext<'_>,
         returning: bool,
-    ) -> crate::Result<Vec<super::physical::PhysicalTask>> {
+    ) -> crate::Result<Vec<nodedb_physical::physical_task::PhysicalTask>> {
         self.plan_sql_with_rls_and_versions(sql, tenant_id, database_id, sec, returning)
             .await
             .map(|(tasks, _)| tasks)
@@ -353,7 +353,7 @@ impl QueryContext {
         sec: &PlanSecurityContext<'_>,
         _returning: bool,
     ) -> crate::Result<(
-        Vec<super::physical::PhysicalTask>,
+        Vec<nodedb_physical::physical_task::PhysicalTask>,
         super::descriptor_set::DescriptorVersionSet,
     )> {
         let (mut tasks, version_set) = self.plan_with_nodedb_sql(sql, tenant_id, database_id)?;
@@ -380,7 +380,7 @@ impl QueryContext {
         tenant_id: crate::types::TenantId,
         database_id: crate::types::DatabaseId,
         sec: &PlanSecurityContext<'_>,
-    ) -> crate::Result<Vec<super::physical::PhysicalTask>> {
+    ) -> crate::Result<Vec<nodedb_physical::physical_task::PhysicalTask>> {
         let inputs = match &self.catalog_inputs {
             Some(i) => i,
             None => {

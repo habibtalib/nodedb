@@ -5,7 +5,7 @@
 use nodedb_types::protocol::TextFields;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::TimeseriesOp;
+use nodedb_physical::physical_plan::TimeseriesOp;
 
 pub(crate) fn build_scan(fields: &TextFields, collection: &str) -> crate::Result<PhysicalPlan> {
     let start = fields.time_range_start.unwrap_or(0);

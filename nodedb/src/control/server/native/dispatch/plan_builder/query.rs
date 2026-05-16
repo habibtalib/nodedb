@@ -5,7 +5,7 @@
 use nodedb_types::protocol::TextFields;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::QueryOp;
+use nodedb_physical::physical_plan::QueryOp;
 
 pub(crate) fn build_recursive_scan(
     fields: &TextFields,

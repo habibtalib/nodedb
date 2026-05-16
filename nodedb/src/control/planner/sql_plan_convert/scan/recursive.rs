@@ -3,12 +3,12 @@
 //! Recursive (CTE-style) scan converters.
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::*;
 use crate::types::VShardId;
+use nodedb_physical::physical_plan::*;
 
-use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::filter::serialize_filters;
 use super::super::scan_params::{RecursiveScanParams, RecursiveValueParams};
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 pub(in crate::control::planner::sql_plan_convert) fn convert_recursive_scan(
     p: RecursiveScanParams<'_>,

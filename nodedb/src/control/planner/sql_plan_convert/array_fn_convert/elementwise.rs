@@ -6,12 +6,12 @@ use nodedb_array::types::ArrayId;
 use nodedb_sql::types_array::ArrayBinaryOpAst;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::ArrayOp;
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::ArrayOp;
 
-use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
 use super::helpers::{load_schema, map_binary_op};
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 pub(crate) fn convert_elementwise(
     left_name: &str,

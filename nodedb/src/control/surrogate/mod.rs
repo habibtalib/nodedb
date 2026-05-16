@@ -10,6 +10,7 @@
 pub mod assign;
 pub mod bootstrap;
 pub mod persist;
+pub mod physical_impl;
 pub mod registry;
 pub mod wal_appender;
 

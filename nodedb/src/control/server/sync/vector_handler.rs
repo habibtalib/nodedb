@@ -74,9 +74,9 @@ impl<'a> VectorDispatcher for SharedStateVectorDispatcher<'a> {
         params: VectorInsertParams,
     ) -> crate::Result<()> {
         use crate::bridge::envelope::PhysicalPlan;
-        use crate::bridge::physical_plan::VectorOp;
         use crate::control::server::dispatch_utils::dispatch_to_data_plane_with_source;
         use crate::event::EventSource;
+        use nodedb_physical::physical_plan::VectorOp;
 
         let plan = PhysicalPlan::Vector(VectorOp::Insert {
             collection: params.collection,
@@ -107,9 +107,9 @@ impl<'a> VectorDispatcher for SharedStateVectorDispatcher<'a> {
         field_name: String,
     ) -> crate::Result<()> {
         use crate::bridge::envelope::PhysicalPlan;
-        use crate::bridge::physical_plan::VectorOp;
         use crate::control::server::dispatch_utils::dispatch_to_data_plane_with_source;
         use crate::event::EventSource;
+        use nodedb_physical::physical_plan::VectorOp;
 
         let plan = PhysicalPlan::Vector(VectorOp::DeleteBySurrogate {
             collection,

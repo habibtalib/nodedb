@@ -21,10 +21,10 @@ use pgwire::error::PgWireResult;
 use nodedb_fts::SynonymGroupRecord;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::security::catalog::StoredSynonymGroup;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use nodedb_physical::physical_plan::MetaOp;
 
 use super::super::types::{require_tenant_admin, sqlstate_error, text_field};
 use super::sync_dispatch::dispatch_async;

@@ -6,7 +6,7 @@
 //! [`RouteDecision`] encodes whether the plan runs on the local node,
 //! on a single remote node, or broadcasts to every vShard in a list.
 
-use crate::bridge::physical_plan::PhysicalPlan;
+use nodedb_physical::physical_plan::PhysicalPlan;
 
 /// A routing decision for a single physical sub-plan.
 #[derive(Debug, Clone)]
@@ -49,7 +49,7 @@ pub enum RouteDecision {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bridge::physical_plan::{KvOp, PhysicalPlan};
+    use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
     #[test]
     fn route_decision_equality() {

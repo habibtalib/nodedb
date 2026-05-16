@@ -21,7 +21,7 @@ pub struct AggregateSpec {
     /// Field name for simple field-based aggregates. `"*"` is used for COUNT(*).
     pub field: String,
     /// Optional expression to evaluate per-document before aggregating.
-    pub expr: Option<crate::bridge::expr_eval::SqlExpr>,
+    pub expr: Option<nodedb_query::expr::SqlExpr>,
 }
 
 #[derive(
@@ -101,19 +101,19 @@ pub enum QueryOp {
         /// Inline left sub-plan for multi-way joins. When set, the executor
         /// runs this sub-plan first and uses its result as the left side
         /// instead of scanning `left_collection`.
-        inline_left: Option<Box<crate::bridge::envelope::PhysicalPlan>>,
+        inline_left: Option<Box<crate::physical_plan::PhysicalPlan>>,
         /// Inline right sub-plan for scalar subqueries or other materialized
         /// small-side inputs. The Control Plane executes this plan first,
         /// merges it if needed, then embeds the result into `BroadcastJoin`.
-        inline_right: Option<Box<crate::bridge::envelope::PhysicalPlan>>,
+        inline_right: Option<Box<crate::physical_plan::PhysicalPlan>>,
         /// Bitmap-producer sub-plan for the left side. When set, the executor
         /// executes this plan first, collects surrogates from all returned rows,
         /// and injects the resulting bitmap into the probe-side prefilter before
         /// scanning. `None` = no bitmap pushdown for the left side.
-        inline_left_bitmap: Option<Box<crate::bridge::envelope::PhysicalPlan>>,
+        inline_left_bitmap: Option<Box<crate::physical_plan::PhysicalPlan>>,
         /// Bitmap-producer sub-plan for the right side. Same semantics as
         /// `inline_left_bitmap` but applied to the right (probe) collection.
-        inline_right_bitmap: Option<Box<crate::bridge::envelope::PhysicalPlan>>,
+        inline_right_bitmap: Option<Box<crate::physical_plan::PhysicalPlan>>,
     },
 
     /// Inline hash join: both sides are pre-gathered msgpack data.
@@ -255,7 +255,7 @@ pub enum QueryOp {
     /// `correlation_keys` are `(outer_col, inner_col)` equi-join pairs.
     LateralTopK {
         /// Sub-plan that produces the outer (driving) rows.
-        outer_plan: Box<crate::bridge::envelope::PhysicalPlan>,
+        outer_plan: Box<crate::physical_plan::PhysicalPlan>,
         /// Alias qualifying the outer columns in output rows.
         outer_alias: String,
         /// Inner collection to scan per outer row.
@@ -286,7 +286,7 @@ pub enum QueryOp {
     /// `inner_collection`.
     LateralLoop {
         /// Sub-plan that produces the outer (driving) rows.
-        outer_plan: Box<crate::bridge::envelope::PhysicalPlan>,
+        outer_plan: Box<crate::physical_plan::PhysicalPlan>,
         /// Alias qualifying the outer columns in output rows.
         outer_alias: String,
         /// Inner collection to scan per outer row.

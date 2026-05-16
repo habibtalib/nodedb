@@ -29,8 +29,11 @@ pub mod temporal;
 pub mod types;
 pub mod types_array;
 pub mod types_expr;
+pub mod visitor;
 
 pub use temporal::{TemporalScope, ValidTime};
+pub use visitor::PlanVisitor;
+pub use visitor::dispatch;
 
 pub use catalog::{SqlCatalog, SqlCatalogError};
 pub use error::{Result, SqlError};

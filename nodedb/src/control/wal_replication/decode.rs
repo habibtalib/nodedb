@@ -4,9 +4,9 @@
 
 use super::types::{ReplicatedEntry, ReplicatedWrite};
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::{CrdtOp, DocumentOp, GraphOp, KvOp, VectorOp};
 use crate::control::surrogate::SurrogateAssigner;
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::{CrdtOp, DocumentOp, GraphOp, KvOp, VectorOp};
 
 ///
 /// Returns `None` if the data is not a valid ReplicatedEntry (e.g., ConfChange or no-op).

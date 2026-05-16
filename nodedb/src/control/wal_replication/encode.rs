@@ -4,8 +4,8 @@
 
 use super::types::{ReplicatedEntry, ReplicatedWrite};
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::{CrdtOp, DocumentOp, GraphOp, KvOp, VectorOp};
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::{CrdtOp, DocumentOp, GraphOp, KvOp, VectorOp};
 
 pub fn to_replicated_entry(
     tenant_id: TenantId,

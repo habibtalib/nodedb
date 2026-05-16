@@ -4130,6 +4130,7 @@ dependencies = [
  "nodedb-fts",
  "nodedb-graph",
  "nodedb-mem",
+ "nodedb-physical",
  "nodedb-query",
  "nodedb-raft",
  "nodedb-spatial",
@@ -4411,6 +4412,20 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "nodedb-physical"
+version = "0.2.1"
+dependencies = [
+ "nodedb-array",
+ "nodedb-graph",
+ "nodedb-query",
+ "nodedb-sql",
+ "nodedb-types",
+ "serde",
+ "thiserror 2.0.18",
+ "zerompk",
 ]
 
 [[package]]

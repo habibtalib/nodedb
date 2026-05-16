@@ -7,8 +7,8 @@ use nodedb_array::types::domain::DomainBound;
 use nodedb_sql::temporal::{TemporalScope, ValidTime};
 use nodedb_sql::types_array::{ArrayBinaryOpAst, ArrayCoordLiteral, ArrayReducerAst};
 
-use crate::bridge::physical_plan::{ArrayBinaryOp, ArrayReducer};
 use crate::control::array_catalog::ArrayCatalogEntry;
+use nodedb_physical::physical_plan::{ArrayBinaryOp, ArrayReducer};
 
 use super::super::convert::ConvertContext;
 

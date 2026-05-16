@@ -8,7 +8,6 @@ use pgwire::error::PgWireResult;
 use nodedb_sql::ddl_ast::GraphDirection;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::GraphOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::types::sqlstate_error;
 use crate::control::state::SharedState;
@@ -16,6 +15,7 @@ use crate::engine::graph::edge_store::Direction;
 use crate::engine::graph::traversal_options::GraphTraversalOptions;
 use crate::engine::graph::traversal_options::MAX_GRAPH_TRAVERSAL_DEPTH;
 use crate::types::TraceId;
+use nodedb_physical::physical_plan::GraphOp;
 
 use super::response::payload_to_query_response;
 

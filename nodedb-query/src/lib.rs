@@ -35,4 +35,7 @@ pub use fusion::{
     reciprocal_rank_fusion_weighted,
 };
 pub use scan_filter::ScanFilter;
-pub use window::{FrameBound, WindowFrame, WindowFuncSpec, evaluate_window_functions};
+pub use window::{
+    FrameBound, WindowError, WindowFrame, WindowFuncSpec, evaluate_window_functions,
+    evaluate_window_functions_value,
+};

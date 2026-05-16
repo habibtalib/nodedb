@@ -5,10 +5,10 @@
 use tracing::debug;
 
 use crate::bridge::envelope::{ErrorCode, PhysicalPlan};
-use crate::bridge::physical_plan::DocumentOp;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::handlers::point::apply_put::PointPutParams;
 use crate::data::executor::task::ExecutionTask;
+use nodedb_physical::physical_plan::DocumentOp;
 
 impl CoreLoop {
     /// Batch-coalesce consecutive PointPut tasks from the front of the task queue.

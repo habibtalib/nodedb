@@ -89,8 +89,8 @@ pub(crate) async fn apply_array_op(
     };
 
     // Build Data Plane plan.
-    use crate::bridge::physical_plan::ArrayOp as DataArrayOp;
     use nodedb_array::sync::op::ArrayOpKind;
+    use nodedb_physical::physical_plan::ArrayOp as DataArrayOp;
 
     let tenant_id = TenantId::new(0); // array ops are tenant-0 at the sync layer
     let array_id = nodedb_array::types::ArrayId::new(tenant_id, &op.header.array);
@@ -260,7 +260,7 @@ async fn ensure_array_open(
 
     let open_request_id = state.next_request_id();
     let open_plan = crate::bridge::envelope::PhysicalPlan::Array(
-        crate::bridge::physical_plan::ArrayOp::OpenArray {
+        nodedb_physical::physical_plan::ArrayOp::OpenArray {
             array_id: array_id.clone(),
             schema_msgpack,
             schema_hash,

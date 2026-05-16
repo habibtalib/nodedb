@@ -9,13 +9,13 @@ use pgwire::api::results::Response;
 use pgwire::error::PgWireResult;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::security::catalog::{StoredCollection, StoredContinuousAggregate};
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::ddl::{catalog_propose, collection, sync_dispatch};
 use crate::control::server::pgwire::types::sqlstate_error;
 use crate::control::state::SharedState;
 use crate::engine::timeseries::continuous_agg::ContinuousAggregateDef;
+use nodedb_physical::physical_plan::MetaOp;
 
 use super::parse::{extract_with_options, parse_create_sql};
 

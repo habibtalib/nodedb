@@ -3,16 +3,16 @@
 use nodedb_sql::types::{KvInsertIntent, SqlExpr, SqlValue, VectorPrimaryRow};
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::*;
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::*;
 
-use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
 use super::super::value::{
     assignments_to_update_values, sql_value_to_bytes, sql_value_to_nodedb_value,
     write_msgpack_map_header, write_msgpack_str, write_msgpack_value,
 };
 use super::insert::assign_for_pk;
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 pub(in super::super) fn convert_kv_insert(
     collection: &str,

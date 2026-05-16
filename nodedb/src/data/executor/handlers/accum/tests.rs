@@ -3,7 +3,7 @@
 //! Round-trip tests: feed → finalize, and feed → split → merge → finalize.
 
 use super::state::AggAccum;
-use crate::bridge::physical_plan::AggregateSpec;
+use nodedb_physical::physical_plan::AggregateSpec;
 use nodedb_types::Value;
 
 fn make_spec(func: &str, field: &str) -> AggregateSpec {

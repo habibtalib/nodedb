@@ -4,7 +4,7 @@
 //! stored value map before the pgwire layer turns it into a SQL row.
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::KvOp;
+use nodedb_physical::physical_plan::KvOp;
 use nodedb_query::msgpack_scan;
 
 /// When `plan` is a KV point-get, turn the engine's stored bytes into

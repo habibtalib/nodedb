@@ -34,13 +34,13 @@ use pgwire::error::PgWireResult;
 use sonic_rs;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::{BatchEdge, GraphOp};
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::broadcast::broadcast_to_all_cores;
 use crate::control::server::pgwire::types::{sqlstate_error, text_field};
 use crate::control::server::{dispatch_utils, wal_dispatch};
 use crate::control::state::SharedState;
 use crate::types::{DatabaseId, TraceId, VShardId};
+use nodedb_physical::physical_plan::{BatchEdge, GraphOp};
 
 use super::parse::parse_edge_columns;
 
@@ -85,7 +85,7 @@ pub async fn create_graph_index(
     }
 
     // ── Broadcast scan: collect documents from every vshard ──────────
-    let scan_plan = PhysicalPlan::Document(crate::bridge::physical_plan::DocumentOp::Scan {
+    let scan_plan = PhysicalPlan::Document(nodedb_physical::physical_plan::DocumentOp::Scan {
         collection: collection.clone(),
         limit: usize::MAX,
         offset: 0,

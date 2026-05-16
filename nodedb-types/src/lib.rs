@@ -17,6 +17,7 @@ pub mod approx;
 pub mod array_cell;
 pub mod backup_envelope;
 pub mod bbox;
+pub mod calvin;
 pub mod clone;
 pub mod collection;
 pub mod collection_config;

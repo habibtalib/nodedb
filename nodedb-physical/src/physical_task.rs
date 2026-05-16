@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use crate::bridge::envelope::PhysicalPlan;
-use crate::types::{DatabaseId, TenantId, VShardId};
+use nodedb_types::id::VShardId;
+use nodedb_types::{DatabaseId, TenantId};
+
+use crate::physical_plan::PhysicalPlan;
 
 /// Post-execution set operation for merging multi-task results.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

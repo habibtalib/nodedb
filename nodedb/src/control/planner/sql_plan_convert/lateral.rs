@@ -9,12 +9,12 @@
 use nodedb_sql::types::{Filter, Projection, SortKey, SqlExpr, SqlPlan};
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::{JoinProjection, QueryOp};
 use crate::types::TenantId;
+use nodedb_physical::physical_plan::{JoinProjection, QueryOp};
 
-use super::super::physical::{PhysicalTask, PostSetOp};
 use super::convert::ConvertContext;
 use super::filter::serialize_filters;
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 /// Lower `SqlPlan::LateralTopK` to a `QueryOp::LateralTopK` physical task.
 #[allow(clippy::too_many_arguments)]

@@ -13,7 +13,7 @@ use super::permission::Permission;
 /// Map a PhysicalPlan to the Permission required to execute it.
 pub fn required_permission(plan: &crate::bridge::envelope::PhysicalPlan) -> Permission {
     use crate::bridge::envelope::PhysicalPlan;
-    use crate::bridge::physical_plan::{
+    use nodedb_physical::physical_plan::{
         ArrayOp, ColumnarOp, CrdtOp, DocumentOp, GraphOp, KvOp, MetaOp, QueryOp, SpatialOp, TextOp,
         TimeseriesOp, VectorOp,
     };
@@ -279,12 +279,12 @@ pub fn required_permission(plan: &crate::bridge::envelope::PhysicalPlan) -> Perm
 
         // ClusterArray mirrors the local ArrayOp permission model.
         PhysicalPlan::ClusterArray(
-            crate::bridge::physical_plan::ClusterArrayOp::Slice { .. }
-            | crate::bridge::physical_plan::ClusterArrayOp::Agg { .. },
+            nodedb_physical::physical_plan::ClusterArrayOp::Slice { .. }
+            | nodedb_physical::physical_plan::ClusterArrayOp::Agg { .. },
         ) => Permission::Read,
         PhysicalPlan::ClusterArray(
-            crate::bridge::physical_plan::ClusterArrayOp::Put { .. }
-            | crate::bridge::physical_plan::ClusterArrayOp::Delete { .. },
+            nodedb_physical::physical_plan::ClusterArrayOp::Put { .. }
+            | nodedb_physical::physical_plan::ClusterArrayOp::Delete { .. },
         ) => Permission::Write,
 
         // Calvin cross-shard execution batches are write operations dispatched

@@ -21,7 +21,6 @@ use std::time::Duration;
 use bytes::Bytes;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::catalog_entry::CatalogEntry;
 use crate::control::catalog_entry::apply::apply_to;
 use crate::control::metadata_proposer::propose_catalog_entry;
@@ -30,6 +29,7 @@ use crate::control::security::catalog::{StoredCollection, SystemCatalog};
 use crate::control::server::pgwire::ddl::sync_dispatch;
 use crate::control::state::SharedState;
 use crate::types::{DatabaseId, TenantId};
+use nodedb_physical::physical_plan::MetaOp;
 use nodedb_types::NodeDbError;
 
 /// Timeout for each Data Plane rename dispatch.

@@ -16,9 +16,9 @@ use std::time::{Duration, Instant};
 use nodedb_types::{DatabaseId, TenantId};
 
 use crate::bridge::envelope::{Priority, Request, Response};
-use crate::bridge::physical_plan::PhysicalPlan;
 use crate::control::state::SharedState;
 use crate::types::{ReadConsistency, RequestId, TraceId, VShardId};
+use nodedb_physical::physical_plan::PhysicalPlan;
 
 /// Dispatch a `PhysicalPlan` to the local Data Plane and await the response.
 ///

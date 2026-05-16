@@ -7,14 +7,14 @@ use nodedb_sql::types::{
 };
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::*;
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::*;
 
-use super::super::physical::{PhysicalTask, PostSetOp};
-use super::convert::{ConvertContext, convert_one};
+use super::convert::{convert_one, ConvertContext};
 use super::expr::sql_expr_to_bridge_expr;
 use super::filter::serialize_filters;
 use super::value::extract_time_range;
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 pub(super) struct ConvertAggregateParams<'a> {
     pub input: &'a SqlPlan,
@@ -409,21 +409,11 @@ pub(super) fn serialize_window_functions(
             alias: s.alias.clone(),
             func_name: s.function.clone(),
             args: s.args.iter().map(sql_expr_to_bridge_expr).collect(),
-            partition_by: s
-                .partition_by
-                .iter()
-                .filter_map(|e| match e {
-                    SqlExpr::Column { name, .. } => Some(name.clone()),
-                    _ => None,
-                })
-                .collect(),
+            partition_by: s.partition_by.iter().map(sql_expr_to_bridge_expr).collect(),
             order_by: s
                 .order_by
                 .iter()
-                .filter_map(|k| match &k.expr {
-                    SqlExpr::Column { name, .. } => Some((name.clone(), k.ascending)),
-                    _ => None,
-                })
+                .map(|k| (sql_expr_to_bridge_expr(&k.expr), k.ascending))
                 .collect(),
             frame: s.frame.clone(),
         })

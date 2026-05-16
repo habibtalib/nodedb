@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::DocumentOp;
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::DocumentOp;
 
 #[test]
 fn replicated_entry_roundtrip() {

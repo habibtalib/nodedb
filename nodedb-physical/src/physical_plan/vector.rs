@@ -4,7 +4,7 @@
 
 use nodedb_types::{Surrogate, SurrogateBitmap, vector_distance::DistanceMetric};
 
-use crate::bridge::envelope::PhysicalPlan;
+use crate::physical_plan::PhysicalPlan;
 
 /// Vector engine physical operations.
 #[derive(

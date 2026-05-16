@@ -7,7 +7,7 @@ use nodedb_types::vector_distance::DistanceMetric;
 
 use super::super::DispatchCtx;
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::VectorOp;
+use nodedb_physical::physical_plan::VectorOp;
 
 pub(crate) fn build_search(fields: &TextFields, collection: &str) -> crate::Result<PhysicalPlan> {
     let query_vector = fields

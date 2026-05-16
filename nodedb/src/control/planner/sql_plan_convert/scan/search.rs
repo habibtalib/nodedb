@@ -4,13 +4,13 @@
 //! builder shared across them.
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::*;
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::*;
 
-use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::filter::serialize_filters;
 use super::super::scan_params::{HybridSearchParams, HybridSearchTripleParams, VectorSearchParams};
 use super::super::value::sql_value_to_nodedb_value as sql_value_to_value;
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 pub(in crate::control::planner::sql_plan_convert) fn convert_vector_search(
     p: VectorSearchParams<'_>,
@@ -140,7 +140,7 @@ fn build_array_prefilter_plan(
 
     let aid = ArrayId::new(tenant_id, &prefilter.array_name);
     Ok(PhysicalPlan::Array(
-        crate::bridge::physical_plan::ArrayOp::SurrogateBitmapScan {
+        nodedb_physical::physical_plan::ArrayOp::SurrogateBitmapScan {
             array_id: aid,
             slice_msgpack,
         },

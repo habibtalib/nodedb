@@ -186,7 +186,7 @@ pub async fn create_index(
     let vshard =
         crate::types::VShardId::from_collection_in_database(DatabaseId::DEFAULT, collection);
     let backfill_plan = crate::bridge::envelope::PhysicalPlan::Document(
-        crate::bridge::physical_plan::DocumentOp::BackfillIndex {
+        nodedb_physical::physical_plan::DocumentOp::BackfillIndex {
             collection: collection.to_string(),
             path: extraction_path.clone(),
             is_array,
@@ -349,7 +349,7 @@ pub async fn drop_index(
                 &coll.name,
             );
             let plan = crate::bridge::envelope::PhysicalPlan::Document(
-                crate::bridge::physical_plan::DocumentOp::DropIndex {
+                nodedb_physical::physical_plan::DocumentOp::DropIndex {
                     collection: coll.name.clone(),
                     field,
                 },

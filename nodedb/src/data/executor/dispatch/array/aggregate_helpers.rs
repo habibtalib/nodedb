@@ -11,9 +11,9 @@ use nodedb_cluster::distributed_array::merge::ArrayAggPartial;
 use nodedb_types::SurrogateBitmap;
 
 use crate::bridge::envelope::{ErrorCode, Response};
-use crate::bridge::physical_plan::ArrayReducer;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;
+use nodedb_physical::physical_plan::ArrayReducer;
 
 /// Standard-msgpack-friendly cell value for aggregate rows.
 pub(super) enum AggCell {

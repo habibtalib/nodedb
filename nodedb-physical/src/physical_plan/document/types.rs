@@ -4,53 +4,7 @@
 
 use nodedb_types::columnar::StrictSchema;
 
-/// Right-hand side of an UPDATE ... SET field = <...> assignment.
-///
-/// The planner turns each assignment into one of these before it crosses
-/// the SPSC bridge:
-///
-/// - `Literal` — pre-encoded msgpack bytes for constant RHS. This is the
-///   fast path: the Data Plane can merge these at the binary level for
-///   non-strict collections without decoding the current row.
-/// - `Expr` — a `SqlExpr` that must be evaluated against the *current*
-///   document at apply time. Used for arithmetic (`col + 1`), functions
-///   (`LOWER(col)`, `NOW()`), `CASE`, concatenation, and anything else
-///   whose result depends on the row being updated.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum UpdateValue {
-    Literal(Vec<u8>),
-    Expr(crate::bridge::expr_eval::SqlExpr),
-}
-
-impl zerompk::ToMessagePack for UpdateValue {
-    fn write<W: zerompk::Write>(&self, writer: &mut W) -> zerompk::Result<()> {
-        writer.write_array_len(2)?;
-        match self {
-            UpdateValue::Literal(bytes) => {
-                writer.write_u8(0)?;
-                bytes.write(writer)
-            }
-            UpdateValue::Expr(expr) => {
-                writer.write_u8(1)?;
-                expr.write(writer)
-            }
-        }
-    }
-}
-
-impl<'a> zerompk::FromMessagePack<'a> for UpdateValue {
-    fn read<R: zerompk::Read<'a>>(reader: &mut R) -> zerompk::Result<Self> {
-        reader.check_array_len(2)?;
-        let tag = reader.read_u8()?;
-        match tag {
-            0 => Ok(UpdateValue::Literal(Vec::<u8>::read(reader)?)),
-            1 => Ok(UpdateValue::Expr(crate::bridge::expr_eval::SqlExpr::read(
-                reader,
-            )?)),
-            _ => Err(zerompk::Error::InvalidMarker(tag)),
-        }
-    }
-}
+pub use crate::physical_plan::document::UpdateValue;
 
 /// Storage encoding mode for a document collection.
 ///
@@ -108,16 +62,16 @@ pub struct EnforcementOptions {
     /// Data retention duration. DELETE rejected if row age < this.
     /// Uses calendar-accurate arithmetic (months/years not approximated).
     #[serde(default)]
-    pub retention: Option<crate::data::executor::enforcement::retention::RetentionDuration>,
+    pub retention: Option<crate::physical_plan::document::RetentionDuration>,
     /// Whether any legal hold is active. DELETE unconditionally rejected.
     #[serde(default)]
     pub has_legal_hold: bool,
     /// State transition constraints: column value transitions must follow declared paths.
     #[serde(default)]
-    pub state_constraints: Vec<crate::control::security::catalog::types::StateTransitionDef>,
+    pub state_constraints: Vec<crate::physical_plan::document::StateTransitionDef>,
     /// Transition check predicates: OLD/NEW expressions evaluated on UPDATE.
     #[serde(default)]
-    pub transition_checks: Vec<crate::control::security::catalog::types::TransitionCheckDef>,
+    pub transition_checks: Vec<crate::physical_plan::document::TransitionCheckDef>,
     /// Materialized sum bindings where THIS collection is the source.
     /// On INSERT, each binding triggers an atomic balance update on the target.
     #[serde(default)]
@@ -143,7 +97,7 @@ pub struct GeneratedColumnSpec {
     /// Column name for the generated field.
     pub name: String,
     /// Expression to evaluate against the document.
-    pub expr: crate::bridge::expr_eval::SqlExpr,
+    pub expr: nodedb_query::expr::SqlExpr,
     /// Column names this expression depends on (for UPDATE recomputation).
     pub depends_on: Vec<String>,
 }
@@ -168,7 +122,7 @@ pub struct MaterializedSumBinding {
     /// Column on source row that joins to target's document ID (e.g. `account_id`).
     pub join_column: String,
     /// Expression evaluated against the source INSERT row to compute the delta.
-    pub value_expr: crate::bridge::expr_eval::SqlExpr,
+    pub value_expr: nodedb_query::expr::SqlExpr,
 }
 
 /// Period lock configuration propagated to Data Plane.
@@ -295,8 +249,8 @@ impl ReturningSpec {
 }
 
 /// Build state for a secondary index propagated from catalog to the Data
-/// Plane. Mirrors [`crate::control::security::catalog::IndexBuildState`]
-/// but lives in the bridge so the Data Plane doesn't depend on catalog types.
+/// Plane. Mirrors the catalog `IndexBuildState` but lives in the bridge so
+/// the Data Plane doesn't depend on catalog types.
 #[derive(
     Debug,
     Clone,

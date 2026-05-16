@@ -20,10 +20,10 @@ use pgwire::error::PgWireResult;
 use sonic_rs;
 
 use crate::bridge::envelope::{PhysicalPlan, Status};
-use crate::bridge::physical_plan::KvOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::types::{DatabaseId, TraceId, VShardId};
+use nodedb_physical::physical_plan::KvOp;
 
 /// Internal collection used for rate gate counters.
 const RATE_COLLECTION: &str = "_system_rate_gates";

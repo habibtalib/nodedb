@@ -4,11 +4,9 @@
 
 use std::collections::BTreeMap;
 
-use nodedb_cluster::calvin::types::PassiveReadKey;
-use nodedb_types::Value;
-
-use crate::engine::timeseries::continuous_agg::ContinuousAggregateDef;
-use crate::types::{RequestId, TenantId};
+use nodedb_types::calvin::PassiveReadKey;
+use nodedb_types::timeseries::continuous_agg::ContinuousAggregateDef;
+use nodedb_types::{TenantId, Value};
 
 /// Identity of a single key read by a passive Calvin participant.
 ///
@@ -57,7 +55,9 @@ pub enum MetaOp {
     WalAppend { payload: Vec<u8> },
 
     /// Cancellation signal. Data Plane stops the target at next safe point.
-    Cancel { target_request_id: RequestId },
+    Cancel {
+        target_request_id: nodedb_types::id::RequestId,
+    },
 
     /// Atomic transaction batch: execute all sub-plans atomically.
     TransactionBatch { plans: Vec<super::PhysicalPlan> },

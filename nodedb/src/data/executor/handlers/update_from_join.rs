@@ -12,13 +12,13 @@
 use tracing::debug;
 
 use crate::bridge::envelope::{ErrorCode, Response};
-use crate::bridge::physical_plan::{ReturningSpec, UpdateValue};
 use crate::bridge::scan_filter::ScanFilter;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::doc_format;
 use crate::data::executor::handlers::returning_rows;
 use crate::data::executor::response_codec::encode_json;
 use crate::data::executor::task::ExecutionTask;
+use nodedb_physical::physical_plan::{ReturningSpec, UpdateValue};
 
 /// Parameters for `execute_update_from_join`.
 pub(in crate::data::executor) struct UpdateFromJoinParams<'a> {
@@ -109,7 +109,8 @@ impl CoreLoop {
             target_collection.to_string(),
         );
         let strict_schema = self.doc_configs.get(&config_key).and_then(|c| {
-            if let crate::bridge::physical_plan::StorageMode::Strict { ref schema } = c.storage_mode
+            if let nodedb_physical::physical_plan::StorageMode::Strict { ref schema } =
+                c.storage_mode
             {
                 Some(schema.clone())
             } else {
@@ -360,7 +361,8 @@ impl CoreLoop {
         // Check if the source collection is strict-mode.
         let config_key = (crate::types::TenantId::new(tid), collection.to_string());
         let strict_schema = self.doc_configs.get(&config_key).and_then(|c| {
-            if let crate::bridge::physical_plan::StorageMode::Strict { ref schema } = c.storage_mode
+            if let nodedb_physical::physical_plan::StorageMode::Strict { ref schema } =
+                c.storage_mode
             {
                 Some(schema.clone())
             } else {

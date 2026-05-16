@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::bridge::physical_plan::AggregateSpec;
+use nodedb_physical::physical_plan::AggregateSpec;
 use nodedb_types::Value;
 
 /// Maximum items collected by materializing aggregates (`array_agg`,

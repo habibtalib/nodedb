@@ -118,15 +118,15 @@ impl CoreLoop {
         task: &ExecutionTask,
         tid: u64,
         collection: &str,
-        indexes: &[crate::bridge::physical_plan::RegisteredIndex],
+        indexes: &[nodedb_physical::physical_plan::RegisteredIndex],
         crdt_enabled: bool,
-        storage_mode: &crate::bridge::physical_plan::StorageMode,
-        enforcement: &crate::bridge::physical_plan::EnforcementOptions,
+        storage_mode: &nodedb_physical::physical_plan::StorageMode,
+        enforcement: &nodedb_physical::physical_plan::EnforcementOptions,
         bitemporal: bool,
     ) -> Response {
         let mode_label = match storage_mode {
-            crate::bridge::physical_plan::StorageMode::Schemaless => "document_schemaless",
-            crate::bridge::physical_plan::StorageMode::Strict { .. } => "document_strict",
+            nodedb_physical::physical_plan::StorageMode::Schemaless => "document_schemaless",
+            nodedb_physical::physical_plan::StorageMode::Strict { .. } => "document_strict",
         };
         debug!(
             core = self.core_id,
@@ -252,7 +252,8 @@ impl CoreLoop {
         // result framing (encode_raw_document_rows) sees valid msgpack.
         let config_key = (crate::types::TenantId::new(tid), collection.to_string());
         let strict_schema = self.doc_configs.get(&config_key).and_then(|c| {
-            if let crate::bridge::physical_plan::StorageMode::Strict { ref schema } = c.storage_mode
+            if let nodedb_physical::physical_plan::StorageMode::Strict { ref schema } =
+                c.storage_mode
             {
                 Some(schema.clone())
             } else {

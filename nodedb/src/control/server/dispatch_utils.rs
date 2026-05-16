@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 
 use crate::bridge::envelope::Payload;
 use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Response};
-use crate::bridge::physical_plan::{DocumentOp, KvOp, TimeseriesOp};
 use crate::control::state::SharedState;
 use crate::types::{DatabaseId, ReadConsistency, TenantId, TraceId, VShardId};
+use nodedb_physical::physical_plan::{DocumentOp, KvOp, TimeseriesOp};
 
 #[derive(Debug)]
 pub(crate) enum DispatchCollectError {

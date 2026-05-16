@@ -221,7 +221,7 @@ pub(super) fn binary_row_matches_filters(
 /// using the unqualified name as the output key.
 pub(super) fn binary_row_project(
     row: &[u8],
-    projection: &[crate::bridge::physical_plan::JoinProjection],
+    projection: &[nodedb_physical::physical_plan::JoinProjection],
 ) -> Vec<u8> {
     let Some((count, pos)) = msgpack_scan::map_header(row, 0) else {
         return row.to_vec();
@@ -318,11 +318,11 @@ mod tests {
         let projected = binary_row_project(
             &merged,
             &[
-                crate::bridge::physical_plan::JoinProjection {
+                nodedb_physical::physical_plan::JoinProjection {
                     source: "a.name".into(),
                     output: "a.name".into(),
                 },
-                crate::bridge::physical_plan::JoinProjection {
+                nodedb_physical::physical_plan::JoinProjection {
                     source: "b.name".into(),
                     output: "b.name".into(),
                 },
@@ -347,15 +347,15 @@ mod tests {
         let projected = binary_row_project(
             &merged,
             &[
-                crate::bridge::physical_plan::JoinProjection {
+                nodedb_physical::physical_plan::JoinProjection {
                     source: "a.name".into(),
                     output: "emp1".into(),
                 },
-                crate::bridge::physical_plan::JoinProjection {
+                nodedb_physical::physical_plan::JoinProjection {
                     source: "b.name".into(),
                     output: "emp2".into(),
                 },
-                crate::bridge::physical_plan::JoinProjection {
+                nodedb_physical::physical_plan::JoinProjection {
                     source: "a.dept".into(),
                     output: "a.dept".into(),
                 },

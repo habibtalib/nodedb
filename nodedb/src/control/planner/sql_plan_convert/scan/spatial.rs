@@ -3,13 +3,13 @@
 //! Spatial scan converter.
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::*;
 use crate::types::VShardId;
+use nodedb_physical::physical_plan::*;
 
-use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::aggregate::extract_projection_names;
 use super::super::filter::serialize_filters;
 use super::super::scan_params::SpatialScanParams;
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 pub(in crate::control::planner::sql_plan_convert) fn convert_spatial_scan(
     p: SpatialScanParams<'_>,

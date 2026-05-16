@@ -21,9 +21,9 @@ pub(super) async fn handle_shape_subscribe_async(
     frame: &SyncFrame,
 ) -> Option<SyncFrame> {
     use crate::bridge::envelope::PhysicalPlan;
-    use crate::bridge::physical_plan::DocumentOp;
     use crate::control::server::pgwire::ddl::sync_dispatch::dispatch_async;
     use crate::types::TenantId;
+    use nodedb_physical::physical_plan::DocumentOp;
 
     let msg: super::shape::handler::ShapeSubscribeMsg = frame.decode_body()?;
     let tenant_id = session.tenant_id.map(|t| t.as_u64()).unwrap_or(0);
@@ -180,9 +180,9 @@ pub(super) async fn validate_delta_constraints(
     ack_frame: SyncFrame,
 ) -> Option<SyncFrame> {
     use crate::bridge::envelope::PhysicalPlan;
-    use crate::bridge::physical_plan::CrdtOp;
     use crate::control::server::pgwire::ddl::sync_dispatch::dispatch_async_with_source;
     use crate::types::TenantId;
+    use nodedb_physical::physical_plan::CrdtOp;
 
     // Dispatch a CrdtApply plan to the Data Plane. If the CRDT engine
     // rejects it (constraint violation), we get an error back.

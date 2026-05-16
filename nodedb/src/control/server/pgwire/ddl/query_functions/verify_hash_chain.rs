@@ -43,7 +43,7 @@ pub async fn verify_hash_chain(
 
     // Scan all documents.
     let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
-    let scan_plan = PhysicalPlan::Document(crate::bridge::physical_plan::DocumentOp::Scan {
+    let scan_plan = PhysicalPlan::Document(nodedb_physical::physical_plan::DocumentOp::Scan {
         collection: collection.clone(),
         limit: usize::MAX,
         offset: 0,

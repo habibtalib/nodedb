@@ -7,9 +7,9 @@ use std::sync::Arc;
 
 use nodedb_cluster::calvin::types::{EngineKeySet, SequencedTxn};
 
-use crate::bridge::physical_plan::PhysicalPlan;
-use crate::bridge::physical_plan::wire as plan_wire;
 use crate::control::cluster::calvin::scheduler::lock_manager::LockKey;
+use nodedb_physical::physical_plan::PhysicalPlan;
+use nodedb_physical::physical_plan::wire as plan_wire;
 
 /// Expand the read_set ∪ write_set of a sequenced transaction into a
 /// `BTreeSet<LockKey>`.

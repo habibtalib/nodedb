@@ -5,15 +5,15 @@
 use nodedb_sql::types::{MergeClauseKind, MergePlanAction, MergePlanClause, SqlExpr, SqlPlan};
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::DocumentOp;
-use crate::bridge::physical_plan::document::merge_types::{
+use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::DocumentOp;
+use nodedb_physical::physical_plan::document::merge_types::{
     MergeActionOp, MergeClauseKind as MergeClauseKindOp, MergeClauseOp,
 };
-use crate::types::{TenantId, VShardId};
 
-use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::filter::serialize_filters;
 use super::super::value::{assignments_to_update_values_qualified, sql_value_to_msgpack};
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 /// Lower a `SqlPlan::Merge` to a single `DocumentOp::Merge` physical task.
 #[allow(clippy::too_many_arguments)]

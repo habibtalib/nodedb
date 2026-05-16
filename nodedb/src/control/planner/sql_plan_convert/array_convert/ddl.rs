@@ -18,12 +18,12 @@ use nodedb_sql::types_array::{
 };
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::ArrayOp;
 use crate::control::array_catalog::ArrayCatalogEntry;
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::ArrayOp;
 
-use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 /// All inputs for `CREATE ARRAY` lowering, bundled to stay under
 /// the 7-parameter clippy limit.

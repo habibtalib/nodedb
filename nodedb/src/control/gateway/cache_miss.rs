@@ -83,7 +83,7 @@ async fn refresh_descriptor_lease(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bridge::physical_plan::{KvOp, PhysicalPlan};
+    use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
     fn ok_plan() -> Result<PhysicalPlan, Error> {
         Ok(PhysicalPlan::Kv(KvOp::Get {
