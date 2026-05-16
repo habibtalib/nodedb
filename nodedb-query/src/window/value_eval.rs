@@ -34,7 +34,7 @@ pub enum WindowError {
 /// For each spec, one `Value` is appended to every row. Returns the list of
 /// new column names, one per spec in spec order.
 pub fn evaluate_window_functions_value(
-    rows: &mut Vec<Vec<Value>>,
+    rows: &mut [Vec<Value>],
     column_index: &HashMap<String, usize>,
     specs: &[WindowFuncSpec],
 ) -> Result<Vec<String>, WindowError> {
@@ -209,24 +209,24 @@ fn default_arg_value(spec: &WindowFuncSpec, idx: usize) -> Value {
 
 // ── Cell write helper (pub(super) for value_agg) ──────────────────────────────
 
-pub(super) fn set_cell(rows: &mut Vec<Vec<Value>>, row_idx: usize, col_idx: usize, val: Value) {
-    if let Some(row) = rows.get_mut(row_idx) {
-        if let Some(cell) = row.get_mut(col_idx) {
-            *cell = val;
-        }
+pub(super) fn set_cell(rows: &mut [Vec<Value>], row_idx: usize, col_idx: usize, val: Value) {
+    if let Some(row) = rows.get_mut(row_idx)
+        && let Some(cell) = row.get_mut(col_idx)
+    {
+        *cell = val;
     }
 }
 
 // ── Ranking functions ─────────────────────────────────────────────────────────
 
-fn apply_v_row_number(rows: &mut Vec<Vec<Value>>, indices: &[usize], write_col: usize) {
+fn apply_v_row_number(rows: &mut [Vec<Value>], indices: &[usize], write_col: usize) {
     for (rank, &i) in indices.iter().enumerate() {
         set_cell(rows, i, write_col, Value::Integer((rank + 1) as i64));
     }
 }
 
 fn apply_v_rank(
-    rows: &mut Vec<Vec<Value>>,
+    rows: &mut [Vec<Value>],
     indices: &[usize],
     column_index: &HashMap<String, usize>,
     spec: &WindowFuncSpec,
@@ -257,7 +257,7 @@ fn apply_v_rank(
 }
 
 fn apply_v_dense_rank(
-    rows: &mut Vec<Vec<Value>>,
+    rows: &mut [Vec<Value>],
     indices: &[usize],
     column_index: &HashMap<String, usize>,
     spec: &WindowFuncSpec,
@@ -288,7 +288,7 @@ fn apply_v_dense_rank(
 }
 
 fn apply_v_ntile(
-    rows: &mut Vec<Vec<Value>>,
+    rows: &mut [Vec<Value>],
     indices: &[usize],
     spec: &WindowFuncSpec,
     write_col: usize,
@@ -306,7 +306,7 @@ fn apply_v_ntile(
 }
 
 fn apply_v_percent_rank(
-    rows: &mut Vec<Vec<Value>>,
+    rows: &mut [Vec<Value>],
     indices: &[usize],
     column_index: &HashMap<String, usize>,
     spec: &WindowFuncSpec,
@@ -339,7 +339,7 @@ fn apply_v_percent_rank(
 }
 
 fn apply_v_cume_dist(
-    rows: &mut Vec<Vec<Value>>,
+    rows: &mut [Vec<Value>],
     indices: &[usize],
     column_index: &HashMap<String, usize>,
     spec: &WindowFuncSpec,
@@ -365,8 +365,8 @@ fn apply_v_cume_dist(
             group_end += 1;
         }
         let cd = group_end as f64 / denom;
-        for pos in group_start..group_end {
-            set_cell(rows, indices[pos], write_col, Value::Float(cd));
+        for &idx in &indices[group_start..group_end] {
+            set_cell(rows, idx, write_col, Value::Float(cd));
         }
         group_start = group_end;
     }
@@ -396,7 +396,7 @@ fn collect_arg_values(
 }
 
 fn apply_v_lag(
-    rows: &mut Vec<Vec<Value>>,
+    rows: &mut [Vec<Value>],
     indices: &[usize],
     column_index: &HashMap<String, usize>,
     spec: &WindowFuncSpec,
@@ -417,7 +417,7 @@ fn apply_v_lag(
 }
 
 fn apply_v_lead(
-    rows: &mut Vec<Vec<Value>>,
+    rows: &mut [Vec<Value>],
     indices: &[usize],
     column_index: &HashMap<String, usize>,
     spec: &WindowFuncSpec,
@@ -438,7 +438,7 @@ fn apply_v_lead(
 }
 
 fn apply_v_nth_value(
-    rows: &mut Vec<Vec<Value>>,
+    rows: &mut [Vec<Value>],
     indices: &[usize],
     column_index: &HashMap<String, usize>,
     spec: &WindowFuncSpec,

@@ -12,7 +12,7 @@ use super::value_eval::{cmp_values, eval_arg_for_row, order_keys_equal_v, set_ce
 use crate::simd_agg;
 
 pub(super) fn apply_v_aggregate(
-    rows: &mut Vec<Vec<Value>>,
+    rows: &mut [Vec<Value>],
     indices: &[usize],
     column_index: &HashMap<String, usize>,
     spec: &WindowFuncSpec,
@@ -37,7 +37,7 @@ fn eval_arg(spec: &WindowFuncSpec, row: &[Value], column_index: &HashMap<String,
 }
 
 fn apply_v_running_aggregate(
-    rows: &mut Vec<Vec<Value>>,
+    rows: &mut [Vec<Value>],
     indices: &[usize],
     column_index: &HashMap<String, usize>,
     spec: &WindowFuncSpec,
@@ -109,7 +109,7 @@ fn apply_v_running_aggregate(
 }
 
 fn apply_v_per_row_aggregate(
-    rows: &mut Vec<Vec<Value>>,
+    rows: &mut [Vec<Value>],
     indices: &[usize],
     column_index: &HashMap<String, usize>,
     spec: &WindowFuncSpec,
