@@ -202,7 +202,8 @@ pub(super) fn metric_from_func_name(name: &str) -> DistanceMetric {
     }
 }
 
-/// Extract a float array from ARRAY[...] or make_array(...) expression.
+/// Extract a float array from ARRAY[...], make_array(...), or a JSON-array
+/// string literal like `'[1.0, 0.5, 0.0]'`.
 pub(super) fn extract_float_array(expr: &ast::Expr) -> Result<Vec<f32>> {
     match expr {
         ast::Expr::Array(ast::Array { elem, .. }) => elem
@@ -230,6 +231,40 @@ pub(super) fn extract_float_array(expr: &ast::Expr) -> Result<Vec<f32>> {
                     detail: format!("expected array, got function: {name}"),
                 })
             }
+        }
+        // Accept JSON-array string literals: `'[1.0, 0.5, 0.0]'`.
+        // This is the canonical pgvector-compatible form for embedding vectors
+        // passed as SQL string literals.
+        ast::Expr::Value(v) => {
+            let s = match &v.value {
+                sqlparser::ast::Value::SingleQuotedString(s) => s.as_str(),
+                sqlparser::ast::Value::DoubleQuotedString(s) => s.as_str(),
+                _ => {
+                    return Err(SqlError::Unsupported {
+                        detail: format!("expected array literal, got: {expr}"),
+                    });
+                }
+            };
+            let trimmed = s.trim();
+            if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
+                return Err(SqlError::Unsupported {
+                    detail: format!("expected JSON array string, got: {s:?}"),
+                });
+            }
+            let inner = &trimmed[1..trimmed.len() - 1];
+            if inner.trim().is_empty() {
+                return Ok(Vec::new());
+            }
+            inner
+                .split(',')
+                .map(|part| {
+                    part.trim()
+                        .parse::<f32>()
+                        .map_err(|_| SqlError::Unsupported {
+                            detail: format!("cannot parse float from array element: {part:?}"),
+                        })
+                })
+                .collect()
         }
         _ => Err(SqlError::Unsupported {
             detail: format!("expected array literal, got: {expr}"),

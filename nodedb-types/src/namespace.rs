@@ -53,6 +53,18 @@ pub enum Namespace {
     /// Full-text search engine: posting lists, doc-length maps, BM25 stats,
     /// fieldnorm blobs, segment bytes, and surrogate maps.
     Fts = 12,
+    /// Bitemporal history table for strict document collections.
+    ///
+    /// Keys: `{collection}:{system_from_ms_8be}:{pk_bytes}` — value is the
+    /// full Binary Tuple followed by an 8-byte big-endian `system_to_ms`
+    /// (u64::MAX = open / still-current at time of supersession).
+    StrictHistory = 13,
+    /// Bitemporal history table for graph edge collections.
+    ///
+    /// Keys: `{collection}:{edge_id_8be}:{system_from_ms_8be}` — value is
+    /// the MessagePack-encoded edge props followed by an 8-byte big-endian
+    /// `system_to_ms` (u64::MAX = current / not yet deleted).
+    GraphHistory = 14,
 }
 
 impl Namespace {
@@ -72,6 +84,8 @@ impl Namespace {
             10 => Some(Self::ArrayOpLog),
             11 => Some(Self::ArrayDelta),
             12 => Some(Self::Fts),
+            13 => Some(Self::StrictHistory),
+            14 => Some(Self::GraphHistory),
             _ => None,
         }
     }
@@ -83,10 +97,10 @@ mod tests {
 
     #[test]
     fn namespace_roundtrip() {
-        for v in 0u8..=12 {
+        for v in 0u8..=14 {
             let ns = Namespace::from_u8(v).unwrap();
             assert_eq!(ns as u8, v);
         }
-        assert!(Namespace::from_u8(13).is_none());
+        assert!(Namespace::from_u8(15).is_none());
     }
 }
