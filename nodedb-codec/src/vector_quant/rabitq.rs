@@ -29,9 +29,12 @@
 //! diagonal flip vector is derived from `rotation_seed` via an inline
 //! xorshift64 generator — no external crate required.
 
+use crate::error::CodecError;
 use crate::vector_quant::codec::VectorCodec;
+use crate::vector_quant::codec_envelope;
 use crate::vector_quant::hamming::hamming_distance;
 use crate::vector_quant::layout::{QuantHeader, QuantMode, UnifiedQuantizedVector};
+use serde::{Deserialize, Serialize};
 
 // ── Xorshift64 (inline PRNG) ────────────────────────────────────────────────
 
@@ -113,6 +116,7 @@ fn sign_unpack(packed: &[u8], dim: usize) -> Vec<f32> {
 /// RaBitQ codec: 1-bit quantization with O(1/√D) MSE error bound.
 ///
 /// See module-level documentation for algorithm details.
+#[derive(Serialize, Deserialize, zerompk::ToMessagePack, zerompk::FromMessagePack)]
 pub struct RaBitQCodec {
     pub dim: usize,
     /// Mean of training vectors; subtracted from each vector before rotation.
@@ -153,6 +157,22 @@ impl RaBitQCodec {
             rotation_seed,
             bias_correct: false,
         }
+    }
+
+    /// On-disk magic for RaBitQ codec envelopes.
+    pub const ENVELOPE_MAGIC: &'static [u8; codec_envelope::MAGIC_LEN] = b"NDRBQ";
+
+    /// Current on-disk envelope version for RaBitQ codecs.
+    pub const ENVELOPE_VERSION: u8 = 1;
+
+    /// Serialize this codec to a self-describing byte buffer.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, CodecError> {
+        codec_envelope::encode(Self::ENVELOPE_MAGIC, Self::ENVELOPE_VERSION, self)
+    }
+
+    /// Deserialize a codec from a byte buffer produced by [`Self::to_bytes`].
+    pub fn from_bytes(buf: &[u8]) -> Result<Self, CodecError> {
+        codec_envelope::decode(Self::ENVELOPE_MAGIC, Self::ENVELOPE_VERSION, buf)
     }
 
     /// Apply the randomised WHT rotation to a residual vector.
@@ -363,6 +383,39 @@ mod tests {
                 (v as f32 / u64::MAX as f32) * 2.0 - 1.0
             })
             .collect()
+    }
+
+    #[test]
+    fn to_bytes_from_bytes_roundtrip() {
+        let dim = 64;
+        let vecs: Vec<Vec<f32>> = (0..4).map(|i| random_vec(i as u64, dim)).collect();
+        let refs: Vec<&[f32]> = vecs.iter().map(|v| v.as_slice()).collect();
+        let codec = RaBitQCodec::calibrate(&refs, dim, 0xABCD_1234_5678_EF01);
+        let bytes = codec.to_bytes().expect("to_bytes should succeed");
+        let restored = RaBitQCodec::from_bytes(&bytes).expect("from_bytes should succeed");
+        assert_eq!(restored.dim, codec.dim);
+        assert_eq!(restored.rotation_seed, codec.rotation_seed);
+        assert_eq!(restored.bias_correct, codec.bias_correct);
+        assert_eq!(restored.centroid.len(), codec.centroid.len());
+        for (a, b) in restored.centroid.iter().zip(codec.centroid.iter()) {
+            assert!((a - b).abs() < 1e-6, "centroid mismatch: {a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn from_bytes_rejects_bad_magic() {
+        let mut bytes = b"WRONG".to_vec();
+        bytes.push(1);
+        bytes.extend_from_slice(&[0u8; 4]);
+        assert!(RaBitQCodec::from_bytes(&bytes).is_err());
+    }
+
+    #[test]
+    fn from_bytes_rejects_bad_version() {
+        let codec = RaBitQCodec::calibrate(&[], 4, 1);
+        let mut bytes = codec.to_bytes().unwrap();
+        bytes[5] = 99;
+        assert!(RaBitQCodec::from_bytes(&bytes).is_err());
     }
 
     #[test]
