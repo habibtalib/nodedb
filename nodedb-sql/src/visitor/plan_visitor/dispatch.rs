@@ -485,8 +485,16 @@ pub fn dispatch<V: PlanVisitor>(visitor: &mut V, plan: &SqlPlan) -> Result<V::Ou
             collection,
             field,
             quantization,
+            storage_dtype,
             payload_indexes,
             rows,
-        } => visitor.vector_primary_insert(collection, field, quantization, payload_indexes, rows),
+        } => visitor.vector_primary_insert(
+            collection,
+            field,
+            quantization,
+            storage_dtype,
+            payload_indexes,
+            rows,
+        ),
     }
 }

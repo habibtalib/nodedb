@@ -613,6 +613,8 @@ pub enum SqlPlan {
         /// the first DirectUpsert so subsequent seals trigger codec-dispatch
         /// rebuilds against the configured codec.
         quantization: nodedb_types::VectorQuantization,
+        /// Native storage dtype for vector values (F32 / F16 / BF16).
+        storage_dtype: nodedb_types::VectorStorageDtype,
         /// Payload field names that get equality bitmap indexes. Registered
         /// via `payload.add_index` on the first DirectUpsert.
         payload_indexes: Vec<(String, nodedb_types::PayloadIndexKind)>,

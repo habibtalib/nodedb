@@ -113,5 +113,6 @@ pub use trace::{SpanId, TraceId};
 pub use typeguard::TypeGuardFieldDef;
 pub use value::Value;
 pub use vector_ann::{VectorAnnOptions, VectorQuantization};
+pub use vector_dtype::VectorStorageDtype;
 pub use vector_index_stats::{VectorIndexQuantization, VectorIndexStats, VectorIndexType};
 pub use vector_model::{VectorModelEntry, VectorModelMetadata};

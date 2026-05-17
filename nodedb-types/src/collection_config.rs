@@ -12,6 +12,7 @@ use crate::collection::CollectionType;
 use crate::columnar::{ColumnarProfile, DocumentMode};
 use crate::vector_ann::VectorQuantization;
 use crate::vector_distance::DistanceMetric;
+use crate::vector_dtype::VectorStorageDtype;
 
 /// Which engine serves as the primary access path for a collection.
 ///
@@ -94,6 +95,12 @@ pub struct VectorPrimaryConfig {
     pub ef_construction: u16,
     /// Distance metric used for similarity search.
     pub metric: DistanceMetric,
+    /// Native storage dtype for vector values. Controls whether incoming
+    /// f32 components are stored as-is (F32), downsized to half precision
+    /// (F16), or brain-float (BF16) to halve memory at the cost of reduced
+    /// mantissa precision. Quantization codecs (RaBitQ, BBQ, SQ8 …) apply
+    /// on top and are orthogonal to this setting.
+    pub storage_dtype: VectorStorageDtype,
     /// Payload field names that receive in-memory bitmap indexes for fast
     /// pre-filtering, paired with the storage kind (Equality / Range /
     /// Boolean). The DDL handler infers the kind from the column type:
@@ -111,6 +118,7 @@ impl Default for VectorPrimaryConfig {
             m: 16,
             ef_construction: 200,
             metric: DistanceMetric::Cosine,
+            storage_dtype: VectorStorageDtype::F32,
             payload_indexes: Vec::new(),
         }
     }
@@ -284,6 +292,7 @@ mod tests {
             m: 32,
             ef_construction: 200,
             metric: DistanceMetric::Cosine,
+            storage_dtype: VectorStorageDtype::F32,
             payload_indexes: vec![
                 ("category".to_string(), PayloadIndexKind::Equality),
                 ("timestamp".to_string(), PayloadIndexKind::Range),
@@ -303,6 +312,7 @@ mod tests {
             m: 16,
             ef_construction: 100,
             metric: DistanceMetric::L2,
+            storage_dtype: VectorStorageDtype::F32,
             payload_indexes: vec![],
         };
         let bytes = zerompk::to_msgpack_vec(&cfg).unwrap();

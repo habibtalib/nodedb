@@ -476,6 +476,7 @@ pub trait PlanVisitor {
         collection: &str,
         field: &str,
         quantization: &VectorQuantization,
+        storage_dtype: &nodedb_types::VectorStorageDtype,
         payload_indexes: &[(String, PayloadIndexKind)],
         rows: &[VectorPrimaryRow],
     ) -> Result<Self::Output, Self::Error>;

@@ -240,6 +240,7 @@ impl CoreLoop {
                 vector,
                 payload,
                 quantization,
+                storage_dtype,
                 payload_indexes,
             } => self.execute_vector_direct_upsert(
                 task,
@@ -250,6 +251,7 @@ impl CoreLoop {
                 vector,
                 payload,
                 *quantization,
+                *storage_dtype,
                 payload_indexes,
             ),
 

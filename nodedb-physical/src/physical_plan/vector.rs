@@ -270,6 +270,10 @@ pub enum VectorOp {
         /// first insert so subsequent seals trigger codec-dispatch rebuilds
         /// against the configured codec (RaBitQ / BBQ).
         quantization: nodedb_types::VectorQuantization,
+        /// Native storage dtype for vector values (F32 / F16 / BF16). The
+        /// executor uses this to decide whether to transcode incoming f32
+        /// components before writing them into the HNSW index backing store.
+        storage_dtype: nodedb_types::VectorStorageDtype,
         /// Payload field bitmap indexes (name + kind). Registered via
         /// `payload.add_index` on the first insert into a new collection.
         payload_indexes: Vec<(String, nodedb_types::PayloadIndexKind)>,

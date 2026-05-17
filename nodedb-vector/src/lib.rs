@@ -24,6 +24,7 @@ pub mod hybrid;
 pub mod matryoshka;
 pub mod multivec;
 pub mod quantize;
+pub mod rerank;
 pub mod vamana;
 
 pub use distance::DistanceMetric;

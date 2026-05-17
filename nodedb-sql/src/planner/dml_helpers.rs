@@ -289,6 +289,7 @@ pub(super) fn build_vector_primary_insert_plan(
         collection: collection.to_string(),
         field: vpc.vector_field.clone(),
         quantization: vpc.quantization,
+        storage_dtype: vpc.storage_dtype,
         payload_indexes: vpc.payload_indexes.clone(),
         rows: result_rows,
     }])

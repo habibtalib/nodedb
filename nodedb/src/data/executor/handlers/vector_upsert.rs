@@ -51,6 +51,7 @@ impl CoreLoop {
         vector: &[f32],
         payload: &[u8],
         quantization: nodedb_types::VectorQuantization,
+        storage_dtype: nodedb_types::VectorStorageDtype,
         payload_indexes: &[(String, nodedb_types::PayloadIndexKind)],
     ) -> Response {
         debug!(
@@ -64,20 +65,36 @@ impl CoreLoop {
         let dim = vector.len();
         let index_key = CoreLoop::vector_index_key(tid, collection, field);
 
-        // Step 1: validate dimension.
-        if let Some(existing) = self.vector_collections.get(&index_key)
-            && existing.dim() != dim
-        {
-            return self.response_error(
-                task,
-                ErrorCode::RejectedConstraint {
-                    detail: String::new(),
-                    constraint: format!(
-                        "vector dimension mismatch: index has {}, got {dim}",
-                        existing.dim()
-                    ),
-                },
-            );
+        // Step 1: validate dimension and storage dtype against any existing
+        // index. The dtype is a creation-time choice baked into segment
+        // layout — changing it after the fact would invalidate every node
+        // already in the graph.
+        if let Some(existing) = self.vector_collections.get(&index_key) {
+            if existing.dim() != dim {
+                return self.response_error(
+                    task,
+                    ErrorCode::RejectedConstraint {
+                        detail: String::new(),
+                        constraint: format!(
+                            "vector dimension mismatch: index has {}, got {dim}",
+                            existing.dim()
+                        ),
+                    },
+                );
+            }
+            let existing_dtype = existing.params().dtype;
+            if existing_dtype != storage_dtype {
+                return self.response_error(
+                    task,
+                    ErrorCode::RejectedConstraint {
+                        detail: String::new(),
+                        constraint: format!(
+                            "vector storage_dtype mismatch: index has {existing_dtype}, got {storage_dtype}; \
+                             dtype is immutable after collection creation"
+                        ),
+                    },
+                );
+            }
         }
 
         // Step 2: decode payload bytes.
@@ -108,6 +125,18 @@ impl CoreLoop {
         // borrow on `self.vector_collections` via `coll`.
         let is_new_collection = !self.vector_collections.contains_key(&index_key);
         let core_id = self.core_id;
+
+        // For a brand-new vector-primary collection, seed `vector_params`
+        // with the requested storage dtype so `get_or_create_vector_index`
+        // constructs the HNSW graph with the right `NodeStorage` variant
+        // (F32 / F16 / BF16). If `set_vector_params` ran first (CREATE
+        // COLLECTION path), the existing params are preserved and we only
+        // override the dtype.
+        if is_new_collection {
+            let params = self.vector_params.entry(index_key.clone()).or_default();
+            params.dtype = storage_dtype;
+        }
+
         let arena_handle = if is_new_collection {
             self.collection_arena_registry.clone().and_then(|reg| {
                 match reg.get_or_create(tid, collection) {

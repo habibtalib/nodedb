@@ -135,14 +135,18 @@ macro_rules! impl_dml_arms_for_convert_visitor {
             collection: &str,
             field: &str,
             quantization: &nodedb_types::VectorQuantization,
+            storage_dtype: &nodedb_types::VectorStorageDtype,
             payload_indexes: &[(String, nodedb_types::PayloadIndexKind)],
             rows: &[nodedb_sql::types::plan::VectorPrimaryRow],
         ) -> crate::Result<Vec<nodedb_physical::physical_task::PhysicalTask>> {
             super::super::dml::convert_vector_primary_insert(
                 collection,
-                field,
-                *quantization,
-                payload_indexes,
+                &super::super::dml::VectorPrimaryInsertCfg {
+                    field,
+                    quantization: *quantization,
+                    storage_dtype: *storage_dtype,
+                    payload_indexes,
+                },
                 rows,
                 self.tenant_id,
                 self.ctx,
