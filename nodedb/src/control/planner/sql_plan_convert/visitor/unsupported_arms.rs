@@ -28,6 +28,31 @@ macro_rules! impl_unsupported_convert_visitor_methods {
                 detail: "unsupported SqlPlan variant: RangeScan".to_string(),
             })
         }
+
+        fn create_index(
+            &mut self,
+            _index_name: Option<&str>,
+            _collection: &str,
+            _field: &str,
+            _unique: bool,
+            _if_not_exists: bool,
+            _case_insensitive: bool,
+        ) -> crate::Result<Vec<nodedb_physical::physical_task::PhysicalTask>> {
+            Err(crate::Error::PlanError {
+                detail: "unsupported SqlPlan variant: CreateIndex".to_string(),
+            })
+        }
+
+        fn drop_index(
+            &mut self,
+            _index_name: &str,
+            _collection: Option<&str>,
+            _if_exists: bool,
+        ) -> crate::Result<Vec<nodedb_physical::physical_task::PhysicalTask>> {
+            Err(crate::Error::PlanError {
+                detail: "unsupported SqlPlan variant: DropIndex".to_string(),
+            })
+        }
     };
 }
 

@@ -496,5 +496,25 @@ pub fn dispatch<V: PlanVisitor>(visitor: &mut V, plan: &SqlPlan) -> Result<V::Ou
             payload_indexes,
             rows,
         ),
+        SqlPlan::CreateIndex {
+            index_name,
+            collection,
+            field,
+            unique,
+            if_not_exists,
+            case_insensitive,
+        } => visitor.create_index(
+            index_name.as_deref(),
+            collection,
+            field,
+            *unique,
+            *if_not_exists,
+            *case_insensitive,
+        ),
+        SqlPlan::DropIndex {
+            index_name,
+            collection,
+            if_exists,
+        } => visitor.drop_index(index_name, collection.as_deref(), *if_exists),
     }
 }

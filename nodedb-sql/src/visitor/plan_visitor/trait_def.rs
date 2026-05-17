@@ -480,4 +480,23 @@ pub trait PlanVisitor {
         payload_indexes: &[(String, PayloadIndexKind)],
         rows: &[VectorPrimaryRow],
     ) -> Result<Self::Output, Self::Error>;
+
+    /// Handle [`SqlPlan::CreateIndex`].
+    fn create_index(
+        &mut self,
+        index_name: Option<&str>,
+        collection: &str,
+        field: &str,
+        unique: bool,
+        if_not_exists: bool,
+        case_insensitive: bool,
+    ) -> Result<Self::Output, Self::Error>;
+
+    /// Handle [`SqlPlan::DropIndex`].
+    fn drop_index(
+        &mut self,
+        index_name: &str,
+        collection: Option<&str>,
+        if_exists: bool,
+    ) -> Result<Self::Output, Self::Error>;
 }

@@ -163,6 +163,12 @@ fn plan_statements(
                 let mut merge_plans = planner::merge::plan_merge(stmt, catalog)?;
                 plans.append(&mut merge_plans);
             }
+            StatementKind::CreateIndex(ci) => {
+                plans.push(planner::index_ddl::plan_create_index(ci)?);
+            }
+            StatementKind::DropIndex(stmt) => {
+                plans.push(planner::index_ddl::plan_drop_index(stmt)?);
+            }
             StatementKind::Other => {
                 return Err(SqlError::Unsupported {
                     detail: format!("statement type: {stmt}"),
