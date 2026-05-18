@@ -134,7 +134,6 @@ fn to_compact<B: FtsBackend>(
     tid: u64,
     collection: &str,
 ) -> Result<Vec<CompactPosting>, B::Error> {
-    // no-governor: hot-path posting compaction per term; postings.len() = doc freq, governed at BMW query level
     let mut compact = Vec::with_capacity(postings.len());
     for p in postings {
         let fieldnorm = index

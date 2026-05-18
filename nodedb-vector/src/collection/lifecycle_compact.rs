@@ -32,7 +32,6 @@ impl VectorCollection {
             // Two-phase: remove old entries first, then insert new ones
             // so we don't clobber a freshly-remapped entry with a later
             // tombstone removal.
-            // no-governor: VectorCollection is !Send and has no governor field; budget is enforced by the Data Plane core's arena before compaction is invoked
             let mut new_entries: Vec<(u32, Surrogate)> = Vec::with_capacity(global_keys.len());
             for old_global in &global_keys {
                 let surrogate = self.surrogate_map.remove(old_global);

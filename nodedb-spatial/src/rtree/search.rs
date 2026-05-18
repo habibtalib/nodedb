@@ -59,7 +59,6 @@ pub(crate) fn nearest(
     }
 
     let mut heap: BinaryHeap<HeapItem> = BinaryHeap::new();
-    // no-governor: hot-path kNN search results; bounded by k (query limit, small)
     let mut results: Vec<NnResult> = Vec::with_capacity(k);
 
     heap.push(HeapItem {

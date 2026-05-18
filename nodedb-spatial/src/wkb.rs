@@ -29,7 +29,6 @@ const BYTE_ORDER_LE: u8 = 1;
 
 /// Serialize a Geometry to WKB (little-endian).
 pub fn geometry_to_wkb(geom: &Geometry) -> Vec<u8> {
-    // no-governor: fixed-tiny WKB output buffer (64-byte hint); geometry serialization cold path
     let mut buf = Vec::with_capacity(64);
     write_geometry(&mut buf, geom);
     buf
@@ -167,7 +166,6 @@ fn read_geometry(data: &[u8], cursor: &mut usize) -> Option<Geometry> {
         }
         WKB_POLYGON => {
             let num_rings = read_u32(data, cursor, is_le)? as usize;
-            // no-governor: WKB decode; rings per polygon bounded by input geometry, parse path
             let mut rings = Vec::with_capacity(num_rings);
             for _ in 0..num_rings {
                 let n = read_u32(data, cursor, is_le)? as usize;
@@ -178,7 +176,6 @@ fn read_geometry(data: &[u8], cursor: &mut usize) -> Option<Geometry> {
         }
         WKB_MULTIPOINT => {
             let count = read_u32(data, cursor, is_le)? as usize;
-            // no-governor: WKB decode; multipoint count bounded by input, parse path
             let mut coords = Vec::with_capacity(count);
             for _ in 0..count {
                 let inner = read_geometry(data, cursor)?;
@@ -194,7 +191,6 @@ fn read_geometry(data: &[u8], cursor: &mut usize) -> Option<Geometry> {
         }
         WKB_MULTILINESTRING => {
             let count = read_u32(data, cursor, is_le)? as usize;
-            // no-governor: WKB decode; linestring count bounded by input, parse path
             let mut lines = Vec::with_capacity(count);
             for _ in 0..count {
                 let inner = read_geometry(data, cursor)?;
@@ -208,7 +204,6 @@ fn read_geometry(data: &[u8], cursor: &mut usize) -> Option<Geometry> {
         }
         WKB_MULTIPOLYGON => {
             let count = read_u32(data, cursor, is_le)? as usize;
-            // no-governor: WKB decode; polygon count bounded by input, parse path
             let mut polys = Vec::with_capacity(count);
             for _ in 0..count {
                 let inner = read_geometry(data, cursor)?;
@@ -222,7 +217,6 @@ fn read_geometry(data: &[u8], cursor: &mut usize) -> Option<Geometry> {
         }
         WKB_GEOMETRYCOLLECTION => {
             let count = read_u32(data, cursor, is_le)? as usize;
-            // no-governor: WKB decode; geometry count bounded by input, parse path
             let mut geoms = Vec::with_capacity(count);
             for _ in 0..count {
                 geoms.push(read_geometry(data, cursor)?);
@@ -288,7 +282,6 @@ fn read_coords(
     count: usize,
     is_le: bool,
 ) -> Option<Vec<[f64; 2]>> {
-    // no-governor: WKB decode coords; count from WKB header, parse path
     let mut coords = Vec::with_capacity(count);
     for _ in 0..count {
         let x = read_f64(data, cursor, is_le)?;

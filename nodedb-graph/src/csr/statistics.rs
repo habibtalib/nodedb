@@ -106,9 +106,7 @@ impl CsrIndex {
         let mut label_targets: HashMap<u32, std::collections::HashSet<u32>> = HashMap::new();
 
         // Degree arrays.
-        // no-governor: cold statistics scan; degree arrays parallel to node count, governed at stats call site
         let mut out_degrees: Vec<usize> = Vec::with_capacity(n);
-        // no-governor: cold statistics scan; degree arrays parallel to node count, governed at stats call site
         let mut in_degrees: Vec<usize> = Vec::with_capacity(n);
 
         let mut total_edges = 0usize;

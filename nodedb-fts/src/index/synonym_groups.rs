@@ -90,7 +90,6 @@ impl<B: FtsBackend> FtsIndex<B> {
     /// List all synonym group records for a tenant.
     pub fn list_synonym_groups(&self, tid: u64) -> Result<Vec<SynonymGroupRecord>, B::Error> {
         let names = self.read_name_index(tid)?;
-        // no-governor: list_synonym_groups returns Result<_, B::Error> and cannot propagate MemError; synonym group counts are bounded by tenant config (typically <1000 entries of ~200 bytes each)
         let mut groups = Vec::with_capacity(names.len());
         for name in &names {
             if let Some(rec) = self.get_synonym_group(tid, name)? {

@@ -73,7 +73,6 @@ pub fn compact_segment(
             )
         })
         .transpose()?;
-    // no-governor: governed by _cols_guard above; multi-line reserve call splits outside 5-line gate window
     let mut decoded_cols = Vec::with_capacity(col_count);
     for i in 0..col_count {
         decoded_cols.push(reader.read_column(i)?);
@@ -90,7 +89,6 @@ pub fn compact_segment(
             )
         })
         .transpose()?;
-    // no-governor: governed by _row_guard above; multi-line reserve call splits outside 5-line gate window
     let mut row_values = Vec::with_capacity(col_len);
 
     for row_idx in 0..total_rows {

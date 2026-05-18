@@ -95,7 +95,6 @@ impl SegmentWriter {
                 )
             })
             .transpose()?;
-        // no-governor: governed by _metas_guard above; multi-line reserve call splits outside 5-line gate window
         let mut column_metas = Vec::with_capacity(columns.len());
 
         for (i, (col_def, col_data)) in schema.columns.iter().zip(columns.iter()).enumerate() {

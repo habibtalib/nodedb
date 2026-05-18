@@ -36,7 +36,6 @@ pub(super) fn encode_column_blocks(
             )
         })
         .transpose()?;
-    // no-governor: governed by _stats_guard above; multi-line reserve call splits outside 5-line gate window
     let mut block_stats = Vec::with_capacity(num_blocks);
 
     for block_idx in 0..num_blocks {

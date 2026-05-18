@@ -85,7 +85,6 @@ pub fn partition_doc_range(total_docs: u32, num_workers: u32) -> Vec<(u32, u32)>
     }
     let chunk = total_docs / num_workers;
     let remainder = total_docs % num_workers;
-    // no-governor: cold partition helper; bounded by num_workers (small constant, typically ≤ CPU count)
     let mut ranges = Vec::with_capacity(num_workers as usize);
     let mut start = 0;
     for i in 0..num_workers {

@@ -300,7 +300,6 @@ impl VectorCollection {
             }
         }
 
-        // no-governor: cold restore path; segment count bounded by collection config
         let mut sealed = Vec::with_capacity(snap.sealed_segments.len());
         for ss in &snap.sealed_segments {
             if let Some(index) = HnswIndex::from_checkpoint(&ss.hnsw_bytes).ok().flatten() {

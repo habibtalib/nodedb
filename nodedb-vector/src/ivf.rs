@@ -78,7 +78,6 @@ impl IvfPqIndex {
         self.centroids = kmeans_centroids(vectors, self.dim, n_cells, 20);
         self.cells = vec![Vec::new(); self.centroids.len()];
 
-        // no-governor: cold IVF training; residuals built once during index build, governed at call site
         let mut residuals: Vec<Vec<f32>> = Vec::with_capacity(vectors.len());
         for v in vectors {
             let cell = self.nearest_centroid(v);

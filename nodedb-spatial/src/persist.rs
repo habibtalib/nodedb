@@ -226,7 +226,6 @@ impl RTree {
 ///
 /// Format: `{collection}\0{field}\0rtree`
 pub fn rtree_storage_key(collection: &str, field: &str) -> Vec<u8> {
-    // no-governor: fixed-tiny storage key; bounded by collection+field name lengths (cold path)
     let mut key = Vec::with_capacity(collection.len() + field.len() + 8);
     key.extend_from_slice(collection.as_bytes());
     key.push(0);
@@ -240,7 +239,6 @@ pub fn rtree_storage_key(collection: &str, field: &str) -> Vec<u8> {
 ///
 /// Format: `{collection}\0{field}\0meta`
 pub fn meta_storage_key(collection: &str, field: &str) -> Vec<u8> {
-    // no-governor: fixed-tiny storage key; bounded by collection+field name lengths (cold path)
     let mut key = Vec::with_capacity(collection.len() + field.len() + 7);
     key.extend_from_slice(collection.as_bytes());
     key.push(0);

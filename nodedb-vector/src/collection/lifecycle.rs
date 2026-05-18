@@ -161,7 +161,6 @@ impl VectorCollection {
         self.next_segment_id += 1;
 
         let count = self.growing.len();
-        // no-governor: VectorCollection is !Send and has no governor field; budget is enforced by the Data Plane core's arena (arena_index) before dispatching to this struct
         let mut vectors = Vec::with_capacity(count);
         for i in 0..count as u32 {
             if let Some(v) = self.growing.get_vector(i) {

@@ -90,7 +90,6 @@ impl PqCodec {
         );
 
         let sub_dim = dim / m;
-        // no-governor: cold codebook training; m subspaces (small, ≤ dim/sub_dim), one-time build
         let mut codebooks = Vec::with_capacity(m);
 
         for sub in 0..m {
@@ -123,7 +122,6 @@ impl PqCodec {
     /// enforcement.
     pub fn encode(&self, vector: &[f32]) -> Vec<u8> {
         debug_assert_eq!(vector.len(), self.dim);
-        // no-governor: hot-path per-vector encode; doc comment above intentionally skips governor
         let mut code = Vec::with_capacity(self.m);
         for sub in 0..self.m {
             let offset = sub * self.sub_dim;
@@ -142,7 +140,6 @@ impl PqCodec {
     pub fn encode_batch(&self, vectors: &[&[f32]]) -> Result<Vec<u8>, VectorError> {
         let capacity = self.m * vectors.len();
         let _g = try_reserve_or_skip(&self.governor, capacity * size_of::<u8>())?;
-        // no-governor: governed via try_reserve_or_skip on preceding line
         let mut out = Vec::with_capacity(capacity);
         for v in vectors {
             out.extend(self.encode(v));
@@ -162,12 +159,10 @@ impl PqCodec {
         debug_assert_eq!(query.len(), self.dim);
         let total_bytes = self.m * self.k * size_of::<f32>();
         let _g = try_reserve_or_skip(&self.governor, total_bytes)?;
-        // no-governor: governed via try_reserve_or_skip on preceding line
         let mut table = Vec::with_capacity(self.m);
         for sub in 0..self.m {
             let offset = sub * self.sub_dim;
             let sub_query = &query[offset..offset + self.sub_dim];
-            // no-governor: inner per-subspace vec; covered by outer reservation m*k*size_of::<f32>()
             let mut dists = Vec::with_capacity(self.k);
             for centroid in &self.codebooks[sub] {
                 let d = l2_sub(sub_query, centroid);
@@ -198,7 +193,6 @@ impl PqCodec {
     pub fn decode(&self, code: &[u8]) -> Result<Vec<f32>, VectorError> {
         debug_assert_eq!(code.len(), self.m);
         let _g = try_reserve_or_skip(&self.governor, self.dim * size_of::<f32>())?;
-        // no-governor: governed via try_reserve_or_skip on preceding line
         let mut out = Vec::with_capacity(self.dim);
         for (sub, &c) in code.iter().enumerate() {
             out.extend_from_slice(&self.codebooks[sub][c as usize]);
@@ -219,7 +213,6 @@ impl PqCodec {
         let estimated = self.m * self.k * self.sub_dim * size_of::<f32>() + 64;
         let _g = try_reserve_or_skip(&self.governor, estimated)?;
         let payload = zerompk::to_msgpack_vec(self).unwrap_or_default();
-        // no-governor: governed via try_reserve_or_skip on preceding line
         let mut out = Vec::with_capacity(7 + payload.len());
         out.extend_from_slice(MAGIC);
         out.push(VERSION);
@@ -288,7 +281,6 @@ fn kmeans(data: &[&[f32]], dim: usize, k: usize, max_iter: usize) -> Vec<Vec<f32
     // K-means++ initialization with deterministic xorshift.
     let mut rng = crate::hnsw::Xorshift64::new(0xC0FF_EEDE_ADBE_EF42);
 
-    // no-governor: cold k-means++ training; one-time codebook build, governed at call site
     let mut centroids: Vec<Vec<f32>> = Vec::with_capacity(k);
     centroids.push(data[0].to_vec());
 

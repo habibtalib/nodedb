@@ -83,7 +83,6 @@ impl FlatIndex {
             return Vec::new();
         }
 
-        // no-governor: hot-path search candidates; bounded by top_k*2 (small), per-query allocation
         let mut candidates: Vec<SearchResult> = Vec::with_capacity(n.min(top_k * 2));
         for i in 0..n {
             if self.deleted[i] {
@@ -122,7 +121,6 @@ impl FlatIndex {
             return Vec::new();
         }
 
-        // no-governor: hot-path search candidates; bounded by top_k*2 (small), per-query allocation
         let mut candidates: Vec<SearchResult> = Vec::with_capacity(n.min(top_k * 2));
         for i in 0..n {
             if self.deleted[i] {
@@ -175,7 +173,6 @@ impl FlatIndex {
 
         let parsed = RoaringBitmap::deserialize_from(bitmap).ok();
 
-        // no-governor: hot-path filtered search candidates; bounded by top_k*2 (small), per-query allocation
         let mut candidates: Vec<SearchResult> = Vec::with_capacity(top_k * 2);
         for i in 0..n {
             if self.deleted[i] {
@@ -233,7 +230,6 @@ impl FlatIndex {
 
         let parsed = RoaringBitmap::deserialize_from(bitmap).ok();
 
-        // no-governor: hot-path filtered search candidates; bounded by top_k*2 (small), per-query allocation
         let mut candidates: Vec<SearchResult> = Vec::with_capacity(top_k * 2);
         for i in 0..n {
             if self.deleted[i] {
