@@ -7,9 +7,9 @@ use pgwire::api::results::{Response, Tag};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 
 use crate::control::planner::calvin::{DispatchClass, classify_dispatch};
-use crate::control::planner::physical::{PhysicalTask, PostSetOp};
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::types::TenantId;
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 use super::super::super::types::{error_to_sqlstate, response_status_to_sqlstate};
 use super::super::core::NodeDbPgHandler;
@@ -203,7 +203,7 @@ impl NodeDbPgHandler {
             // ClusterArray plans are handled entirely on the Control Plane by the
             // ArrayCoordinator — they must never reach the SPSC bridge or
             // trigger/DML machinery. Intercept them here and short-circuit.
-            if let crate::bridge::physical_plan::PhysicalPlan::ClusterArray(ref cluster_op) =
+            if let nodedb_physical::physical_plan::PhysicalPlan::ClusterArray(ref cluster_op) =
                 task.plan
             {
                 use crate::control::cluster::ClusterArrayExecutor;
@@ -239,7 +239,7 @@ impl NodeDbPgHandler {
                     )))
                 })?;
                 let cluster_plan_kind = match cluster_op {
-                    crate::bridge::physical_plan::ClusterArrayOp::Slice { .. } => {
+                    nodedb_physical::physical_plan::ClusterArrayOp::Slice { .. } => {
                         PlanKind::ArraySlice
                     }
                     _ => PlanKind::MultiRow,
@@ -347,8 +347,8 @@ impl NodeDbPgHandler {
 
             // Extract truncate restart_identity info before task is moved.
             let truncate_restart_collection =
-                if let crate::bridge::physical_plan::PhysicalPlan::Document(
-                    crate::bridge::physical_plan::DocumentOp::Truncate {
+                if let nodedb_physical::physical_plan::PhysicalPlan::Document(
+                    nodedb_physical::physical_plan::DocumentOp::Truncate {
                         collection,
                         restart_identity: true,
                     },

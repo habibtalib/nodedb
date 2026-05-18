@@ -100,7 +100,8 @@ impl CoreLoop {
     ) -> Option<nodedb_types::columnar::StrictSchema> {
         let key = (tenant_id, collection.to_string());
         self.doc_configs.get(&key).and_then(|c| {
-            if let crate::bridge::physical_plan::StorageMode::Strict { ref schema } = c.storage_mode
+            if let nodedb_physical::physical_plan::StorageMode::Strict { ref schema } =
+                c.storage_mode
             {
                 Some(schema.clone())
             } else {
@@ -280,7 +281,8 @@ impl CoreLoop {
         // Retrieve the strict schema (if any) so binary-tuple rows decode correctly.
         let config_key = (tenant_id, collection.to_string());
         let strict_schema = self.doc_configs.get(&config_key).and_then(|c| {
-            if let crate::bridge::physical_plan::StorageMode::Strict { ref schema } = c.storage_mode
+            if let nodedb_physical::physical_plan::StorageMode::Strict { ref schema } =
+                c.storage_mode
             {
                 Some(schema.clone())
             } else {

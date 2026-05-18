@@ -3,7 +3,7 @@
 //! Append-only enforcement: reject UPDATE and DELETE on append-only collections.
 
 use crate::bridge::envelope::ErrorCode;
-use crate::bridge::physical_plan::EnforcementOptions;
+use nodedb_physical::physical_plan::EnforcementOptions;
 
 /// Check whether an UPDATE is allowed on this collection.
 ///

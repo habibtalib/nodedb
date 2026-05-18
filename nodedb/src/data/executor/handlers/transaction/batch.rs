@@ -12,9 +12,9 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use tracing::{debug, error, warn};
 
 use crate::bridge::envelope::{ErrorCode, Response, Status};
-use crate::bridge::physical_plan::PhysicalPlan;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;
+use nodedb_physical::physical_plan::PhysicalPlan;
 
 use super::undo::UndoEntry;
 

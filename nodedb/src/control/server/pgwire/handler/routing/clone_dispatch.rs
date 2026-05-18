@@ -16,9 +16,9 @@ use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::control::clone::resolver::{
     CloneReadParams, ResolveOutcome, filter_tombstoned_rows, resolve_read,
 };
-use crate::control::planner::physical::PhysicalTask;
 use crate::control::server::pgwire::handler::plan::{PlanKind, payload_to_response};
 use crate::types::TenantId;
+use nodedb_physical::physical_task::PhysicalTask;
 
 use super::kv_wrapping::maybe_wrap_kv_point_get;
 
@@ -454,9 +454,9 @@ fn filter_kv_tombstoned_rows(
 /// `FOR SYSTEM_TIME AS OF <ms>`.  Returns `None` for plan types that do not
 /// carry a temporal qualifier (KV, DDL, writes, etc.).
 fn extract_system_as_of_ms(
-    plan: Option<&crate::bridge::physical_plan::PhysicalPlan>,
+    plan: Option<&nodedb_physical::physical_plan::PhysicalPlan>,
 ) -> Option<i64> {
-    use crate::bridge::physical_plan::PhysicalPlan;
+    use nodedb_physical::physical_plan::PhysicalPlan;
     // Exhaustive match — adding a new top-level engine MUST require an
     // explicit decision here about how `FOR SYSTEM_TIME AS OF` is plumbed
     // (or that it is intentionally unsupported on that engine). A
@@ -486,8 +486,8 @@ fn extract_system_as_of_ms(
     }
 }
 
-fn extract_doc_as_of(op: &crate::bridge::physical_plan::DocumentOp) -> Option<i64> {
-    use crate::bridge::physical_plan::DocumentOp;
+fn extract_doc_as_of(op: &nodedb_physical::physical_plan::DocumentOp) -> Option<i64> {
+    use nodedb_physical::physical_plan::DocumentOp;
     match op {
         DocumentOp::Scan {
             system_as_of_ms, ..
@@ -496,8 +496,8 @@ fn extract_doc_as_of(op: &crate::bridge::physical_plan::DocumentOp) -> Option<i6
     }
 }
 
-fn extract_columnar_as_of(op: &crate::bridge::physical_plan::ColumnarOp) -> Option<i64> {
-    use crate::bridge::physical_plan::ColumnarOp;
+fn extract_columnar_as_of(op: &nodedb_physical::physical_plan::ColumnarOp) -> Option<i64> {
+    use nodedb_physical::physical_plan::ColumnarOp;
     match op {
         ColumnarOp::Scan {
             system_as_of_ms, ..
@@ -506,8 +506,8 @@ fn extract_columnar_as_of(op: &crate::bridge::physical_plan::ColumnarOp) -> Opti
     }
 }
 
-fn extract_timeseries_as_of(op: &crate::bridge::physical_plan::TimeseriesOp) -> Option<i64> {
-    use crate::bridge::physical_plan::TimeseriesOp;
+fn extract_timeseries_as_of(op: &nodedb_physical::physical_plan::TimeseriesOp) -> Option<i64> {
+    use nodedb_physical::physical_plan::TimeseriesOp;
     match op {
         TimeseriesOp::Scan {
             system_as_of_ms, ..

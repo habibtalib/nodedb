@@ -6,9 +6,6 @@
 //! WAL record type. Read operations are no-ops.
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::{
-    ArrayOp, CrdtOp, DocumentOp, GraphOp, KvOp, TimeseriesOp, VectorOp,
-};
 use crate::control::security::credential::CredentialStore;
 use crate::engine::array::wal::{
     ArrayDeleteCell, ArrayDeletePayload, ArrayPutPayload, encode_delete_with_version,
@@ -16,6 +13,9 @@ use crate::engine::array::wal::{
 };
 use crate::types::{DatabaseId, TenantId, VShardId};
 use crate::wal::manager::WalManager;
+use nodedb_physical::physical_plan::{
+    ArrayOp, CrdtOp, DocumentOp, GraphOp, KvOp, TimeseriesOp, VectorOp,
+};
 
 /// Append a write operation to the WAL for single-node durability.
 ///
@@ -203,7 +203,7 @@ pub fn wal_append_if_write_with_creds(
             })?;
             wal.append_vector_params(tenant_id, vshard_id, database_id, &entry)?;
         }
-        PhysicalPlan::Columnar(crate::bridge::physical_plan::ColumnarOp::Insert {
+        PhysicalPlan::Columnar(nodedb_physical::physical_plan::ColumnarOp::Insert {
             collection,
             payload,
             format: _,

@@ -10,13 +10,13 @@ use pgwire::api::results::{DataRowEncoder, QueryResponse, Response};
 use pgwire::error::PgWireResult;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::security::catalog::StoredContinuousAggregate;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::ddl::sync_dispatch;
 use crate::control::server::pgwire::types::{int8_field, sqlstate_error, text_field};
 use crate::control::state::SharedState;
 use crate::engine::timeseries::continuous_agg::{AggregateInfo, ContinuousAggregateDef};
+use nodedb_physical::physical_plan::MetaOp;
 
 /// `SHOW CONTINUOUS AGGREGATES [FOR <source>]`.
 ///

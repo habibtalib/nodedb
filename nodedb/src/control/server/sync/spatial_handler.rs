@@ -73,9 +73,9 @@ impl<'a> SpatialDispatcher for SharedStateSpatialDispatcher<'a> {
         geometry: Geometry,
     ) -> crate::Result<()> {
         use crate::bridge::envelope::PhysicalPlan;
-        use crate::bridge::physical_plan::SpatialOp;
         use crate::control::server::dispatch_utils::dispatch_to_data_plane_with_source;
         use crate::event::EventSource;
+        use nodedb_physical::physical_plan::SpatialOp;
 
         let plan = PhysicalPlan::Spatial(SpatialOp::Insert {
             collection,
@@ -105,9 +105,9 @@ impl<'a> SpatialDispatcher for SharedStateSpatialDispatcher<'a> {
         surrogate: Surrogate,
     ) -> crate::Result<()> {
         use crate::bridge::envelope::PhysicalPlan;
-        use crate::bridge::physical_plan::SpatialOp;
         use crate::control::server::dispatch_utils::dispatch_to_data_plane_with_source;
         use crate::event::EventSource;
+        use nodedb_physical::physical_plan::SpatialOp;
 
         let plan = PhysicalPlan::Spatial(SpatialOp::Delete {
             collection,

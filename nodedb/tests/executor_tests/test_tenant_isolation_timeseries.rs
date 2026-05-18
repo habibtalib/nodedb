@@ -4,8 +4,8 @@
 //!
 //! Tenant A ingests metrics. Tenant B scans — must get zero rows.
 
-use nodedb::bridge::envelope::{PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::TimeseriesOp;
+use nodedb::bridge::envelope::Status;
+use nodedb_physical::physical_plan::{PhysicalPlan, TimeseriesOp};
 
 use crate::helpers::*;
 

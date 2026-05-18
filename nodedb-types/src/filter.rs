@@ -12,7 +12,15 @@ use crate::value::Value;
 
 /// Metadata filter for vector search. Applied as a pre-filter (Roaring bitmap)
 /// or post-filter depending on selectivity.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    zerompk::ToMessagePack,
+    zerompk::FromMessagePack,
+)]
 #[non_exhaustive]
 pub enum MetadataFilter {
     /// Field equals a specific value.

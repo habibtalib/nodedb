@@ -3,12 +3,12 @@
 //! Per-sub-plan execution within a transaction batch.
 
 use crate::bridge::envelope::{ErrorCode, PhysicalPlan, Response, Status};
-use crate::bridge::physical_plan::{
-    ColumnarOp, CrdtOp, DocumentOp, GraphOp, MetaOp, TimeseriesOp, VectorOp,
-};
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;
 use crate::types::{DatabaseId, TenantId, TraceId};
+use nodedb_physical::physical_plan::{
+    ColumnarOp, CrdtOp, DocumentOp, GraphOp, MetaOp, TimeseriesOp, VectorOp,
+};
 
 use super::undo::UndoEntry;
 

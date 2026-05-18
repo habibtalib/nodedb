@@ -10,11 +10,11 @@ use std::collections::{HashMap, HashSet};
 use sonic_rs;
 
 use crate::bridge::envelope::{PhysicalPlan, Response};
-use crate::bridge::physical_plan::GraphOp;
 use crate::control::scatter_gather;
 use crate::control::state::SharedState;
 use crate::engine::graph::traversal_options::GraphTraversalOptions;
 use crate::types::{TenantId, TraceId};
+use nodedb_physical::physical_plan::GraphOp;
 
 use super::helpers::{encode_path, ok_response};
 

@@ -24,9 +24,12 @@
 //! caller fetches `oversample × top_k` coarse candidates and reruns
 //! `exact_asymmetric_distance` on them.  Default is 3×.
 
+use crate::error::CodecError;
 use crate::vector_quant::codec::VectorCodec;
+use crate::vector_quant::codec_envelope;
 use crate::vector_quant::hamming::hamming_distance;
 use crate::vector_quant::layout::{QuantHeader, QuantMode, UnifiedQuantizedVector};
+use serde::{Deserialize, Serialize};
 
 // ── BbqQuantized ────────────────────────────────────────────────────────────
 
@@ -64,6 +67,7 @@ pub struct BbqQuery {
 /// vector before sign quantization.  The resulting 1-bit codes are Hamming-
 /// coarse-comparable; exact rerank uses the 14-byte corrective factors stored
 /// in the unified header.
+#[derive(Serialize, Deserialize, zerompk::ToMessagePack, zerompk::FromMessagePack)]
 pub struct BbqCodec {
     pub dim: usize,
     /// Centroid of training data.  BBQ is centroid-asymmetric — all encode
@@ -106,6 +110,22 @@ impl BbqCodec {
             centroid,
             oversample,
         }
+    }
+
+    /// On-disk magic for BBQ codec envelopes.
+    pub const ENVELOPE_MAGIC: &'static [u8; codec_envelope::MAGIC_LEN] = b"NDBBQ";
+
+    /// Current on-disk envelope version for BBQ codecs.
+    pub const ENVELOPE_VERSION: u8 = 1;
+
+    /// Serialize this codec to a self-describing byte buffer.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, CodecError> {
+        codec_envelope::encode(Self::ENVELOPE_MAGIC, Self::ENVELOPE_VERSION, self)
+    }
+
+    /// Deserialize a codec from a byte buffer produced by [`Self::to_bytes`].
+    pub fn from_bytes(buf: &[u8]) -> Result<Self, CodecError> {
+        codec_envelope::decode(Self::ENVELOPE_MAGIC, Self::ENVELOPE_VERSION, buf)
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────────
@@ -303,6 +323,38 @@ mod tests {
                 ((x >> 33) as f32) / (u32::MAX as f32) * 4.0 - 2.0
             })
             .collect()
+    }
+
+    #[test]
+    fn to_bytes_from_bytes_roundtrip() {
+        let dim = 32;
+        let vecs: Vec<Vec<f32>> = (0..4).map(|i| rand_vec(i, dim)).collect();
+        let refs: Vec<&[f32]> = vecs.iter().map(|v| v.as_slice()).collect();
+        let codec = BbqCodec::calibrate(&refs, dim, 5);
+        let bytes = codec.to_bytes().expect("to_bytes should succeed");
+        let restored = BbqCodec::from_bytes(&bytes).expect("from_bytes should succeed");
+        assert_eq!(restored.dim, codec.dim);
+        assert_eq!(restored.oversample, codec.oversample);
+        assert_eq!(restored.centroid.len(), codec.centroid.len());
+        for (a, b) in restored.centroid.iter().zip(codec.centroid.iter()) {
+            assert!((a - b).abs() < 1e-6, "centroid mismatch: {a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn from_bytes_rejects_bad_magic() {
+        let mut bytes = b"WRONG".to_vec();
+        bytes.push(1);
+        bytes.extend_from_slice(&[0u8; 4]);
+        assert!(BbqCodec::from_bytes(&bytes).is_err());
+    }
+
+    #[test]
+    fn from_bytes_rejects_bad_version() {
+        let codec = BbqCodec::calibrate(&[], 4, 3);
+        let mut bytes = codec.to_bytes().unwrap();
+        bytes[5] = 42;
+        assert!(BbqCodec::from_bytes(&bytes).is_err());
     }
 
     #[test]

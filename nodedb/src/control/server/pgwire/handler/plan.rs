@@ -9,12 +9,12 @@ use pgwire::api::results::{DataRowEncoder, QueryResponse, Response, Tag};
 use sonic_rs;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::{
-    ColumnarOp, CrdtOp, DocumentOp, GraphOp, KvOp, MetaOp, QueryOp, SpatialOp, TextOp,
-    TimeseriesOp, VectorOp,
-};
 use crate::data::executor::response_codec::{
     ArraySliceResponse, RowsPayload, decode_payload_to_json,
+};
+use nodedb_physical::physical_plan::{
+    ColumnarOp, CrdtOp, DocumentOp, GraphOp, KvOp, MetaOp, QueryOp, SpatialOp, TextOp,
+    TimeseriesOp, VectorOp,
 };
 use zerompk;
 
@@ -208,19 +208,19 @@ pub(super) fn describe_plan(plan: &PhysicalPlan) -> PlanKind {
         // is plain msgpack (decode_payload_to_json transcodes); Slice /
         // Project payloads use the tagged Value codec which transcodes
         // to a JSON array of arrays — clients receive JSON text per row.
-        PhysicalPlan::Array(crate::bridge::physical_plan::ArrayOp::Slice { .. }) => {
+        PhysicalPlan::Array(nodedb_physical::physical_plan::ArrayOp::Slice { .. }) => {
             PlanKind::ArraySlice
         }
-        PhysicalPlan::Array(crate::bridge::physical_plan::ArrayOp::Project { .. })
-        | PhysicalPlan::Array(crate::bridge::physical_plan::ArrayOp::Aggregate { .. })
-        | PhysicalPlan::Array(crate::bridge::physical_plan::ArrayOp::Elementwise { .. }) => {
+        PhysicalPlan::Array(nodedb_physical::physical_plan::ArrayOp::Project { .. })
+        | PhysicalPlan::Array(nodedb_physical::physical_plan::ArrayOp::Aggregate { .. })
+        | PhysicalPlan::Array(nodedb_physical::physical_plan::ArrayOp::Elementwise { .. }) => {
             PlanKind::MultiRow
         }
         // Flush / Compact return `{flushed: 1}` / `{compacted: N}` —
         // route as SingleDocument so the row's `document` column
         // carries the status JSON.
-        PhysicalPlan::Array(crate::bridge::physical_plan::ArrayOp::Flush { .. })
-        | PhysicalPlan::Array(crate::bridge::physical_plan::ArrayOp::Compact { .. }) => {
+        PhysicalPlan::Array(nodedb_physical::physical_plan::ArrayOp::Flush { .. })
+        | PhysicalPlan::Array(nodedb_physical::physical_plan::ArrayOp::Compact { .. }) => {
             PlanKind::SingleDocument
         }
 
@@ -257,7 +257,7 @@ use PlanKind::DmlResult;
 ///     corrupts the response stream)
 ///   - Any other plan not explicitly listed above
 pub(super) fn is_calvin_foldable(plan: &PhysicalPlan) -> bool {
-    use crate::bridge::physical_plan::KvOp;
+    use nodedb_physical::physical_plan::KvOp;
 
     match plan {
         // Plain point document writes — always affects 1 row, no RETURNING.
@@ -289,7 +289,7 @@ pub(super) fn is_calvin_foldable(plan: &PhysicalPlan) -> bool {
 /// The match arms here are kept in lockstep with that predicate so a desync
 /// between the two is loud rather than silent.
 pub(super) fn calvin_tag_for_plan(plan: &PhysicalPlan) -> Tag {
-    use crate::bridge::physical_plan::KvOp;
+    use nodedb_physical::physical_plan::KvOp;
 
     match plan {
         PhysicalPlan::Document(DocumentOp::PointPut { .. })

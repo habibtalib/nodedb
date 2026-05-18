@@ -6,10 +6,11 @@
 use std::time::{Duration, Instant};
 
 use nodedb::bridge::dispatch::{BridgeRequest, BridgeResponse};
-use nodedb::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
+use nodedb::bridge::envelope::{Priority, Request, Status};
 use nodedb::data::executor::core_loop::CoreLoop;
 use nodedb::types::*;
 use nodedb_bridge::buffer::{Consumer, Producer, RingBuffer};
+use nodedb_physical::physical_plan::PhysicalPlan;
 
 /// Bundles the core + bridge channels that every test helper needs.
 /// Eliminates repeated `(core, tx, rx)` triple parameters.

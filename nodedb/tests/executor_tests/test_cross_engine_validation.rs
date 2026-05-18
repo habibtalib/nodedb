@@ -6,9 +6,9 @@
 //! the system is ready to move from Phase 2 to Phase 3.
 
 use nodedb::bridge::dispatch::BridgeRequest;
-use nodedb::bridge::envelope::{PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::{DocumentOp, GraphOp, TextOp, VectorOp};
+use nodedb::bridge::envelope::Status;
 use nodedb::engine::graph::edge_store::Direction;
+use nodedb_physical::physical_plan::{DocumentOp, GraphOp, PhysicalPlan, TextOp, VectorOp};
 use nodedb_types::vector_distance::DistanceMetric;
 
 use crate::helpers::*;

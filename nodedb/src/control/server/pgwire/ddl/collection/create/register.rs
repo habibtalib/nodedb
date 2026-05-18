@@ -109,15 +109,15 @@ pub async fn dispatch_register_from_stored(
 /// from the moment the collection is created.
 fn derive_auto_indexes<'a>(
     field_names: impl IntoIterator<Item = &'a str>,
-) -> Vec<crate::bridge::physical_plan::RegisteredIndex> {
+) -> Vec<nodedb_physical::physical_plan::RegisteredIndex> {
     field_names
         .into_iter()
-        .map(|n| crate::bridge::physical_plan::RegisteredIndex {
+        .map(|n| nodedb_physical::physical_plan::RegisteredIndex {
             name: n.to_string(),
             path: format!("$.{n}"),
             unique: false,
             case_insensitive: false,
-            state: crate::bridge::physical_plan::RegisteredIndexState::Ready,
+            state: nodedb_physical::physical_plan::RegisteredIndexState::Ready,
             predicate: None,
         })
         .collect()
@@ -128,19 +128,19 @@ fn derive_auto_indexes<'a>(
 /// catalog entry supersedes the auto-derived one: UNIQUE/COLLATE
 /// modifiers have to take effect.
 fn extend_with_catalog_indexes(
-    out: &mut Vec<crate::bridge::physical_plan::RegisteredIndex>,
+    out: &mut Vec<nodedb_physical::physical_plan::RegisteredIndex>,
     coll: &StoredCollection,
 ) {
     for idx in &coll.indexes {
         let state = match idx.state {
             crate::control::security::catalog::IndexBuildState::Building => {
-                crate::bridge::physical_plan::RegisteredIndexState::Building
+                nodedb_physical::physical_plan::RegisteredIndexState::Building
             }
             crate::control::security::catalog::IndexBuildState::Ready => {
-                crate::bridge::physical_plan::RegisteredIndexState::Ready
+                nodedb_physical::physical_plan::RegisteredIndexState::Ready
             }
         };
-        let spec = crate::bridge::physical_plan::RegisteredIndex {
+        let spec = nodedb_physical::physical_plan::RegisteredIndex {
             name: idx.name.clone(),
             path: idx.field.clone(),
             unique: idx.unique,
@@ -160,7 +160,7 @@ async fn dispatch_register_from_stored_inner(
     state: &SharedState,
     tenant_id: crate::types::TenantId,
     coll: &StoredCollection,
-    indexes: Vec<crate::bridge::physical_plan::RegisteredIndex>,
+    indexes: Vec<nodedb_physical::physical_plan::RegisteredIndex>,
 ) -> crate::Result<()> {
     let name = crate::control::planner::sql_plan_convert::convert::db_qualified(
         coll.database_id,
@@ -175,30 +175,30 @@ async fn dispatch_register_from_stored_inner(
     // error here.
     let storage_mode = match &coll.collection_type {
         nodedb_types::CollectionType::Document(nodedb_types::DocumentMode::Strict(schema)) => {
-            crate::bridge::physical_plan::StorageMode::Strict {
+            nodedb_physical::physical_plan::StorageMode::Strict {
                 schema: schema.clone(),
             }
         }
         nodedb_types::CollectionType::KeyValue(config) => {
-            crate::bridge::physical_plan::StorageMode::Strict {
+            nodedb_physical::physical_plan::StorageMode::Strict {
                 schema: config.schema.clone(),
             }
         }
         nodedb_types::CollectionType::Document(nodedb_types::DocumentMode::Schemaless)
         | nodedb_types::CollectionType::Columnar(_) => {
-            crate::bridge::physical_plan::StorageMode::Schemaless
+            nodedb_physical::physical_plan::StorageMode::Schemaless
         }
     };
 
     let crdt_enabled = false;
 
-    let enforcement = crate::bridge::physical_plan::EnforcementOptions {
+    let enforcement = nodedb_physical::physical_plan::EnforcementOptions {
         append_only: coll.append_only,
         hash_chain: coll.hash_chain,
         balanced: coll
             .balanced
             .as_ref()
-            .map(|b| crate::bridge::physical_plan::BalancedDef {
+            .map(|b| nodedb_physical::physical_plan::BalancedDef {
                 group_key_column: b.group_key_column.clone(),
                 entry_type_column: b.entry_type_column.clone(),
                 debit_value: b.debit_value.clone(),
@@ -206,7 +206,7 @@ async fn dispatch_register_from_stored_inner(
                 amount_column: b.amount_column.clone(),
             }),
         period_lock: coll.period_lock.as_ref().map(|pl| {
-            crate::bridge::physical_plan::PeriodLockConfig {
+            nodedb_physical::physical_plan::PeriodLockConfig {
                 period_column: pl.period_column.clone(),
                 ref_table: pl.ref_table.clone(),
                 ref_pk: pl.ref_pk.clone(),
@@ -229,7 +229,7 @@ async fn dispatch_register_from_stored_inner(
     };
 
     let plan = crate::bridge::envelope::PhysicalPlan::Document(
-        crate::bridge::physical_plan::DocumentOp::Register {
+        nodedb_physical::physical_plan::DocumentOp::Register {
             collection: name.clone(),
             indexes,
             crdt_enabled,

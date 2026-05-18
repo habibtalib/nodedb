@@ -13,11 +13,11 @@
 //! is instantaneous and correct for steady-state operation.
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::TimeseriesOp;
 use crate::engine::timeseries::retention_policy::RetentionPolicyDef;
 use crate::types::{DatabaseId, TenantId, VShardId};
+use nodedb_physical::physical_plan::TimeseriesOp;
 
-use super::physical::{PhysicalTask, PostSetOp};
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 /// Tenant + database scope identity, passed together to avoid over-8-arg signatures.
 #[derive(Clone, Copy, Debug)]

@@ -2,8 +2,8 @@
 
 //! Integration tests for KV engine operations via the SPSC bridge.
 
-use nodedb::bridge::envelope::{PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::KvOp;
+use nodedb::bridge::envelope::Status;
+use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
 use crate::helpers::*;
 

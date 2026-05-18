@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::bridge::envelope::{Priority, Request, Response};
-use crate::control::planner::physical::PhysicalTask;
 use crate::types::{DatabaseId, Lsn, ReadConsistency, TraceId};
+use nodedb_physical::physical_task::PhysicalTask;
 use sonic_rs;
 
 use super::core::NodeDbPgHandler;
@@ -104,7 +104,7 @@ impl NodeDbPgHandler {
         if matches!(
             task.plan,
             crate::bridge::envelope::PhysicalPlan::Document(
-                crate::bridge::physical_plan::DocumentOp::InsertSelect { .. }
+                nodedb_physical::physical_plan::DocumentOp::InsertSelect { .. }
             )
         ) {
             return crate::control::server::broadcast::broadcast_count_to_all_cores(
@@ -123,7 +123,7 @@ impl NodeDbPgHandler {
         if matches!(
             task.plan,
             crate::bridge::envelope::PhysicalPlan::Array(
-                crate::bridge::physical_plan::ArrayOp::DropArray { .. }
+                nodedb_physical::physical_plan::ArrayOp::DropArray { .. }
             )
         ) {
             return crate::control::server::broadcast::broadcast_count_to_all_cores(
@@ -149,7 +149,7 @@ impl NodeDbPgHandler {
 
         // Cross-shard HashJoin: two-phase execution.
         if let crate::bridge::envelope::PhysicalPlan::Query(
-            crate::bridge::physical_plan::QueryOp::HashJoin {
+            nodedb_physical::physical_plan::QueryOp::HashJoin {
                 ref left_collection,
                 ref right_collection,
                 ref left_alias,
@@ -172,19 +172,19 @@ impl NodeDbPgHandler {
             // then send both as a BroadcastJoin to a single core.
             if let Some(inner_plan) = inline_left {
                 // Step 1: Execute the inner join via recursive dispatch.
-                let inner_task = crate::control::planner::physical::PhysicalTask {
+                let inner_task = nodedb_physical::physical_task::PhysicalTask {
                     tenant_id: task.tenant_id,
                     vshard_id: task.vshard_id,
                     database_id: task.database_id,
                     plan: inner_plan.as_ref().clone(),
-                    post_set_op: crate::control::planner::physical::PostSetOp::None,
+                    post_set_op: nodedb_physical::physical_task::PostSetOp::None,
                 };
                 let inner_resp = Box::pin(self.dispatch_task(inner_task, None)).await?;
                 let left_data: Vec<u8> = inner_resp.payload.as_ref().to_vec();
 
                 // Step 2: Broadcast-scan the right collection.
                 let right_scan = crate::bridge::envelope::PhysicalPlan::Document(
-                    crate::bridge::physical_plan::DocumentOp::Scan {
+                    nodedb_physical::physical_plan::DocumentOp::Scan {
                         collection: right_collection.clone(),
                         filters: Vec::new(),
                         limit: (limit * 10).min(50000),
@@ -212,7 +212,7 @@ impl NodeDbPgHandler {
                 let on_keys: Vec<(String, String)> =
                     on.iter().map(|(l, r)| (l.clone(), r.clone())).collect();
                 let join_plan = crate::bridge::envelope::PhysicalPlan::Query(
-                    crate::bridge::physical_plan::QueryOp::InlineHashJoin {
+                    nodedb_physical::physical_plan::QueryOp::InlineHashJoin {
                         left_data,
                         right_data,
                         right_alias: right_alias.clone(),
@@ -223,12 +223,12 @@ impl NodeDbPgHandler {
                         post_filters: post_filters.clone(),
                     },
                 );
-                let join_task = crate::control::planner::physical::PhysicalTask {
+                let join_task = nodedb_physical::physical_task::PhysicalTask {
                     tenant_id: task.tenant_id,
                     vshard_id: task.vshard_id,
                     database_id: task.database_id,
                     plan: join_plan,
-                    post_set_op: crate::control::planner::physical::PostSetOp::None,
+                    post_set_op: nodedb_physical::physical_task::PostSetOp::None,
                 };
                 let mut resp = self.dispatch_local(join_task, None).await?;
 
@@ -254,7 +254,7 @@ impl NodeDbPgHandler {
                 .await?
             } else {
                 let right_scan = crate::bridge::envelope::PhysicalPlan::Document(
-                    crate::bridge::physical_plan::DocumentOp::Scan {
+                    nodedb_physical::physical_plan::DocumentOp::Scan {
                         collection: right_collection.clone(),
                         filters: Vec::new(),
                         limit: (limit * 10).min(50000),
@@ -295,7 +295,7 @@ impl NodeDbPgHandler {
             let post_aggregates = post_aggregates.clone();
 
             let broadcast_plan = crate::bridge::envelope::PhysicalPlan::Query(
-                crate::bridge::physical_plan::QueryOp::BroadcastJoin {
+                nodedb_physical::physical_plan::QueryOp::BroadcastJoin {
                     large_collection: left_collection.clone(),
                     small_collection: right_collection.clone(),
                     large_alias: left_alias.clone(),
@@ -537,12 +537,12 @@ impl NodeDbPgHandler {
         let vshard_id = super::plan::extract_collection(plan)
             .map(|c| crate::types::VShardId::from_collection_in_database(database_id, c))
             .unwrap_or(fallback_vshard_id);
-        let task = crate::control::planner::physical::PhysicalTask {
+        let task = nodedb_physical::physical_task::PhysicalTask {
             tenant_id,
             vshard_id,
             database_id,
             plan: plan.clone(),
-            post_set_op: crate::control::planner::physical::PostSetOp::None,
+            post_set_op: nodedb_physical::physical_task::PostSetOp::None,
         };
         let resp = Box::pin(self.dispatch_task(task, None)).await?;
         normalize_join_broadcast_payload(resp.payload.as_ref())

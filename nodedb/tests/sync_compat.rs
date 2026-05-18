@@ -324,6 +324,7 @@ fn vector_primary_config_msgpack_roundtrip_via_sync_channel() {
         m: 32,
         ef_construction: 200,
         metric: DistanceMetric::Cosine,
+        storage_dtype: nodedb_types::VectorStorageDtype::F32,
         payload_indexes: vec![
             ("category".into(), nodedb_types::PayloadIndexKind::Equality),
             ("timestamp".into(), nodedb_types::PayloadIndexKind::Range),

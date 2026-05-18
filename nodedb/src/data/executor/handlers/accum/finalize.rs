@@ -3,7 +3,7 @@
 //! `AggAccum::finalize` — consume the accumulator and produce the result `Value`.
 
 use super::state::AggAccum;
-use crate::bridge::physical_plan::AggregateSpec;
+use nodedb_physical::physical_plan::AggregateSpec;
 use nodedb_types::Value;
 
 impl AggAccum {

@@ -248,11 +248,11 @@ mod tests {
 
     use super::*;
     use crate::bridge::envelope::{Priority, Request};
-    use crate::bridge::physical_plan::PhysicalPlan;
-    use crate::bridge::physical_plan::meta::MetaOp;
     use crate::data::executor::task::ExecutionTask;
     use crate::event::EventSource;
     use crate::types::{DatabaseId, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
+    use nodedb_physical::physical_plan::PhysicalPlan;
+    use nodedb_physical::physical_plan::meta::MetaOp;
 
     fn make_task(priority: Priority) -> ExecutionTask {
         ExecutionTask::new(Request {

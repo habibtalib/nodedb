@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::state::AggAccum;
-use crate::bridge::physical_plan::AggregateSpec;
+use nodedb_physical::physical_plan::AggregateSpec;
 
 impl AggAccum {
     pub(crate) fn new(agg: &AggregateSpec) -> Self {

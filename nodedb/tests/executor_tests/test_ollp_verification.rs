@@ -27,9 +27,9 @@
 //! predicted surrogates but before the bulk operation. The executor sees the
 //! mismatch because it scans live storage at admission time.
 
-use nodedb::bridge::envelope::{ErrorCode, PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::DocumentOp;
+use nodedb::bridge::envelope::{ErrorCode, Status};
 use nodedb::bridge::scan_filter::ScanFilter;
+use nodedb_physical::physical_plan::{DocumentOp, PhysicalPlan, UpdateValue};
 
 use crate::helpers::*;
 
@@ -84,9 +84,7 @@ fn insert_active(ctx: &mut TestCtx, id: &str) {
 fn bulk_update_plan(predicted: Option<Vec<u32>>) -> PhysicalPlan {
     let updates = vec![(
         "name".to_string(),
-        nodedb::bridge::physical_plan::UpdateValue::Literal(
-            nodedb_types::json_to_msgpack(&serde_json::json!("updated")).unwrap(),
-        ),
+        UpdateValue::Literal(nodedb_types::json_to_msgpack(&serde_json::json!("updated")).unwrap()),
     )];
     PhysicalPlan::Document(DocumentOp::BulkUpdate {
         collection: COLLECTION.into(),

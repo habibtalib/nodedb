@@ -238,7 +238,7 @@ pub async fn query(
 /// Append write operations to WAL before dispatch (single-node durability).
 fn wal_append_if_write(
     state: &AppState,
-    task: &crate::control::planner::physical::PhysicalTask,
+    task: &nodedb_physical::physical_task::PhysicalTask,
 ) -> Result<(), ApiError> {
     crate::control::server::wal_dispatch::wal_append_if_write(
         &state.shared.wal,

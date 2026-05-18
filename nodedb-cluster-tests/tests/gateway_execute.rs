@@ -16,13 +16,13 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
-use nodedb::bridge::physical_plan::{KvOp, PhysicalPlan};
 use nodedb::control::gateway::core::QueryContext;
 use nodedb::control::gateway::plan_cache::PlanCacheKey;
 use nodedb::control::gateway::plan_cache::{hash_placeholder_types, hash_sql};
 use nodedb::control::gateway::version_set::GatewayVersionSet;
 use nodedb::control::gateway::{Gateway, PlanCache};
 use nodedb::types::TenantId;
+use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
 use common::cluster_harness::TestClusterNode;
 

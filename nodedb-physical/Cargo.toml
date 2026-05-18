@@ -1,0 +1,21 @@
+[package]
+name = "nodedb-physical"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "BUSL-1.1"
+readme = "README.md"
+repository.workspace = true
+homepage.workspace = true
+description = "Shared PhysicalTask IR and SqlPlan-to-PhysicalPlan converter for NodeDB Origin and Lite"
+documentation = "https://docs.rs/nodedb-physical"
+
+[dependencies]
+nodedb-array = { workspace = true }
+nodedb-graph = { workspace = true }
+nodedb-query = { workspace = true }
+nodedb-sql = { workspace = true }
+nodedb-types = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+zerompk = { workspace = true }

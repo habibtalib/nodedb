@@ -48,7 +48,7 @@ pub fn handle_compact(
     super::distributed::dispatch_maintenance_to_all_cores(
         state,
         tenant_id,
-        crate::bridge::physical_plan::MetaOp::Compact,
+        nodedb_physical::physical_plan::MetaOp::Compact,
     );
 
     tracing::info!(%collection, "COMPACT dispatched");

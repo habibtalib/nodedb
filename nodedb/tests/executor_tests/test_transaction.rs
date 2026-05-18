@@ -2,8 +2,8 @@
 
 //! Integration tests for transaction batch execution.
 
-use nodedb::bridge::envelope::{PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::{DocumentOp, GraphOp, MetaOp, VectorOp};
+use nodedb::bridge::envelope::Status;
+use nodedb_physical::physical_plan::{DocumentOp, GraphOp, MetaOp, PhysicalPlan, VectorOp};
 
 use crate::helpers::*;
 

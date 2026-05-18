@@ -69,7 +69,7 @@ impl CoreLoop {
 
         let encode_for_storage = |bytes: &[u8]| -> Result<Vec<u8>, ErrorCode> {
             if let Some(config) = self.doc_configs.get(&config_key)
-                && let crate::bridge::physical_plan::StorageMode::Strict { ref schema } =
+                && let nodedb_physical::physical_plan::StorageMode::Strict { ref schema } =
                     config.storage_mode
             {
                 strict_format::bytes_to_binary_tuple(bytes, schema).map_err(|e| {

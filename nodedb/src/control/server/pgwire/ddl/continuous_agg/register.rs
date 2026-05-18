@@ -5,10 +5,10 @@
 use std::time::Duration;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::server::pgwire::ddl::sync_dispatch;
 use crate::control::state::SharedState;
 use crate::engine::timeseries::continuous_agg::ContinuousAggregateDef;
+use nodedb_physical::physical_plan::MetaOp;
 
 /// Re-register every catalog-persisted continuous aggregate on the
 /// local Data Plane. Called at startup on paths that don't trigger

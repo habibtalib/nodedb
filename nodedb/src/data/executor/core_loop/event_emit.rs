@@ -19,7 +19,7 @@ impl CoreLoop {
     ) -> Option<Vec<u8>> {
         let config_key = (crate::types::TenantId::new(tid), collection.to_string());
         let config = self.doc_configs.get(&config_key)?;
-        if let crate::bridge::physical_plan::StorageMode::Strict { ref schema } =
+        if let nodedb_physical::physical_plan::StorageMode::Strict { ref schema } =
             config.storage_mode
         {
             crate::data::executor::strict_format::binary_tuple_to_msgpack(stored_bytes, schema)

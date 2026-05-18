@@ -10,9 +10,9 @@ use pgwire::api::results::{DataRowEncoder, QueryResponse, Response};
 use pgwire::error::PgWireResult;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::CrdtOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use nodedb_physical::physical_plan::CrdtOp;
 
 use super::super::super::types::{int8_field, sqlstate_error, text_field};
 

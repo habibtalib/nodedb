@@ -5,7 +5,7 @@
 use nodedb_types::protocol::TextFields;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::{SpatialOp, SpatialPredicate};
+use nodedb_physical::physical_plan::{SpatialOp, SpatialPredicate};
 
 pub(crate) fn build_scan(fields: &TextFields, collection: &str) -> crate::Result<PhysicalPlan> {
     let raw_bytes = fields

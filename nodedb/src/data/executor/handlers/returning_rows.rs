@@ -6,8 +6,8 @@
 //! when the plan carries a `ReturningSpec`. Produces a `RowsPayload` msgpack
 //! blob that the Control Plane decodes into multi-column pgwire rows.
 
-use crate::bridge::physical_plan::{ReturningColumns, ReturningSpec};
 use crate::data::executor::response_codec::RowsPayload;
+use nodedb_physical::physical_plan::{ReturningColumns, ReturningSpec};
 
 /// Project a slice of documents per `spec` and encode as a `RowsPayload` msgpack blob.
 ///

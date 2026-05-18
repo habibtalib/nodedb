@@ -11,8 +11,8 @@
 mod common;
 use common::tx_batch_helpers::*;
 
-use nodedb::bridge::envelope::{ErrorCode, PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::MetaOp;
+use nodedb::bridge::envelope::{ErrorCode, Status};
+use nodedb_physical::physical_plan::{MetaOp, PhysicalPlan};
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 

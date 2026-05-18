@@ -16,13 +16,13 @@
 use nodedb_types::config::retention::BitemporalRetention;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::array_catalog::ArrayCatalogEntry;
 use crate::engine::bitemporal::registry::BitemporalEngineKind;
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::MetaOp;
 
-use super::super::physical::{PhysicalTask, PostSetOp};
 use super::convert::ConvertContext;
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 /// Convert `SqlPlan::AlterArray` to a `PhysicalTask`.
 ///

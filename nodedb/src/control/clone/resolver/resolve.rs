@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use nodedb_types::{CloneOrigin, CloneStatus, Lsn, TenantId};
 
-use crate::control::planner::physical::PhysicalTask;
 use crate::control::state::SharedState;
 use crate::types::VShardId;
+use nodedb_physical::physical_task::PhysicalTask;
 
 use super::super::metadata::ClonePredicatesNote;
 use super::rewrite::rewrite_plan_for_source;
@@ -177,7 +177,7 @@ pub fn resolve_read(
                     vshard_id: source_vshard,
                     database_id: src_db_id,
                     plan: source_plan,
-                    post_set_op: crate::control::planner::physical::PostSetOp::None,
+                    post_set_op: nodedb_physical::physical_task::PostSetOp::None,
                 };
                 this_level_tasks.push(task);
             }

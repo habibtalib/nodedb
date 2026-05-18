@@ -23,12 +23,12 @@
 use sonic_rs;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::GraphOp;
 use crate::control::scatter_gather;
 use crate::control::state::SharedState;
 use crate::engine::graph::edge_store::Direction;
 use crate::engine::graph::traversal_options::GraphTraversalOptions;
 use crate::types::{TenantId, TraceId};
+use nodedb_physical::physical_plan::GraphOp;
 
 /// A fully-attributed edge crossed by the local hop: `(src, label, dst)`.
 pub(super) type NeighborTriple = (String, String, String);

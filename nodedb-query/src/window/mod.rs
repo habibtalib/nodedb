@@ -13,6 +13,9 @@ pub mod offset;
 pub mod ranking;
 pub mod running;
 pub mod spec;
+pub mod value_agg;
+pub mod value_eval;
 
 pub use eval::evaluate_window_functions;
 pub use spec::{FrameBound, WindowFrame, WindowFuncSpec};
+pub use value_eval::{WindowError, evaluate_window_functions_value};

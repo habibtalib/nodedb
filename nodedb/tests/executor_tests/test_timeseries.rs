@@ -5,8 +5,7 @@
 //! Tests the full path: ILP ingest → memtable → flush → disk partitions →
 //! query across both sources.
 
-use nodedb::bridge::envelope::PhysicalPlan;
-use nodedb::bridge::physical_plan::TimeseriesOp;
+use nodedb_physical::physical_plan::{PhysicalPlan, TimeseriesOp};
 
 use crate::helpers::*;
 

@@ -2,7 +2,7 @@
 
 //! Window function spec and frame types serialized over the SPSC bridge.
 
-use crate::expr::SqlExpr;
+use crate::expr::types::SqlExpr;
 
 /// A window function specification.
 #[derive(
@@ -22,10 +22,10 @@ pub struct WindowFuncSpec {
     pub func_name: String,
     /// Function arguments (e.g., `salary` for SUM(salary)). Empty for ROW_NUMBER.
     pub args: Vec<SqlExpr>,
-    /// PARTITION BY column names. Empty = single partition (entire result set).
-    pub partition_by: Vec<String>,
-    /// ORDER BY within each partition: [(field, ascending)].
-    pub order_by: Vec<(String, bool)>,
+    /// PARTITION BY expressions. Empty = single partition (entire result set).
+    pub partition_by: Vec<SqlExpr>,
+    /// ORDER BY within each partition: [(expr, ascending)].
+    pub order_by: Vec<(SqlExpr, bool)>,
     /// Window frame specification.
     pub frame: WindowFrame,
 }

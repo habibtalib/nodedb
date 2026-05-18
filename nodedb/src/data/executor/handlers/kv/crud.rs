@@ -18,7 +18,7 @@ pub(in crate::data::executor) struct KvInsertOnConflictUpdateParams<'a> {
     pub key: &'a [u8],
     pub value: &'a [u8],
     pub ttl_ms: u64,
-    pub updates: &'a [(String, crate::bridge::physical_plan::UpdateValue)],
+    pub updates: &'a [(String, nodedb_physical::physical_plan::UpdateValue)],
     pub surrogate: Surrogate,
 }
 

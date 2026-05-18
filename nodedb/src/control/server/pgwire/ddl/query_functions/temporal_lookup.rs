@@ -42,7 +42,7 @@ pub async fn temporal_lookup(
 
     // Scan the table.
     let vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &table);
-    let scan_plan = PhysicalPlan::Document(crate::bridge::physical_plan::DocumentOp::Scan {
+    let scan_plan = PhysicalPlan::Document(nodedb_physical::physical_plan::DocumentOp::Scan {
         collection: table.clone(),
         limit: usize::MAX,
         offset: 0,

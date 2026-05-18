@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use nodedb_types::DatabaseId;
 
-use crate::bridge::physical_plan::{ColumnarOp, DocumentOp, KvOp, PhysicalPlan, TimeseriesOp};
 use crate::control::state::SharedState;
+use nodedb_physical::physical_plan::{ColumnarOp, DocumentOp, KvOp, PhysicalPlan, TimeseriesOp};
 
 /// Rewrite a `PhysicalPlan` to target the source database and collection at
 /// the effective source LSN.  Returns `None` for plan types that are not

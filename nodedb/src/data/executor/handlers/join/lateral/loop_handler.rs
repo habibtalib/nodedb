@@ -5,10 +5,10 @@
 use tracing::debug;
 
 use crate::bridge::envelope::{ErrorCode, PhysicalPlan, Response};
-use crate::bridge::physical_plan::JoinProjection;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::response_codec;
 use crate::data::executor::task::ExecutionTask;
+use nodedb_physical::physical_plan::JoinProjection;
 
 use super::shared::{
     MAX_RESULT_ROWS, bind_outer_values, build_row, build_scan_plan, extract_outer_field,

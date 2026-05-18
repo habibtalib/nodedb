@@ -52,7 +52,8 @@ impl CoreLoop {
         // Check if this is a strict collection — affects decode format.
         let config_key = (crate::types::TenantId::new(tid), collection.to_string());
         let strict_schema = self.doc_configs.get(&config_key).and_then(|c| {
-            if let crate::bridge::physical_plan::StorageMode::Strict { ref schema } = c.storage_mode
+            if let nodedb_physical::physical_plan::StorageMode::Strict { ref schema } =
+                c.storage_mode
             {
                 Some(schema.clone())
             } else {

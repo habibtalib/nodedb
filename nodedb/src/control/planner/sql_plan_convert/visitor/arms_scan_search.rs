@@ -1,0 +1,192 @@
+// SPDX-License-Identifier: BUSL-1.1
+//! `PlanVisitor` method bodies for timeseries/vector/text/hybrid/spatial search variants
+//! on `ConvertVisitor`. Defined as a macro and invoked once from `adapter.rs`.
+
+macro_rules! impl_scan_search_arms_for_convert_visitor {
+    () => {
+        fn timeseries_scan(
+            &mut self,
+            collection: &str,
+            time_range: (i64, i64),
+            bucket_interval_ms: i64,
+            group_by: &[String],
+            aggregates: &[nodedb_sql::types::query::AggregateExpr],
+            filters: &[nodedb_sql::types::filter::Filter],
+            projection: &[nodedb_sql::types::query::Projection],
+            gap_fill: &str,
+            limit: usize,
+            tiered: bool,
+            temporal: &nodedb_sql::temporal::TemporalScope,
+        ) -> crate::Result<Vec<nodedb_physical::physical_task::PhysicalTask>> {
+            super::super::scan::convert_timeseries_scan(
+                super::super::scan_params::TimeseriesScanParams {
+                    collection,
+                    time_range: &time_range,
+                    bucket_interval_ms: &bucket_interval_ms,
+                    group_by,
+                    aggregates,
+                    filters,
+                    projection,
+                    gap_fill,
+                    limit: &limit,
+                    tiered: &tiered,
+                    tenant_id: self.tenant_id,
+                    ctx: self.ctx,
+                    temporal,
+                },
+            )
+        }
+
+        fn timeseries_ingest(
+            &mut self,
+            collection: &str,
+            rows: &[Vec<(String, nodedb_sql::types_expr::SqlValue)>],
+        ) -> crate::Result<Vec<nodedb_physical::physical_task::PhysicalTask>> {
+            super::super::scan::convert_timeseries_ingest(
+                collection,
+                rows,
+                self.tenant_id,
+                self.ctx,
+            )
+        }
+
+        fn vector_search(
+            &mut self,
+            collection: &str,
+            field: &str,
+            query_vector: &[f32],
+            top_k: usize,
+            ef_search: usize,
+            metric: nodedb_types::vector_distance::DistanceMetric,
+            filters: &[nodedb_sql::types::filter::Filter],
+            array_prefilter: Option<&nodedb_sql::types::plan::ArrayPrefilter>,
+            ann_options: &nodedb_sql::types::plan::VectorAnnOptions,
+            skip_payload_fetch: bool,
+            payload_filters: &[nodedb_sql::types_expr::SqlPayloadAtom],
+        ) -> crate::Result<Vec<nodedb_physical::physical_task::PhysicalTask>> {
+            super::super::scan::convert_vector_search(
+                super::super::scan_params::VectorSearchParams {
+                    collection,
+                    field,
+                    query_vector,
+                    top_k: &top_k,
+                    ef_search: &ef_search,
+                    metric: &metric,
+                    filters,
+                    array_prefilter,
+                    ann_options,
+                    tenant_id: self.tenant_id,
+                    ctx: self.ctx,
+                    skip_payload_fetch,
+                    payload_filters,
+                },
+            )
+        }
+
+        fn text_search(
+            &mut self,
+            collection: &str,
+            query: &nodedb_sql::fts_types::FtsQuery,
+            top_k: usize,
+            _filters: &[nodedb_sql::types::filter::Filter],
+            score_alias: Option<&str>,
+        ) -> crate::Result<Vec<nodedb_physical::physical_task::PhysicalTask>> {
+            super::super::scan::convert_text_search(
+                collection,
+                query,
+                &top_k,
+                score_alias,
+                self.tenant_id,
+                self.ctx.database_id,
+            )
+        }
+
+        fn hybrid_search(
+            &mut self,
+            collection: &str,
+            query_vector: &[f32],
+            query_text: &str,
+            top_k: usize,
+            ef_search: usize,
+            vector_weight: f32,
+            fuzzy: bool,
+            score_alias: Option<&str>,
+        ) -> crate::Result<Vec<nodedb_physical::physical_task::PhysicalTask>> {
+            super::super::scan::convert_hybrid_search(
+                super::super::scan_params::HybridSearchParams {
+                    collection,
+                    query_vector,
+                    query_text,
+                    top_k: &top_k,
+                    ef_search: &ef_search,
+                    vector_weight: &vector_weight,
+                    fuzzy: &fuzzy,
+                    score_alias,
+                    tenant_id: self.tenant_id,
+                    database_id: self.ctx.database_id,
+                },
+            )
+        }
+
+        fn hybrid_search_triple(
+            &mut self,
+            collection: &str,
+            query_vector: &[f32],
+            query_text: &str,
+            graph_seed_id: &str,
+            graph_depth: usize,
+            graph_edge_label: Option<&str>,
+            top_k: usize,
+            ef_search: usize,
+            fuzzy: bool,
+            rrf_k: (f64, f64, f64),
+            score_alias: Option<&str>,
+        ) -> crate::Result<Vec<nodedb_physical::physical_task::PhysicalTask>> {
+            let graph_edge_label_owned: Option<String> = graph_edge_label.map(str::to_owned);
+            super::super::scan::convert_hybrid_search_triple(
+                super::super::scan_params::HybridSearchTripleParams {
+                    collection,
+                    query_vector,
+                    query_text,
+                    graph_seed_id,
+                    graph_depth: &graph_depth,
+                    graph_edge_label: &graph_edge_label_owned,
+                    top_k: &top_k,
+                    ef_search: &ef_search,
+                    fuzzy: &fuzzy,
+                    rrf_k: &rrf_k,
+                    score_alias,
+                    tenant_id: self.tenant_id,
+                    database_id: self.ctx.database_id,
+                },
+            )
+        }
+
+        fn spatial_scan(
+            &mut self,
+            collection: &str,
+            field: &str,
+            predicate: &nodedb_sql::types::query::SpatialPredicate,
+            query_geometry: &nodedb_types::geometry::Geometry,
+            distance_meters: f64,
+            attribute_filters: &[nodedb_sql::types::filter::Filter],
+            limit: usize,
+            projection: &[nodedb_sql::types::query::Projection],
+        ) -> crate::Result<Vec<nodedb_physical::physical_task::PhysicalTask>> {
+            super::super::scan::convert_spatial_scan(super::super::scan_params::SpatialScanParams {
+                collection,
+                field,
+                predicate,
+                query_geometry,
+                distance_meters: &distance_meters,
+                attribute_filters,
+                limit: &limit,
+                projection,
+                tenant_id: self.tenant_id,
+                database_id: self.ctx.database_id,
+            })
+        }
+    };
+}
+
+pub(super) use impl_scan_search_arms_for_convert_visitor;

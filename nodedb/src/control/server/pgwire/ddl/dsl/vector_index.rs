@@ -11,12 +11,12 @@ use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::VectorOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::types::sqlstate_error;
 use crate::control::state::SharedState;
 use crate::types::DatabaseId;
 use crate::types::TraceId;
+use nodedb_physical::physical_plan::VectorOp;
 
 use super::helpers::{find_param_str, find_param_usize};
 

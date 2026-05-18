@@ -126,14 +126,14 @@ impl NodeDbPgHandler {
 
                     let plans: Vec<crate::bridge::envelope::PhysicalPlan> =
                         buffered.iter().map(|t| t.plan.clone()).collect();
-                    let batch_task = crate::control::planner::physical::PhysicalTask {
+                    let batch_task = nodedb_physical::physical_task::PhysicalTask {
                         tenant_id,
                         vshard_id,
                         database_id: crate::types::DatabaseId::DEFAULT,
                         plan: crate::bridge::envelope::PhysicalPlan::Meta(
-                            crate::bridge::physical_plan::MetaOp::TransactionBatch { plans },
+                            nodedb_physical::physical_plan::MetaOp::TransactionBatch { plans },
                         ),
-                        post_set_op: crate::control::planner::physical::PostSetOp::None,
+                        post_set_op: nodedb_physical::physical_task::PostSetOp::None,
                     };
                     if let Err(e) = self.dispatch_task_no_wal(batch_task, None).await {
                         tracing::warn!(error = %e, "transaction batch dispatch failed");
@@ -242,16 +242,16 @@ impl NodeDbPgHandler {
                             }
                             for (vshard_u32, plans) in by_vshard {
                                 let vshard_id = nodedb_types::id::VShardId::new(vshard_u32);
-                                let batch_task = crate::control::planner::physical::PhysicalTask {
+                                let batch_task = nodedb_physical::physical_task::PhysicalTask {
                                     tenant_id,
                                     vshard_id,
                                     database_id: crate::types::DatabaseId::DEFAULT,
                                     plan: crate::bridge::envelope::PhysicalPlan::Meta(
-                                        crate::bridge::physical_plan::MetaOp::TransactionBatch {
+                                        nodedb_physical::physical_plan::MetaOp::TransactionBatch {
                                             plans,
                                         },
                                     ),
-                                    post_set_op: crate::control::planner::physical::PostSetOp::None,
+                                    post_set_op: nodedb_physical::physical_task::PostSetOp::None,
                                 };
                                 if let Err(e) = self.dispatch_task_no_wal(batch_task, None).await {
                                     tracing::warn!(

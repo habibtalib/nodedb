@@ -4,8 +4,8 @@
 
 use std::collections::HashMap;
 
-use crate::control::planner::physical::PhysicalTask;
 use crate::types::{DatabaseId, Lsn};
+use nodedb_physical::physical_task::PhysicalTask;
 
 /// PostgreSQL transaction state for ReadyForQuery status byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

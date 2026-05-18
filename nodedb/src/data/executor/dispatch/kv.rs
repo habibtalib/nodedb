@@ -3,7 +3,7 @@
 //! Dispatch for KvOp variants (engine pressure check + delegation to execute_kv).
 
 use crate::bridge::envelope::Response;
-use crate::bridge::physical_plan::KvOp;
+use nodedb_physical::physical_plan::KvOp;
 
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;

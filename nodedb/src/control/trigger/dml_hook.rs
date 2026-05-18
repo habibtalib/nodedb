@@ -17,9 +17,9 @@ use std::collections::HashMap;
 
 use sonic_rs;
 
-use crate::bridge::physical_plan::DocumentOp;
 use crate::control::state::SharedState;
 use crate::types::{TenantId, TraceId};
+use nodedb_physical::physical_plan::DocumentOp;
 
 use super::registry::DmlEvent;
 
@@ -221,7 +221,7 @@ fn deserialize_value_to_fields(value: &[u8]) -> HashMap<String, nodedb_types::Va
 /// payload in the underlying `PointPut` or `Upsert` operation.
 /// For `PointUpdate`, the updates are re-derived from the mutated fields.
 pub fn patch_task_with_mutated_fields(
-    task: &mut crate::control::planner::physical::PhysicalTask,
+    task: &mut nodedb_physical::physical_task::PhysicalTask,
     mutated: &HashMap<String, nodedb_types::Value>,
 ) {
     use crate::bridge::envelope::PhysicalPlan;
@@ -252,7 +252,7 @@ pub fn patch_task_with_mutated_fields(
                     nodedb_types::value_to_msgpack(v).ok().map(|b| {
                         (
                             k.clone(),
-                            crate::bridge::physical_plan::UpdateValue::Literal(b),
+                            nodedb_physical::physical_plan::UpdateValue::Literal(b),
                         )
                     })
                 })

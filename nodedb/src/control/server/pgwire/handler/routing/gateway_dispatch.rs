@@ -15,8 +15,8 @@ use pgwire::api::results::{Response, Tag};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 
 use crate::control::gateway::GatewayErrorMap;
-use crate::control::planner::physical::PhysicalTask;
 use crate::types::{ReadConsistency, TenantId, TraceId};
+use nodedb_physical::physical_task::PhysicalTask;
 
 use super::super::core::NodeDbPgHandler;
 use super::super::plan::{PlanKind, payload_to_response};

@@ -48,7 +48,7 @@ pub async fn balance_as_of(
         .lookup(&collection, &pk_bytes)
         .map_err(|e| sqlstate_error("XX000", &format!("surrogate lookup failed: {e}")))?
         .unwrap_or(nodedb_types::Surrogate::ZERO);
-    let get_plan = PhysicalPlan::Document(crate::bridge::physical_plan::DocumentOp::PointGet {
+    let get_plan = PhysicalPlan::Document(nodedb_physical::physical_plan::DocumentOp::PointGet {
         collection: collection.clone(),
         document_id: key.clone(),
         surrogate,
@@ -91,7 +91,7 @@ pub async fn balance_as_of(
     // Scan the source collection for rows where join_column = key AND created_at > as_of.
     let source_vshard =
         VShardId::from_collection_in_database(DatabaseId::DEFAULT, &mat_def.source_collection);
-    let source_scan = PhysicalPlan::Document(crate::bridge::physical_plan::DocumentOp::Scan {
+    let source_scan = PhysicalPlan::Document(nodedb_physical::physical_plan::DocumentOp::Scan {
         collection: mat_def.source_collection.clone(),
         limit: usize::MAX,
         offset: 0,

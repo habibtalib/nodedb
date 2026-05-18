@@ -19,9 +19,9 @@ use nodedb_types::Surrogate;
 use serde::{Deserialize, Serialize};
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::VectorOp;
 use crate::bridge::scan_filter::ScanFilter;
 use crate::control::state::SharedState;
+use nodedb_physical::physical_plan::VectorOp;
 
 #[derive(Serialize, Deserialize, zerompk::ToMessagePack, zerompk::FromMessagePack)]
 #[msgpack(map)]

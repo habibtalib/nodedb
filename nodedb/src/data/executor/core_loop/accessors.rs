@@ -133,8 +133,8 @@ impl CoreLoop {
         let key = (TenantId::new(tid), collection.to_string());
         let config = self.doc_configs.get(&key)?;
         match &config.storage_mode {
-            crate::bridge::physical_plan::StorageMode::Strict { schema } => Some(schema.version),
-            crate::bridge::physical_plan::StorageMode::Schemaless => None,
+            nodedb_physical::physical_plan::StorageMode::Strict { schema } => Some(schema.version),
+            nodedb_physical::physical_plan::StorageMode::Schemaless => None,
         }
     }
 

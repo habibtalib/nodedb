@@ -9,8 +9,8 @@
 use sonic_rs;
 
 use crate::bridge::envelope::ErrorCode;
-use crate::bridge::physical_plan::PeriodLockConfig;
 use crate::engine::sparse::btree::SparseEngine;
+use nodedb_physical::physical_plan::PeriodLockConfig;
 
 /// Check whether a write is allowed given the period lock configuration.
 ///

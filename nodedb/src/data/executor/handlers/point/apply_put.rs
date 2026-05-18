@@ -90,7 +90,7 @@ impl CoreLoop {
         let value_with_rowid: Vec<u8>;
         let (value, stored): (&[u8], Vec<u8>) = if let Some(config) =
             self.doc_configs.get(&config_key)
-            && let crate::bridge::physical_plan::StorageMode::Strict { ref schema } =
+            && let nodedb_physical::physical_plan::StorageMode::Strict { ref schema } =
                 config.storage_mode
         {
             let encoded_input: &[u8] = if schema
@@ -300,7 +300,7 @@ impl CoreLoop {
             .doc_configs
             .get(&config_key)
             .and_then(|config| {
-                if let crate::bridge::physical_plan::StorageMode::Strict { ref schema } =
+                if let nodedb_physical::physical_plan::StorageMode::Strict { ref schema } =
                     config.storage_mode
                 {
                     let fields: Vec<_> = schema

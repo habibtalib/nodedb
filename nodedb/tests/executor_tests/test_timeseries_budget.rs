@@ -33,9 +33,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use nodedb::bridge::envelope::PhysicalPlan;
-use nodedb::bridge::physical_plan::TimeseriesOp;
 use nodedb_mem::{EngineId, GovernorConfig, MemoryGovernor};
+use nodedb_physical::physical_plan::{PhysicalPlan, TimeseriesOp};
 
 use crate::helpers::*;
 

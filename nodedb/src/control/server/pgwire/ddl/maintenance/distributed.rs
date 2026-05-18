@@ -7,10 +7,10 @@
 //! In single-node mode, they execute directly on the local Data Plane.
 
 use crate::bridge::envelope::{PhysicalPlan, Priority, Request};
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::state::SharedState;
 use crate::event::EventSource;
 use crate::types::{DatabaseId, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
+use nodedb_physical::physical_plan::MetaOp;
 
 /// Dispatch a maintenance operation (COMPACT/REINDEX) to all Data Plane cores.
 ///

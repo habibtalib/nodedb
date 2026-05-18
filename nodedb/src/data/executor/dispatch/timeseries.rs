@@ -3,7 +3,7 @@
 //! Dispatch for TimeseriesOp variants (scan, ingest).
 
 use crate::bridge::envelope::Response;
-use crate::bridge::physical_plan::TimeseriesOp;
+use nodedb_physical::physical_plan::TimeseriesOp;
 
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::handlers::timeseries::TimeseriesScanParams;

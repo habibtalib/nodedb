@@ -3,7 +3,7 @@
 //! Dispatch for ColumnarOp variants (scan, insert, update, delete).
 
 use crate::bridge::envelope::Response;
-use crate::bridge::physical_plan::ColumnarOp;
+use nodedb_physical::physical_plan::ColumnarOp;
 
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::handlers::columnar_read::ColumnarScanParams;

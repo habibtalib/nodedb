@@ -29,6 +29,8 @@ pub enum StatementKind<'a> {
     Delete(&'a sqlparser::ast::Statement),
     Truncate(&'a sqlparser::ast::Statement),
     Merge(&'a sqlparser::ast::Statement),
+    CreateIndex(&'a sqlparser::ast::CreateIndex),
+    DropIndex(&'a sqlparser::ast::Statement),
     Other,
 }
 
@@ -41,6 +43,11 @@ pub fn classify(stmt: &Statement) -> StatementKind<'_> {
         Statement::Delete(_) => StatementKind::Delete(stmt),
         Statement::Truncate(_) => StatementKind::Truncate(stmt),
         Statement::Merge(_) => StatementKind::Merge(stmt),
+        Statement::CreateIndex(ci) => StatementKind::CreateIndex(ci),
+        Statement::Drop {
+            object_type: sqlparser::ast::ObjectType::Index,
+            ..
+        } => StatementKind::DropIndex(stmt),
         _ => StatementKind::Other,
     }
 }

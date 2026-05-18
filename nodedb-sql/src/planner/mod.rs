@@ -11,6 +11,7 @@ pub mod cte;
 pub mod dml;
 pub mod dml_helpers;
 pub mod grouping_sets;
+pub mod index_ddl;
 pub mod join;
 pub mod lateral;
 pub mod merge;

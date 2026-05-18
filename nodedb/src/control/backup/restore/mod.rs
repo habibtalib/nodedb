@@ -20,10 +20,10 @@ use serde::Serialize;
 
 use crate::Error;
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::server::pgwire::ddl::sync_dispatch;
 use crate::control::state::SharedState;
 use crate::types::{TenantDataSnapshot, TenantId};
+use nodedb_physical::physical_plan::MetaOp;
 
 use remote::{NODE_RESTORE_TIMEOUT, dispatch_remote, envelope_to_err};
 use sections::{apply_metadata_sections, merge_sections};

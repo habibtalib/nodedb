@@ -39,10 +39,10 @@ impl zerompk::ToMessagePack for AggValue {
 /// `decode_payload_to_json` produces identical JSON on both paths.
 pub(super) fn finalize_agg_partials(
     partials: &[ArrayAggPartial],
-    reducer: &crate::bridge::physical_plan::ArrayReducer,
+    reducer: &nodedb_physical::physical_plan::ArrayReducer,
     group_by_dim: i32,
 ) -> Vec<std::collections::BTreeMap<String, AggValue>> {
-    use crate::bridge::physical_plan::ArrayReducer;
+    use nodedb_physical::physical_plan::ArrayReducer;
 
     let finalize = |p: &ArrayAggPartial| -> AggValue {
         if p.count == 0 {

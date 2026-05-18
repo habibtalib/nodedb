@@ -5,9 +5,9 @@
 //! Verifies that BFS, shortest path, and subgraph materialization
 //! respect bounded depth and fan-out limits under adversarial queries.
 
-use nodedb::bridge::envelope::{ErrorCode, PhysicalPlan};
-use nodedb::bridge::physical_plan::GraphOp;
+use nodedb::bridge::envelope::ErrorCode;
 use nodedb::engine::graph::edge_store::Direction;
+use nodedb_physical::physical_plan::{GraphOp, PhysicalPlan};
 
 use crate::helpers::*;
 

@@ -9,13 +9,13 @@ use pgwire::api::results::{DataRowEncoder, QueryResponse, Response};
 use pgwire::error::PgWireResult;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::GraphOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::broadcast;
 use crate::control::server::pgwire::types::{sqlstate_error, text_field};
 use crate::control::state::SharedState;
 use crate::data::executor::response_codec;
 use crate::types::TraceId;
+use nodedb_physical::physical_plan::GraphOp;
 
 const MAX_ITERATIONS_CAP: usize = 1_000;
 const MAX_SAMPLE_CAP: usize = 1_000_000;

@@ -10,7 +10,7 @@
 
 use nodedb_sql::types::SqlExpr;
 
-use crate::bridge::physical_plan::UpdateValue;
+use nodedb_physical::physical_plan::UpdateValue;
 
 use super::super::expr::{sql_expr_to_bridge_expr, sql_expr_to_bridge_expr_qualified};
 use super::convert::sql_value_to_msgpack;

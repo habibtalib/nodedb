@@ -3,7 +3,7 @@
 //! Dispatch for MetaOp variants (WAL, snapshots, retention, continuous aggregates).
 
 use crate::bridge::envelope::Response;
-use crate::bridge::physical_plan::MetaOp;
+use nodedb_physical::physical_plan::MetaOp;
 
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::response_codec;

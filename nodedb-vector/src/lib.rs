@@ -17,12 +17,14 @@ pub mod batch_distance;
 pub mod codec_index;
 pub mod delta;
 pub mod distance;
+pub mod dtype;
 pub mod error;
 pub mod hnsw;
 pub mod hybrid;
 pub mod matryoshka;
 pub mod multivec;
 pub mod quantize;
+pub mod rerank;
 pub mod vamana;
 
 pub use distance::DistanceMetric;

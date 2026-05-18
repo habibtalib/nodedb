@@ -12,10 +12,10 @@ use tracing::debug;
 
 use super::super::response_codec;
 use crate::bridge::envelope::{ErrorCode, Response};
-use crate::bridge::physical_plan::SpatialPredicate;
 use crate::bridge::scan_filter::ScanFilter;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;
+use nodedb_physical::physical_plan::SpatialPredicate;
 use nodedb_types::{Surrogate, SurrogateBitmap, Value};
 
 impl CoreLoop {
@@ -365,12 +365,12 @@ fn expand_bbox(bbox: &nodedb_types::BoundingBox, meters: f64) -> nodedb_types::B
 #[cfg(test)]
 mod tests {
     use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
-    use crate::bridge::physical_plan::SpatialOp;
     use crate::data::executor::task::ExecutionTask;
     use crate::engine::spatial::RTreeEntry;
     use crate::types::{DatabaseId, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
     use crate::util::fnv1a_hash;
     use nodedb_bridge::buffer::RingBuffer;
+    use nodedb_physical::physical_plan::SpatialOp;
     use nodedb_types::{Surrogate, SurrogateBitmap};
     use std::time::{Duration, Instant};
 
@@ -462,7 +462,7 @@ mod tests {
         PhysicalPlan::Spatial(SpatialOp::Scan {
             collection: "places".into(),
             field: "loc".into(),
-            predicate: crate::bridge::physical_plan::SpatialPredicate::DWithin,
+            predicate: nodedb_physical::physical_plan::SpatialPredicate::DWithin,
             query_geometry: origin_point(),
             distance_meters: 1_000_000.0,
             attribute_filters: Vec::new(),
@@ -519,7 +519,7 @@ mod tests {
             tid,
             collection,
             field,
-            &crate::bridge::physical_plan::SpatialPredicate::DWithin,
+            &nodedb_physical::physical_plan::SpatialPredicate::DWithin,
             &origin_point(),
             1_000_000.0,
             &[],

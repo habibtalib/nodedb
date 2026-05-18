@@ -56,9 +56,9 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::bridge::physical_plan::{KvOp, PhysicalPlan};
     use crate::control::gateway::plan_cache::{PlanCache, PlanCacheKey, hash_sql};
     use crate::control::gateway::version_set::GatewayVersionSet;
+    use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
     fn kv_plan() -> Arc<PhysicalPlan> {
         Arc::new(PhysicalPlan::Kv(KvOp::Get {

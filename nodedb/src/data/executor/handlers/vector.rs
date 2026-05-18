@@ -481,6 +481,7 @@ impl CoreLoop {
             m0: resolved_m * 2,
             ef_construction: resolved_ef,
             metric: metric_enum,
+            dtype: nodedb_types::vector_dtype::VectorStorageDtype::F32,
         };
 
         let config = crate::engine::vector::index_config::IndexConfig {

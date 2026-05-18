@@ -8,10 +8,10 @@ use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::CrdtOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::types::sqlstate_error;
 use crate::control::state::SharedState;
+use nodedb_physical::physical_plan::CrdtOp;
 
 /// CRDT MERGE INTO <collection> FROM '<source_id>' TO '<target_id>'
 pub async fn crdt_merge(

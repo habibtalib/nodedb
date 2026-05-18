@@ -6,9 +6,9 @@ use nodedb_types::protocol::TextFields;
 use sonic_rs;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::GraphOp;
 use crate::control::server::native::dispatch::DispatchCtx;
 use crate::engine::graph::traversal_options::MAX_GRAPH_TRAVERSAL_DEPTH;
+use nodedb_physical::physical_plan::GraphOp;
 
 use super::parse_direction;
 

@@ -613,9 +613,45 @@ pub enum SqlPlan {
         /// the first DirectUpsert so subsequent seals trigger codec-dispatch
         /// rebuilds against the configured codec.
         quantization: nodedb_types::VectorQuantization,
+        /// Native storage dtype for vector values (F32 / F16 / BF16).
+        storage_dtype: nodedb_types::VectorStorageDtype,
         /// Payload field names that get equality bitmap indexes. Registered
         /// via `payload.add_index` on the first DirectUpsert.
         payload_indexes: Vec<(String, nodedb_types::PayloadIndexKind)>,
         rows: Vec<VectorPrimaryRow>,
+    },
+
+    // ── Index DDL ───────────────────────────────────────────────────────
+    /// `CREATE [UNIQUE] INDEX [IF NOT EXISTS] name ON collection (field)`
+    ///
+    /// Registers a secondary index on the named field of a document or KV
+    /// collection. The executor backtracks existing rows into the index so
+    /// it is immediately consistent.
+    CreateIndex {
+        /// Name of the index. `None` requests an auto-generated name.
+        index_name: Option<String>,
+        /// Target collection.
+        collection: String,
+        /// Indexed field path.
+        field: String,
+        /// Whether the index enforces uniqueness.
+        unique: bool,
+        /// `IF NOT EXISTS` — succeed silently if the index already exists.
+        if_not_exists: bool,
+        /// Case-insensitive string collation (`COLLATE NOCASE`).
+        case_insensitive: bool,
+    },
+
+    /// `DROP INDEX [IF EXISTS] name [ON collection]`
+    ///
+    /// Removes a secondary index from a collection. All index entries are
+    /// erased and the index metadata is unregistered.
+    DropIndex {
+        /// Name of the index.
+        index_name: String,
+        /// Target collection (may be inferred from the index catalog).
+        collection: Option<String>,
+        /// `IF EXISTS` — succeed silently if the index does not exist.
+        if_exists: bool,
     },
 }

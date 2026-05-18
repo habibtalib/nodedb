@@ -17,11 +17,11 @@ mod common;
 use std::time::Duration;
 
 use common::cluster_harness::TestCluster;
-use nodedb::bridge::physical_plan::wire as plan_wire;
-use nodedb::bridge::physical_plan::{KvOp, PhysicalPlan};
 use nodedb_cluster::rpc_codec::{
     DescriptorVersionEntry, ExecuteRequest, RaftRpc, TypedClusterError,
 };
+use nodedb_physical::physical_plan::wire as plan_wire;
+use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
 /// Build an `ExecuteRequest` wrapping a trivial `KvOp::Put`.
 fn make_kv_put_request(

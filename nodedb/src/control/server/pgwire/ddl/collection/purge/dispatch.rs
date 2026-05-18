@@ -8,9 +8,9 @@
 //! collection symmetrically with the metadata row removal.
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::state::SharedState;
 use crate::types::{DatabaseId, TenantId, TraceId, VShardId};
+use nodedb_physical::physical_plan::MetaOp;
 
 /// Dispatch `MetaOp::UnregisterCollection { tenant_id, name, purge_lsn }`
 /// to this node's Data Plane. Best-effort: failures log at warn but

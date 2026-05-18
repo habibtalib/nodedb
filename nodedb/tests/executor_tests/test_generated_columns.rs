@@ -9,8 +9,9 @@
 //! - Chained generated columns (A depends on B) evaluate in correct order
 //! - Generated columns are readable via PointGet
 
-use nodedb::bridge::envelope::PhysicalPlan;
-use nodedb::bridge::physical_plan::{DocumentOp, EnforcementOptions, GeneratedColumnSpec};
+use nodedb_physical::physical_plan::{
+    DocumentOp, EnforcementOptions, GeneratedColumnSpec, PhysicalPlan, UpdateValue,
+};
 
 use crate::helpers::*;
 
@@ -199,7 +200,7 @@ fn update_recomputes_generated_column() {
             document_id: "p1".into(),
             updates: vec![(
                 "price".to_string(),
-                nodedb::bridge::physical_plan::UpdateValue::Literal(
+                UpdateValue::Literal(
                     nodedb_types::json_to_msgpack(&serde_json::json!(200.0)).unwrap(),
                 ),
             )],
@@ -255,7 +256,7 @@ fn update_generated_column_directly_rejected() {
             document_id: "p1".into(),
             updates: vec![(
                 "price_with_tax".to_string(),
-                nodedb::bridge::physical_plan::UpdateValue::Literal(
+                UpdateValue::Literal(
                     nodedb_types::json_to_msgpack(&serde_json::json!(999.0)).unwrap(),
                 ),
             )],

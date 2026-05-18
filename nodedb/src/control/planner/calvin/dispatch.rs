@@ -28,15 +28,15 @@ use nodedb_cluster::calvin::types::{EngineKeySet, ReadWriteSet, SortedVec, TxCla
 use nodedb_types::TenantId;
 
 use crate::Error;
-use crate::bridge::physical_plan::{
-    DocumentOp, GraphOp, KvOp, PhysicalPlan, TimeseriesOp, VectorOp,
-};
 use crate::control::cluster::calvin::executor::ollp::orchestrator::OllpOrchestrator;
 use crate::control::planner::calvin::types::{DispatchClass, DispatchOutcome};
-use crate::control::planner::physical::PhysicalTask;
 use crate::control::server::pgwire::session::TransactionState;
 use crate::control::server::pgwire::session::cross_shard_mode::CrossShardTxnMode;
 use crate::types::VShardId;
+use nodedb_physical::physical_plan::{
+    DocumentOp, GraphOp, KvOp, PhysicalPlan, TimeseriesOp, VectorOp,
+};
+use nodedb_physical::physical_task::PhysicalTask;
 
 pub use crate::control::planner::calvin::predicate::predicate_class;
 
@@ -91,17 +91,17 @@ pub fn is_write_plan(plan: &PhysicalPlan) -> bool {
         PhysicalPlan::Timeseries(op) => matches!(op, TimeseriesOp::Ingest { .. }),
         // Columnar writes
         PhysicalPlan::Columnar(op) => {
-            use crate::bridge::physical_plan::ColumnarOp;
+            use nodedb_physical::physical_plan::ColumnarOp;
             matches!(op, ColumnarOp::Insert { .. })
         }
         // CRDT writes
         PhysicalPlan::Crdt(op) => {
-            use crate::bridge::physical_plan::CrdtOp;
+            use nodedb_physical::physical_plan::CrdtOp;
             matches!(op, CrdtOp::ListInsert { .. } | CrdtOp::ListDelete { .. })
         }
         // Array writes
         PhysicalPlan::Array(op) => {
-            use crate::bridge::physical_plan::ArrayOp;
+            use nodedb_physical::physical_plan::ArrayOp;
             matches!(
                 op,
                 ArrayOp::Put { .. } | ArrayOp::Delete { .. } | ArrayOp::Flush { .. }

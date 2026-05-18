@@ -19,10 +19,10 @@ use nodedb_cluster::forward::PlanExecutor;
 use nodedb_cluster::rpc_codec::{ExecuteRequest, ExecuteResponse, TypedClusterError};
 
 use crate::bridge::envelope::{Priority, Request};
-use crate::bridge::physical_plan::wire as plan_wire;
 use crate::control::state::SharedState;
 use crate::types::DatabaseId;
 use crate::types::ReadConsistency;
+use nodedb_physical::physical_plan::wire as plan_wire;
 
 /// Numeric code for `TypedClusterError::Internal` when plan bytes fail to decode.
 const PLAN_DECODE_FAILED: u32 = nodedb_cluster::rpc_codec::PLAN_DECODE_FAILED;

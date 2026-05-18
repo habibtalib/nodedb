@@ -480,8 +480,8 @@ impl Dispatcher {
 mod tests {
     use super::*;
     use crate::bridge::envelope::*;
-    use crate::bridge::physical_plan::DocumentOp;
     use crate::types::*;
+    use nodedb_physical::physical_plan::DocumentOp;
     use std::time::{Duration, Instant};
 
     fn make_request(vshard: u32) -> envelope::Request {

@@ -18,12 +18,12 @@
 use nodedb_types::{CloneStatus, DatabaseId, Lsn, TenantId};
 
 use crate::bridge::envelope::Status;
-use crate::bridge::physical_plan::{KvOp, PhysicalPlan};
 use crate::control::catalog_entry::entry::CatalogEntry;
 use crate::control::metadata_proposer::propose_catalog_entry;
 use crate::control::planner::sql_plan_convert::convert::db_qualified;
 use crate::control::security::catalog::{StoredCollection, SystemCatalog};
 use crate::control::state::SharedState;
+use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
 use super::dispatch::dispatch_local;
 use super::reaper::{ReapParams, reap_materialized_collection};

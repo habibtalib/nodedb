@@ -15,9 +15,9 @@ use pgwire::error::PgWireResult;
 use sonic_rs;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use nodedb_physical::physical_plan::MetaOp;
 
 use super::super::types::sqlstate_error;
 

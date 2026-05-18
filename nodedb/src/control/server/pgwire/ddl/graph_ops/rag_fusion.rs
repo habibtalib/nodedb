@@ -18,7 +18,6 @@ use nodedb_sql::ddl_ast::FusionParams;
 use nodedb_sql::ddl_ast::GraphDirection;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::GraphOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::ddl::sync_dispatch;
 use crate::control::server::pgwire::types::{sqlstate_error, text_field};
@@ -26,6 +25,7 @@ use crate::control::state::SharedState;
 use crate::data::executor::response_codec;
 use crate::engine::graph::edge_store::Direction;
 use crate::engine::graph::traversal_options::{GraphTraversalOptions, MAX_GRAPH_TRAVERSAL_DEPTH};
+use nodedb_physical::physical_plan::GraphOp;
 
 const FUSION_VECTOR_TOP_K_CAP: usize = 10_000;
 const FUSION_TOP_CAP: usize = 10_000;

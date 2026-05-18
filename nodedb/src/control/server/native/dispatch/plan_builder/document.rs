@@ -8,7 +8,7 @@ use nodedb_types::protocol::TextFields;
 use sonic_rs;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::{DocumentOp, KvOp, TimeseriesOp};
+use nodedb_physical::physical_plan::{DocumentOp, KvOp, TimeseriesOp};
 
 use super::{DispatchCtx, collection_type, require_doc_id};
 
@@ -211,7 +211,7 @@ pub(crate) fn build_update(
     collection: &str,
 ) -> crate::Result<PhysicalPlan> {
     let doc_id = require_doc_id(fields)?;
-    let updates: Vec<(String, crate::bridge::physical_plan::UpdateValue)> = fields
+    let updates: Vec<(String, nodedb_physical::physical_plan::UpdateValue)> = fields
         .updates
         .as_ref()
         .ok_or_else(|| crate::Error::BadRequest {
@@ -221,7 +221,7 @@ pub(crate) fn build_update(
         .map(|(f, b)| {
             (
                 f.clone(),
-                crate::bridge::physical_plan::UpdateValue::Literal(b.clone()),
+                nodedb_physical::physical_plan::UpdateValue::Literal(b.clone()),
             )
         })
         .collect();
@@ -293,7 +293,7 @@ pub(crate) fn build_bulk_update(
             detail: "missing 'filters'".to_string(),
         })?
         .clone();
-    let updates: Vec<(String, crate::bridge::physical_plan::UpdateValue)> = fields
+    let updates: Vec<(String, nodedb_physical::physical_plan::UpdateValue)> = fields
         .updates
         .as_ref()
         .ok_or_else(|| crate::Error::BadRequest {
@@ -303,7 +303,7 @@ pub(crate) fn build_bulk_update(
         .map(|(f, b)| {
             (
                 f.clone(),
-                crate::bridge::physical_plan::UpdateValue::Literal(b.clone()),
+                nodedb_physical::physical_plan::UpdateValue::Literal(b.clone()),
             )
         })
         .collect();
@@ -385,12 +385,12 @@ pub(crate) fn build_register(fields: &TextFields, collection: &str) -> crate::Re
         .clone()
         .unwrap_or_default()
         .into_iter()
-        .map(|path| crate::bridge::physical_plan::RegisteredIndex {
+        .map(|path| nodedb_physical::physical_plan::RegisteredIndex {
             name: path.clone(),
             path,
             unique: false,
             case_insensitive: false,
-            state: crate::bridge::physical_plan::RegisteredIndexState::Ready,
+            state: nodedb_physical::physical_plan::RegisteredIndexState::Ready,
             predicate: None,
         })
         .collect();
@@ -399,8 +399,8 @@ pub(crate) fn build_register(fields: &TextFields, collection: &str) -> crate::Re
         collection: collection.to_string(),
         indexes,
         crdt_enabled: false,
-        storage_mode: crate::bridge::physical_plan::StorageMode::Schemaless,
-        enforcement: Box::new(crate::bridge::physical_plan::EnforcementOptions::default()),
+        storage_mode: nodedb_physical::physical_plan::StorageMode::Schemaless,
+        enforcement: Box::new(nodedb_physical::physical_plan::EnforcementOptions::default()),
         bitemporal: false,
     }))
 }

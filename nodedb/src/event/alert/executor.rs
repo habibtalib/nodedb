@@ -19,10 +19,10 @@ use tokio::sync::watch;
 use tracing::{debug, info, warn};
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::timeseries::TimeseriesOp;
 use crate::control::server::pgwire::ddl::sync_dispatch;
 use crate::control::state::SharedState;
 use crate::types::TenantId;
+use nodedb_physical::physical_plan::timeseries::TimeseriesOp;
 
 use super::hysteresis::HysteresisTransition;
 use super::notify::dispatch_notifications;

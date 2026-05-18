@@ -20,13 +20,13 @@
 use std::time::Duration;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::DocumentOp;
 use crate::control::state::SharedState;
 use crate::types::{DatabaseId, TenantId, TraceId};
+use nodedb_physical::physical_plan::DocumentOp;
 
-use crate::bridge::physical_plan::wire as plan_wire;
 use nodedb_cluster::rpc_codec::{ExecuteRequest, RaftRpc};
 use nodedb_cluster::topology::NodeState;
+use nodedb_physical::physical_plan::wire as plan_wire;
 
 use super::super::super::types::sqlstate_error;
 

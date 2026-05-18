@@ -11,10 +11,10 @@ use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::CrdtOp;
 use crate::control::server::http::auth::{ApiError, AppState, resolve_identity};
 use crate::control::server::http::types::{HttpCrdtApplyRequest, HttpCrdtApplyResponse};
 use crate::control::server::pgwire::types::hex_decode;
+use nodedb_physical::physical_plan::CrdtOp;
 
 use super::document::{dispatch_plan, extract_request_id};
 

@@ -9,7 +9,7 @@
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use crate::bridge::physical_plan::PhysicalPlan;
+use nodedb_physical::physical_plan::PhysicalPlan;
 
 /// Deterministic ordered set of `(collection_name, descriptor_version)` pairs.
 ///
@@ -84,7 +84,7 @@ impl GatewayVersionSet {
 /// Returns a `Vec<String>` that may contain duplicates; callers are
 /// responsible for de-duplication (e.g., `GatewayVersionSet::from_plan`).
 pub fn touched_collections(plan: &PhysicalPlan) -> Vec<String> {
-    use crate::bridge::physical_plan::*;
+    use nodedb_physical::physical_plan::*;
 
     let mut out: Vec<String> = Vec::new();
 
@@ -393,7 +393,7 @@ pub fn touched_collections(plan: &PhysicalPlan) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bridge::physical_plan::{KvOp, PhysicalPlan};
+    use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
     #[test]
     fn from_plan_kv_get() {

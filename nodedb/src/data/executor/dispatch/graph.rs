@@ -3,8 +3,8 @@
 //! Graph operation dispatch.
 
 use crate::bridge::envelope::Response;
-use crate::bridge::physical_plan::GraphOp;
 use nodedb_mem;
+use nodedb_physical::physical_plan::GraphOp;
 
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;

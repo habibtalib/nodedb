@@ -33,12 +33,12 @@ use nodedb_cluster::rpc_codec::RaftRpc;
 use nodedb_cluster::wire::VShardEnvelope;
 use nodedb_cluster::{NexarTransport, RoutingTable};
 
-use crate::bridge::physical_plan::ClusterArrayOp;
 use crate::control::cluster::array_cluster_helpers::{
     array_resp_msg_type, cluster_err, encode_err, finalize_agg_partials,
 };
 use crate::control::cluster::array_executor::DataPlaneArrayExecutor;
 use crate::control::state::SharedState;
+use nodedb_physical::physical_plan::ClusterArrayOp;
 use zerompk;
 
 /// Default RPC timeout for array cluster operations in milliseconds.
@@ -422,7 +422,7 @@ impl ClusterArrayExecutor {
             coordinator.coord_agg(req).await.map_err(cluster_err)?;
 
         // Decode the reducer so we know which field to finalize.
-        let reducer: crate::bridge::physical_plan::ArrayReducer =
+        let reducer: nodedb_physical::physical_plan::ArrayReducer =
             zerompk::from_msgpack(reducer_msgpack).map_err(|e| crate::Error::Serialization {
                 format: "msgpack".into(),
                 detail: format!("agg reducer decode: {e}"),

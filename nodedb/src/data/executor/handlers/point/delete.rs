@@ -6,12 +6,12 @@
 use tracing::{debug, warn};
 
 use crate::bridge::envelope::{ErrorCode, Response};
-use crate::bridge::physical_plan::ReturningSpec;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::doc_format;
 use crate::data::executor::handlers::returning_rows;
 use crate::data::executor::task::ExecutionTask;
 use crate::engine::document::store::surrogate_to_doc_id;
+use nodedb_physical::physical_plan::ReturningSpec;
 use nodedb_types::Surrogate;
 
 impl CoreLoop {

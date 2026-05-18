@@ -20,10 +20,10 @@ use prost::Message;
 use tracing::info;
 
 use super::proto;
-use crate::bridge::physical_plan::{PhysicalPlan, TimeseriesOp};
 use crate::control::server::dispatch_utils::dispatch_to_data_plane;
 use crate::control::state::SharedState;
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::{PhysicalPlan, TimeseriesOp};
 
 /// Configuration for the OTLP receiver.
 #[derive(Debug, Clone)]

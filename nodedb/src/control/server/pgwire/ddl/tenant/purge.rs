@@ -55,7 +55,7 @@ pub async fn purge_tenant(
     );
 
     let plan = crate::bridge::envelope::PhysicalPlan::Meta(
-        crate::bridge::physical_plan::MetaOp::PurgeTenant { tenant_id: tid },
+        nodedb_physical::physical_plan::MetaOp::PurgeTenant { tenant_id: tid },
     );
 
     match super::super::sync_dispatch::dispatch_async(

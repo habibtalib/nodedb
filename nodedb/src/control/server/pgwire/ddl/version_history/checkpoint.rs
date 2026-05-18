@@ -13,10 +13,10 @@ use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::CrdtOp;
 use crate::control::security::catalog::types::CheckpointRecord;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use nodedb_physical::physical_plan::CrdtOp;
 
 use super::super::super::types::sqlstate_error;
 

@@ -111,7 +111,7 @@ impl CoreLoop {
         &mut self,
         task: &ExecutionTask,
         tid: u64,
-        edges: &[crate::bridge::physical_plan::BatchEdge],
+        edges: &[nodedb_physical::physical_plan::BatchEdge],
     ) -> Response {
         debug!(core = self.core_id, count = edges.len(), "edge put batch");
         for (idx, edge) in edges.iter().enumerate() {
@@ -182,7 +182,7 @@ impl CoreLoop {
         &mut self,
         task: &ExecutionTask,
         tid: u64,
-        edges: &[crate::bridge::physical_plan::BatchEdge],
+        edges: &[nodedb_physical::physical_plan::BatchEdge],
     ) -> Response {
         debug!(
             core = self.core_id,

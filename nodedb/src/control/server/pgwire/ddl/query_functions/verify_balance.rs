@@ -64,7 +64,7 @@ pub async fn verify_balance(
 
     // Scan all target rows.
     let target_vshard = VShardId::from_collection_in_database(DatabaseId::DEFAULT, &collection);
-    let target_scan = PhysicalPlan::Document(crate::bridge::physical_plan::DocumentOp::Scan {
+    let target_scan = PhysicalPlan::Document(nodedb_physical::physical_plan::DocumentOp::Scan {
         collection: collection.clone(),
         limit: usize::MAX,
         offset: 0,
@@ -95,7 +95,7 @@ pub async fn verify_balance(
     // Scan all source rows.
     let source_vshard =
         VShardId::from_collection_in_database(DatabaseId::DEFAULT, &mat_def.source_collection);
-    let source_scan = PhysicalPlan::Document(crate::bridge::physical_plan::DocumentOp::Scan {
+    let source_scan = PhysicalPlan::Document(nodedb_physical::physical_plan::DocumentOp::Scan {
         collection: mat_def.source_collection.clone(),
         limit: usize::MAX,
         offset: 0,

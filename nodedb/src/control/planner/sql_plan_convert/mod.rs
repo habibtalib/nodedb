@@ -13,5 +13,6 @@ pub mod scan;
 pub mod scan_params;
 pub mod set_ops;
 pub mod value;
+pub mod visitor;
 
 pub use convert::{ConvertContext, convert};

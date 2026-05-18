@@ -12,10 +12,10 @@ use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use sonic_rs;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::QueryOp;
-use crate::control::planner::physical::{PhysicalTask, PostSetOp};
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::types::{DatabaseId, VShardId};
+use nodedb_physical::physical_plan::QueryOp;
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 use super::core::NodeDbPgHandler;
 use super::plan::{PlanKind, payload_to_response};

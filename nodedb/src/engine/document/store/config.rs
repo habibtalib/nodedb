@@ -13,9 +13,9 @@ pub struct CollectionConfig {
     /// Whether this collection uses CRDT-backed storage (Loro).
     pub crdt_enabled: bool,
     /// Storage encoding mode (schemaless MessagePack or strict Binary Tuple).
-    pub storage_mode: crate::bridge::physical_plan::StorageMode,
+    pub storage_mode: nodedb_physical::physical_plan::StorageMode,
     /// Collection enforcement options (append-only, period lock, retention, etc.).
-    pub enforcement: crate::bridge::physical_plan::EnforcementOptions,
+    pub enforcement: nodedb_physical::physical_plan::EnforcementOptions,
     /// Bitemporal storage: every write goes to the versioned document
     /// table, keyed by `system_from_ms`. Enables `FOR SYSTEM_TIME AS OF`
     /// queries.
@@ -28,8 +28,8 @@ impl CollectionConfig {
             name: name.to_string(),
             index_paths: Vec::new(),
             crdt_enabled: false,
-            storage_mode: crate::bridge::physical_plan::StorageMode::Schemaless,
-            enforcement: crate::bridge::physical_plan::EnforcementOptions::default(),
+            storage_mode: nodedb_physical::physical_plan::StorageMode::Schemaless,
+            enforcement: nodedb_physical::physical_plan::EnforcementOptions::default(),
             bitemporal: false,
         }
     }
@@ -49,7 +49,7 @@ impl CollectionConfig {
         self
     }
 
-    pub fn with_storage_mode(mut self, mode: crate::bridge::physical_plan::StorageMode) -> Self {
+    pub fn with_storage_mode(mut self, mode: nodedb_physical::physical_plan::StorageMode) -> Self {
         self.storage_mode = mode;
         self
     }

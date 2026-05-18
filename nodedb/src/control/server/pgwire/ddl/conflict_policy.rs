@@ -16,9 +16,9 @@ use nodedb_crdt::policy::{CollectionPolicy, ConflictPolicy};
 use nodedb_sql::ddl_ast::alter_ops::{ConflictPolicyKind, ConstraintKindKeyword};
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::CrdtOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
+use nodedb_physical::physical_plan::CrdtOp;
 
 use super::super::types::{sqlstate_error, text_field};
 use super::sync_dispatch::dispatch_async;

@@ -17,10 +17,10 @@ use nodedb_types::DatabaseId;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::types::TraceId;
+use nodedb_physical::physical_plan::MetaOp;
 
 /// Execute a parsed `REINDEX [INDEX name] [CONCURRENTLY] collection` statement.
 pub async fn handle_reindex(

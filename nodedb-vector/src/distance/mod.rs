@@ -2,8 +2,10 @@
 
 //! Distance metrics for vector similarity search.
 
+pub mod dispatch;
 pub mod scalar;
 pub mod simd;
+pub(crate) mod typed_scalar;
 
 pub use scalar::*;
 

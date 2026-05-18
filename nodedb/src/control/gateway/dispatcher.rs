@@ -22,10 +22,10 @@ use nodedb_cluster::rpc_codec::{ExecuteRequest, RaftRpc, TypedClusterError};
 use tracing::debug;
 
 use crate::Error;
-use crate::bridge::physical_plan::wire as plan_wire;
 use crate::control::server::dispatch_utils::dispatch_to_data_plane;
 use crate::control::state::SharedState;
 use crate::types::{DatabaseId, TenantId, TraceId, VShardId};
+use nodedb_physical::physical_plan::wire as plan_wire;
 
 use super::route::{RouteDecision, TaskRoute};
 use super::version_set::GatewayVersionSet;
@@ -98,7 +98,7 @@ async fn dispatch_local(
 /// Arguments for a remote dispatch call (bundles the 8 parameters to stay
 /// within clippy's `too_many_arguments` limit).
 struct RemoteDispatchArgs<'a> {
-    plan: crate::bridge::physical_plan::PhysicalPlan,
+    plan: nodedb_physical::physical_plan::PhysicalPlan,
     shared: &'a Arc<SharedState>,
     node_id: u64,
     vshard_id: u64,

@@ -5,7 +5,7 @@
 //! These helpers are called from `execute_planned_sql_inner` when a
 //! multi-shard strict transaction contains a value-dependent predicate.
 
-use crate::bridge::physical_plan::{DocumentOp, PhysicalPlan};
+use nodedb_physical::physical_plan::{DocumentOp, PhysicalPlan};
 
 /// Extract the collection name and serialized filter bytes from a
 /// `BulkUpdate` or `BulkDelete` plan.

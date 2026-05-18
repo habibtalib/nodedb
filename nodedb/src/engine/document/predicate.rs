@@ -5,7 +5,7 @@
 //! A partial index declared as `CREATE INDEX ... WHERE <expr>` is
 //! populated only with rows where `<expr>` evaluates to true. The
 //! predicate text travels over the wire (see
-//! [`crate::bridge::physical_plan::RegisteredIndex::predicate`]) and
+//! [`nodedb_physical::physical_plan::RegisteredIndex::predicate`]) and
 //! gets parsed once when the Data Plane installs the index via
 //! `DocumentOp::Register` or runs the initial backfill.
 //!

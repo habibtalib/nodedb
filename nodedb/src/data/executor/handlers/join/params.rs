@@ -3,9 +3,9 @@
 //! Shared parameter structs for join execution handlers.
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::JoinProjection;
 use crate::bridge::scan_filter::ScanFilter;
 use crate::data::executor::task::ExecutionTask;
+use nodedb_physical::physical_plan::JoinProjection;
 
 /// Common join configuration shared across hash, inline-hash, and broadcast joins.
 pub(crate) struct JoinParams<'a> {

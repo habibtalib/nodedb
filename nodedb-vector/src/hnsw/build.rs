@@ -2,9 +2,11 @@
 
 //! HNSW insert algorithm (Malkov & Yashunin, Algorithm 1).
 
+use crate::dtype::cast_from_f32;
 use crate::error::VectorError;
-use crate::hnsw::graph::{Candidate, HnswIndex, Node};
+use crate::hnsw::graph::{Candidate, HnswIndex, Node, NodeStorage};
 use crate::hnsw::search::search_layer;
+use nodedb_types::vector_dtype::VectorStorageDtype;
 
 impl HnswIndex {
     /// Insert a vector into the index.
@@ -28,8 +30,15 @@ impl HnswIndex {
         let new_id = self.nodes.len() as u32;
         let new_layer = self.random_layer();
 
+        let storage = match self.params.dtype {
+            VectorStorageDtype::F32 => NodeStorage::F32(vector.clone()),
+            dtype => NodeStorage::Bytes {
+                dtype,
+                bytes: cast_from_f32(&vector, dtype),
+            },
+        };
         let node = Node {
-            vector,
+            storage,
             neighbors: (0..=new_layer).map(|_| Vec::new()).collect(),
             deleted: false,
         };
@@ -41,15 +50,16 @@ impl HnswIndex {
             return Ok(());
         };
 
-        // Clone the query vector to avoid aliasing self.nodes during mutation.
-        let query = self.nodes[new_id as usize].vector.clone();
+        // Encode query once to the index dtype for all dist_to_node calls below.
+        let query = vector;
+        let query_bytes = cast_from_f32(&query, self.params.dtype);
 
         let mut current_ep = ep;
 
         // Phase 1: Greedy descent from top layer to new_layer + 1.
         if self.max_layer > new_layer {
             for layer in (new_layer + 1..=self.max_layer).rev() {
-                let results = search_layer(self, &query, current_ep, 1, layer, None, 0);
+                let results = search_layer(self, &query_bytes, current_ep, 1, layer, None, 0);
                 if let Some(nearest) = results.first() {
                     current_ep = nearest.id;
                 }
@@ -60,7 +70,7 @@ impl HnswIndex {
         let insert_top = new_layer.min(self.max_layer);
         for layer in (0..=insert_top).rev() {
             let ef = self.params.ef_construction;
-            let candidates = search_layer(self, &query, current_ep, ef, layer, None, 0);
+            let candidates = search_layer(self, &query_bytes, current_ep, ef, layer, None, 0);
 
             let m = self.max_neighbors(layer);
             let selected = select_neighbors_heuristic(self, &candidates, m);
@@ -72,8 +82,8 @@ impl HnswIndex {
                 self.nodes[nid].neighbors[layer].push(new_id);
 
                 if self.nodes[nid].neighbors[layer].len() > m {
-                    let node_vec = self.nodes[nid].vector.clone();
-                    self.prune_neighbors(nid, layer, &node_vec, m);
+                    let node_bytes = self.nodes[nid].storage.as_bytes().to_vec();
+                    self.prune_neighbors(nid, layer, &node_bytes, m);
                 }
             }
 
@@ -91,14 +101,14 @@ impl HnswIndex {
     }
 
     /// Prune a node's neighbor list using the diversity heuristic.
-    fn prune_neighbors(&mut self, node_idx: usize, layer: usize, node_vec: &[f32], m: usize) {
+    fn prune_neighbors(&mut self, node_idx: usize, layer: usize, node_bytes: &[u8], m: usize) {
         let neighbor_ids: Vec<u32> = self.nodes[node_idx].neighbors[layer].clone();
 
         let mut candidates: Vec<Candidate> = neighbor_ids
             .iter()
             .map(|&nid| Candidate {
                 id: nid,
-                dist: self.dist_to_node(node_vec, nid),
+                dist: self.dist_to_node(node_bytes, nid),
             })
             .collect();
         candidates.sort_unstable_by(|a, b| a.dist.total_cmp(&b.dist));
@@ -122,18 +132,19 @@ fn select_neighbors_heuristic(
             break;
         }
 
-        let candidate_vec = &index.nodes[candidate.id as usize].vector;
-        let selected_vecs: Vec<&[f32]> = selected
-            .iter()
-            .map(|s| index.nodes[s.id as usize].vector.as_slice())
-            .collect();
-
-        let is_diverse = crate::batch_distance::is_diverse_batched(
-            candidate_vec,
-            candidate.dist,
-            &selected_vecs,
-            index.params.metric,
-        );
+        let candidate_bytes = index.nodes[candidate.id as usize].storage.as_bytes();
+        let is_diverse = selected.iter().all(|s| {
+            let selected_bytes = index.nodes[s.id as usize].storage.as_bytes();
+            let dist_to_selected = crate::distance::dispatch::distance_typed(
+                index.params.metric,
+                index.params.dtype,
+                candidate_bytes,
+                selected_bytes,
+                index.dim,
+            )
+            .unwrap_or(f32::MAX);
+            candidate.dist <= dist_to_selected
+        });
 
         if is_diverse {
             selected.push(*candidate);
@@ -169,6 +180,7 @@ mod tests {
                 m0: 8,
                 ef_construction: 32,
                 metric: DistanceMetric::L2,
+                dtype: nodedb_types::vector_dtype::VectorStorageDtype::F32,
             },
             12345,
         )

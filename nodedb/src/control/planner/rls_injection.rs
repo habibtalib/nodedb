@@ -8,14 +8,14 @@
 //! session or JWT awareness.
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::{
-    ColumnarOp, DocumentOp, GraphOp, KvOp, QueryOp, SpatialOp, TextOp, TimeseriesOp, VectorOp,
-};
 use crate::bridge::scan_filter::FilterOp;
-use crate::control::planner::physical::PhysicalTask;
 use crate::control::security::auth_context::AuthContext;
 use crate::control::security::rls::RlsPolicyStore;
 use crate::types::TenantId;
+use nodedb_physical::physical_plan::{
+    ColumnarOp, DocumentOp, GraphOp, KvOp, QueryOp, SpatialOp, TextOp, TimeseriesOp, VectorOp,
+};
+use nodedb_physical::physical_task::PhysicalTask;
 
 /// Inject RLS predicates into physical tasks after plan conversion.
 ///

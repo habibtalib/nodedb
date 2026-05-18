@@ -10,12 +10,12 @@ use pgwire::api::results::{DataRowEncoder, QueryResponse, Response};
 use pgwire::error::PgWireResult;
 use sonic_rs;
 
-use crate::bridge::physical_plan::GraphOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::broadcast;
 use crate::control::state::SharedState;
 use crate::data::executor::response_codec;
 use crate::types::TraceId;
+use nodedb_physical::physical_plan::GraphOp;
 
 use super::super::types::{sqlstate_error, text_field};
 

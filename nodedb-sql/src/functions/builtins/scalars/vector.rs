@@ -92,6 +92,17 @@ pub(super) fn vector_functions() -> Vec<FunctionMeta> {
             None,
             arg_types::TEXT_MATCH_ARGS,
         ),
+        // `SEARCH(field, 'query text')` — alias for WHERE-clause FTS search.
+        // Routes the same as `text_match` through the TextMatch WHERE-search path.
+        m(
+            "search",
+            Scalar,
+            2,
+            3,
+            SearchTrigger::TextMatch,
+            None,
+            arg_types::TEXT_MATCH_ARGS,
+        ),
         m(
             "rrf_score",
             Scalar,

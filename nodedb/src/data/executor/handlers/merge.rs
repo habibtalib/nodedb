@@ -21,13 +21,13 @@ use super::merge_helpers::{
     apply_action, apply_insert_action, build_merged, find_arm, json_to_str,
 };
 use crate::bridge::envelope::{ErrorCode, Response};
-use crate::bridge::physical_plan::document::merge_types::{
-    MergeClauseKind as MergeClauseKindOp, MergeClauseOp,
-};
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::doc_format;
 use crate::data::executor::response_codec::encode_json;
 use crate::data::executor::task::ExecutionTask;
+use nodedb_physical::physical_plan::document::merge_types::{
+    MergeClauseKind as MergeClauseKindOp, MergeClauseOp,
+};
 
 /// Parameters for `execute_merge`.
 pub(in crate::data::executor) struct MergeParams<'a> {
@@ -83,7 +83,8 @@ impl CoreLoop {
             target_collection.to_string(),
         );
         let strict_schema = self.doc_configs.get(&config_key).and_then(|c| {
-            if let crate::bridge::physical_plan::StorageMode::Strict { ref schema } = c.storage_mode
+            if let nodedb_physical::physical_plan::StorageMode::Strict { ref schema } =
+                c.storage_mode
             {
                 Some(schema.clone())
             } else {
@@ -299,7 +300,8 @@ impl CoreLoop {
 
         let config_key = (crate::types::TenantId::new(tid), collection.to_string());
         let strict_schema = self.doc_configs.get(&config_key).and_then(|c| {
-            if let crate::bridge::physical_plan::StorageMode::Strict { ref schema } = c.storage_mode
+            if let nodedb_physical::physical_plan::StorageMode::Strict { ref schema } =
+                c.storage_mode
             {
                 Some(schema.clone())
             } else {

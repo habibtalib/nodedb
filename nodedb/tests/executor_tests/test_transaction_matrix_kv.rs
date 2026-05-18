@@ -7,10 +7,10 @@
 //!   2. TransactionBatch: valid write (first op) + deterministically failing write (second op).
 //!   3. Assert: the first write was fully rolled back.
 
-use nodedb::bridge::envelope::{PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::{
-    AggregateSpec, ColumnarInsertIntent, ColumnarOp, DocumentOp, KvOp, MetaOp, QueryOp,
-    TimeseriesOp,
+use nodedb::bridge::envelope::Status;
+use nodedb_physical::physical_plan::{
+    AggregateSpec, ColumnarInsertIntent, ColumnarOp, DocumentOp, KvOp, MetaOp, PhysicalPlan,
+    QueryOp, TimeseriesOp,
 };
 
 use crate::helpers::*;

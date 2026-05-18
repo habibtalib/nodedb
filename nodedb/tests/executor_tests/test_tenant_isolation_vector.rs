@@ -4,8 +4,8 @@
 //!
 //! Tenant A inserts vectors. Tenant B searches — must get zero results.
 
-use nodedb::bridge::envelope::{PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::VectorOp;
+use nodedb::bridge::envelope::Status;
+use nodedb_physical::physical_plan::{PhysicalPlan, VectorOp};
 use nodedb_types::vector_distance::DistanceMetric;
 
 use crate::helpers::*;

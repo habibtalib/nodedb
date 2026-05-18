@@ -2,13 +2,13 @@
 
 //! Pure helper functions for MERGE statement execution (arm selection, action application).
 
-use crate::bridge::physical_plan::UpdateValue;
-use crate::bridge::physical_plan::document::merge_types::{
-    MergeActionOp, MergeClauseKind as MergeClauseKindOp, MergeClauseOp,
-};
 use crate::bridge::scan_filter::ScanFilter;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::doc_format;
+use nodedb_physical::physical_plan::UpdateValue;
+use nodedb_physical::physical_plan::document::merge_types::{
+    MergeActionOp, MergeClauseKind as MergeClauseKindOp, MergeClauseOp,
+};
 
 /// Find the first clause of the given kind whose extra_predicate is satisfied
 /// against `context_doc`.

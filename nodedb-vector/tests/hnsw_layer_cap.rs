@@ -26,6 +26,7 @@ fn random_layer_never_exceeds_cap_under_normal_inserts() {
             m0: 32,
             ef_construction: 64,
             metric: DistanceMetric::L2,
+            ..HnswParams::default()
         },
         1,
     );
@@ -59,6 +60,7 @@ fn random_layer_capped_with_adversarial_seed() {
                 m0: 4,
                 ef_construction: 32,
                 metric: DistanceMetric::L2,
+                ..HnswParams::default()
             },
             seed,
         );

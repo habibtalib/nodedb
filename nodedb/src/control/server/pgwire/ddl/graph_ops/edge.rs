@@ -13,12 +13,12 @@ use pgwire::error::PgWireResult;
 use nodedb_sql::ddl_ast::GraphProperties;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::GraphOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::types::sqlstate_error;
 use crate::control::server::{dispatch_utils, wal_dispatch};
 use crate::control::state::SharedState;
 use crate::types::{TraceId, VShardId};
+use nodedb_physical::physical_plan::GraphOp;
 
 /// Maximum byte length for an edge label string. Keeps a single `TYPE`
 /// clause from bloating the CSR label table and the msgpack wire payload.

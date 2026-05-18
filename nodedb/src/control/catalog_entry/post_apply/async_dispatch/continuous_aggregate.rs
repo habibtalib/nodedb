@@ -14,10 +14,10 @@ use std::sync::Arc;
 use tracing::debug;
 
 use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::state::SharedState;
 use crate::engine::timeseries::continuous_agg::ContinuousAggregateDef;
 use crate::types::{DatabaseId, ReadConsistency, TenantId, TraceId, VShardId};
+use nodedb_physical::physical_plan::MetaOp;
 
 /// Dispatch `MetaOp::RegisterContinuousAggregate` to every core on
 /// this node. `def_bytes` is the MessagePack-encoded

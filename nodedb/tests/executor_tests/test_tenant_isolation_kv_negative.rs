@@ -6,8 +6,8 @@
 //! overwrite or delete Tenant A's data.  After each cross-tenant write
 //! attempt, Tenant A's key must still return its original value.
 
-use nodedb::bridge::envelope::{ErrorCode, PhysicalPlan, Status};
-use nodedb::bridge::physical_plan::KvOp;
+use nodedb::bridge::envelope::{ErrorCode, Status};
+use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
 use crate::helpers::*;
 

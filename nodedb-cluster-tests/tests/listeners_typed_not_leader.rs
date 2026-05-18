@@ -61,10 +61,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use nodedb::Error;
-use nodedb::bridge::physical_plan::{KvOp, PhysicalPlan};
 use nodedb::control::gateway::GatewayErrorMap;
 use nodedb::control::gateway::core::QueryContext;
 use nodedb::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
 
 use common::cluster_harness::TestClusterNode;
 

@@ -4,12 +4,16 @@
 
 use super::hamming::fast_hamming;
 use super::scalar::{scalar_cosine, scalar_ip, scalar_l2};
+use crate::distance::typed_scalar;
 
 #[cfg(target_arch = "x86_64")]
 use super::{avx2, avx512};
 
 #[cfg(target_arch = "aarch64")]
 use super::neon;
+
+/// Function pointer type for half-precision byte-level distance kernels.
+type HalfFn = fn(&[u8], &[u8], usize) -> f32;
 
 /// Selected SIMD runtime — function pointers to the best available kernels.
 pub struct SimdRuntime {
@@ -18,6 +22,14 @@ pub struct SimdRuntime {
     pub neg_inner_product: fn(&[f32], &[f32]) -> f32,
     pub hamming: fn(&[u8], &[u8]) -> u32,
     pub name: &'static str,
+    /// F16 fused decode-and-compute kernels (no intermediate Vec<f32>).
+    pub l2_squared_f16: HalfFn,
+    pub cosine_distance_f16: HalfFn,
+    pub neg_inner_product_f16: HalfFn,
+    /// BF16 fused decode-and-compute kernels.
+    pub l2_squared_bf16: HalfFn,
+    pub cosine_distance_bf16: HalfFn,
+    pub neg_inner_product_bf16: HalfFn,
 }
 
 impl SimdRuntime {
@@ -39,6 +51,12 @@ impl SimdRuntime {
                     neg_inner_product: avx512::neg_inner_product,
                     hamming: fast_hamming,
                     name,
+                    l2_squared_f16: typed_scalar::l2_squared_f16,
+                    cosine_distance_f16: typed_scalar::cosine_f16,
+                    neg_inner_product_f16: typed_scalar::neg_inner_product_f16,
+                    l2_squared_bf16: typed_scalar::l2_squared_bf16,
+                    cosine_distance_bf16: typed_scalar::cosine_bf16,
+                    neg_inner_product_bf16: typed_scalar::neg_inner_product_bf16,
                 };
                 tracing::info!(kernel = rt.name, "vector SIMD kernel selected");
                 debug_assert!(
@@ -54,6 +72,12 @@ impl SimdRuntime {
                     neg_inner_product: avx2::neg_inner_product,
                     hamming: fast_hamming,
                     name: "avx2+fma",
+                    l2_squared_f16: typed_scalar::l2_squared_f16,
+                    cosine_distance_f16: typed_scalar::cosine_f16,
+                    neg_inner_product_f16: typed_scalar::neg_inner_product_f16,
+                    l2_squared_bf16: typed_scalar::l2_squared_bf16,
+                    cosine_distance_bf16: typed_scalar::cosine_bf16,
+                    neg_inner_product_bf16: typed_scalar::neg_inner_product_bf16,
                 };
                 tracing::info!(kernel = rt.name, "vector SIMD kernel selected");
                 return rt;
@@ -67,6 +91,12 @@ impl SimdRuntime {
                 neg_inner_product: neon::neg_inner_product,
                 hamming: fast_hamming,
                 name: "neon",
+                l2_squared_f16: typed_scalar::l2_squared_f16,
+                cosine_distance_f16: typed_scalar::cosine_f16,
+                neg_inner_product_f16: typed_scalar::neg_inner_product_f16,
+                l2_squared_bf16: typed_scalar::l2_squared_bf16,
+                cosine_distance_bf16: typed_scalar::cosine_bf16,
+                neg_inner_product_bf16: typed_scalar::neg_inner_product_bf16,
             };
             tracing::info!(kernel = rt.name, "vector SIMD kernel selected");
             return rt;
@@ -79,6 +109,12 @@ impl SimdRuntime {
                 neg_inner_product: scalar_ip,
                 hamming: fast_hamming,
                 name: "scalar",
+                l2_squared_f16: typed_scalar::l2_squared_f16,
+                cosine_distance_f16: typed_scalar::cosine_f16,
+                neg_inner_product_f16: typed_scalar::neg_inner_product_f16,
+                l2_squared_bf16: typed_scalar::l2_squared_bf16,
+                cosine_distance_bf16: typed_scalar::cosine_bf16,
+                neg_inner_product_bf16: typed_scalar::neg_inner_product_bf16,
             };
             tracing::info!(kernel = rt.name, "vector SIMD kernel selected");
             rt

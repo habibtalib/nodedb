@@ -24,9 +24,9 @@ use std::time::Instant;
 
 use nodedb_cluster::calvin::types::SequencedTxn;
 
-use crate::bridge::physical_plan::meta::PassiveReadKeyId;
 use crate::control::cluster::calvin::scheduler::lock_manager::LockKey;
 use crate::types::TenantId;
+use nodedb_physical::physical_plan::meta::PassiveReadKeyId;
 use nodedb_types::Value;
 
 // ── ReadResultEvent ────────────────────────────────────────────────────────────

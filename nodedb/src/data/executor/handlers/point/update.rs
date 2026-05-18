@@ -10,12 +10,12 @@
 use tracing::debug;
 
 use crate::bridge::envelope::{ErrorCode, Response};
-use crate::bridge::physical_plan::{ReturningSpec, UpdateValue};
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::doc_format;
 use crate::data::executor::handlers::returning_rows;
 use crate::data::executor::task::ExecutionTask;
 use crate::engine::document::store::surrogate_to_doc_id;
+use nodedb_physical::physical_plan::{ReturningSpec, UpdateValue};
 use nodedb_types::Surrogate;
 
 impl CoreLoop {
@@ -45,7 +45,7 @@ impl CoreLoop {
         let is_strict = self.doc_configs.get(&config_key).is_some_and(|c| {
             matches!(
                 c.storage_mode,
-                crate::bridge::physical_plan::StorageMode::Strict { .. }
+                nodedb_physical::physical_plan::StorageMode::Strict { .. }
             )
         });
 
@@ -101,8 +101,9 @@ impl CoreLoop {
                     // Strict, generated, or expression RHS: decode → mutate → re-encode.
                     let mut doc = if is_strict {
                         if let Some(config) = self.doc_configs.get(&config_key)
-                            && let crate::bridge::physical_plan::StorageMode::Strict { ref schema } =
-                                config.storage_mode
+                            && let nodedb_physical::physical_plan::StorageMode::Strict {
+                                ref schema,
+                            } = config.storage_mode
                         {
                             match super::super::super::strict_format::binary_tuple_to_json(
                                 &current_bytes,
@@ -191,8 +192,9 @@ impl CoreLoop {
                     // Re-encode.
                     if is_strict {
                         if let Some(config) = self.doc_configs.get(&config_key)
-                            && let crate::bridge::physical_plan::StorageMode::Strict { ref schema } =
-                                config.storage_mode
+                            && let nodedb_physical::physical_plan::StorageMode::Strict {
+                                ref schema,
+                            } = config.storage_mode
                         {
                             let ndb_val: nodedb_types::Value = doc.clone().into();
                             let result = if bitemporal && schema.bitemporal {

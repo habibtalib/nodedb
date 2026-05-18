@@ -3,11 +3,11 @@
 use pgwire::api::results::Response;
 use pgwire::error::PgWireResult;
 
-use crate::bridge::physical_plan::DocumentOp;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 use crate::types::DatabaseId;
 use crate::types::TraceId;
+use nodedb_physical::physical_plan::DocumentOp;
 
 pub(super) async fn dispatch(
     state: &SharedState,

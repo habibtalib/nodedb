@@ -10,9 +10,9 @@ use nodedb_types::backup_envelope::EnvelopeError;
 
 use crate::Error;
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::wire as plan_wire;
 use crate::control::state::SharedState;
 use crate::types::TraceId;
+use nodedb_physical::physical_plan::wire as plan_wire;
 
 pub(super) const NODE_RESTORE_TIMEOUT: Duration = Duration::from_secs(120);
 

@@ -3,16 +3,16 @@
 use nodedb_sql::types::{KvInsertIntent, SqlExpr, SqlValue, VectorPrimaryRow};
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::*;
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::*;
 
-use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
 use super::super::value::{
     assignments_to_update_values, sql_value_to_bytes, sql_value_to_nodedb_value,
     write_msgpack_map_header, write_msgpack_str, write_msgpack_value,
 };
 use super::insert::assign_for_pk;
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 pub(in super::super) fn convert_kv_insert(
     collection: &str,
@@ -89,11 +89,16 @@ pub(in super::super) fn convert_kv_insert(
     Ok(tasks)
 }
 
+pub(in super::super) struct VectorPrimaryInsertCfg<'a> {
+    pub field: &'a str,
+    pub quantization: nodedb_types::VectorQuantization,
+    pub storage_dtype: nodedb_types::VectorStorageDtype,
+    pub payload_indexes: &'a [(String, nodedb_types::PayloadIndexKind)],
+}
+
 pub(in super::super) fn convert_vector_primary_insert(
     collection: &str,
-    field: &str,
-    quantization: nodedb_types::VectorQuantization,
-    payload_indexes: &[(String, nodedb_types::PayloadIndexKind)],
+    cfg: &VectorPrimaryInsertCfg<'_>,
     rows: &[VectorPrimaryRow],
     tenant_id: TenantId,
     ctx: &ConvertContext,
@@ -139,12 +144,13 @@ pub(in super::super) fn convert_vector_primary_insert(
             database_id: ctx.database_id,
             plan: PhysicalPlan::Vector(VectorOp::DirectUpsert {
                 collection: collection.to_string(),
-                field: field.to_string(),
+                field: cfg.field.to_string(),
                 surrogate,
                 vector: row.vector.clone(),
                 payload,
-                quantization,
-                payload_indexes: payload_indexes.to_vec(),
+                quantization: cfg.quantization,
+                storage_dtype: cfg.storage_dtype,
+                payload_indexes: cfg.payload_indexes.to_vec(),
             }),
             post_set_op: PostSetOp::None,
         });
@@ -186,9 +192,12 @@ mod tests {
         let rows = vec![row(64), row(128)];
         let result = super::convert_vector_primary_insert(
             "vecs",
-            "emb",
-            VectorQuantization::None,
-            &[],
+            &super::VectorPrimaryInsertCfg {
+                field: "emb",
+                quantization: VectorQuantization::None,
+                storage_dtype: nodedb_types::VectorStorageDtype::F32,
+                payload_indexes: &[],
+            },
             &rows,
             crate::types::TenantId::new(1),
             &ctx,
@@ -202,9 +211,12 @@ mod tests {
         let rows = vec![row(65)];
         let result = super::convert_vector_primary_insert(
             "vecs",
-            "emb",
-            VectorQuantization::None,
-            &[],
+            &super::VectorPrimaryInsertCfg {
+                field: "emb",
+                quantization: VectorQuantization::None,
+                storage_dtype: nodedb_types::VectorStorageDtype::F32,
+                payload_indexes: &[],
+            },
             &rows,
             crate::types::TenantId::new(1),
             &ctx,
@@ -224,9 +236,12 @@ mod tests {
         let rows = vec![row(99999)];
         let result = super::convert_vector_primary_insert(
             "vecs",
-            "emb",
-            VectorQuantization::None,
-            &[],
+            &super::VectorPrimaryInsertCfg {
+                field: "emb",
+                quantization: VectorQuantization::None,
+                storage_dtype: nodedb_types::VectorStorageDtype::F32,
+                payload_indexes: &[],
+            },
             &rows,
             crate::types::TenantId::new(1),
             &ctx,

@@ -20,6 +20,7 @@ members = [
   "nodedb-columnar",
   "nodedb-array",
   "nodedb-sql",
+  "nodedb-physical",
   "nodedb-test-support",
   "nodedb-cluster-tests",
   "nodedb-client-tests",
@@ -58,6 +59,7 @@ nodedb-strict = { path = "nodedb-strict", version = "0.2" }
 nodedb-columnar = { path = "nodedb-columnar", version = "0.2" }
 nodedb-array = { path = "nodedb-array", version = "0.2" }
 nodedb-sql = { path = "nodedb-sql", version = "0.2" }
+nodedb-physical = { path = "nodedb-physical", version = "0.2" }
 nodedb-test-support = { path = "nodedb-test-support" }
 
 # Async runtimes
@@ -175,6 +177,9 @@ arc-swap = "1"
 
 # Safe transmutation for f32/u8 slice casts
 bytemuck = { version = "1", features = ["derive"] }
+
+# IEEE 754 half-precision (f16) and brain-float (bf16) types
+half = { version = "2", features = ["bytemuck"] }
 
 # WebSocket
 tokio-tungstenite = "0.29"

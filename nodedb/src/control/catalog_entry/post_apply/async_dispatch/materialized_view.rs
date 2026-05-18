@@ -11,9 +11,9 @@ use std::sync::Arc;
 use tracing::debug;
 
 use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::state::SharedState;
 use crate::types::{DatabaseId, ReadConsistency, TenantId, TraceId, VShardId};
+use nodedb_physical::physical_plan::MetaOp;
 
 /// Dispatch `MetaOp::UnregisterMaterializedView` to every core on
 /// this node. Fire-and-forget: any core that fails or times out

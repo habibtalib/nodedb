@@ -8,12 +8,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use nodedb::bridge::dispatch::Dispatcher;
-use nodedb::bridge::envelope::PhysicalPlan;
-use nodedb::bridge::physical_plan::TimeseriesOp;
 use nodedb::control::state::SharedState;
 use nodedb::data::executor::core_loop::CoreLoop;
 use nodedb::types::*;
 use nodedb::wal::manager::WalManager;
+use nodedb_physical::physical_plan::{PhysicalPlan, TimeseriesOp};
 
 fn ilp_payload(collection: &str, count: usize, start_ts_ns: i64) -> Vec<u8> {
     let mut lines = String::new();

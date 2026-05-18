@@ -1,0 +1,281 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Vector engine operations dispatched to the Data Plane.
+
+use nodedb_types::{Surrogate, SurrogateBitmap, vector_distance::DistanceMetric};
+
+use crate::physical_plan::PhysicalPlan;
+
+/// Vector engine physical operations.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    zerompk::ToMessagePack,
+    zerompk::FromMessagePack,
+)]
+pub enum VectorOp {
+    /// Vector similarity search.
+    Search {
+        collection: String,
+        query_vector: Vec<f32>,
+        top_k: usize,
+        /// Optional search beam width override. If 0, uses default `4 * top_k`.
+        ef_search: usize,
+        /// Per-query distance metric override. Overrides the collection-default
+        /// metric configured at index creation time.
+        metric: DistanceMetric,
+        /// Pre-computed bitmap of eligible surrogates (from filter evaluation).
+        filter_bitmap: Option<SurrogateBitmap>,
+        /// Named vector field to search. Empty string = default field.
+        field_name: String,
+        /// RLS post-candidate filters (serialized `Vec<ScanFilter>`).
+        /// Applied after HNSW returns candidates, before returning to client.
+        /// Result count may be less than requested `top_k`.
+        rls_filters: Vec<u8>,
+        /// Optional sub-plan whose output rows materialize a `SurrogateBitmap`
+        /// used as an additional prefilter (intersected with `filter_bitmap`).
+        ///
+        /// Set by the planner when fusing `Vector ORDER BY ... + JOIN
+        /// ARRAY_SLICE(...) ON v.id = s.surrogate` into a single op:
+        /// the array slice runs first, its surrogate column becomes the
+        /// vector engine's pre-filter, then HNSW search runs against the
+        /// reduced candidate set. Mirrors `HashJoin`'s `inline_*_bitmap`
+        /// mechanism so the Data Plane composition is uniform.
+        inline_prefilter_plan: Option<Box<PhysicalPlan>>,
+        /// ANN tuning knobs from the SQL caller. Defaults to no overrides.
+        ann_options: nodedb_types::VectorAnnOptions,
+        /// When `true`, the SELECT projection contains only `id` and/or
+        /// `vector_distance(...)` — no payload fields. The handler skips
+        /// the document-body fetch. Ignored (treated as `false`) when RLS
+        /// filters are active, as body fetch is required for RLS evaluation.
+        skip_payload_fetch: bool,
+        /// Optional payload bitmap pre-filter for vector-primary collections.
+        /// Each atom is `Eq` / `In` / `Range` — the handler ANDs all atoms
+        /// and intersects the resulting bitmap with the HNSW candidate set
+        /// before walking. The planner only emits atoms whose field has a
+        /// registered payload index of the matching kind. Empty means no
+        /// payload pre-filter.
+        payload_filters: Vec<nodedb_types::PayloadAtom>,
+    },
+
+    /// Insert a vector into the HNSW index (write path).
+    Insert {
+        collection: String,
+        vector: Vec<f32>,
+        dim: usize,
+        /// Named vector field. Empty string = default (unnamed) field.
+        field_name: String,
+        /// Global surrogate identifying this row. Allocated by the
+        /// Control Plane via `SurrogateAssigner` before dispatch; the
+        /// engine binds the HNSW node id to this surrogate.
+        surrogate: Surrogate,
+    },
+
+    /// Batch insert vectors into the HNSW index.
+    BatchInsert {
+        collection: String,
+        vectors: Vec<Vec<f32>>,
+        dim: usize,
+        /// One surrogate per inserted vector, parallel to `vectors`.
+        /// Empty vector = headless batch (no PK binding).
+        surrogates: Vec<Surrogate>,
+    },
+
+    /// Multi-vector search: query across all named vector fields, fuse via RRF.
+    MultiSearch {
+        collection: String,
+        query_vector: Vec<f32>,
+        top_k: usize,
+        ef_search: usize,
+        filter_bitmap: Option<SurrogateBitmap>,
+        /// RLS post-candidate filters.
+        rls_filters: Vec<u8>,
+    },
+
+    /// Soft-delete a vector by internal node ID.
+    Delete { collection: String, vector_id: u32 },
+
+    /// Soft-delete a vector by surrogate (sync inbound path).
+    ///
+    /// The Data Plane resolves `surrogate → HNSW node_id` via the
+    /// `surrogate_to_local` map and tombstones the node.  If the surrogate
+    /// is not found the op is a no-op (idempotent).
+    DeleteBySurrogate {
+        collection: String,
+        surrogate: nodedb_types::Surrogate,
+        /// Named vector field; empty = default field.
+        field_name: String,
+    },
+
+    /// Set vector index parameters for a collection.
+    SetParams {
+        collection: String,
+        /// Named vector field this config applies to. Empty string = the
+        /// default (unnamed) vector field. Lets one collection carry
+        /// multiple vector indexes, one per `VECTOR` / embedding column.
+        field_name: String,
+        m: usize,
+        ef_construction: usize,
+        metric: String,
+        /// Index type: "hnsw" (default), "hnsw_pq", or "ivf_pq".
+        index_type: String,
+        /// PQ subvectors (for hnsw_pq and ivf_pq). Default: 8.
+        pq_m: usize,
+        /// IVF cells (for ivf_pq only). Default: 256.
+        ivf_cells: usize,
+        /// IVF probe count (for ivf_pq only). Default: 16.
+        ivf_nprobe: usize,
+    },
+
+    /// Query live vector index statistics. Returns `VectorIndexStats` as payload.
+    QueryStats {
+        collection: String,
+        /// Named vector field. Empty string = default (unnamed) field.
+        field_name: String,
+    },
+
+    /// Force-seal the growing segment, triggering background HNSW build.
+    Seal {
+        collection: String,
+        /// Named vector field. Empty string = default field.
+        field_name: String,
+    },
+
+    /// Force tombstone compaction on sealed segments.
+    CompactIndex {
+        collection: String,
+        /// Named vector field. Empty string = default field.
+        field_name: String,
+    },
+
+    /// Rebuild sealed segments with new HNSW parameters.
+    /// Old index serves queries until rebuild completes, then swaps atomically.
+    Rebuild {
+        collection: String,
+        /// Named vector field. Empty string = default field.
+        field_name: String,
+        /// New M parameter. 0 = keep current.
+        m: usize,
+        /// New M0 parameter. 0 = keep current.
+        m0: usize,
+        /// New ef_construction. 0 = keep current.
+        ef_construction: usize,
+    },
+
+    /// Insert a sparse vector into the inverted index.
+    SparseInsert {
+        collection: String,
+        /// Named sparse vector field.
+        field_name: String,
+        /// Document ID to associate with this sparse vector.
+        doc_id: String,
+        /// Sparse vector entries as `(dimension, weight)` pairs.
+        entries: Vec<(u32, f32)>,
+    },
+
+    /// Search the sparse inverted index via dot-product scoring.
+    SparseSearch {
+        collection: String,
+        /// Named sparse vector field.
+        field_name: String,
+        /// Query sparse vector entries.
+        query_entries: Vec<(u32, f32)>,
+        /// Maximum results to return.
+        top_k: usize,
+    },
+
+    /// Delete a document from the sparse inverted index.
+    SparseDelete {
+        collection: String,
+        /// Named sparse vector field.
+        field_name: String,
+        /// Document ID to remove.
+        doc_id: String,
+    },
+
+    /// Insert multiple vectors for a single document (ColBERT-style).
+    /// All vectors are inserted as separate HNSW nodes sharing the
+    /// same `document_surrogate`.
+    MultiVectorInsert {
+        collection: String,
+        /// Named vector field. Empty = default.
+        field_name: String,
+        /// Surrogate shared by all vectors of the document.
+        document_surrogate: Surrogate,
+        /// Flat vector data: count × dim f32 values.
+        vectors: Vec<f32>,
+        /// Number of vectors.
+        count: usize,
+        /// Dimensionality of each vector.
+        dim: usize,
+    },
+
+    /// Delete all vectors for a document from the multi-vector index.
+    MultiVectorDelete {
+        collection: String,
+        /// Named vector field. Empty = default.
+        field_name: String,
+        /// Document surrogate whose vectors should be tombstoned.
+        document_surrogate: Surrogate,
+    },
+
+    /// Search with multi-vector aggregated scoring (MaxSim, AvgSim, SumSim).
+    /// Over-fetches from HNSW, groups by doc_id, aggregates, deduplicates.
+    MultiVectorScoreSearch {
+        collection: String,
+        /// Named vector field. Empty = default.
+        field_name: String,
+        /// Query vector.
+        query_vector: Vec<f32>,
+        /// Maximum documents to return.
+        top_k: usize,
+        /// HNSW ef_search override. 0 = auto.
+        ef_search: usize,
+        /// Aggregation mode: "max_sim", "avg_sim", "sum_sim".
+        mode: String,
+    },
+
+    /// Direct vector upsert for vector-primary collections.
+    ///
+    /// Bypasses MessagePack document encoding — the Data Plane inserts the
+    /// vector into HNSW directly and updates payload bitmap indexes from
+    /// `payload`. No full-document blob is written.
+    ///
+    /// Ordering invariant (enforced by the handler):
+    ///   1. Validate dim.
+    ///   2. Decode `payload` bytes.
+    ///   3. Insert into HNSW (surrogate bound).
+    ///   4. Update payload bitmap indexes.
+    ///
+    /// If step 3 fails, step 4 is not reached — no partial state.
+    /// If step 4 fails (should not happen — pure in-memory), the handler
+    /// attempts to delete the just-inserted HNSW node and returns an error.
+    DirectUpsert {
+        collection: String,
+        /// Vector column name. Used to compute the vector index key so the
+        /// SELECT path (which keys by `(tid, collection, field)`) finds the
+        /// same index this insert wrote into.
+        field: String,
+        /// Global surrogate allocated by the Control Plane.
+        surrogate: Surrogate,
+        /// FP32 vector values.
+        vector: Vec<f32>,
+        /// Pre-encoded MessagePack of only the payload-indexed fields.
+        /// Empty when the collection has no payload indexes configured.
+        payload: Vec<u8>,
+        /// Collection-level quantization. Applied via `set_quantization` on
+        /// first insert so subsequent seals trigger codec-dispatch rebuilds
+        /// against the configured codec (RaBitQ / BBQ).
+        quantization: nodedb_types::VectorQuantization,
+        /// Native storage dtype for vector values (F32 / F16 / BF16). The
+        /// executor uses this to decide whether to transcode incoming f32
+        /// components before writing them into the HNSW index backing store.
+        storage_dtype: nodedb_types::VectorStorageDtype,
+        /// Payload field bitmap indexes (name + kind). Registered via
+        /// `payload.add_index` on the first insert into a new collection.
+        payload_indexes: Vec<(String, nodedb_types::PayloadIndexKind)>,
+    },
+}

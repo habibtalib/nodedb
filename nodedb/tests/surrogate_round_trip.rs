@@ -26,10 +26,7 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use nodedb::bridge::dispatch::{BridgeRequest, BridgeResponse};
-use nodedb::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
-use nodedb::bridge::physical_plan::{
-    ArrayOp, ColumnarInsertIntent, ColumnarOp, DocumentOp, GraphOp, KvOp, VectorOp,
-};
+use nodedb::bridge::envelope::{Priority, Request, Status};
 use nodedb::data::executor::core_loop::CoreLoop;
 use nodedb::data::executor::response_codec::decode_payload_to_json;
 use nodedb::engine::array::wal::ArrayPutCell;
@@ -44,6 +41,9 @@ use nodedb_array::types::cell_value::value::CellValue;
 use nodedb_array::types::coord::value::CoordValue;
 use nodedb_array::types::domain::{Domain, DomainBound};
 use nodedb_bridge::buffer::{Consumer, Producer, RingBuffer};
+use nodedb_physical::physical_plan::{
+    ArrayOp, ColumnarInsertIntent, ColumnarOp, DocumentOp, GraphOp, KvOp, PhysicalPlan, VectorOp,
+};
 use nodedb_types::vector_distance::DistanceMetric;
 use nodedb_types::{Surrogate, SurrogateBitmap};
 

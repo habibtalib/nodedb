@@ -7,9 +7,9 @@ use std::sync::Arc;
 use pgwire::api::results::Tag;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 
-use crate::control::planner::physical::PhysicalTask;
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::types::TenantId;
+use nodedb_physical::physical_task::PhysicalTask;
 
 use super::super::super::types::error_to_sqlstate;
 use super::super::core::NodeDbPgHandler;
@@ -223,10 +223,10 @@ pub(super) fn consistency_for_tasks(tasks: &[PhysicalTask]) -> crate::types::Rea
 /// affected. All other plan variants are left unchanged.
 pub(super) fn inject_returning_spec(
     plan: &mut crate::bridge::envelope::PhysicalPlan,
-    spec: crate::bridge::physical_plan::ReturningSpec,
+    spec: nodedb_physical::physical_plan::ReturningSpec,
 ) {
     use crate::bridge::envelope::PhysicalPlan;
-    use crate::bridge::physical_plan::DocumentOp;
+    use nodedb_physical::physical_plan::DocumentOp;
 
     match plan {
         PhysicalPlan::Document(DocumentOp::PointUpdate { returning, .. }) => {

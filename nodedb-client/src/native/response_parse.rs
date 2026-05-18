@@ -47,9 +47,6 @@ fn parse_single_search_result(v: &serde_json::Value) -> Option<SearchResult> {
     })
 }
 
-// Re-export for use by client.rs
-pub(crate) use nodedb_types::conversion::json_to_value;
-
 /// Parse a graph traversal response into a SubGraph.
 pub(crate) fn parse_subgraph_response(
     resp: &nodedb_types::protocol::NativeResponse,

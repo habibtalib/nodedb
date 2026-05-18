@@ -70,7 +70,7 @@ fn make_test_state() -> (Arc<SharedState>, Arc<PlanCache>) {
 
 /// Insert a sentinel plan entry for collection `col` at version 1.
 fn plant_sentinel(cache: &PlanCache, col: &str) -> PlanCacheKey {
-    use crate::bridge::physical_plan::{KvOp, PhysicalPlan};
+    use nodedb_physical::physical_plan::{KvOp, PhysicalPlan};
     let key = PlanCacheKey {
         sql_text_hash: hash_sql(&format!("SELECT * FROM {col}")),
         placeholder_types_hash: 0,

@@ -4,16 +4,16 @@ use nodedb_sql::types::{EngineType, Filter, SqlExpr, SqlPlan, SqlValue};
 use nodedb_types::Surrogate;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::*;
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::*;
 
-use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
 use super::super::filter::serialize_filters;
 use super::super::value::{
     assignments_to_update_values, assignments_to_update_values_qualified, sql_value_to_bytes,
     sql_value_to_msgpack, sql_value_to_string,
 };
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 #[allow(clippy::too_many_arguments)]
 pub(in super::super) fn convert_update(
@@ -77,7 +77,7 @@ pub(in super::super) fn convert_update(
         // ColumnarOp::Update carries raw msgpack bytes per field; extract
         // literals only (expressions require row-context eval not yet wired
         // into the columnar mutation handler).
-        use crate::bridge::physical_plan::UpdateValue;
+        use nodedb_physical::physical_plan::UpdateValue;
         let mut columnar_updates: Vec<(String, Vec<u8>)> = Vec::with_capacity(updates.len());
         for (field, update_val) in &updates {
             match update_val {

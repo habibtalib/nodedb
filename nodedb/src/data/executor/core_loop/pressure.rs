@@ -156,10 +156,10 @@ mod tests {
 
     use super::*;
     use crate::bridge::envelope::{ErrorCode, PhysicalPlan, Priority, Request};
-    use crate::bridge::physical_plan::VectorOp;
     use crate::data::executor::core_loop::CoreLoop;
     use crate::data::executor::task::ExecutionTask;
     use crate::types::*;
+    use nodedb_physical::physical_plan::VectorOp;
     use nodedb_types::Surrogate;
 
     fn make_core() -> (

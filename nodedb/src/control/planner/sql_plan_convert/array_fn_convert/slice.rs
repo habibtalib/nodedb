@@ -11,12 +11,12 @@ use nodedb_sql::temporal::TemporalScope;
 use nodedb_sql::types_array::ArraySliceAst;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::{ArrayOp, ClusterArrayOp};
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::{ArrayOp, ClusterArrayOp};
 
-use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
 use super::helpers::{coerce_bound, load_entry, resolve_attr_indices};
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 pub(crate) fn convert_slice(
     name: &str,

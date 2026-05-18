@@ -6,7 +6,7 @@
 use sonic_rs;
 
 use crate::bridge::envelope::ErrorCode;
-use crate::bridge::physical_plan::EnforcementOptions;
+use nodedb_physical::physical_plan::EnforcementOptions;
 
 /// Check whether a DELETE is allowed given retention and legal hold policies.
 ///
@@ -49,45 +49,7 @@ pub fn check_delete_allowed(
     Ok(())
 }
 
-/// Parsed retention duration with calendar-accurate units.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    serde::Serialize,
-    serde::Deserialize,
-    zerompk::ToMessagePack,
-    zerompk::FromMessagePack,
-)]
-pub struct RetentionDuration {
-    pub count: u32,
-    pub unit: RetentionUnit,
-}
-
-/// Calendar-accurate duration units.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    serde::Serialize,
-    serde::Deserialize,
-    zerompk::ToMessagePack,
-    zerompk::FromMessagePack,
-)]
-#[msgpack(c_enum)]
-pub enum RetentionUnit {
-    Seconds,
-    Minutes,
-    Hours,
-    Days,
-    Weeks,
-    Months,
-    Years,
-}
+pub use nodedb_physical::physical_plan::document::{RetentionDuration, RetentionUnit};
 
 /// Parse a human-readable retention period string.
 ///

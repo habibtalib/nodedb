@@ -11,6 +11,7 @@ use nodedb_types::NodeDbError;
 use nodedb_types::collection_config::VectorPrimaryConfig;
 use nodedb_types::vector_ann::VectorQuantization;
 use nodedb_types::vector_distance::DistanceMetric;
+use nodedb_types::vector_dtype::VectorStorageDtype;
 
 /// Known quantization codec names accepted in DDL.
 const VALID_QUANTIZATIONS: &[&str] = &[
@@ -79,6 +80,9 @@ pub fn parse_vector_primary_options(sql: &str) -> Result<Option<VectorPrimaryCon
         Some(m) => parse_metric(m)?,
     };
 
+    // Optional: storage_dtype (default F32).
+    let storage_dtype = parse_storage_dtype(extract_with_str(sql, "storage_dtype").as_deref())?;
+
     // Optional: payload_indexes (array of quoted strings). Parser emits
     // names only; the DDL handler infers the kind from each column's type
     // before storing the final config.
@@ -94,6 +98,7 @@ pub fn parse_vector_primary_options(sql: &str) -> Result<Option<VectorPrimaryCon
         m,
         ef_construction,
         metric,
+        storage_dtype,
         payload_indexes,
     }))
 }
@@ -250,6 +255,8 @@ pub fn parse_vector_primary_options_from_kvs(
         Some(m) => parse_metric(m)?,
     };
 
+    let storage_dtype = parse_storage_dtype(get("storage_dtype").as_deref())?;
+
     // payload_indexes is stored as a single value by the collection parser
     // as a comma-separated list (stripped of bracket syntax).
     let payload_indexes = get("payload_indexes")
@@ -279,6 +286,7 @@ pub fn parse_vector_primary_options_from_kvs(
         m,
         ef_construction,
         metric,
+        storage_dtype,
         payload_indexes,
     }))
 }
@@ -428,6 +436,20 @@ fn parse_quantization(q: &str) -> Result<VectorQuantization, NodeDbError> {
             VALID_QUANTIZATIONS.join(", ")
         ))),
     }
+}
+
+/// Parse the optional `storage_dtype` DDL option. `None` (option omitted)
+/// resolves to the default `F32`; unknown values produce a typed
+/// `bad_request` naming the offending value.
+fn parse_storage_dtype(s: Option<&str>) -> Result<VectorStorageDtype, NodeDbError> {
+    let Some(s) = s else {
+        return Ok(VectorStorageDtype::default());
+    };
+    VectorStorageDtype::parse(s).ok_or_else(|| {
+        NodeDbError::bad_request(format!(
+            "unknown storage_dtype '{s}'; valid values: f32, f16, bf16"
+        ))
+    })
 }
 
 /// Parse a metric string to `DistanceMetric`.

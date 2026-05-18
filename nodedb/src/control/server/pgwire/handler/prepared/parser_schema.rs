@@ -233,11 +233,11 @@ pub(super) fn count_placeholders(sql: &str) -> usize {
 /// projects the RETURNING spec onto it. Returns `None` if the plan isn't a
 /// recognized DML type or the collection schema cannot be found.
 pub(super) fn result_fields_for_returning(
-    spec: &crate::bridge::physical_plan::ReturningSpec,
+    spec: &nodedb_physical::physical_plan::ReturningSpec,
     plan: Option<&nodedb_sql::SqlPlan>,
     catalog: &dyn nodedb_sql::SqlCatalog,
 ) -> Option<Vec<FieldInfo>> {
-    use crate::bridge::physical_plan::{ReturningColumns, ReturningItem};
+    use nodedb_physical::physical_plan::{ReturningColumns, ReturningItem};
     use pgwire::api::results::FieldFormat;
 
     let collection = match plan? {

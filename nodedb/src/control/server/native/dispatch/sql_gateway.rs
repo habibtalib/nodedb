@@ -11,9 +11,9 @@
 use crate::bridge::envelope::{Payload, Response, Status};
 use crate::control::gateway::GatewayErrorMap;
 use crate::control::gateway::core::QueryContext as GatewayQueryContext;
-use crate::control::planner::physical::PhysicalTask;
 use crate::control::server::{dispatch_utils, wal_dispatch};
 use crate::types::{Lsn, RequestId, TraceId};
+use nodedb_physical::physical_task::PhysicalTask;
 
 use super::DispatchCtx;
 

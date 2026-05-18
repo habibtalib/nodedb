@@ -5,15 +5,15 @@ use nodedb_types::Surrogate;
 use nodedb_types::columnar::{ColumnDef, ColumnType, ColumnarSchema};
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::ColumnarInsertIntent;
-use crate::bridge::physical_plan::*;
 use crate::types::{TenantId, VShardId};
+use nodedb_physical::physical_plan::ColumnarInsertIntent;
+use nodedb_physical::physical_plan::*;
 
-use super::super::super::physical::{PhysicalTask, PostSetOp};
 use super::super::convert::ConvertContext;
 use super::super::value::{
     assignments_to_update_values, row_to_msgpack, rows_to_msgpack_array, sql_value_to_string,
 };
+use nodedb_physical::physical_task::{PhysicalTask, PostSetOp};
 
 /// Build a `ColumnarSchema` from raw catalog column-type strings, then
 /// serialize it as MessagePack for the `ColumnarOp::Insert::schema_bytes` field.

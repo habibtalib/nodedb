@@ -10,9 +10,9 @@ use tokio::net::TcpStream;
 use tracing::{debug, instrument, warn};
 
 use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
-use crate::bridge::physical_plan::{CrdtOp, DocumentOp, GraphOp, VectorOp};
 use crate::control::state::SharedState;
 use crate::types::{DatabaseId, ReadConsistency, RequestId, TenantId, TraceId, VShardId};
+use nodedb_physical::physical_plan::{CrdtOp, DocumentOp, GraphOp, VectorOp};
 use nodedb_types::vector_distance::DistanceMetric;
 
 /// Maximum frame size: 16 MiB.

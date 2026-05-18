@@ -79,7 +79,7 @@ pub enum ReplicatedWrite {
     PointUpdate {
         collection: String,
         document_id: String,
-        updates: Vec<(String, crate::bridge::physical_plan::UpdateValue)>,
+        updates: Vec<(String, nodedb_physical::physical_plan::UpdateValue)>,
     },
     VectorInsert {
         collection: String,

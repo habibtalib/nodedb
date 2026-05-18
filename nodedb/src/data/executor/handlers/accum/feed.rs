@@ -5,7 +5,7 @@
 use std::collections::hash_map::Entry;
 
 use super::state::{ARRAY_AGG_CAP, AggAccum};
-use crate::bridge::physical_plan::AggregateSpec;
+use nodedb_physical::physical_plan::AggregateSpec;
 
 impl AggAccum {
     /// Feed one document into this accumulator.

@@ -65,12 +65,12 @@ fn per_row_aggregate(
     }
 
     // Extract order-by values for RANGE numeric offsets.
-    let order_col = spec.order_by.first().map(|(col, _)| col.as_str());
+    let order_expr = spec.order_by.first().map(|(expr, _)| expr);
     let order_values: Vec<serde_json::Value> = indices
         .iter()
         .map(|&i| {
-            order_col
-                .map(|col| get_field(&rows[i].1, col))
+            order_expr
+                .map(|expr| super::helpers::eval_expr_on_json(expr, &rows[i].1))
                 .unwrap_or(serde_json::Value::Null)
         })
         .collect();
@@ -187,7 +187,7 @@ mod tests {
                 vec![SqlExpr::Column(field.into())]
             },
             partition_by: vec![],
-            order_by: vec![("n".into(), true)],
+            order_by: vec![(SqlExpr::Column("n".into()), true)],
             frame,
         }
     }

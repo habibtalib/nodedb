@@ -5,6 +5,7 @@
 
 pub mod bbq;
 pub mod codec;
+pub mod codec_envelope;
 pub mod hamming;
 pub mod layout;
 pub mod opq;

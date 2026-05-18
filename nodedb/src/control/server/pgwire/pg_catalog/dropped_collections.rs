@@ -125,8 +125,8 @@ async fn query_collection_size(
     collection: &str,
 ) -> Option<u64> {
     use crate::bridge::envelope::{PhysicalPlan, Priority, Request, Status};
-    use crate::bridge::physical_plan::MetaOp;
     use crate::types::{DatabaseId, ReadConsistency, TenantId, VShardId};
+    use nodedb_physical::physical_plan::MetaOp;
 
     let request_id = state.next_request_id();
     let timeout = std::time::Duration::from_millis(500);

@@ -16,9 +16,9 @@
 use nodedb_types::SurrogateBitmap;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::DocumentOp;
 use crate::data::executor::core_loop::CoreLoop;
 use crate::data::executor::task::ExecutionTask;
+use nodedb_physical::physical_plan::DocumentOp;
 
 use super::materialize::collect_surrogates;
 

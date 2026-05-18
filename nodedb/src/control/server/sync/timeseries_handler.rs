@@ -54,9 +54,9 @@ impl<'a> TimeseriesDispatcher for SharedStateDispatcher<'a> {
         ilp_payload: String,
     ) -> crate::Result<()> {
         use crate::bridge::envelope::PhysicalPlan;
-        use crate::bridge::physical_plan::TimeseriesOp;
         use crate::control::server::dispatch_utils::dispatch_to_data_plane_with_source;
         use crate::event::EventSource;
+        use nodedb_physical::physical_plan::TimeseriesOp;
 
         let plan = PhysicalPlan::Timeseries(TimeseriesOp::Ingest {
             collection,

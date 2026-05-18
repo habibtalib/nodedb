@@ -57,6 +57,7 @@ impl SieveCollection {
             m0: self.sub_m * 2,
             ef_construction: 200,
             metric,
+            dtype: nodedb_types::vector_dtype::VectorStorageDtype::F32,
         };
         let mut index = HnswIndex::new(dim, params);
         for (_, vec) in vectors {

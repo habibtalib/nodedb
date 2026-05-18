@@ -9,11 +9,11 @@
 use std::time::Duration;
 
 use crate::bridge::envelope::PhysicalPlan;
-use crate::bridge::physical_plan::MetaOp;
 use crate::control::state::SharedState;
 use crate::engine::timeseries::continuous_agg::{ContinuousAggregateDef, RefreshPolicy};
 use crate::engine::timeseries::retention_policy::types::RetentionPolicyDef;
 use crate::types::TenantId;
+use nodedb_physical::physical_plan::MetaOp;
 
 /// Register continuous aggregates for all downsample tiers in a retention policy.
 ///

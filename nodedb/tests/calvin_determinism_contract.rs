@@ -33,13 +33,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nodedb::bridge::dispatch::{BridgeRequest, BridgeResponse};
-use nodedb::bridge::envelope::{PhysicalPlan, Priority, Request};
-use nodedb::bridge::physical_plan::{
-    ColumnarInsertIntent, ColumnarOp, CrdtOp, DocumentOp, KvOp, VectorOp,
-};
+use nodedb::bridge::envelope::{Priority, Request};
 use nodedb::data::executor::core_loop::CoreLoop;
 use nodedb::types::*;
 use nodedb_bridge::buffer::{Consumer, Producer, RingBuffer};
+use nodedb_physical::physical_plan::{
+    ColumnarInsertIntent, ColumnarOp, CrdtOp, DocumentOp, GraphOp, KvOp, PhysicalPlan,
+    TimeseriesOp, VectorOp,
+};
 use nodedb_types::OrdinalClock;
 
 // ── Harness ─────────────────────────────────────────────────────────────────
@@ -338,7 +339,7 @@ fn kv_with_ttl_byte_identical() {
 fn graph_edge_put_byte_identical() {
     let ops: Vec<PhysicalPlan> = (0..100)
         .map(|i| {
-            PhysicalPlan::Graph(nodedb::bridge::physical_plan::GraphOp::EdgePut {
+            PhysicalPlan::Graph(GraphOp::EdgePut {
                 collection: "graph_coll".into(),
                 src_id: format!("node-{i}"),
                 label: "REL".into(),
@@ -364,7 +365,7 @@ fn timeseries_bitemporal_byte_identical() {
     let ilp = "sensors,loc=a temp=22.5 1000000000\n";
     let ops: Vec<PhysicalPlan> = (0..100)
         .map(|_| {
-            PhysicalPlan::Timeseries(nodedb::bridge::physical_plan::TimeseriesOp::Ingest {
+            PhysicalPlan::Timeseries(TimeseriesOp::Ingest {
                 collection: "ts_bt".into(),
                 payload: ilp.as_bytes().to_vec(),
                 format: "ilp".into(),

@@ -6,9 +6,9 @@
 //! End-to-end 3-replica coverage lives in
 //! `nodedb-cluster/tests/calvin_3node_normal.rs`.
 
-use nodedb::bridge::physical_plan::PhysicalPlan;
-use nodedb::bridge::physical_plan::meta::MetaOp;
-use nodedb::bridge::physical_plan::wire as plan_wire;
+use nodedb_physical::physical_plan::PhysicalPlan;
+use nodedb_physical::physical_plan::meta::MetaOp;
+use nodedb_physical::physical_plan::wire as plan_wire;
 use nodedb_types::TenantId;
 
 #[test]

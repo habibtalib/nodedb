@@ -88,6 +88,7 @@ mod tests {
                 m0: 16,
                 ef_construction: 50,
                 metric: DistanceMetric::L2,
+                dtype: nodedb_types::vector_dtype::VectorStorageDtype::F32,
             },
             99,
         );
