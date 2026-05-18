@@ -198,9 +198,14 @@ async fn surrogate_hwm_survives_leader_failover() {
     // Wait for hwm convergence first — leader election (step 4b) is
     // independent of log catchup, so the new leader's tail entries may
     // still be replicating to the other survivor when this step starts.
+    // The new leader must commit a NoOp to advance commit-index past
+    // any uncommitted SurrogateAlloc entries the dead leader left
+    // mid-replication, then the lagging survivor applies them through
+    // the metadata Raft apply path. Under suite load this can stretch
+    // past a tight budget; match step 6's post-failover settle budget.
     wait_for(
         "surviving nodes converge on the same hwm",
-        Duration::from_secs(20),
+        Duration::from_secs(60),
         Duration::from_millis(50),
         || catalog_hwm(&cluster.nodes[0].shared) == catalog_hwm(&cluster.nodes[1].shared),
     )
