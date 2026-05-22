@@ -45,7 +45,32 @@ ALTER USER alice SET DEFAULT DATABASE prod;
 
 Database-scoped roles are exclusive to a single database. A user can have different roles on different databases.
 
+## Assigning Roles
+
+Add a role to an existing user, or promote them, with `GRANT <role> TO <user>` —
+no `ON` clause. Built-in and custom roles both work, and multiple roles may be
+granted at once:
+
+```sql
+GRANT tenant_admin TO eman;            -- promote a user
+GRANT readonly, mae8_reader TO viewer; -- grant several roles at once
+REVOKE readwrite FROM viewer;          -- remove a role
+
+-- `GRANT ROLE <role> TO <user>` is accepted as an equivalent alias.
+```
+
+A custom role may inherit from one parent role; granting a role to a role sets
+that inheritance:
+
+```sql
+GRANT mae8_ingester TO mae8_contributor;   -- mae8_contributor inherits mae8_ingester
+REVOKE mae8_ingester FROM mae8_contributor;
+```
+
 ## Granting Permissions
+
+A `GRANT` with an `ON` clause grants object permissions (rather than role
+membership). Permissions may be comma-separated:
 
 ```sql
 -- Collection-level
@@ -56,9 +81,6 @@ GRANT ALL ON orders TO admin;
 -- Function/procedure execute
 GRANT EXECUTE ON FUNCTION full_name TO analyst;
 GRANT EXECUTE ON PROCEDURE transfer_funds TO data_engineer;
-
--- Tenant backup
-GRANT BACKUP ON TENANT acme TO ops_user;
 ```
 
 ## Revoking Permissions
