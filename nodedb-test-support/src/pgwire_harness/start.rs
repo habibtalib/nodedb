@@ -16,10 +16,49 @@ use nodedb::wal::WalManager;
 use super::support::{bind_native_listener, init_test_memory_governor};
 use super::types::{TestClient, TestDataDir, TestServer};
 
+/// Knobs for spawning a `TestServer`. `Default` reproduces the historical
+/// `TestServer::start` behaviour: trust-mode auth, lockout disabled.
+pub(super) struct StartConfig {
+    /// pgwire authentication mode.
+    pub auth_mode: AuthMode,
+    /// When `Some((max_failed, lockout_secs))`, configures the credential
+    /// store's lockout policy before it is shared. `None` leaves lockout
+    /// disabled (`max_failed_logins = 0`).
+    pub lockout: Option<(u32, u64)>,
+}
+
+impl Default for StartConfig {
+    fn default() -> Self {
+        Self {
+            auth_mode: AuthMode::Trust,
+            lockout: None,
+        }
+    }
+}
+
 #[allow(dead_code)]
 impl TestServer {
-    /// Spawn a single-core NodeDB server and connect via pgwire.
+    /// Spawn a single-core NodeDB server and connect via pgwire (trust mode).
     pub async fn start() -> Self {
+        Self::start_with_config(StartConfig::default()).await
+    }
+
+    /// Spawn a single-core server in pgwire **password mode** (SCRAM-SHA-256)
+    /// with the credential lockout policy enabled (`5` failures → `300s`).
+    ///
+    /// The harness user `nodedb` keeps password `nodedb`; the returned
+    /// client authenticates with it. Tests can then mutate the credential
+    /// store and open further connections to exercise the SCRAM auth path.
+    pub async fn start_password() -> Self {
+        Self::start_with_config(StartConfig {
+            auth_mode: AuthMode::Password,
+            lockout: Some((5, 300)),
+        })
+        .await
+    }
+
+    /// Spawn a single-core NodeDB server and connect via pgwire.
+    pub(super) async fn start_with_config(cfg: StartConfig) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let wal_path = dir.path().join("test.wal");
         let wal = Arc::new(WalManager::open_for_testing(&wal_path).unwrap());
@@ -29,10 +68,15 @@ impl TestServer {
 
         // Use catalog-backed credential store (required for CREATE FUNCTION/TRIGGER/PROCEDURE).
         let catalog_path = dir.path().join("system.redb");
-        let credentials = Arc::new(
+        let mut credential_store =
             nodedb::control::security::credential::store::CredentialStore::open(&catalog_path)
-                .unwrap(),
-        );
+                .unwrap();
+        // Apply the lockout policy before the store is shared — `set_lockout_policy`
+        // needs `&mut`, so it cannot be called once wrapped in an `Arc`.
+        if let Some((max_failed, lockout_secs)) = cfg.lockout {
+            credential_store.set_lockout_policy(max_failed, lockout_secs, 0);
+        }
+        let credentials = Arc::new(credential_store);
         // Provision the harness superuser `nodedb` so Trust-mode strict
         // identity resolution accepts the default test connection. The
         // bootstrap exception in the handler only fires when the store
@@ -130,11 +174,12 @@ impl TestServer {
         let test_startup_gate = Arc::clone(&shared.startup);
         let bus_pg = shutdown_bus.clone();
         let pg_sem = Arc::clone(&conn_semaphore);
+        let listener_auth_mode = cfg.auth_mode.clone();
         let pg_handle = tokio::spawn(async move {
             pg_listener
                 .run(
                     shared_pg,
-                    AuthMode::Trust,
+                    listener_auth_mode,
                     None,
                     pg_sem,
                     test_startup_gate,
@@ -150,11 +195,18 @@ impl TestServer {
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        // Connect client.
-        let conn_str = format!(
-            "host=127.0.0.1 port={} user=nodedb dbname=nodedb",
-            pg_addr.port()
-        );
+        // Connect client. Password / certificate mode supplies the harness
+        // user's credentials so the SCRAM handshake completes.
+        let conn_str = match cfg.auth_mode {
+            AuthMode::Password | AuthMode::Certificate => format!(
+                "host=127.0.0.1 port={} user=nodedb password=nodedb dbname=nodedb",
+                pg_addr.port()
+            ),
+            AuthMode::Trust => format!(
+                "host=127.0.0.1 port={} user=nodedb dbname=nodedb",
+                pg_addr.port()
+            ),
+        };
         let (client, connection) = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls)
             .await
             .expect("pgwire connect failed");
