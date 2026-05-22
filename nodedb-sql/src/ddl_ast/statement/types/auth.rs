@@ -42,7 +42,7 @@ pub enum AuthStmt {
     },
     /// `GRANT <perm>[, ...] ON <object> TO <grantee>` — object-permission grant.
     ///
-    /// `target_type` is `COLLECTION`, `FUNCTION`, or `PROCEDURE`.
+    /// `target_type` is `COLLECTION`, `FUNCTION`, `PROCEDURE`, or `TENANT`.
     GrantPermission {
         permissions: Vec<String>,
         target_type: String,

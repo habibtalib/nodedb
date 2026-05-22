@@ -31,6 +31,9 @@ pub enum Permission {
     Monitor,
     /// Call a user-defined function (`SELECT func(...)`, UDF in expression).
     Execute,
+    /// BACKUP / RESTORE TENANT. Granted tenant-scoped via
+    /// `GRANT BACKUP ON TENANT <name>`.
+    Backup,
 }
 
 /// What the permission applies to.

@@ -9,10 +9,62 @@ use crate::control::security::audit::{AuditEmitContext, AuditEmitter, AuditEvent
 use crate::control::security::identity::{self, AuthenticatedIdentity, Permission};
 use crate::control::security::role::RoleStore;
 
+use crate::types::TenantId;
+
 use super::store::PermissionStore;
-use super::types::{Grant, collection_target, function_target};
+use super::types::{Grant, collection_target, function_target, tenant_target};
 
 impl PermissionStore {
+    /// Does any grant on `target` confer `permission` to this identity —
+    /// either through an explicit `user:<name>` grant or through any role
+    /// in the identity's inheritance chain?
+    ///
+    /// Acquires the grants read lock for the duration of the lookup.
+    fn target_grants_permission(
+        &self,
+        target: &str,
+        permission: Permission,
+        identity: &AuthenticatedIdentity,
+        role_store: &RoleStore,
+    ) -> bool {
+        let grants = match self.grants.read() {
+            Ok(g) => g,
+            Err(p) => {
+                tracing::error!("permission grants lock poisoned — recovering data");
+                p.into_inner()
+            }
+        };
+
+        let user_grantee = format!("user:{}", identity.username);
+        if grants.contains(&Grant {
+            target: target.to_string(),
+            grantee: user_grantee,
+            permission,
+        }) {
+            return true;
+        }
+
+        for role in &identity.roles {
+            let chain = match role_store.resolve_inheritance(role) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to resolve role inheritance — denying");
+                    continue;
+                }
+            };
+            for ancestor in &chain {
+                if grants.contains(&Grant {
+                    target: target.to_string(),
+                    grantee: ancestor.to_string(),
+                    permission,
+                }) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Check if an identity has a specific permission on a collection.
     ///
     /// Checks in order:
@@ -50,41 +102,16 @@ impl PermissionStore {
             }
         }
 
-        let grants = match self.grants.read() {
-            Ok(g) => g,
-            Err(p) => {
-                tracing::error!("permission grants lock poisoned — recovering data");
-                p.into_inner()
-            }
-        };
-
-        let user_grantee = format!("user:{}", identity.username);
-        if grants.contains(&Grant {
-            target: target.clone(),
-            grantee: user_grantee,
-            permission,
-        }) {
+        // Explicit grant on the collection itself.
+        if self.target_grants_permission(&target, permission, identity, role_store) {
             return true;
         }
 
-        for role in &identity.roles {
-            let chain = match role_store.resolve_inheritance(role) {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::error!(error = %e, "failed to resolve role inheritance — denying");
-                    continue;
-                }
-            };
-            for ancestor in &chain {
-                let role_grantee = ancestor.to_string();
-                if grants.contains(&Grant {
-                    target: target.clone(),
-                    grantee: role_grantee,
-                    permission,
-                }) {
-                    return true;
-                }
-            }
+        // Tenant-wide grant — `GRANT <perm> ON TENANT <name>` confers the
+        // permission on every collection in the tenant.
+        let tenant_tgt = tenant_target(identity.tenant_id);
+        if self.target_grants_permission(&tenant_tgt, permission, identity, role_store) {
+            return true;
         }
 
         emitter.emit(
@@ -132,40 +159,8 @@ impl PermissionStore {
             }
         }
 
-        let grants = match self.grants.read() {
-            Ok(g) => g,
-            Err(p) => {
-                tracing::error!("permission grants lock poisoned — recovering data");
-                p.into_inner()
-            }
-        };
-
-        let user_grantee = format!("user:{}", identity.username);
-        if grants.contains(&Grant {
-            target: target.clone(),
-            grantee: user_grantee,
-            permission: Permission::Execute,
-        }) {
+        if self.target_grants_permission(&target, Permission::Execute, identity, role_store) {
             return true;
-        }
-
-        for role in &identity.roles {
-            let chain = match role_store.resolve_inheritance(role) {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::error!(error = %e, "failed to resolve role inheritance — denying");
-                    continue;
-                }
-            };
-            for ancestor in &chain {
-                if grants.contains(&Grant {
-                    target: target.clone(),
-                    grantee: ancestor.to_string(),
-                    permission: Permission::Execute,
-                }) {
-                    return true;
-                }
-            }
         }
 
         emitter.emit(
@@ -174,6 +169,54 @@ impl PermissionStore {
             &format!(
                 "EXECUTE permission denied on function '{}' for user '{}'",
                 function_name, identity.username
+            ),
+            AuditEmitContext::new(
+                Some(identity.tenant_id),
+                &identity.user_id.to_string(),
+                &identity.username,
+            ),
+        );
+        false
+    }
+
+    /// Check if an identity holds `permission` scoped to an entire tenant
+    /// (`GRANT <perm> ON TENANT <name>`).
+    ///
+    /// Used for tenant-wide operations such as `BACKUP TENANT` /
+    /// `RESTORE TENANT`. Checks superuser → built-in role grants → explicit
+    /// tenant-scoped grants (on the user or any of the user's roles). Emits
+    /// `AuditEvent::PermissionDenied` via `emitter` when access is denied.
+    pub fn check_tenant(
+        &self,
+        identity: &AuthenticatedIdentity,
+        permission: Permission,
+        tenant_id: TenantId,
+        role_store: &RoleStore,
+        emitter: &dyn AuditEmitter,
+    ) -> bool {
+        if identity.is_superuser {
+            return true;
+        }
+
+        for role in &identity.roles {
+            if identity::role_grants_permission(role, permission) {
+                return true;
+            }
+        }
+
+        let target = tenant_target(tenant_id);
+        if self.target_grants_permission(&target, permission, identity, role_store) {
+            return true;
+        }
+
+        emitter.emit(
+            AuditEvent::PermissionDenied,
+            &identity.username,
+            &format!(
+                "permission {:?} denied on tenant {} for user '{}'",
+                permission,
+                tenant_id.as_u64(),
+                identity.username
             ),
             AuditEmitContext::new(
                 Some(identity.tenant_id),
@@ -359,5 +402,49 @@ mod tests {
         let allowed = store.check(&id, Permission::Write, "anything", &roles, &emitter);
         assert!(allowed);
         assert!(emitter.recorded().is_empty());
+    }
+
+    #[test]
+    fn tenant_wide_grant_covers_every_collection() {
+        let store = PermissionStore::new();
+        let roles = RoleStore::new();
+        // `GRANT READ ON TENANT <name>` lands on the tenant target.
+        let target = tenant_target(TenantId::new(1));
+        store
+            .grant(&target, "user:bob", Permission::Read, "admin", None)
+            .unwrap();
+
+        let id = identity("bob", vec![], false);
+        // A tenant-wide grant confers the permission on any collection in
+        // the tenant, with no per-collection grant.
+        assert!(store.check(&id, Permission::Read, "orders", &roles, NOOP));
+        assert!(store.check(&id, Permission::Read, "invoices", &roles, NOOP));
+        // It does not widen to permissions that were not granted.
+        assert!(!store.check(&id, Permission::Write, "orders", &roles, NOOP));
+    }
+
+    #[test]
+    fn check_tenant_honors_explicit_grant() {
+        let store = PermissionStore::new();
+        let roles = RoleStore::new();
+        let target = tenant_target(TenantId::new(1));
+        store
+            .grant(&target, "user:ops", Permission::Backup, "admin", None)
+            .unwrap();
+
+        let granted = identity("ops", vec![], false);
+        assert!(store.check_tenant(&granted, Permission::Backup, TenantId::new(1), &roles, NOOP));
+
+        // A different user without the grant is denied.
+        let other = identity("eve", vec![], false);
+        assert!(!store.check_tenant(&other, Permission::Backup, TenantId::new(1), &roles, NOOP));
+    }
+
+    #[test]
+    fn check_tenant_superuser_always_allowed() {
+        let store = PermissionStore::new();
+        let roles = RoleStore::new();
+        let id = identity("admin", vec![], true);
+        assert!(store.check_tenant(&id, Permission::Backup, TenantId::new(9), &roles, NOOP));
     }
 }

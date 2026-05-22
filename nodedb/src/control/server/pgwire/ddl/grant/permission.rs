@@ -13,9 +13,10 @@ use crate::control::metadata_proposer::propose_catalog_entry;
 use crate::control::security::audit::AuditEvent;
 use crate::control::security::identity::{AuthenticatedIdentity, Permission};
 use crate::control::security::permission::{
-    format_permission, function_target, parse_permission, procedure_target,
+    format_permission, function_target, parse_permission, procedure_target, tenant_target,
 };
 use crate::control::state::SharedState;
+use crate::types::TenantId;
 
 use super::super::super::types::{require_tenant_admin, sqlstate_error};
 
@@ -70,33 +71,69 @@ fn propose_revoke(
     Ok(())
 }
 
+/// Resolve a tenant name (or numeric id) to its `TenantId`.
+///
+/// A token that parses as an integer is taken as a literal tenant id;
+/// otherwise the catalog is consulted for a tenant with a matching name.
+fn resolve_tenant_id(state: &SharedState, name: &str) -> PgWireResult<TenantId> {
+    if let Ok(id) = name.parse::<u64>() {
+        return Ok(TenantId::new(id));
+    }
+    let catalog = state.credentials.catalog().as_ref().ok_or_else(|| {
+        sqlstate_error(
+            "XX000",
+            "tenant catalog unavailable — cannot resolve tenant name",
+        )
+    })?;
+    let tenants = catalog
+        .load_all_tenants()
+        .map_err(|e| sqlstate_error("XX000", &format!("tenant lookup: {e}")))?;
+    tenants
+        .into_iter()
+        .find(|t| t.name.eq_ignore_ascii_case(name))
+        .map(|t| TenantId::new(t.tenant_id))
+        .ok_or_else(|| sqlstate_error("42704", &format!("tenant '{name}' does not exist")))
+}
+
 /// Resolve a `(target_type, target_name)` pair into the canonical grant
 /// target string and a human-readable object description for audit logs.
 ///
-/// `target_type` is `FUNCTION`, `PROCEDURE`, or anything else (treated as a
-/// collection).
+/// `target_type` is `FUNCTION`, `PROCEDURE`, `TENANT`, or anything else
+/// (treated as a collection).
 fn resolve_target(
+    state: &SharedState,
     identity: &AuthenticatedIdentity,
     target_type: &str,
     target_name: &str,
-) -> (String, String) {
+) -> PgWireResult<(String, String)> {
     if target_type.eq_ignore_ascii_case("FUNCTION") {
         let name = target_name.to_lowercase();
-        (
+        Ok((
             function_target(identity.tenant_id, &name),
             format!("function '{name}'"),
-        )
+        ))
     } else if target_type.eq_ignore_ascii_case("PROCEDURE") {
         let name = target_name.to_lowercase();
-        (
+        Ok((
             procedure_target(identity.tenant_id, &name),
             format!("procedure '{name}'"),
-        )
+        ))
+    } else if target_type.eq_ignore_ascii_case("TENANT") {
+        let tenant_id = resolve_tenant_id(state, target_name)?;
+        // A tenant admin may only manage grants within their own tenant;
+        // granting across tenant boundaries requires superuser.
+        if tenant_id != identity.tenant_id && !identity.is_superuser {
+            return Err(sqlstate_error(
+                "42501",
+                "permission denied: managing permissions on another tenant requires superuser",
+            ));
+        }
+        Ok((tenant_target(tenant_id), format!("tenant '{target_name}'")))
     } else {
-        (
+        Ok((
             format!("collection:{}:{target_name}", identity.tenant_id.as_u64()),
             format!("collection '{target_name}'"),
-        )
+        ))
     }
 }
 
@@ -122,7 +159,7 @@ fn resolve_permissions(permissions: &[String]) -> PgWireResult<Vec<Permission>> 
     Ok(out)
 }
 
-/// `GRANT <perm>[, ...] ON <collection|FUNCTION|PROCEDURE name> TO <grantee>`
+/// `GRANT <perm>[, ...] ON <collection|FUNCTION|PROCEDURE|TENANT name> TO <grantee>`
 ///
 /// Called with typed fields from the AST router.
 pub fn grant_permission(
@@ -133,7 +170,7 @@ pub fn grant_permission(
     target_name: &str,
     grantee: &str,
 ) -> PgWireResult<Vec<Response>> {
-    let (target, object_desc) = resolve_target(identity, target_type, target_name);
+    let (target, object_desc) = resolve_target(state, identity, target_type, target_name)?;
 
     require_tenant_admin(identity, "grant permissions")?;
 
@@ -156,7 +193,7 @@ pub fn grant_permission(
     Ok(vec![Response::Execution(Tag::new("GRANT"))])
 }
 
-/// `REVOKE <perm>[, ...] ON <collection|FUNCTION|PROCEDURE name> FROM <grantee>`
+/// `REVOKE <perm>[, ...] ON <collection|FUNCTION|PROCEDURE|TENANT name> FROM <grantee>`
 ///
 /// Called with typed fields from the AST router.
 pub fn revoke_permission(
@@ -167,7 +204,7 @@ pub fn revoke_permission(
     target_name: &str,
     grantee: &str,
 ) -> PgWireResult<Vec<Response>> {
-    let (target, object_desc) = resolve_target(identity, target_type, target_name);
+    let (target, object_desc) = resolve_target(state, identity, target_type, target_name)?;
 
     require_tenant_admin(identity, "revoke permissions")?;
 

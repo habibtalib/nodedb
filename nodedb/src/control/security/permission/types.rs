@@ -42,6 +42,12 @@ pub fn procedure_target(tenant_id: TenantId, procedure_name: &str) -> String {
     format!("procedure:{}:{}", tenant_id.as_u64(), procedure_name)
 }
 
+/// Build a `tenant:{id}` target string for tenant-scoped grants — a
+/// permission held here applies to every collection in the tenant.
+pub fn tenant_target(tenant_id: TenantId) -> String {
+    format!("tenant:{}", tenant_id.as_u64())
+}
+
 /// `{object_type}:{tenant_id}:{object_name}` — the canonical key
 /// for both the in-memory owner map and the redb `OWNERS` table.
 pub fn owner_key(object_type: &str, tenant_id: u64, object_name: &str) -> String {
@@ -59,6 +65,7 @@ pub fn parse_permission(s: &str) -> Option<Permission> {
         "admin" => Some(Permission::Admin),
         "monitor" => Some(Permission::Monitor),
         "execute" | "call" => Some(Permission::Execute),
+        "backup" => Some(Permission::Backup),
         _ => None,
     }
 }
@@ -75,5 +82,6 @@ pub fn format_permission(p: Permission) -> String {
         Permission::Admin => "admin".into(),
         Permission::Monitor => "monitor".into(),
         Permission::Execute => "execute".into(),
+        Permission::Backup => "backup".into(),
     }
 }

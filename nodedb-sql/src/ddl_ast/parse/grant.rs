@@ -36,6 +36,41 @@ pub(super) fn try_parse(
     None
 }
 
+/// Classify the object clause of a `GRANT/REVOKE ... ON ...` statement.
+///
+/// `after` is the token immediately following `ON`; `name_after` is the
+/// token after that (consulted only when `after` is an explicit
+/// object-type keyword). Returns `(target_type, target_name)`.
+///
+/// Object-type keywords (`FUNCTION`, `PROCEDURE`, `COLLECTION`, `TABLE`)
+/// are matched explicitly so they can never be silently consumed as the
+/// object name. `COLLECTION` and `TABLE` are accepted as the explicit
+/// spelling of the default (collection) object type; a bare token with
+/// no keyword is still treated as a collection name directly.
+///
+/// `DATABASE` and `TENANT` are not handled here — the caller intercepts
+/// them first because they need different statement shapes.
+pub(super) fn classify_object_clause(after: &str, name_after: Option<&str>) -> (String, String) {
+    if after.eq_ignore_ascii_case("FUNCTION") {
+        (
+            "FUNCTION".to_string(),
+            name_after.map(|s| s.to_lowercase()).unwrap_or_default(),
+        )
+    } else if after.eq_ignore_ascii_case("PROCEDURE") {
+        (
+            "PROCEDURE".to_string(),
+            name_after.map(|s| s.to_lowercase()).unwrap_or_default(),
+        )
+    } else if after.eq_ignore_ascii_case("COLLECTION") || after.eq_ignore_ascii_case("TABLE") {
+        (
+            "COLLECTION".to_string(),
+            name_after.map(|s| s.to_string()).unwrap_or_default(),
+        )
+    } else {
+        ("COLLECTION".to_string(), after.to_string())
+    }
+}
+
 /// Split a run of whitespace-separated tokens into a comma-separated list,
 /// trimming each item. `["READ,", "WRITE"]` → `["READ", "WRITE"]`,
 /// `["CREATE", "COLLECTION"]` → `["CREATE COLLECTION"]`.
@@ -103,25 +138,37 @@ fn parse_grant_revoke(parts: &[&str], is_grant: bool) -> Result<NodedbStatement,
                 }));
             }
 
-            let (target_type, target_name) = if after.eq_ignore_ascii_case("FUNCTION") {
-                (
-                    "FUNCTION".to_string(),
-                    parts
-                        .get(on + 2)
-                        .map(|s| s.to_lowercase())
-                        .unwrap_or_default(),
-                )
-            } else if after.eq_ignore_ascii_case("PROCEDURE") {
-                (
-                    "PROCEDURE".to_string(),
-                    parts
-                        .get(on + 2)
-                        .map(|s| s.to_lowercase())
-                        .unwrap_or_default(),
-                )
-            } else {
-                ("COLLECTION".to_string(), after.to_string())
-            };
+            if after.eq_ignore_ascii_case("TENANT") {
+                // Tenant-scoped grant: the permission applies to every
+                // collection in the named tenant. The handler resolves the
+                // tenant name to its id.
+                let tenant_name = parts
+                    .get(on + 2)
+                    .filter(|_| on + 2 < pivot_pos)
+                    .map(|s| s.to_string())
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| SqlError::Parse {
+                        detail: format!("{kw}: missing tenant name after ON TENANT"),
+                    })?;
+                return Ok(NodedbStatement::Auth(if is_grant {
+                    AuthStmt::GrantPermission {
+                        permissions,
+                        target_type: "TENANT".to_string(),
+                        target_name: tenant_name,
+                        grantee,
+                    }
+                } else {
+                    AuthStmt::RevokePermission {
+                        permissions,
+                        target_type: "TENANT".to_string(),
+                        target_name: tenant_name,
+                        grantee,
+                    }
+                }));
+            }
+
+            let (target_type, target_name) =
+                classify_object_clause(after, parts.get(on + 2).copied());
 
             Ok(NodedbStatement::Auth(if is_grant {
                 AuthStmt::GrantPermission {
@@ -303,6 +350,107 @@ mod tests {
             .split_whitespace()
             .collect();
         assert!(try_parse(&upper, &parts, "").is_none());
+    }
+
+    #[test]
+    fn grant_on_collection_keyword() {
+        match parse("GRANT SELECT, INSERT ON COLLECTION chunks TO some_role") {
+            NodedbStatement::Auth(AuthStmt::GrantPermission {
+                permissions,
+                target_type,
+                target_name,
+                grantee,
+            }) => {
+                assert_eq!(permissions, vec!["SELECT", "INSERT"]);
+                assert_eq!(target_type, "COLLECTION");
+                // The explicit `COLLECTION` object-type keyword must be
+                // recognized, not consumed as the collection name itself.
+                assert_ne!(target_name, "COLLECTION");
+                assert_eq!(target_name, "chunks");
+                assert_eq!(grantee, "some_role");
+            }
+            other => panic!("expected GrantPermission, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn grant_on_table_keyword() {
+        match parse("GRANT SELECT ON TABLE orders TO analyst") {
+            NodedbStatement::Auth(AuthStmt::GrantPermission {
+                target_type,
+                target_name,
+                ..
+            }) => {
+                assert_eq!(target_type, "COLLECTION");
+                assert_ne!(target_name, "TABLE");
+                assert_eq!(target_name, "orders");
+            }
+            other => panic!("expected GrantPermission, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn revoke_on_collection_keyword() {
+        match parse("REVOKE INSERT ON COLLECTION orders FROM analyst") {
+            NodedbStatement::Auth(AuthStmt::RevokePermission {
+                target_type,
+                target_name,
+                ..
+            }) => {
+                assert_eq!(target_type, "COLLECTION");
+                assert_ne!(target_name, "COLLECTION");
+                assert_eq!(target_name, "orders");
+            }
+            other => panic!("expected RevokePermission, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn grant_on_tenant_keyword() {
+        match parse("GRANT BACKUP ON TENANT acme TO ops_user") {
+            NodedbStatement::Auth(AuthStmt::GrantPermission {
+                permissions,
+                target_type,
+                target_name,
+                grantee,
+            }) => {
+                assert_eq!(permissions, vec!["BACKUP"]);
+                assert_eq!(target_type, "TENANT");
+                // The tenant name must be captured, not the `TENANT` keyword.
+                assert_eq!(target_name, "acme");
+                assert_eq!(grantee, "ops_user");
+            }
+            other => panic!("expected GrantPermission, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn revoke_on_tenant_keyword() {
+        match parse("REVOKE SELECT, INSERT ON TENANT acme FROM ops_user") {
+            NodedbStatement::Auth(AuthStmt::RevokePermission {
+                permissions,
+                target_type,
+                target_name,
+                ..
+            }) => {
+                assert_eq!(permissions, vec!["SELECT", "INSERT"]);
+                assert_eq!(target_type, "TENANT");
+                assert_eq!(target_name, "acme");
+            }
+            other => panic!("expected RevokePermission, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn grant_on_tenant_missing_name_is_error() {
+        let sql = "GRANT BACKUP ON TENANT TO ops_user";
+        let parts: Vec<&str> = sql.split_whitespace().collect();
+        // `TO` is the token after `TENANT`; with no name the pivot still
+        // parses, so the tenant name resolves empty → explicit error.
+        assert!(matches!(
+            try_parse(&sql.to_uppercase(), &parts, sql),
+            Some(Err(SqlError::Parse { .. }))
+        ));
     }
 
     #[test]

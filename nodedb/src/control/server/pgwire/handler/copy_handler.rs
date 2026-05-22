@@ -30,8 +30,10 @@ use pgwire::messages::copy::{CopyData, CopyDone};
 use crate::control::backup;
 use crate::control::backup::CopyIntent;
 use crate::control::backup::state::AppendError;
-use crate::control::security::identity::AuthenticatedIdentity;
+use crate::control::security::audit::ArcAuditEmitter;
+use crate::control::security::identity::{AuthenticatedIdentity, Permission};
 use crate::control::state::SharedState;
+use crate::types::TenantId;
 
 use super::core::NodeDbPgHandler;
 
@@ -48,11 +50,28 @@ impl NodeDbPgHandler {
         addr: SocketAddr,
         intent: CopyIntent,
     ) -> PgWireResult<Response> {
+        // Backup and restore both operate on a whole tenant — authorize
+        // against the tenant-scoped `Backup` permission. Superuser bypasses
+        // the grant check; everyone else needs `GRANT BACKUP ON TENANT`.
+        let tenant_id = match &intent {
+            CopyIntent::BackupTenant { tenant_id } => *tenant_id,
+            CopyIntent::RestoreTenant { tenant_id, .. } => *tenant_id,
+        };
         if !identity.is_superuser {
-            return Err(sqlstate(
-                ss::INSUFFICIENT_PRIVILEGE,
-                "permission denied: superuser required",
-            ));
+            let emitter = ArcAuditEmitter(Arc::clone(&self.state.audit));
+            let allowed = self.state.permissions.check_tenant(
+                identity,
+                Permission::Backup,
+                TenantId::new(tenant_id),
+                &self.state.roles,
+                &emitter,
+            );
+            if !allowed {
+                return Err(sqlstate(
+                    ss::INSUFFICIENT_PRIVILEGE,
+                    "permission denied: BACKUP permission on the tenant required",
+                ));
+            }
         }
 
         match intent {

@@ -201,9 +201,10 @@ fn parse_alter_user(parts: &[&str], _trimmed: &str) -> NodedbStatement {
 
 /// Parse `ALTER ROLE <name> GRANT/REVOKE/SET ...`.
 ///
-/// Supported forms:
-/// - `ALTER ROLE <name> GRANT <perm> ON [FUNCTION] <target>`
-/// - `ALTER ROLE <name> REVOKE <perm> ON [FUNCTION] <target>`
+/// Supported forms (object type is `FUNCTION`, `PROCEDURE`, `COLLECTION`,
+/// or `TABLE`; a bare name with no keyword is a collection):
+/// - `ALTER ROLE <name> GRANT <perm> ON [<object-type>] <target>`
+/// - `ALTER ROLE <name> REVOKE <perm> ON [<object-type>] <target>`
 /// - `ALTER ROLE <name> SET INHERIT <parent>`
 fn parse_alter_role(parts: &[&str], _trimmed: &str) -> NodedbStatement {
     // parts[0] = ALTER, parts[1] = ROLE, parts[2] = <name>, parts[3] = sub-command
@@ -212,24 +213,13 @@ fn parse_alter_role(parts: &[&str], _trimmed: &str) -> NodedbStatement {
 
     let sub_op = match sub_cmd.as_str() {
         "GRANT" => {
-            // ALTER ROLE <name> GRANT <perm> ON [FUNCTION] <target>
+            // ALTER ROLE <name> GRANT <perm> ON [object-type] <target>
             let permission = parts.get(4).map(|s| s.to_string()).unwrap_or_default();
-            // ON is at index 5
-            let (target_type, target_name) = if parts
-                .get(6)
-                .map(|s| s.eq_ignore_ascii_case("FUNCTION"))
-                .unwrap_or(false)
-            {
-                (
-                    "FUNCTION".to_string(),
-                    parts.get(7).map(|s| s.to_lowercase()).unwrap_or_default(),
-                )
-            } else {
-                (
-                    "COLLECTION".to_string(),
-                    parts.get(6).map(|s| s.to_string()).unwrap_or_default(),
-                )
-            };
+            // ON is at index 5; the object clause begins at index 6.
+            let (target_type, target_name) = super::grant::classify_object_clause(
+                parts.get(6).copied().unwrap_or_default(),
+                parts.get(7).copied(),
+            );
             AlterRoleOp::Grant {
                 permission,
                 target_type,
@@ -237,23 +227,12 @@ fn parse_alter_role(parts: &[&str], _trimmed: &str) -> NodedbStatement {
             }
         }
         "REVOKE" => {
-            // ALTER ROLE <name> REVOKE <perm> ON [FUNCTION] <target>
+            // ALTER ROLE <name> REVOKE <perm> ON [object-type] <target>
             let permission = parts.get(4).map(|s| s.to_string()).unwrap_or_default();
-            let (target_type, target_name) = if parts
-                .get(6)
-                .map(|s| s.eq_ignore_ascii_case("FUNCTION"))
-                .unwrap_or(false)
-            {
-                (
-                    "FUNCTION".to_string(),
-                    parts.get(7).map(|s| s.to_lowercase()).unwrap_or_default(),
-                )
-            } else {
-                (
-                    "COLLECTION".to_string(),
-                    parts.get(6).map(|s| s.to_string()).unwrap_or_default(),
-                )
-            };
+            let (target_type, target_name) = super::grant::classify_object_clause(
+                parts.get(6).copied().unwrap_or_default(),
+                parts.get(7).copied(),
+            );
             AlterRoleOp::Revoke {
                 permission,
                 target_type,
@@ -454,6 +433,44 @@ mod tests {
                     permission: "READ".to_string(),
                     target_type: "COLLECTION".to_string(),
                     target_name: "my_collection".to_string(),
+                }
+            );
+        } else {
+            panic!("expected AlterRole");
+        }
+    }
+
+    #[test]
+    fn alter_role_grant_on_collection_keyword() {
+        let stmt = parse("ALTER ROLE analyst GRANT READ ON COLLECTION my_collection").unwrap();
+        if let NodedbStatement::Auth(AuthStmt::AlterRole { name, sub_op }) = stmt {
+            assert_eq!(name, "analyst");
+            // The explicit `COLLECTION` object-type keyword must be
+            // recognized, not consumed as the collection name itself.
+            assert_eq!(
+                sub_op,
+                AlterRoleOp::Grant {
+                    permission: "READ".to_string(),
+                    target_type: "COLLECTION".to_string(),
+                    target_name: "my_collection".to_string(),
+                }
+            );
+        } else {
+            panic!("expected AlterRole");
+        }
+    }
+
+    #[test]
+    fn alter_role_revoke_on_collection_keyword() {
+        let stmt = parse("ALTER ROLE analyst REVOKE WRITE ON COLLECTION orders").unwrap();
+        if let NodedbStatement::Auth(AuthStmt::AlterRole { name, sub_op }) = stmt {
+            assert_eq!(name, "analyst");
+            assert_eq!(
+                sub_op,
+                AlterRoleOp::Revoke {
+                    permission: "WRITE".to_string(),
+                    target_type: "COLLECTION".to_string(),
+                    target_name: "orders".to_string(),
                 }
             );
         } else {
