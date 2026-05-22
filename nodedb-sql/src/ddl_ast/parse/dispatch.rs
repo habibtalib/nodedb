@@ -4,8 +4,8 @@
 
 use super::{
     alert, backup, change_stream, cluster_admin, collection, conflict_policy, copy_from, copy_to,
-    custom_type, database, graph_stats, index, maintenance, materialized_view, oidc_provider,
-    retention, rls, schedule, sequence, synonym_group, tenant, trigger, user_auth,
+    custom_type, database, grant, graph_stats, index, maintenance, materialized_view,
+    oidc_provider, retention, rls, schedule, sequence, synonym_group, tenant, trigger, user_auth,
 };
 use crate::ddl_ast::graph_parse;
 use crate::ddl_ast::statement::NodedbStatement;
@@ -79,6 +79,7 @@ pub fn parse(sql: &str) -> Option<Result<NodedbStatement, SqlError>> {
     try_family!(copy_from::try_parse(&upper, &parts, trimmed));
     // COPY TO file-path form — table and query forms.
     try_family!(copy_to::try_parse(&upper, trimmed));
+    try_family!(grant::try_parse(&upper, &parts, trimmed));
     try_family!(user_auth::try_parse(&upper, &parts, trimmed));
     try_family!(oidc_provider::try_parse(&upper, &parts, trimmed));
     try_family!(change_stream::try_parse(&upper, &parts, trimmed));
@@ -494,9 +495,9 @@ mod tests {
     fn parse_grant_role() {
         let stmt = ok("GRANT ROLE admin TO alice");
         match stmt {
-            NodedbStatement::Auth(AuthStmt::GrantRole { role, username }) => {
-                assert_eq!(role, "admin");
-                assert_eq!(username, "alice");
+            NodedbStatement::Auth(AuthStmt::GrantRole { roles, grantee }) => {
+                assert_eq!(roles, vec!["admin"]);
+                assert_eq!(grantee, "alice");
             }
             other => panic!("expected GrantRole, got {other:?}"),
         }

@@ -55,26 +55,54 @@ fn propose_user_with_roles(
     Ok(())
 }
 
+/// `GRANT <role>[, ...] TO <grantee>`.
+///
+/// The grantee is resolved to a user or a custom role. For a user, every
+/// listed role is added to the user's role set. For a role, the single
+/// listed role becomes the grantee's inheritance parent (role-to-role
+/// membership) — the role hierarchy permits one parent, so granting more
+/// than one role to a role is rejected.
 pub fn grant_role(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
-    role_name: &str,
-    username: &str,
+    roles: &[String],
+    grantee: &str,
 ) -> PgWireResult<Vec<Response>> {
     require_tenant_admin(identity, "grant roles")?;
-
-    let role = parse_role(role_name);
-
-    if matches!(role, Role::Superuser) && !identity.is_superuser {
-        return Err(sqlstate_error(
-            "42501",
-            "only superuser can grant superuser role",
-        ));
+    if roles.is_empty() {
+        return Err(sqlstate_error("42601", "GRANT: missing role name"));
     }
 
+    if state.credentials.get_user(grantee).is_some() {
+        grant_roles_to_user(state, identity, roles, grantee)
+    } else if state.roles.get_role(grantee).is_some() {
+        grant_role_to_role(state, identity, roles, grantee)
+    } else {
+        Err(sqlstate_error(
+            "42704",
+            &format!("grantee '{grantee}' is not a known user or role"),
+        ))
+    }
+}
+
+fn grant_roles_to_user(
+    state: &SharedState,
+    identity: &AuthenticatedIdentity,
+    role_names: &[String],
+    username: &str,
+) -> PgWireResult<Vec<Response>> {
     let mut roles = current_roles(state, username)?;
-    if !roles.contains(&role) {
-        roles.push(role.clone());
+    for name in role_names {
+        let role = parse_role(name);
+        if matches!(role, Role::Superuser) && !identity.is_superuser {
+            return Err(sqlstate_error(
+                "42501",
+                "only superuser can grant superuser role",
+            ));
+        }
+        if !roles.contains(&role) {
+            roles.push(role);
+        }
     }
     propose_user_with_roles(
         state,
@@ -87,38 +115,95 @@ pub fn grant_role(
         AuditEvent::PrivilegeChange,
         Some(identity.tenant_id),
         &identity.username,
-        &format!("granted role '{role}' to user '{username}'"),
+        &format!(
+            "granted role(s) {} to user '{username}'",
+            role_names.join(", ")
+        ),
     );
 
     Ok(vec![Response::Execution(Tag::new("GRANT"))])
 }
 
+fn grant_role_to_role(
+    state: &SharedState,
+    identity: &AuthenticatedIdentity,
+    role_names: &[String],
+    child: &str,
+) -> PgWireResult<Vec<Response>> {
+    if role_names.len() != 1 {
+        return Err(sqlstate_error(
+            "0A000",
+            "a role can inherit from only one parent role; grant one role at a time",
+        ));
+    }
+    let parent = &role_names[0];
+    super::super::role::set_role_parent(state, child, Some(parent))?;
+
+    state.audit_record(
+        AuditEvent::PrivilegeChange,
+        Some(identity.tenant_id),
+        &identity.username,
+        &format!("granted role '{parent}' to role '{child}'"),
+    );
+
+    Ok(vec![Response::Execution(Tag::new("GRANT"))])
+}
+
+/// `REVOKE <role>[, ...] FROM <grantee>`.
 pub fn revoke_role(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
-    role_name: &str,
-    username: &str,
+    roles: &[String],
+    grantee: &str,
 ) -> PgWireResult<Vec<Response>> {
     require_tenant_admin(identity, "revoke roles")?;
+    if roles.is_empty() {
+        return Err(sqlstate_error("42601", "REVOKE: missing role name"));
+    }
 
-    let role = parse_role(role_name);
-
-    if username == identity.username && matches!(role, Role::Superuser) {
+    // Reject self-superuser revocation before resolving the grantee — an
+    // admin must not be able to strip their own superuser role even if the
+    // grantee name does not resolve to a stored user record.
+    if grantee == identity.username
+        && roles
+            .iter()
+            .any(|r| matches!(parse_role(r), Role::Superuser))
+    {
         return Err(sqlstate_error(
             "42501",
             "cannot revoke your own superuser role",
         ));
     }
 
-    let mut roles = current_roles(state, username)?;
-    let before = roles.len();
-    roles.retain(|r| r != &role);
-    if roles.len() == before {
-        return Err(sqlstate_error(
+    if state.credentials.get_user(grantee).is_some() {
+        revoke_roles_from_user(state, identity, roles, grantee)
+    } else if state.roles.get_role(grantee).is_some() {
+        revoke_role_from_role(state, identity, roles, grantee)
+    } else {
+        Err(sqlstate_error(
             "42704",
-            &format!("user '{username}' does not have role '{role}'"),
-        ));
+            &format!("grantee '{grantee}' is not a known user or role"),
+        ))
     }
+}
+
+fn revoke_roles_from_user(
+    state: &SharedState,
+    identity: &AuthenticatedIdentity,
+    role_names: &[String],
+    username: &str,
+) -> PgWireResult<Vec<Response>> {
+    let mut roles = current_roles(state, username)?;
+    let revoked: Vec<Role> = role_names.iter().map(|n| parse_role(n)).collect();
+    for role in &revoked {
+        if !roles.contains(role) {
+            return Err(sqlstate_error(
+                "42704",
+                &format!("user '{username}' does not have role '{role}'"),
+            ));
+        }
+    }
+    roles.retain(|r| !revoked.contains(r));
     propose_user_with_roles(
         state,
         username,
@@ -130,7 +215,42 @@ pub fn revoke_role(
         AuditEvent::PrivilegeChange,
         Some(identity.tenant_id),
         &identity.username,
-        &format!("revoked role '{role}' from user '{username}'"),
+        &format!(
+            "revoked role(s) {} from user '{username}'",
+            role_names.join(", ")
+        ),
+    );
+
+    Ok(vec![Response::Execution(Tag::new("REVOKE"))])
+}
+
+fn revoke_role_from_role(
+    state: &SharedState,
+    identity: &AuthenticatedIdentity,
+    role_names: &[String],
+    child: &str,
+) -> PgWireResult<Vec<Response>> {
+    if role_names.len() != 1 {
+        return Err(sqlstate_error(
+            "0A000",
+            "a role inherits from at most one parent role; revoke one role at a time",
+        ));
+    }
+    let parent = &role_names[0];
+    let current_parent = state.roles.get_role(child).and_then(|r| r.parent);
+    if current_parent.as_deref() != Some(parent.as_str()) {
+        return Err(sqlstate_error(
+            "42704",
+            &format!("role '{child}' does not inherit from '{parent}'"),
+        ));
+    }
+    super::super::role::set_role_parent(state, child, None)?;
+
+    state.audit_record(
+        AuditEvent::PrivilegeChange,
+        Some(identity.tenant_id),
+        &identity.username,
+        &format!("revoked role '{parent}' from role '{child}'"),
     );
 
     Ok(vec![Response::Execution(Tag::new("REVOKE"))])

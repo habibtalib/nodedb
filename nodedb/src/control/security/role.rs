@@ -296,6 +296,20 @@ impl RoleStore {
         Ok(chain)
     }
 
+    /// Check that adopting `parent` as `role_name`'s inheritance parent would
+    /// not create a cycle or exceed [`MAX_ROLE_INHERITANCE_DEPTH`].
+    ///
+    /// Used by `ALTER ROLE ... SET INHERIT` and the role-to-role form of
+    /// `GRANT` so that re-parenting an existing role enforces the same
+    /// chain invariant `create_role` enforces at creation. The parent's
+    /// existence is the caller's responsibility.
+    pub fn check_inheritance_cycle(&self, role_name: &str, parent: &str) -> crate::Result<()> {
+        let roles = self.roles.read().map_err(|e| crate::Error::Internal {
+            detail: format!("role store lock poisoned: {e}"),
+        })?;
+        check_inheritance_chain(role_name, parent, &roles)
+    }
+
     /// Look up a custom role by name. Returns None if not found.
     pub fn get_role(&self, name: &str) -> Option<CustomRole> {
         let roles = self.roles.read().ok()?;

@@ -37,6 +37,11 @@ pub fn function_target(tenant_id: TenantId, function_name: &str) -> String {
     format!("function:{}:{}", tenant_id.as_u64(), function_name)
 }
 
+/// Build a `procedure:{tenant}:{name}` target string.
+pub fn procedure_target(tenant_id: TenantId, procedure_name: &str) -> String {
+    format!("procedure:{}:{}", tenant_id.as_u64(), procedure_name)
+}
+
 /// `{object_type}:{tenant_id}:{object_name}` — the canonical key
 /// for both the in-memory owner map and the redb `OWNERS` table.
 pub fn owner_key(object_type: &str, tenant_id: u64, object_name: &str) -> String {

@@ -27,16 +27,24 @@ pub enum AuthStmt {
         name: String,
         sub_op: AlterRoleOp,
     },
+    /// `GRANT <role>[, ...] TO <grantee>` — role-membership grant.
+    ///
+    /// The grantee is a user (the roles are added to the user) or a custom
+    /// role (the single granted role becomes the grantee's inheritance parent).
     GrantRole {
-        role: String,
-        username: String,
+        roles: Vec<String>,
+        grantee: String,
     },
+    /// `REVOKE <role>[, ...] FROM <grantee>` — role-membership revocation.
     RevokeRole {
-        role: String,
-        username: String,
+        roles: Vec<String>,
+        grantee: String,
     },
+    /// `GRANT <perm>[, ...] ON <object> TO <grantee>` — object-permission grant.
+    ///
+    /// `target_type` is `COLLECTION`, `FUNCTION`, or `PROCEDURE`.
     GrantPermission {
-        permission: String,
+        permissions: Vec<String>,
         target_type: String,
         target_name: String,
         grantee: String,
@@ -47,8 +55,9 @@ pub enum AuthStmt {
         db_name: String,
         grantee: String,
     },
+    /// `REVOKE <perm>[, ...] ON <object> FROM <grantee>` — object-permission revocation.
     RevokePermission {
-        permission: String,
+        permissions: Vec<String>,
         target_type: String,
         target_name: String,
         grantee: String,

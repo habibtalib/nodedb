@@ -2,23 +2,20 @@
 
 //! `GRANT` / `REVOKE` DDL handlers.
 //!
-//! Three sub-handlers, all driven through the metadata raft path:
+//! Statements are parsed into typed `AuthStmt` variants by the `grant`
+//! parser family in `nodedb-sql` and dispatched here by the AST router:
 //!
-//! - `GRANT/REVOKE ROLE x TO/FROM user` — see [`role`]. Reuses the
-//!   existing `CatalogEntry::PutUser` variant via
-//!   `CredentialStore::prepare_user_with_roles` so a role-membership
-//!   change ships the full updated `StoredUser` record. No new
-//!   variant is needed.
-//! - `GRANT/REVOKE <perm> ON <collection|FUNCTION name>
+//! - `GRANT/REVOKE <role> TO/FROM <grantee>` — see [`role`]. A user
+//!   grantee has the roles added to its set (reusing
+//!   `CatalogEntry::PutUser`); a role grantee has its inheritance parent
+//!   updated (role-to-role membership).
+//! - `GRANT/REVOKE <perm> ON <collection|FUNCTION|PROCEDURE name>
 //!   TO/FROM <grantee>` — see [`permission`]. Proposes
 //!   `CatalogEntry::{PutPermission, DeletePermission}` so every
 //!   follower's `PermissionStore` and `OWNERS` redb stay in sync.
-//! - The top-level [`dispatch`] router only decides which sub-handler
-//!   to call based on whether the second token is `ROLE`.
+//! - `GRANT/REVOKE <priv> ON DATABASE <name> TO/FROM <user>` — see
+//!   [`database_permission`].
 
 pub mod database_permission;
-pub mod dispatch;
 pub mod permission;
 pub mod role;
-
-pub use dispatch::{handle_grant, handle_revoke};

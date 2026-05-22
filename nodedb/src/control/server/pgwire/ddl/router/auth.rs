@@ -69,20 +69,9 @@ pub(super) async fn dispatch(
         ));
     }
 
-    // GRANT / REVOKE.
-    if upper.starts_with("GRANT ") {
-        return Some(super::super::grant::handle_grant(state, identity, parts));
-    }
-    // `REVOKE API KEY`, `REVOKE SCOPE`, `REVOKE DELEGATION` are routed
-    // by the admin dispatcher — exclude them here so permission-grant
-    // revocations don't swallow them first.
-    if upper.starts_with("REVOKE ")
-        && !upper.starts_with("REVOKE API KEY")
-        && !upper.starts_with("REVOKE SCOPE")
-        && !upper.starts_with("REVOKE DELEGATION")
-    {
-        return Some(super::super::grant::handle_revoke(state, identity, parts));
-    }
+    // GRANT / REVOKE (role-membership and object-permission) are parsed
+    // into typed `AuthStmt` variants and dispatched via the AST router —
+    // no string-prefix branch is needed here.
 
     // Role management.
     if upper.starts_with("CREATE ROLE ") {

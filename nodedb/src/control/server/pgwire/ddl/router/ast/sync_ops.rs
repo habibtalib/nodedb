@@ -68,12 +68,12 @@ pub(super) fn try_dispatch_sync(
             *cascade_force,
         )),
 
-        NodedbStatement::Auth(AuthStmt::GrantRole { role, username }) => {
-            Some(grant_role(state, identity, role, username))
+        NodedbStatement::Auth(AuthStmt::GrantRole { roles, grantee }) => {
+            Some(grant_role(state, identity, roles, grantee))
         }
 
-        NodedbStatement::Auth(AuthStmt::RevokeRole { role, username }) => {
-            Some(revoke_role(state, identity, role, username))
+        NodedbStatement::Auth(AuthStmt::RevokeRole { roles, grantee }) => {
+            Some(revoke_role(state, identity, roles, grantee))
         }
 
         NodedbStatement::Automation(AutomationStmt::AlterAlert { name, action }) => {
@@ -117,14 +117,14 @@ pub(super) fn try_dispatch_sync(
         }) => Some(alter_raft_group(state, identity, group_id, action, node_id)),
 
         NodedbStatement::Auth(AuthStmt::GrantPermission {
-            permission,
+            permissions,
             target_type,
             target_name,
             grantee,
         }) => Some(grant_permission(
             state,
             identity,
-            permission,
+            permissions,
             target_type,
             target_name,
             grantee,
@@ -139,14 +139,14 @@ pub(super) fn try_dispatch_sync(
         )),
 
         NodedbStatement::Auth(AuthStmt::RevokePermission {
-            permission,
+            permissions,
             target_type,
             target_name,
             grantee,
         }) => Some(revoke_permission(
             state,
             identity,
-            permission,
+            permissions,
             target_type,
             target_name,
             grantee,

@@ -12,7 +12,9 @@ use crate::control::catalog_entry::CatalogEntry;
 use crate::control::metadata_proposer::propose_catalog_entry;
 use crate::control::security::audit::AuditEvent;
 use crate::control::security::identity::{AuthenticatedIdentity, Permission};
-use crate::control::security::permission::{format_permission, function_target, parse_permission};
+use crate::control::security::permission::{
+    format_permission, function_target, parse_permission, procedure_target,
+};
 use crate::control::state::SharedState;
 
 use super::super::super::types::{require_tenant_admin, sqlstate_error};
@@ -68,41 +70,74 @@ fn propose_revoke(
     Ok(())
 }
 
-/// `GRANT <perm> ON <collection|FUNCTION name> TO <grantee>`
+/// Resolve a `(target_type, target_name)` pair into the canonical grant
+/// target string and a human-readable object description for audit logs.
+///
+/// `target_type` is `FUNCTION`, `PROCEDURE`, or anything else (treated as a
+/// collection).
+fn resolve_target(
+    identity: &AuthenticatedIdentity,
+    target_type: &str,
+    target_name: &str,
+) -> (String, String) {
+    if target_type.eq_ignore_ascii_case("FUNCTION") {
+        let name = target_name.to_lowercase();
+        (
+            function_target(identity.tenant_id, &name),
+            format!("function '{name}'"),
+        )
+    } else if target_type.eq_ignore_ascii_case("PROCEDURE") {
+        let name = target_name.to_lowercase();
+        (
+            procedure_target(identity.tenant_id, &name),
+            format!("procedure '{name}'"),
+        )
+    } else {
+        (
+            format!("collection:{}:{target_name}", identity.tenant_id.as_u64()),
+            format!("collection '{target_name}'"),
+        )
+    }
+}
+
+/// Resolve a list of permission tokens into concrete `Permission` values,
+/// expanding `ALL`. Returns a typed error for any unknown token.
+fn resolve_permissions(permissions: &[String]) -> PgWireResult<Vec<Permission>> {
+    let mut out = Vec::new();
+    for p in permissions {
+        if p.eq_ignore_ascii_case("ALL") {
+            out.extend([
+                Permission::Read,
+                Permission::Write,
+                Permission::Create,
+                Permission::Drop,
+                Permission::Alter,
+            ]);
+        } else {
+            let perm = parse_permission(p)
+                .ok_or_else(|| sqlstate_error("42601", &format!("unknown permission: {p}")))?;
+            out.push(perm);
+        }
+    }
+    Ok(out)
+}
+
+/// `GRANT <perm>[, ...] ON <collection|FUNCTION|PROCEDURE name> TO <grantee>`
 ///
 /// Called with typed fields from the AST router.
 pub fn grant_permission(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
-    perm_str: &str,
+    permissions: &[String],
     target_type: &str,
     target_name: &str,
     grantee: &str,
 ) -> PgWireResult<Vec<Response>> {
-    let (target, object_desc) = if target_type.eq_ignore_ascii_case("FUNCTION") {
-        let func_name = target_name.to_lowercase();
-        let t = function_target(identity.tenant_id, &func_name);
-        (t, format!("function '{func_name}'"))
-    } else {
-        let t = format!("collection:{}:{target_name}", identity.tenant_id.as_u64());
-        (t, format!("collection '{target_name}'"))
-    };
+    let (target, object_desc) = resolve_target(identity, target_type, target_name);
 
     require_tenant_admin(identity, "grant permissions")?;
 
-    let perms = if perm_str.eq_ignore_ascii_case("ALL") {
-        vec![
-            Permission::Read,
-            Permission::Write,
-            Permission::Create,
-            Permission::Drop,
-            Permission::Alter,
-        ]
-    } else {
-        let perm = parse_permission(perm_str)
-            .ok_or_else(|| sqlstate_error("42601", &format!("unknown permission: {perm_str}")))?;
-        vec![perm]
-    };
+    let perms = resolve_permissions(permissions)?;
 
     for perm in &perms {
         propose_grant(state, &target, grantee, *perm, &identity.username)?;
@@ -112,44 +147,44 @@ pub fn grant_permission(
         AuditEvent::PrivilegeChange,
         Some(identity.tenant_id),
         &identity.username,
-        &format!("granted {perm_str} on {object_desc} to '{grantee}'"),
+        &format!(
+            "granted {} on {object_desc} to '{grantee}'",
+            permissions.join(", ")
+        ),
     );
 
     Ok(vec![Response::Execution(Tag::new("GRANT"))])
 }
 
-/// `REVOKE <perm> ON <collection|FUNCTION name> FROM <grantee>`
+/// `REVOKE <perm>[, ...] ON <collection|FUNCTION|PROCEDURE name> FROM <grantee>`
 ///
 /// Called with typed fields from the AST router.
 pub fn revoke_permission(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
-    perm_str: &str,
+    permissions: &[String],
     target_type: &str,
     target_name: &str,
     grantee: &str,
 ) -> PgWireResult<Vec<Response>> {
-    let (target, object_desc) = if target_type.eq_ignore_ascii_case("FUNCTION") {
-        let func_name = target_name.to_lowercase();
-        let t = function_target(identity.tenant_id, &func_name);
-        (t, format!("function '{func_name}'"))
-    } else {
-        let t = format!("collection:{}:{target_name}", identity.tenant_id.as_u64());
-        (t, format!("collection '{target_name}'"))
-    };
+    let (target, object_desc) = resolve_target(identity, target_type, target_name);
 
     require_tenant_admin(identity, "revoke permissions")?;
 
-    let perm = parse_permission(perm_str)
-        .ok_or_else(|| sqlstate_error("42601", &format!("unknown permission: {perm_str}")))?;
+    let perms = resolve_permissions(permissions)?;
 
-    propose_revoke(state, &target, grantee, perm)?;
+    for perm in &perms {
+        propose_revoke(state, &target, grantee, *perm)?;
+    }
 
     state.audit_record(
         AuditEvent::PrivilegeChange,
         Some(identity.tenant_id),
         &identity.username,
-        &format!("revoked {perm_str} on {object_desc} from '{grantee}'"),
+        &format!(
+            "revoked {} on {object_desc} from '{grantee}'",
+            permissions.join(", ")
+        ),
     );
 
     Ok(vec![Response::Execution(Tag::new("REVOKE"))])

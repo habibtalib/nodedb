@@ -223,7 +223,7 @@ pub fn alter_role_typed(
             super::grant::permission::grant_permission(
                 state,
                 identity,
-                permission,
+                std::slice::from_ref(permission),
                 target_type,
                 target_name,
                 role_name,
@@ -239,7 +239,7 @@ pub fn alter_role_typed(
             super::grant::permission::revoke_permission(
                 state,
                 identity,
-                permission,
+                std::slice::from_ref(permission),
                 target_type,
                 target_name,
                 role_name,
@@ -247,45 +247,7 @@ pub fn alter_role_typed(
         }
 
         AlterRoleOp::SetInherit { parent } => {
-            let parent_is_builtin = matches!(
-                parent.as_str(),
-                "superuser" | "tenant_admin" | "readwrite" | "readonly" | "monitor"
-            );
-            if !parent_is_builtin && state.roles.get_role(parent).is_none() {
-                return Err(sqlstate_error(
-                    "42704",
-                    &format!("parent role '{parent}' does not exist"),
-                ));
-            }
-
-            let old_role = state
-                .roles
-                .get_role(role_name)
-                .ok_or_else(|| sqlstate_error("42704", &format!("role '{role_name}' not found")))?;
-
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            let stored = crate::control::security::catalog::StoredRole {
-                name: role_name.to_string(),
-                tenant_id: old_role.tenant_id.as_u64(),
-                parent: parent.to_string(),
-                created_at: now,
-            };
-
-            let entry =
-                crate::control::catalog_entry::CatalogEntry::PutRole(Box::new(stored.clone()));
-            let log_index = crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
-                .map_err(|e| sqlstate_error("XX000", &format!("metadata propose: {e}")))?;
-            if log_index == 0
-                && let Some(catalog) = state.credentials.catalog()
-            {
-                catalog
-                    .put_role(&stored)
-                    .map_err(|e| sqlstate_error("XX000", &format!("catalog write: {e}")))?;
-                state.roles.install_replicated_role(&stored);
-            }
+            set_role_parent(state, role_name, Some(parent))?;
 
             state.audit_record(
                 AuditEvent::PrivilegeChange,
@@ -297,4 +259,66 @@ pub fn alter_role_typed(
             Ok(vec![Response::Execution(Tag::new("ALTER ROLE"))])
         }
     }
+}
+
+/// Set (`parent = Some`) or clear (`parent = None`) a custom role's
+/// inheritance parent.
+///
+/// Shared by `ALTER ROLE <name> SET INHERIT <parent>` and the role-to-role
+/// form of `GRANT <role> TO <role>` / `REVOKE <role> FROM <role>` so every
+/// inheritance mutation goes through one catalog-propose path. The caller
+/// is responsible for the `require_tenant_admin` privilege check and for
+/// emitting the audit record.
+pub fn set_role_parent(
+    state: &SharedState,
+    role_name: &str,
+    parent: Option<&str>,
+) -> PgWireResult<()> {
+    let old_role = state
+        .roles
+        .get_role(role_name)
+        .ok_or_else(|| sqlstate_error("42704", &format!("role '{role_name}' not found")))?;
+
+    if let Some(parent) = parent {
+        let parent_is_builtin = matches!(
+            parent,
+            "superuser" | "tenant_admin" | "readwrite" | "readonly" | "monitor"
+        );
+        if !parent_is_builtin && state.roles.get_role(parent).is_none() {
+            return Err(sqlstate_error(
+                "42704",
+                &format!("parent role '{parent}' does not exist"),
+            ));
+        }
+        // Reject self-inheritance and multi-hop cycles, and enforce the
+        // inheritance-depth cap — the same invariant `CREATE ROLE` checks.
+        state
+            .roles
+            .check_inheritance_cycle(role_name, parent)
+            .map_err(|e| sqlstate_error("42P16", &e.to_string()))?;
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let stored = crate::control::security::catalog::StoredRole {
+        name: role_name.to_string(),
+        tenant_id: old_role.tenant_id.as_u64(),
+        parent: parent.unwrap_or("").to_string(),
+        created_at: now,
+    };
+
+    let entry = crate::control::catalog_entry::CatalogEntry::PutRole(Box::new(stored.clone()));
+    let log_index = crate::control::metadata_proposer::propose_catalog_entry(state, &entry)
+        .map_err(|e| sqlstate_error("XX000", &format!("metadata propose: {e}")))?;
+    if log_index == 0
+        && let Some(catalog) = state.credentials.catalog()
+    {
+        catalog
+            .put_role(&stored)
+            .map_err(|e| sqlstate_error("XX000", &format!("catalog write: {e}")))?;
+        state.roles.install_replicated_role(&stored);
+    }
+    Ok(())
 }
