@@ -27,6 +27,7 @@ use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 use crate::config::auth::AuthMode;
 use crate::control::security::audit::{ArcAuditEmitter, AuditEvent};
 use crate::control::security::credential::CredentialStore;
+use crate::control::security::credential::store::{AuthRejection, ScramLookup};
 use crate::control::state::SharedState;
 
 use super::handler::NodeDbPgHandler;
@@ -109,13 +110,16 @@ impl AuthSource for NodeDbAuthSource {
             if deadline > now {
                 tokio::time::sleep(deadline - now).await;
             }
-            return Err(PgWireError::InvalidPassword(format!(
-                "{username} (account locked)"
-            )));
+            // The wire rejection must be indistinguishable from an ordinary
+            // wrong-password failure: announcing "account locked" would
+            // confirm the username and leak the lockout state to an
+            // unauthenticated probe. The lockout is recorded in the audit
+            // log above for operators.
+            return Err(PgWireError::InvalidPassword(username.to_owned()));
         }
 
         match self.credentials.get_scram_credentials(username) {
-            Some(creds) => {
+            ScramLookup::Found(creds) => {
                 // A non-empty warning means grace period or must_change_password.
                 // pgwire's AuthSource doesn't surface NoticeResponse here; the
                 // warning is stored in the factory and must be sent after auth
@@ -128,16 +132,18 @@ impl AuthSource for NodeDbAuthSource {
                 }
                 Ok(Password::new(Some(creds.salt), creds.salted_password))
             }
-            None => {
-                let emitter = ArcAuditEmitter(std::sync::Arc::clone(&self.state.audit));
-                let source_ip = source.parse::<std::net::SocketAddr>().ok().map(|s| s.ip());
-                self.credentials
-                    .record_login_failure(username, source_ip, &emitter);
+            ScramLookup::Rejected(_) => {
+                // The lockout counter is driven from a single place — the
+                // SASL-failure arm in `AuthStartup::Scram` — so that a
+                // credential-lookup rejection here and a wrong-proof
+                // failure there are not double-counted. That arm re-derives
+                // the rejection reason and counts only genuine credential
+                // failures. `get_password` only emits the audit record.
                 self.state.audit_record(
                     AuditEvent::AuthFailure,
                     None,
                     source,
-                    &format!("unknown user: {username}"),
+                    &format!("SCRAM credential lookup rejected for user: {username}"),
                 );
                 Err(PgWireError::InvalidPassword(username.to_owned()))
             }
@@ -343,12 +349,28 @@ impl StartupHandler for AuthStartup {
                         bind_startup_database(client, &addr, handler);
                     }
                     Err(_) if was_in_auth => {
-                        // SCRAM failed — increment lockout counter.
-                        let emitter = ArcAuditEmitter(std::sync::Arc::clone(&state.audit));
-                        let scram_ip = source.parse::<std::net::SocketAddr>().ok().map(|s| s.ip());
-                        state
-                            .credentials
-                            .record_login_failure(&username, scram_ip, &emitter);
+                        // SCRAM failed. This is the single place the lockout
+                        // counter is driven for the SCRAM path. A SASL
+                        // failure counts as a credential failure only when
+                        // the account's credentials were actually usable
+                        // (so the failure is a wrong client proof) or the
+                        // user is unknown. A policy rejection from the
+                        // credential lookup (expired / must-change password,
+                        // inactive or service account) or an internal error
+                        // must not count — the password may well be correct.
+                        let counts = matches!(
+                            state.credentials.get_scram_credentials(&username),
+                            ScramLookup::Found(_)
+                                | ScramLookup::Rejected(AuthRejection::BadCredential)
+                        );
+                        if counts {
+                            let emitter = ArcAuditEmitter(std::sync::Arc::clone(&state.audit));
+                            let scram_ip =
+                                source.parse::<std::net::SocketAddr>().ok().map(|s| s.ip());
+                            state
+                                .credentials
+                                .record_login_failure(&username, scram_ip, &emitter);
+                        }
                         state.audit_record(
                             AuditEvent::AuthFailure,
                             None,

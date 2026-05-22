@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Authentication helpers shared across protocol handlers.
+//!
+//! - [`identity`] — resolve an identity from a TLS cert, an API key, or
+//!   trust mode.
+//! - [`native`] — the native-protocol JSON `authenticate` dispatcher and
+//!   the constant-time failure floor.
+//! - [`context`] — build and enrich `AuthContext` from an identity, plus
+//!   per-query `ON DENY` extraction.
+//! - [`guards`] — post-identity blacklist and rate-limit checks.
+
+pub mod context;
+pub mod guards;
+pub mod identity;
+pub mod native;
+
+pub use context::{
+    build_auth_context, build_auth_context_with_session, enrich_auth_context_with_scopes,
+    extract_and_apply_on_deny,
+};
+pub use guards::{check_blacklist, check_rate_limit};
+pub use identity::{resolve_certificate_identity, trust_identity, verify_api_key_identity};
+pub use native::{AUTH_FLOOR, authenticate};

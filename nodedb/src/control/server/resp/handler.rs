@@ -6,6 +6,7 @@ use sonic_rs;
 
 use crate::bridge::envelope::{PhysicalPlan, Status};
 use crate::control::security::audit::ArcAuditEmitter;
+use crate::control::security::credential::store::{AuthRejection, PasswordVerification};
 use crate::control::state::SharedState;
 use nodedb_physical::physical_plan::KvOp;
 
@@ -112,13 +113,24 @@ fn handle_auth(cmd: &RespCommand, session: &mut RespSession, state: &SharedState
     // Validate credentials using the same path as native/pgwire auth.
     state.credentials.check_lockout(username).ok();
 
-    if !state.credentials.verify_password(username, password) {
-        let emitter = ArcAuditEmitter(std::sync::Arc::clone(&state.audit));
-        state
-            .credentials
-            .record_login_failure(username, None, &emitter);
-        state.auth_metrics.record_auth_failure("resp_password");
-        return RespValue::err("WRONGPASS invalid username-password pair");
+    match state
+        .credentials
+        .verify_password_with_status(username, password)
+    {
+        PasswordVerification::Verified(_) => {}
+        PasswordVerification::Rejected(reason) => {
+            // Only a genuine credential failure counts toward the lockout
+            // counter. A policy rejection (expired / must-change password,
+            // inactive account) or an internal error must not.
+            if reason == AuthRejection::BadCredential {
+                let emitter = ArcAuditEmitter(std::sync::Arc::clone(&state.audit));
+                state
+                    .credentials
+                    .record_login_failure(username, None, &emitter);
+            }
+            state.auth_metrics.record_auth_failure("resp_password");
+            return RespValue::err("WRONGPASS invalid username-password pair");
+        }
     }
 
     state.credentials.record_login_success(username);
