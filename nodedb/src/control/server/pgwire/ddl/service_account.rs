@@ -8,8 +8,9 @@ use crate::control::security::identity::{AuthenticatedIdentity, Role};
 use crate::control::state::SharedState;
 
 use super::super::types::{parse_role, require_tenant_admin, sqlstate_error};
+use super::parse_utils::{strip_if_exists, strip_if_not_exists};
 
-/// CREATE SERVICE ACCOUNT <name> [ROLE <role>] [TENANT <id>]
+/// CREATE SERVICE ACCOUNT [IF NOT EXISTS] <name> [ROLE <role>] [TENANT <id>]
 ///                                [FOR DATABASE <db>]
 ///                                [FOR TENANT <id> IN DATABASE <db>]
 ///
@@ -22,14 +23,23 @@ pub fn create_service_account(
 ) -> PgWireResult<Vec<Response>> {
     require_tenant_admin(identity, "create service accounts")?;
 
+    let (if_not_exists, parts) = strip_if_not_exists(parts, 3);
+
     if parts.len() < 4 {
         return Err(sqlstate_error(
             "42601",
-            "syntax: CREATE SERVICE ACCOUNT <name> [ROLE <role>] [FOR DATABASE <db>]",
+            "syntax: CREATE SERVICE ACCOUNT [IF NOT EXISTS] <name> [ROLE <role>] [FOR DATABASE <db>]",
         ));
     }
 
     let name = parts[3];
+
+    // `IF NOT EXISTS`: re-creating an existing service account is a no-op.
+    if if_not_exists && state.credentials.get_user(name).is_some() {
+        return Ok(vec![Response::Execution(Tag::new(
+            "CREATE SERVICE ACCOUNT",
+        ))]);
+    }
 
     // Parse optional ROLE, TENANT, FOR DATABASE / IN DATABASE.
     let mut role = Role::ReadWrite;
@@ -143,7 +153,7 @@ pub fn create_service_account(
     ))])
 }
 
-/// DROP SERVICE ACCOUNT <name>
+/// DROP SERVICE ACCOUNT [IF EXISTS] <name>
 pub fn drop_service_account(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
@@ -151,20 +161,31 @@ pub fn drop_service_account(
 ) -> PgWireResult<Vec<Response>> {
     require_tenant_admin(identity, "drop service accounts")?;
 
+    let (if_exists, parts) = strip_if_exists(parts, 3);
+
     if parts.len() < 4 {
         return Err(sqlstate_error(
             "42601",
-            "syntax: DROP SERVICE ACCOUNT <name>",
+            "syntax: DROP SERVICE ACCOUNT [IF EXISTS] <name>",
         ));
     }
 
     let name = parts[3];
 
     // Verify it's actually a service account.
-    let user = state
-        .credentials
-        .get_user(name)
-        .ok_or_else(|| sqlstate_error("42704", &format!("service account '{name}' not found")))?;
+    let user = match state.credentials.get_user(name) {
+        Some(u) => u,
+        None => {
+            // `IF EXISTS`: dropping a missing account is a no-op success.
+            if if_exists {
+                return Ok(vec![Response::Execution(Tag::new("DROP SERVICE ACCOUNT"))]);
+            }
+            return Err(sqlstate_error(
+                "42704",
+                &format!("service account '{name}' not found"),
+            ));
+        }
+    };
     if !user.is_service_account {
         return Err(sqlstate_error(
             "42809",

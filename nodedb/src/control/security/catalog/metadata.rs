@@ -94,6 +94,17 @@ impl SystemCatalog {
         Ok(existed)
     }
 
+    /// Look up a tenant identity record by its display name.
+    ///
+    /// Tenants are keyed by numeric id in the catalog, so a name lookup is a
+    /// full scan; the tenant set is small (admin-managed) so this is cheap.
+    pub fn find_tenant_by_name(&self, name: &str) -> crate::Result<Option<StoredTenant>> {
+        Ok(self
+            .load_all_tenants()?
+            .into_iter()
+            .find(|t| t.name == name))
+    }
+
     pub fn load_all_tenants(&self) -> crate::Result<Vec<StoredTenant>> {
         let read_txn = self
             .db

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-//! `CREATE TENANT <name> [ID <id>]` handler. Migrated to
-//! `CatalogEntry::PutTenant` in phase 1k.6.
+//! `CREATE TENANT [IF NOT EXISTS] <name> [ID <id>] [WITH ADMIN <user>]`
+//! handler. Migrated to `CatalogEntry::PutTenant` in phase 1k.6.
 
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
@@ -16,11 +16,49 @@ use crate::control::state::SharedState;
 use crate::types::TenantId;
 
 use super::super::super::types::sqlstate_error;
+use super::super::parse_utils::strip_if_not_exists;
 
-/// `CREATE TENANT <name> [ID <id>]`
+/// Optional `ID <id>` and `WITH ADMIN <user>` clauses parsed from the
+/// tokens that follow the tenant name.
+struct TenantOptions<'a> {
+    explicit_id: Option<u64>,
+    admin_override: Option<&'a str>,
+}
+
+/// Scan the tokens after the tenant name for `ID <id>` and `WITH ADMIN
+/// <user>`. Both clauses are optional and order-independent.
+fn parse_tenant_options<'a>(rest: &[&'a str]) -> PgWireResult<TenantOptions<'a>> {
+    let mut explicit_id = None;
+    let mut admin_override = None;
+    let mut i = 0;
+    while i < rest.len() {
+        if rest[i].eq_ignore_ascii_case("ID") && i + 1 < rest.len() {
+            let id: u64 = rest[i + 1]
+                .parse()
+                .map_err(|_| sqlstate_error("42601", "TENANT ID must be a numeric value"))?;
+            explicit_id = Some(id);
+            i += 2;
+        } else if rest[i].eq_ignore_ascii_case("WITH")
+            && i + 2 < rest.len()
+            && rest[i + 1].eq_ignore_ascii_case("ADMIN")
+        {
+            admin_override = Some(rest[i + 2]);
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    Ok(TenantOptions {
+        explicit_id,
+        admin_override,
+    })
+}
+
+/// `CREATE TENANT [IF NOT EXISTS] <name> [ID <id>] [WITH ADMIN <user>]`
 ///
 /// Creates a tenant with default quotas. Only superuser can create tenants.
-/// `name` is for display; the numeric ID is what's used internally.
+/// `name` is for display; the numeric ID is what's used internally. With
+/// `IF NOT EXISTS`, re-creating an existing tenant is a no-op success.
 pub fn create_tenant(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
@@ -33,14 +71,29 @@ pub fn create_tenant(
         ));
     }
 
+    let (if_not_exists, parts) = strip_if_not_exists(parts, 2);
+
     if parts.len() < 3 {
         return Err(sqlstate_error(
             "42601",
-            "syntax: CREATE TENANT <name> [ID <id>]",
+            "syntax: CREATE TENANT [IF NOT EXISTS] <name> [ID <id>] [WITH ADMIN <user>]",
         ));
     }
 
     let name = parts[2];
+    let opts = parse_tenant_options(&parts[3..])?;
+
+    // `IF NOT EXISTS`: if a tenant with this name already exists, the
+    // statement is a no-op success — do not allocate a second id.
+    if if_not_exists
+        && let Some(catalog) = state.credentials.catalog()
+        && catalog
+            .find_tenant_by_name(name)
+            .map_err(|e| sqlstate_error("XX000", &format!("catalog read: {e}")))?
+            .is_some()
+    {
+        return Ok(vec![Response::Execution(Tag::new("CREATE TENANT"))]);
+    }
 
     // Pick the tenant id under a short lock scope; do NOT mutate the
     // store yet — the post_apply side effect on every node seeds the
@@ -50,14 +103,12 @@ pub fn create_tenant(
             Ok(t) => t,
             Err(p) => p.into_inner(),
         };
-        if parts.len() >= 5 && parts[3].eq_ignore_ascii_case("ID") {
-            let id: u64 = parts[4]
-                .parse()
-                .map_err(|_| sqlstate_error("42601", "TENANT ID must be a numeric value"))?;
-            TenantId::new(id)
-        } else {
-            let count = tenants.tenant_count() as u64;
-            TenantId::new(count + 1)
+        match opts.explicit_id {
+            Some(id) => TenantId::new(id),
+            None => {
+                let count = tenants.tenant_count() as u64;
+                TenantId::new(count + 1)
+            }
         }
     };
 
@@ -92,8 +143,12 @@ pub fn create_tenant(
         }
     }
 
-    // Auto-create a tenant_admin user for the new tenant.
-    let admin_name = format!("{name}_admin");
+    // Auto-create a tenant_admin user for the new tenant. `WITH ADMIN
+    // <user>` names it explicitly; otherwise it defaults to `<name>_admin`.
+    let admin_name = opts
+        .admin_override
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{name}_admin"));
     let admin_password = {
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();

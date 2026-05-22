@@ -2,6 +2,7 @@
 
 //! `CREATE USER` DDL handler.
 
+use nodedb_sql::ddl_ast::TenantSelector;
 use pgwire::api::results::{Response, Tag};
 use pgwire::error::PgWireResult;
 
@@ -11,14 +12,37 @@ use crate::control::server::pgwire::types::{parse_role, require_tenant_admin, sq
 use crate::control::state::SharedState;
 use crate::types::TenantId;
 
-/// CREATE USER <name> WITH PASSWORD '<password>' [ROLE <role>] [TENANT <id>]
+/// Resolve a [`TenantSelector`] to a numeric [`TenantId`]. Numeric ids pass
+/// through; names are resolved against the redb catalog.
+fn resolve_tenant_selector(
+    state: &SharedState,
+    selector: &TenantSelector,
+) -> PgWireResult<TenantId> {
+    match selector {
+        TenantSelector::Id(id) => Ok(TenantId::new(*id)),
+        TenantSelector::Name(name) => {
+            let catalog =
+                state.credentials.catalog().as_ref().ok_or_else(|| {
+                    sqlstate_error("42704", &format!("tenant '{name}' not found"))
+                })?;
+            let stored = catalog
+                .find_tenant_by_name(name)
+                .map_err(|e| sqlstate_error("XX000", &format!("catalog read: {e}")))?
+                .ok_or_else(|| sqlstate_error("42704", &format!("tenant '{name}' not found")))?;
+            Ok(TenantId::new(stored.tenant_id))
+        }
+    }
+}
+
+/// CREATE USER <name> WITH PASSWORD '<password>' [ROLE <role>]
+/// [TENANT <id> | TENANT '<name>']
 pub fn create_user(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
     username: &str,
     password: &str,
     role_name: Option<&str>,
-    tenant_id_override: Option<u64>,
+    tenant: Option<&TenantSelector>,
 ) -> PgWireResult<Vec<Response>> {
     require_tenant_admin(identity, "create users")?;
 
@@ -37,11 +61,11 @@ pub fn create_user(
     }
 
     let role = role_name.map(parse_role).unwrap_or(Role::ReadWrite);
-    let tenant_id = if let Some(tid) = tenant_id_override {
+    let tenant_id = if let Some(selector) = tenant {
         if !identity.is_superuser {
             return Err(sqlstate_error("42501", "only superuser can assign tenants"));
         }
-        TenantId::new(tid)
+        resolve_tenant_selector(state, selector)?
     } else {
         identity.tenant_id
     };

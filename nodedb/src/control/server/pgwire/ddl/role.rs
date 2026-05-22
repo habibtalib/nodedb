@@ -9,8 +9,9 @@ use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::state::SharedState;
 
 use super::super::types::{require_tenant_admin, sqlstate_error};
+use super::parse_utils::{strip_if_exists, strip_if_not_exists};
 
-/// CREATE ROLE <name> [INHERIT <parent>]
+/// CREATE ROLE [IF NOT EXISTS] <name> [INHERIT <parent>]
 pub fn create_role(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
@@ -18,14 +19,22 @@ pub fn create_role(
 ) -> PgWireResult<Vec<Response>> {
     require_tenant_admin(identity, "create roles")?;
 
+    let (if_not_exists, parts) = strip_if_not_exists(parts, 2);
+
     if parts.len() < 3 {
         return Err(sqlstate_error(
             "42601",
-            "syntax: CREATE ROLE <name> [INHERIT <parent>]",
+            "syntax: CREATE ROLE [IF NOT EXISTS] <name> [INHERIT <parent>]",
         ));
     }
 
     let name = parts[2];
+
+    // `IF NOT EXISTS`: re-creating an existing role is a no-op success.
+    if if_not_exists && state.roles.get_role(name).is_some() {
+        return Ok(vec![Response::Execution(Tag::new("CREATE ROLE"))]);
+    }
+
     let parent = if parts.len() >= 5 && parts[3].eq_ignore_ascii_case("INHERIT") {
         Some(parts[4])
     } else {
@@ -138,7 +147,7 @@ pub fn alter_role(
     Ok(vec![Response::Execution(Tag::new("ALTER ROLE"))])
 }
 
-/// DROP ROLE <name>
+/// DROP ROLE [IF EXISTS] <name>
 pub fn drop_role(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
@@ -146,13 +155,22 @@ pub fn drop_role(
 ) -> PgWireResult<Vec<Response>> {
     require_tenant_admin(identity, "drop roles")?;
 
+    let (if_exists, parts) = strip_if_exists(parts, 2);
+
     if parts.len() < 3 {
-        return Err(sqlstate_error("42601", "syntax: DROP ROLE <name>"));
+        return Err(sqlstate_error(
+            "42601",
+            "syntax: DROP ROLE [IF EXISTS] <name>",
+        ));
     }
 
     let name = parts[2];
     let exists_before = state.roles.get_role(name).is_some();
     if !exists_before {
+        // `IF EXISTS`: dropping a missing role is a no-op success.
+        if if_exists {
+            return Ok(vec![Response::Execution(Tag::new("DROP ROLE"))]);
+        }
         return Err(sqlstate_error(
             "42704",
             &format!("role '{name}' does not exist"),

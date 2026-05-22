@@ -291,14 +291,14 @@ pub(super) fn try_dispatch_sync(
             username,
             password,
             role,
-            tenant_id,
+            tenant,
         }) => Some(create_user(
             state,
             identity,
             username,
             password,
             role.as_deref(),
-            *tenant_id,
+            tenant.as_ref(),
         )),
 
         NodedbStatement::Auth(AuthStmt::AlterUser { username, op }) => {

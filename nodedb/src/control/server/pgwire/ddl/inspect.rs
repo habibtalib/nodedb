@@ -75,6 +75,7 @@ pub fn show_tenants(
 
     let schema = Arc::new(vec![
         int8_field("tenant_id"),
+        text_field("name"),
         int8_field("active_requests"),
         int8_field("total_requests"),
         int8_field("rejected_requests"),
@@ -85,23 +86,31 @@ pub fn show_tenants(
         Err(p) => p.into_inner(),
     };
 
-    // Collect tenant IDs that have usage data.
-    let mut rows = Vec::new();
-    let mut encoder = DataRowEncoder::new(schema.clone());
-
-    // We iterate through known users' tenants since TenantIsolation
-    // doesn't expose a list method. Usage is tracked on first request.
-    let user_details = state.credentials.list_user_details();
-    let mut seen_tenants = std::collections::HashSet::new();
-
-    for user in &user_details {
-        let tid = user.tenant_id;
-        if !seen_tenants.insert(tid) {
-            continue;
+    // Tenant names live in the catalog, keyed by numeric id.
+    let mut names: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
+    if let Some(catalog) = state.credentials.catalog()
+        && let Ok(all) = catalog.load_all_tenants()
+    {
+        for t in all {
+            names.insert(t.tenant_id, t.name);
         }
+    }
 
+    // The tenant set is the union of catalog-registered tenants and any
+    // tenant that owns at least one user (usage is tracked on first
+    // request, so a tenant with no traffic still needs to be listed).
+    let mut seen: std::collections::BTreeSet<u64> = names.keys().copied().collect();
+    for user in &state.credentials.list_user_details() {
+        seen.insert(user.tenant_id.as_u64());
+    }
+
+    let mut rows = Vec::new();
+    for tid_u64 in seen {
+        let tid = crate::types::TenantId::new(tid_u64);
         let usage = tenants.usage(tid);
-        encoder.encode_field(&(tid.as_u64() as i64))?;
+        let mut encoder = DataRowEncoder::new(schema.clone());
+        encoder.encode_field(&(tid_u64 as i64))?;
+        encoder.encode_field(&names.get(&tid_u64).map(String::as_str).unwrap_or(""))?;
         encoder.encode_field(&(usage.map_or(0, |u| u.active_requests as i64)))?;
         encoder.encode_field(&(usage.map_or(0, |u| u.total_requests as i64)))?;
         encoder.encode_field(&(usage.map_or(0, |u| u.rejected_requests as i64)))?;

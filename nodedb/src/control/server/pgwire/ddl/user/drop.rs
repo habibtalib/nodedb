@@ -8,10 +8,11 @@ use pgwire::error::PgWireResult;
 
 use crate::control::security::audit::AuditEvent;
 use crate::control::security::identity::AuthenticatedIdentity;
+use crate::control::server::pgwire::ddl::parse_utils::strip_if_exists;
 use crate::control::server::pgwire::types::{require_tenant_admin, sqlstate_error};
 use crate::control::state::SharedState;
 
-/// DROP USER <name>
+/// DROP USER [IF EXISTS] <name>
 pub fn drop_user(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
@@ -19,8 +20,13 @@ pub fn drop_user(
 ) -> PgWireResult<Vec<Response>> {
     require_tenant_admin(identity, "drop users")?;
 
+    let (if_exists, parts) = strip_if_exists(parts, 2);
+
     if parts.len() < 3 {
-        return Err(sqlstate_error("42601", "syntax: DROP USER <name>"));
+        return Err(sqlstate_error(
+            "42601",
+            "syntax: DROP USER [IF EXISTS] <name>",
+        ));
     }
 
     let username = parts[2];
@@ -40,6 +46,10 @@ pub fn drop_user(
     // clean error that doesn't touch raft.
     let exists_before = state.credentials.get_user(username).is_some();
     if !exists_before {
+        // `IF EXISTS`: dropping a missing user is a no-op success.
+        if if_exists {
+            return Ok(vec![Response::Execution(Tag::new("DROP USER"))]);
+        }
         return Err(sqlstate_error(
             "42704",
             &format!("user '{username}' does not exist"),
