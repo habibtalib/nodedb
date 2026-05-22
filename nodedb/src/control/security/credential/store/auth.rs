@@ -19,6 +19,44 @@ pub struct ScramCredentials {
     pub warning: Option<String>,
 }
 
+/// Why an authentication attempt failed to yield a usable credential.
+///
+/// Distinguishes a genuine credential failure — which is a brute-force
+/// signal and must count toward account lockout — from a non-credential
+/// rejection, which must not. Collapsing these (the historical behaviour,
+/// where every failure path returned a bare `false`/`None`) lets routine
+/// policy rejections lock out an account whose password is correct.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthRejection {
+    /// Wrong password, or an unknown user. A genuine credential failure;
+    /// counts toward the lockout counter.
+    BadCredential,
+    /// The credential is not at fault — a policy denies the login
+    /// (password expired, change required, account inactive, service
+    /// account). Must NOT count toward the lockout counter.
+    PolicyDenied,
+    /// Verification could not be performed (poisoned lock, unparseable
+    /// stored hash). Must NOT count toward the lockout counter.
+    Internal,
+}
+
+/// Outcome of a cleartext-password verification.
+pub enum PasswordVerification {
+    /// Password verified. Carries an optional warning (grace period or
+    /// `must_change_password` with a grace window remaining).
+    Verified(Option<String>),
+    /// Login denied; the reason classifies lockout treatment.
+    Rejected(AuthRejection),
+}
+
+/// Outcome of a SCRAM credential lookup.
+pub enum ScramLookup {
+    /// Credentials available for the SCRAM handshake.
+    Found(ScramCredentials),
+    /// Lookup denied; the reason classifies lockout treatment.
+    Rejected(AuthRejection),
+}
+
 impl CredentialStore {
     /// Look up a user by username. Returns None if not found or
     /// inactive.
@@ -29,34 +67,48 @@ impl CredentialStore {
 
     /// Get the SCRAM salt and salted password for pgwire SCRAM auth.
     ///
-    /// Returns `None` for service accounts, unknown users, or hard-expired
-    /// accounts (past expiry with no grace period). Returns `Some` with a
-    /// non-empty warning when in grace period or `must_change_password` is set.
-    pub fn get_scram_credentials(&self, username: &str) -> Option<ScramCredentials> {
-        let users = read_lock(&self.users).ok()?;
-        let u = users
-            .get(username)
-            .filter(|u| u.is_active && !u.is_service_account)?;
+    /// Returns [`ScramLookup::Found`] (with a non-empty warning when in the
+    /// grace period or `must_change_password` is set). Returns
+    /// [`ScramLookup::Rejected`] otherwise — the [`AuthRejection`] reason
+    /// classifies whether the rejection counts toward account lockout:
+    /// only an unknown user (`BadCredential`) does; service accounts,
+    /// inactive accounts and expired/must-change passwords (`PolicyDenied`)
+    /// and lock-poisoning (`Internal`) do not.
+    pub fn get_scram_credentials(&self, username: &str) -> ScramLookup {
+        let users = match read_lock(&self.users) {
+            Ok(u) => u,
+            Err(_) => return ScramLookup::Rejected(AuthRejection::Internal),
+        };
+        let u = match users.get(username) {
+            Some(u) => u,
+            // Unknown user — a genuine credential failure.
+            None => return ScramLookup::Rejected(AuthRejection::BadCredential),
+        };
+        // An inactive account or a service account cannot use password
+        // auth at all; neither is a credential failure.
+        if !u.is_active || u.is_service_account {
+            return ScramLookup::Rejected(AuthRejection::PolicyDenied);
+        }
 
         let now = now_secs();
         let grace_secs = self.password_expiry_grace_days as u64 * 86400;
 
-        // Expired with no grace: hard block.
+        // Expired with no grace: policy rejection, not a credential failure.
         if u.password_expires_at > 0
             && now >= u.password_expires_at
             && (grace_secs == 0 || now >= u.password_expires_at + grace_secs)
         {
             tracing::warn!(username = u.username, "password expired, login denied");
-            return None;
+            return ScramLookup::Rejected(AuthRejection::PolicyDenied);
         }
 
-        // must_change_password with no grace: hard block.
+        // must_change_password with no grace: policy rejection.
         if u.must_change_password && grace_secs == 0 {
             tracing::warn!(
                 username = u.username,
                 "must_change_password set with no grace period, login denied"
             );
-            return None;
+            return ScramLookup::Rejected(AuthRejection::PolicyDenied);
         }
 
         // Compute warning if in grace period or must_change_password is set.
@@ -75,7 +127,7 @@ impl CredentialStore {
             None
         };
 
-        Some(ScramCredentials {
+        ScramLookup::Found(ScramCredentials {
             salt: u.scram_salt.clone(),
             salted_password: u.scram_salted_password.clone(),
             warning,
@@ -93,67 +145,87 @@ impl CredentialStore {
     /// ones.  Write-back failure is non-fatal (logged as a warning).  If the
     /// stored PHC string is unparseable the login is denied.
     ///
-    /// Returns `(verified, warning)` where `warning` is non-empty when
-    /// the login is permitted but the password is in grace period or
-    /// `must_change_password` is set.
+    /// Returns [`PasswordVerification::Verified`] (with an optional warning
+    /// when in the grace period or `must_change_password` is set) or
+    /// [`PasswordVerification::Rejected`]. The rejection carries an
+    /// [`AuthRejection`] reason: a wrong password or unknown user is a
+    /// `BadCredential` and counts toward lockout; an expired / must-change
+    /// password or inactive account is a `PolicyDenied` and must not.
+    ///
+    /// The wrong-password check is evaluated *before* the expiry / change
+    /// policy so that a wrong password on an otherwise policy-blocked
+    /// account is still classified as a credential failure.
     pub fn verify_password_with_status(
         &self,
         username: &str,
         password: &str,
-    ) -> (bool, Option<String>) {
+    ) -> PasswordVerification {
         let users = match read_lock(&self.users) {
             Ok(u) => u,
             Err(_) => {
                 // Timing oracle mitigation: run a dummy hash even on lock failure.
                 let _ = hash_password_argon2(password, &self.argon2_config);
-                return (false, None);
+                return PasswordVerification::Rejected(AuthRejection::Internal);
             }
         };
-        let record = match users.get(username).filter(|u| u.is_active) {
+        let record = match users.get(username) {
             Some(r) => r,
             None => {
                 // Timing oracle mitigation: run a dummy hash for unknown users.
                 let _ = hash_password_argon2(password, &self.argon2_config);
-                return (false, None);
+                // An unknown user is a genuine credential failure.
+                return PasswordVerification::Rejected(AuthRejection::BadCredential);
             }
         };
+        if !record.is_active {
+            // Disabled account: the supplied credential is not the issue.
+            let _ = hash_password_argon2(password, &self.argon2_config);
+            return PasswordVerification::Rejected(AuthRejection::PolicyDenied);
+        }
 
-        // Constant-time verify + rehash decision; runs before policy checks so
-        // the timing profile is the same for expired and valid accounts.
+        // Constant-time verify + rehash decision; runs before the policy
+        // checks so the timing profile is the same for expired and valid
+        // accounts.
         let stored_hash = record.password_hash.clone();
         let outcome = verify_argon2_with_rehash(&stored_hash, password, &self.argon2_config);
 
-        let now = now_secs();
-        let grace_secs = self.password_expiry_grace_days as u64 * 86400;
-
-        // Expired past grace: deny regardless of correct password.
-        if record.password_expires_at > 0
-            && now >= record.password_expires_at
-            && (grace_secs == 0 || now >= record.password_expires_at + grace_secs)
-        {
-            tracing::warn!(username, "password expired, login denied");
-            return (false, None);
-        }
-
-        // must_change_password with no grace: deny.
-        if record.must_change_password && grace_secs == 0 {
-            tracing::warn!(username, "must_change_password set, login denied");
-            return (false, None);
-        }
-
-        // Evaluate verify outcome.
+        // Classify the verification outcome first. A wrong password is a
+        // credential failure regardless of any policy state on the account.
         let rehash_hash = match outcome {
             VerifyOutcome::Ok { rehash } => rehash,
-            VerifyOutcome::WrongPassword => return (false, None),
-            // Unparseable stored PHC is a data integrity error — deny login.
+            VerifyOutcome::WrongPassword => {
+                return PasswordVerification::Rejected(AuthRejection::BadCredential);
+            }
+            // Unparseable stored PHC is a data integrity error, not a
+            // credential failure — deny login without counting it.
             VerifyOutcome::BadStoredHash => {
                 tracing::error!(
                     username,
                     "stored password hash is not a valid PHC string; login denied"
                 );
-                return (false, None);
+                return PasswordVerification::Rejected(AuthRejection::Internal);
             }
         };
+
+        // The password is correct. The policy checks below are
+        // non-credential rejections — they must not count toward lockout.
+        let now = now_secs();
+        let grace_secs = self.password_expiry_grace_days as u64 * 86400;
+
+        // Expired past grace: deny despite the correct password.
+        if record.password_expires_at > 0
+            && now >= record.password_expires_at
+            && (grace_secs == 0 || now >= record.password_expires_at + grace_secs)
+        {
+            tracing::warn!(username, "password expired, login denied");
+            return PasswordVerification::Rejected(AuthRejection::PolicyDenied);
+        }
+
+        // must_change_password with no grace: deny despite the correct password.
+        if record.must_change_password && grace_secs == 0 {
+            tracing::warn!(username, "must_change_password set, login denied");
+            return PasswordVerification::Rejected(AuthRejection::PolicyDenied);
+        }
 
         // Drop read lock before acquiring write lock for rehash write-back.
         drop(users);
@@ -166,7 +238,7 @@ impl CredentialStore {
         // Re-acquire read lock to compute the warning (record reference was dropped).
         let warning = self.compute_login_warning(username, now, grace_secs);
 
-        (true, warning)
+        PasswordVerification::Verified(warning)
     }
 
     /// Write the new password hash back to the in-memory store and catalog.
@@ -231,10 +303,15 @@ impl CredentialStore {
         }
     }
 
-    /// Verify a cleartext password. Convenience wrapper; ignores warning.
-    /// Internal paths that need the warning should call `verify_password_with_status`.
+    /// Verify a cleartext password. Convenience wrapper that collapses the
+    /// verdict to a boolean; ignores the warning and the rejection reason.
+    /// Auth paths that drive the lockout counter must call
+    /// `verify_password_with_status` and branch on the [`AuthRejection`].
     pub fn verify_password(&self, username: &str, password: &str) -> bool {
-        self.verify_password_with_status(username, password).0
+        matches!(
+            self.verify_password_with_status(username, password),
+            PasswordVerification::Verified(_)
+        )
     }
 
     /// Build an `AuthenticatedIdentity` for a verified user.

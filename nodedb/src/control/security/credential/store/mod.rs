@@ -24,5 +24,6 @@ pub mod replication;
 #[cfg(test)]
 mod tests;
 
+pub use auth::{AuthRejection, PasswordVerification, ScramCredentials, ScramLookup};
 pub use core::CredentialStore;
 pub(super) use core::{read_lock, write_lock};

@@ -246,8 +246,8 @@ fn update_password_clears_must_change_and_sets_changed_at() {
     );
 }
 
-/// `get_scram_credentials` must return `None` when the password is expired
-/// (past expiry and no grace period).
+/// `get_scram_credentials` must reject (as a non-credential `PolicyDenied`)
+/// when the password is expired (past expiry and no grace period).
 #[test]
 fn scram_blocks_expired_account_no_grace() {
     let store = CredentialStore::new();
@@ -262,8 +262,12 @@ fn scram_blocks_expired_account_no_grace() {
     }
     // grace = 0 (default)
     assert!(
-        store.get_scram_credentials("frank").is_none(),
-        "expired account with no grace should be blocked from SCRAM auth"
+        matches!(
+            store.get_scram_credentials("frank"),
+            super::ScramLookup::Rejected(super::AuthRejection::PolicyDenied)
+        ),
+        "expired account with no grace should be blocked from SCRAM auth \
+         as a policy rejection, not a credential failure"
     );
 }
 
@@ -289,9 +293,12 @@ fn scram_allows_expired_account_within_grace_with_warning() {
             super::super::super::time::now_secs() - 1;
     }
 
-    let creds = store
-        .get_scram_credentials("grace_user")
-        .expect("account within grace period should be allowed");
+    let creds = match store.get_scram_credentials("grace_user") {
+        super::ScramLookup::Found(c) => c,
+        super::ScramLookup::Rejected(_) => {
+            panic!("account within grace period should be allowed")
+        }
+    };
     assert!(
         creds.warning.is_some(),
         "grace-period login should carry a warning"
@@ -313,14 +320,18 @@ fn scram_blocks_must_change_password_no_grace() {
     store.set_must_change_password("hank", true).unwrap();
     // grace_days = 0 (default)
     assert!(
-        store.get_scram_credentials("hank").is_none(),
-        "must_change_password with no grace should block SCRAM auth"
+        matches!(
+            store.get_scram_credentials("hank"),
+            super::ScramLookup::Rejected(super::AuthRejection::PolicyDenied)
+        ),
+        "must_change_password with no grace should block SCRAM auth \
+         as a policy rejection, not a credential failure"
     );
 }
 
-/// `verify_password_with_status` must return `(false, _)` when the password
-/// is expired past the grace period — even when the password is correct.
-/// This pins the security fix on the HTTP/native auth path.
+/// `verify_password_with_status` must reject — as a non-credential
+/// `PolicyDenied`, not a `BadCredential` — when the password is expired
+/// past the grace period even though the supplied password is correct.
 #[test]
 fn verify_password_blocks_expired_account() {
     let store = CredentialStore::new();
@@ -339,10 +350,40 @@ fn verify_password_blocks_expired_account() {
         users.get_mut("ivan").unwrap().password_expires_at = 1;
     }
 
-    let (ok, _warn) = store.verify_password_with_status("ivan", "correct_pass");
     assert!(
-        !ok,
-        "verify_password_with_status must deny login for expired account even with correct password"
+        matches!(
+            store.verify_password_with_status("ivan", "correct_pass"),
+            super::PasswordVerification::Rejected(super::AuthRejection::PolicyDenied)
+        ),
+        "an expired account must deny login even with the correct password, \
+         and classify it as a policy rejection rather than a credential failure"
+    );
+}
+
+/// A wrong password is a `BadCredential` regardless of account policy state.
+#[test]
+fn verify_password_wrong_password_is_a_credential_failure() {
+    let store = CredentialStore::new();
+    store
+        .create_user(
+            "karl",
+            "correct_pass",
+            TenantId::new(1),
+            vec![Role::ReadWrite],
+        )
+        .unwrap();
+    // Expire the account: a wrong password on it must still classify as a
+    // credential failure, not be masked by the expiry policy.
+    {
+        let mut users = store.users.write().unwrap();
+        users.get_mut("karl").unwrap().password_expires_at = 1;
+    }
+    assert!(
+        matches!(
+            store.verify_password_with_status("karl", "wrong_pass"),
+            super::PasswordVerification::Rejected(super::AuthRejection::BadCredential)
+        ),
+        "a wrong password must be a credential failure even on a policy-blocked account"
     );
 }
 
@@ -359,7 +400,12 @@ fn verify_password_grace_period_emits_warning() {
         users.get_mut("judy").unwrap().password_expires_at =
             super::super::super::time::now_secs() - 1;
     }
-    let (ok, warn) = store.verify_password_with_status("judy", "pass");
-    assert!(ok, "grace-period login should succeed");
-    assert!(warn.is_some(), "grace-period login should carry a warning");
+    match store.verify_password_with_status("judy", "pass") {
+        super::PasswordVerification::Verified(warn) => {
+            assert!(warn.is_some(), "grace-period login should carry a warning");
+        }
+        super::PasswordVerification::Rejected(_) => {
+            panic!("grace-period login should succeed")
+        }
+    }
 }
