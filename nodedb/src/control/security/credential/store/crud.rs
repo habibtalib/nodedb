@@ -111,17 +111,24 @@ impl CredentialStore {
         Ok(user_id)
     }
 
-    /// Deactivate a user (soft delete). Persists the change and publishes
-    /// `UserDeactivated` to trigger hard-revoke of open sessions.
-    pub fn deactivate_user(&self, username: &str) -> crate::Result<bool> {
-        let mut users = write_lock(&self.users)?;
-        if let Some(record) = users.get_mut(username) {
-            record.is_active = false;
-            self.commit_user_mutation(record, Some(SessionInvalidationReason::UserDeactivated))?;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+    /// Drop a user. Fully removes the identity record from the
+    /// in-memory cache AND the redb catalog, then publishes
+    /// `UserDropped` to hard-revoke open sessions. Returns `false`
+    /// if no such user exists.
+    ///
+    /// A full delete (not a soft-delete tombstone) is required so the
+    /// username is freed for reuse — a stale `is_active = false`
+    /// record would still trip the `CREATE USER` uniqueness check.
+    pub fn drop_user(&self, username: &str) -> crate::Result<bool> {
+        let record = {
+            let mut users = write_lock(&self.users)?;
+            match users.remove(username) {
+                Some(record) => record,
+                None => return Ok(false),
+            }
+        };
+        self.purge_user(&record)?;
+        Ok(true)
     }
 
     /// Update a user's password. Recomputes both Argon2 hash and SCRAM

@@ -41,7 +41,7 @@ fn persistent_create_and_reload() {
 }
 
 #[test]
-fn persistent_deactivate_survives_restart() {
+fn dropped_user_does_not_survive_restart() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("system.redb");
 
@@ -50,12 +50,16 @@ fn persistent_deactivate_survives_restart() {
         store
             .create_user("bob", "pass", TenantId::new(1), vec![Role::ReadOnly])
             .unwrap();
-        store.deactivate_user("bob").unwrap();
+        assert!(store.drop_user("bob").unwrap());
     }
 
     {
         let store = CredentialStore::open(&path).unwrap();
         assert!(store.get_user("bob").is_none());
+        // The username must be free for reuse after restart.
+        store
+            .create_user("bob", "pass2", TenantId::new(1), vec![Role::ReadOnly])
+            .expect("dropped username must be reusable after restart");
     }
 }
 

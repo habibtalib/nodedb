@@ -2,7 +2,7 @@
 
 //! Cluster replication hooks for [`CredentialStore`].
 //!
-//! Powers the `CatalogEntry::PutUser` / `DeactivateUser` pipeline.
+//! Powers the `CatalogEntry::PutUser` / `DropUser` pipeline.
 //! Every method here is called from a specific point in the
 //! replicated-DDL flow:
 //!
@@ -15,8 +15,8 @@
 //! - [`CredentialStore::install_replicated_user`] upserts a
 //!   `StoredUser` (computed on another node) into the in-memory
 //!   cache, bumping `next_user_id` to stay ahead of replicated ids.
-//! - [`CredentialStore::install_replicated_deactivate`] marks the
-//!   in-memory record inactive for `CatalogEntry::DeactivateUser`.
+//! - [`CredentialStore::install_replicated_drop`] removes the
+//!   in-memory record for `CatalogEntry::DropUser`.
 //!
 //! Password hashing + scram salt generation must happen on the
 //! leader because followers cannot reproduce a random salt;
@@ -232,16 +232,19 @@ impl CredentialStore {
         users.insert(stored.username.clone(), record);
     }
 
-    /// Mark a replicated user as inactive in the in-memory cache and publish
-    /// `UserDeactivated` so open sessions are hard-revoked.
-    pub fn install_replicated_deactivate(&self, username: &str) {
-        let mut users = self.users.write().unwrap_or_else(|p| p.into_inner());
-        if let Some(record) = users.get_mut(username) {
-            record.is_active = false;
-            let _ = self.commit_user_mutation(
-                record,
-                Some(super::super::super::buses::SessionInvalidationReason::UserDeactivated),
-            );
+    /// Remove a replicated dropped user from the in-memory cache and
+    /// publish `UserDropped` so open sessions are hard-revoked.
+    ///
+    /// The redb delete is also performed by the catalog applier;
+    /// `purge_user`'s catalog delete is idempotent, so a double
+    /// delete is harmless.
+    pub fn install_replicated_drop(&self, username: &str) {
+        let record = {
+            let mut users = self.users.write().unwrap_or_else(|p| p.into_inner());
+            users.remove(username)
+        };
+        if let Some(record) = record {
+            let _ = self.purge_user(&record);
         }
     }
 }

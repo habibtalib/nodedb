@@ -170,7 +170,7 @@ pub(super) fn describe_entry(e: &catalog_entry::CatalogEntry) -> (String, u64, S
         E::PutChangeStream(cs) => (cs.name.clone(), 0, String::new()),
         E::DeleteChangeStream { name, .. } => (name.clone(), 0, String::new()),
         E::PutUser(u) => (u.username.clone(), 0, String::new()),
-        E::DeactivateUser { username, .. } => (username.clone(), 0, String::new()),
+        E::DropUser { username, .. } => (username.clone(), 0, String::new()),
         E::PutRole(r) => (r.name.clone(), 0, String::new()),
         E::DeleteRole { name, .. } => (name.clone(), 0, String::new()),
         E::PutApiKey(k) => (k.key_id.clone(), 0, String::new()),

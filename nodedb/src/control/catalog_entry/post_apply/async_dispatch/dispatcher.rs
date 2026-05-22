@@ -104,7 +104,7 @@ pub fn spawn_post_apply_async_side_effects(
         | CatalogEntry::PutChangeStream(_)
         | CatalogEntry::DeleteChangeStream { .. }
         | CatalogEntry::PutUser(_)
-        | CatalogEntry::DeactivateUser { .. }
+        | CatalogEntry::DropUser { .. }
         | CatalogEntry::PutRole(_)
         | CatalogEntry::DeleteRole { .. }
         | CatalogEntry::PutApiKey(_)

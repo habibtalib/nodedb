@@ -145,7 +145,7 @@ pub fn stamp(entry: CatalogEntry, clock: &HlcClock, catalog: &SystemCatalog) -> 
         | CatalogEntry::PutChangeStream(_)
         | CatalogEntry::DeleteChangeStream { .. }
         | CatalogEntry::PutUser(_)
-        | CatalogEntry::DeactivateUser { .. }
+        | CatalogEntry::DropUser { .. }
         | CatalogEntry::PutRole(_)
         | CatalogEntry::DeleteRole { .. }
         | CatalogEntry::PutApiKey(_)

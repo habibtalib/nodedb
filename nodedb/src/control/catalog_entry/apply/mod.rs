@@ -108,7 +108,7 @@ fn apply_to_inner(entry: &CatalogEntry, catalog: &SystemCatalog) {
             change_stream::delete(*tenant_id, name, catalog)
         }
         CatalogEntry::PutUser(stored) => user::put(stored, catalog),
-        CatalogEntry::DeactivateUser { username } => user::deactivate(username, catalog),
+        CatalogEntry::DropUser { username } => user::delete(username, catalog),
         CatalogEntry::PutRole(stored) => role::put(stored, catalog),
         CatalogEntry::DeleteRole { name } => role::delete(name, catalog),
         CatalogEntry::PutApiKey(stored) => api_key::put(stored, catalog),

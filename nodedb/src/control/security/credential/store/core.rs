@@ -298,6 +298,48 @@ impl CredentialStore {
         Ok(())
     }
 
+    /// Fully retire a dropped user's persisted + in-process state.
+    ///
+    /// In order:
+    /// 1. Delete the record from the redb catalog (idempotent — a
+    ///    missing key is a harmless no-op).
+    /// 2. Publish `UserChanged` on the user-change bus.
+    /// 3. Publish `SessionInvalidated` with `UserDropped` so open
+    ///    sessions are hard-revoked.
+    /// 4. Discard the per-user version counter — the username may be
+    ///    recreated later under a fresh `user_id`.
+    ///
+    /// The caller must have already removed the in-memory cache entry.
+    pub(in crate::control::security::credential) fn purge_user(
+        &self,
+        record: &UserRecord,
+    ) -> crate::Result<()> {
+        let user_id = record.user_id;
+
+        // 1. Delete from the persistent catalog.
+        if let Some(ref catalog) = self.catalog {
+            catalog.delete_user(&record.username)?;
+        }
+
+        // 2. UserChanged.
+        if let Some(bus) = self.uc_bus.get() {
+            bus.publish(crate::control::security::buses::UserChanged { user_id });
+        }
+
+        // 3. SessionInvalidated — hard-revoke open sessions.
+        if let Some(bus) = self.si_bus.get() {
+            bus.publish(crate::control::security::buses::SessionInvalidated {
+                user_id,
+                reason: crate::control::security::buses::SessionInvalidationReason::UserDropped,
+            });
+        }
+
+        // 4. Discard the per-user version counter.
+        write_lock(&self.versions)?.remove(&user_id);
+
+        Ok(())
+    }
+
     /// Bootstrap the superuser from config. Called once on startup.
     /// If the user already exists (loaded from catalog), updates
     /// the password.

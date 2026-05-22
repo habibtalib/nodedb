@@ -96,8 +96,8 @@ pub fn apply_post_apply_side_effects_sync(entry: &CatalogEntry, shared: &Arc<Sha
                 Some(crate::control::security::buses::SessionInvalidationReason::RoleAltered),
             );
         }
-        CatalogEntry::DeactivateUser { username } => {
-            user::deactivate(username.clone(), Arc::clone(shared));
+        CatalogEntry::DropUser { username } => {
+            user::drop_user(username.clone(), Arc::clone(shared));
         }
         CatalogEntry::PutRole(stored) => {
             role::put((**stored).clone(), Arc::clone(shared));

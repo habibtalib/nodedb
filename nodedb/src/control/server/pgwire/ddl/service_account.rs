@@ -174,7 +174,7 @@ pub fn drop_service_account(
 
     let dropped = state
         .credentials
-        .deactivate_user(name)
+        .drop_user(name)
         .map_err(|e| sqlstate_error("XX000", &e.to_string()))?;
 
     if dropped {

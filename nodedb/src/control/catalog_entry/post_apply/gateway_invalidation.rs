@@ -32,7 +32,7 @@ use crate::control::state::SharedState;
 /// | PutProcedure / DeleteProcedure          | ❌ no       | same as functions |
 /// | PutSchedule / DeleteSchedule            | ❌ no       | scheduler runs independently |
 /// | PutChangeStream / DeleteChangeStream    | ❌ no       | CDC Event Plane concern |
-/// | PutUser / DeactivateUser                | ❌ no       | authz checked at exec time |
+/// | PutUser / DropUser                      | ❌ no       | authz checked at exec time |
 /// | PutRole / DeleteRole                    | ❌ no       | same |
 /// | PutApiKey / RevokeApiKey                | ❌ no       | same |
 /// | PutMaterializedView / DeleteMaterializedView | ❌ no  | MV definition is its own catalog object; write-path `materialized_sum_sources` is set at collection-register time via PutCollection, not updated by PutMaterializedView independently |
@@ -121,7 +121,7 @@ pub(crate) fn invalidate_gateway_cache_for_entry(entry: &CatalogEntry, shared: &
         CatalogEntry::PutUser(_) => {
             // no-op: user identity checked in credential store at exec time.
         }
-        CatalogEntry::DeactivateUser { .. } => {
+        CatalogEntry::DropUser { .. } => {
             // no-op: same as PutUser.
         }
         CatalogEntry::PutRole(_) => {

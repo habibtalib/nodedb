@@ -130,9 +130,10 @@ pub enum CatalogEntry {
     /// accept the pre-computed record verbatim and bump their local
     /// `next_user_id` counter to stay ahead of replicated IDs.
     PutUser(Box<StoredUser>),
-    /// Soft-delete a user: flip `is_active = false` on every node's
-    /// in-memory cache and redb record.
-    DeactivateUser { username: String },
+    /// Drop a user: fully remove the identity record from every
+    /// node's in-memory cache and redb catalog, freeing the
+    /// username for reuse.
+    DropUser { username: String },
 
     // ── Role ───────────────────────────────────────────────────────
     /// Upsert a custom role. Built-in roles (Superuser/TenantAdmin/
@@ -332,7 +333,7 @@ impl CatalogEntry {
             Self::PutChangeStream(_) => "put_change_stream",
             Self::DeleteChangeStream { .. } => "delete_change_stream",
             Self::PutUser(_) => "put_user",
-            Self::DeactivateUser { .. } => "deactivate_user",
+            Self::DropUser { .. } => "drop_user",
             Self::PutRole(_) => "put_role",
             Self::DeleteRole { .. } => "delete_role",
             Self::PutApiKey(_) => "put_api_key",

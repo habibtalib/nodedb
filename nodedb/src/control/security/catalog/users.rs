@@ -30,8 +30,7 @@ impl SystemCatalog {
     }
 
     /// Look up a single user by username. Matches the shape of
-    /// `get_collection` / `get_trigger` / etc. Used by the
-    /// replication applier to implement `DeactivateUser`.
+    /// `get_collection` / `get_trigger` / etc.
     pub fn get_user(&self, username: &str) -> crate::Result<Option<StoredUser>> {
         let read_txn = self
             .db

@@ -248,14 +248,14 @@ async fn no_op_variants_do_not_evict_plan_cache() {
         "DeleteChangeStream",
     );
 
-    // DeactivateUser
+    // DropUser
     assert_noop(
         &shared,
         &cache,
-        CatalogEntry::DeactivateUser {
+        CatalogEntry::DropUser {
             username: "bob".into(),
         },
-        "DeactivateUser",
+        "DropUser",
     );
 
     // DeleteRole
