@@ -8,6 +8,7 @@ mod common;
 use common::pgwire_auth_helpers::{
     assert_readonly_denied, ddl_err, ddl_ok, make_state, make_state_with_catalog, superuser,
 };
+use nodedb::control::security::audit::AuditEvent;
 use nodedb::control::security::identity::{AuthMethod, AuthenticatedIdentity, Permission, Role};
 use nodedb::types::TenantId;
 
@@ -344,5 +345,61 @@ async fn grant_role_to_itself_rejected() {
     assert!(
         err.to_lowercase().contains("cycle"),
         "a role must not be able to inherit from itself, got: {err}"
+    );
+}
+
+/// `CREATE ROLE IF NOT EXISTS <name>` creates a role named `<name>`, not
+/// one named after the `IF` clause keyword.
+#[tokio::test]
+async fn create_role_if_not_exists_names_real_role() {
+    let state = make_state_with_catalog();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE ROLE IF NOT EXISTS auditor").await;
+
+    let log = state.audit.lock().unwrap();
+    let details: Vec<&String> = log
+        .query_by_event(&AuditEvent::PrivilegeChange)
+        .iter()
+        .map(|e| &e.detail)
+        .collect();
+    assert!(
+        details.iter().any(|d| d.contains("created role 'auditor'")),
+        "{details:?}"
+    );
+    // Regression guard: the `IF NOT EXISTS` keywords must never leak
+    // into the role name.
+    assert!(
+        !details.iter().any(|d| d.contains("created role 'IF'")),
+        "clause keyword used as role name: {details:?}"
+    );
+}
+
+/// `DROP ROLE IF EXISTS <name>` on a role that does not exist is a no-op
+/// success, not an error.
+#[tokio::test]
+async fn drop_role_if_exists_missing_is_noop() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "DROP ROLE IF EXISTS ghost").await;
+}
+
+/// `DROP ROLE IF EXISTS <name>` on an existing role actually drops it —
+/// the `IF EXISTS` clause must not turn the statement into a total no-op.
+#[tokio::test]
+async fn drop_role_if_exists_existing_drops() {
+    let state = make_state_with_catalog();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE ROLE auditor").await;
+    ddl_ok(&state, &su, "DROP ROLE IF EXISTS auditor").await;
+
+    let log = state.audit.lock().unwrap();
+    let details: Vec<&String> = log
+        .query_by_event(&AuditEvent::PrivilegeChange)
+        .iter()
+        .map(|e| &e.detail)
+        .collect();
+    assert!(
+        details.iter().any(|d| d.contains("dropped role 'auditor'")),
+        "{details:?}"
     );
 }

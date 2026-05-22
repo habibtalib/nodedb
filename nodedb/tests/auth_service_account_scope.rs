@@ -172,3 +172,58 @@ async fn service_account_key_inherits_accessible_databases() {
     ));
     assert_eq!(actual, expected);
 }
+
+/// `CREATE SERVICE ACCOUNT IF NOT EXISTS <name>` creates an account named
+/// `<name>`, not one named after the `IF` clause keyword.
+#[tokio::test]
+async fn create_service_account_if_not_exists_names_real_account() {
+    use nodedb::control::security::audit::AuditEvent;
+
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE SERVICE ACCOUNT IF NOT EXISTS reporter").await;
+
+    let log = state.audit.lock().unwrap();
+    let details: Vec<&String> = log
+        .query_by_event(&AuditEvent::PrivilegeChange)
+        .iter()
+        .map(|e| &e.detail)
+        .collect();
+    assert!(
+        details
+            .iter()
+            .any(|d| d.contains("service account 'reporter'")),
+        "{details:?}"
+    );
+    // Regression guard: the `IF NOT EXISTS` keywords must never leak
+    // into the service account name.
+    assert!(
+        !details.iter().any(|d| d.contains("service account 'IF'")),
+        "clause keyword used as service account name: {details:?}"
+    );
+}
+
+/// `DROP SERVICE ACCOUNT IF EXISTS <name>` on an account that does not
+/// exist is a no-op success, not an error.
+#[tokio::test]
+async fn drop_service_account_if_exists_missing_is_noop() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "DROP SERVICE ACCOUNT IF EXISTS ghost").await;
+}
+
+/// `DROP SERVICE ACCOUNT IF EXISTS <name>` on an existing account
+/// actually drops it — the `IF EXISTS` clause must not turn the
+/// statement into a total no-op.
+#[tokio::test]
+async fn drop_service_account_if_exists_existing_drops() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE SERVICE ACCOUNT reporter").await;
+    ddl_ok(&state, &su, "DROP SERVICE ACCOUNT IF EXISTS reporter").await;
+
+    assert!(
+        state.credentials.get_user("reporter").is_none(),
+        "DROP SERVICE ACCOUNT IF EXISTS must drop an existing account"
+    );
+}

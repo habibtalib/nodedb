@@ -260,3 +260,28 @@ async fn trust_mode_unknown_user_cannot_run_superuser_ddl() {
         );
     }
 }
+
+/// `SHOW TENANTS` reports each tenant's name alongside its id, so a tenant
+/// can be identified by name without grepping the audit log.
+#[tokio::test]
+async fn show_tenants_includes_tenant_name() {
+    let server = TestServer::start().await;
+    server
+        .exec("CREATE TENANT acme ID 7")
+        .await
+        .expect("CREATE TENANT");
+
+    let rows = server
+        .query_named_rows("SHOW TENANTS")
+        .await
+        .expect("SHOW TENANTS");
+    let acme = rows
+        .iter()
+        .find(|r| r.get("tenant_id").map(String::as_str) == Some("7"))
+        .expect("tenant 7 present in SHOW TENANTS");
+    assert_eq!(
+        acme.get("name").map(String::as_str),
+        Some("acme"),
+        "SHOW TENANTS must report the tenant name; row was {acme:?}"
+    );
+}

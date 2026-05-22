@@ -5,7 +5,9 @@
 
 mod common;
 
-use common::pgwire_auth_helpers::{assert_readonly_denied, ddl_err, ddl_ok, make_state, superuser};
+use common::pgwire_auth_helpers::{
+    assert_readonly_denied, ddl_err, ddl_ok, make_state, make_state_with_catalog, superuser,
+};
 use nodedb::control::security::credential::store::CredentialStore;
 use nodedb::control::security::identity::Role;
 use nodedb::types::TenantId;
@@ -200,4 +202,50 @@ async fn readonly_cannot_drop_user() {
     ddl_ok(&state, &su, "CREATE USER target WITH PASSWORD 'pass'").await;
 
     assert_readonly_denied(&state, "DROP USER target").await;
+}
+
+/// `DROP USER IF EXISTS <name>` on a user that does not exist is a no-op
+/// success, not an error.
+#[tokio::test]
+async fn drop_user_if_exists_missing_is_noop() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "DROP USER IF EXISTS ghost").await;
+}
+
+/// `DROP USER IF EXISTS <name>` on an existing user actually drops it —
+/// the `IF EXISTS` clause must not turn the statement into a total no-op.
+#[tokio::test]
+async fn drop_user_if_exists_existing_drops() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE USER target WITH PASSWORD 'pass'").await;
+    ddl_ok(&state, &su, "DROP USER IF EXISTS target").await;
+
+    assert!(
+        state.credentials.get_user("target").is_none(),
+        "DROP USER IF EXISTS must drop an existing user"
+    );
+}
+
+/// `CREATE USER ... TENANT '<name>'` resolves the tenant by name, so
+/// admins are not forced to look up numeric ids from `SHOW TENANTS`.
+#[tokio::test]
+async fn create_user_tenant_by_name() {
+    let state = make_state_with_catalog();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE TENANT acme ID 42").await;
+    ddl_ok(
+        &state,
+        &su,
+        "CREATE USER alice WITH PASSWORD 'secret123' TENANT 'acme'",
+    )
+    .await;
+
+    let user = state.credentials.get_user("alice").unwrap();
+    assert_eq!(
+        user.tenant_id,
+        TenantId::new(42),
+        "TENANT '<name>' must resolve to the named tenant's id"
+    );
 }
