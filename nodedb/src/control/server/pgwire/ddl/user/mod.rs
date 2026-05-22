@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! `CREATE` / `ALTER` / `DROP USER` DDL handlers.
+
+mod alter;
+mod create;
+mod drop;
+mod iso8601;
+
+pub use alter::alter_user;
+pub use create::create_user;
+pub use drop::drop_user;

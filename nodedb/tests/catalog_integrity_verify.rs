@@ -188,7 +188,7 @@ fn classify(entry: &CatalogEntry) -> VariantClass {
 
         CatalogEntry::PutSequenceState(_) => VariantClass::Exempt,
         CatalogEntry::PutUser(_) => VariantClass::Exempt,
-        CatalogEntry::DeactivateUser { .. } => VariantClass::Exempt,
+        CatalogEntry::DropUser { .. } => VariantClass::Exempt,
         CatalogEntry::PutRole(_) => VariantClass::Exempt,
         CatalogEntry::DeleteRole { .. } => VariantClass::Exempt,
         CatalogEntry::PutApiKey(_) => VariantClass::Exempt,

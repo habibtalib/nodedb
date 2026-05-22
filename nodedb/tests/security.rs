@@ -219,20 +219,20 @@ async fn commit_user_mutation_publishes_both_buses() {
         .create_user("grace", "pw111", TenantId::new(1), vec![Role::ReadOnly])
         .expect("create_user failed");
 
-    // Deactivate to trigger both UserChanged AND SessionInvalidated(UserDeactivated).
+    // Drop to trigger both UserChanged AND SessionInvalidated(UserDropped).
     state
         .credentials
-        .deactivate_user("grace")
-        .expect("deactivate_user failed");
+        .drop_user("grace")
+        .expect("drop_user failed");
 
-    // UserChanged must have been published (at least create + deactivate = 2).
+    // UserChanged must have been published (at least create + drop = 2).
     let ev = tokio::time::timeout(std::time::Duration::from_millis(200), uc_rx.recv())
         .await
         .expect("timed out waiting for UserChanged")
         .expect("channel closed");
     assert_eq!(ev.user_id, user_id);
 
-    // SessionInvalidated must have been published for deactivate_user.
+    // SessionInvalidated must have been published for drop_user.
     let si_ev = tokio::time::timeout(std::time::Duration::from_millis(200), si_rx.recv())
         .await
         .expect("timed out waiting for SessionInvalidated")
@@ -240,7 +240,7 @@ async fn commit_user_mutation_publishes_both_buses() {
     assert_eq!(si_ev.user_id, user_id);
     assert!(
         si_ev.reason.is_hard_revoke(),
-        "UserDeactivated must be hard-revoke"
+        "UserDropped must be hard-revoke"
     );
 }
 

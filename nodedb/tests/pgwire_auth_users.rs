@@ -6,6 +6,7 @@
 mod common;
 
 use common::pgwire_auth_helpers::{assert_readonly_denied, ddl_err, ddl_ok, make_state, superuser};
+use nodedb::control::security::credential::store::CredentialStore;
 use nodedb::control::security::identity::Role;
 use nodedb::types::TenantId;
 
@@ -101,6 +102,89 @@ async fn alter_user_role() {
 
     let user = state.credentials.get_user("frank").unwrap();
     assert!(user.roles.contains(&Role::ReadWrite));
+}
+
+#[tokio::test]
+async fn drop_then_recreate_same_name() {
+    // DROP USER must fully free the username. Recreating a dropped
+    // user with the same name (the routine "rotate credentials"
+    // operation) must succeed — not fail with "already exists".
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(
+        &state,
+        &su,
+        "CREATE USER demo2 WITH PASSWORD 'oldpass' ROLE readwrite TENANT 2",
+    )
+    .await;
+    ddl_ok(&state, &su, "DROP USER demo2").await;
+    assert!(state.credentials.get_user("demo2").is_none());
+
+    ddl_ok(
+        &state,
+        &su,
+        "CREATE USER demo2 WITH PASSWORD 'newpass' ROLE readwrite TENANT 2",
+    )
+    .await;
+
+    // The recreated user must be a fresh, active record — not the
+    // stale tombstone resurrected with its old credentials.
+    let user = state
+        .credentials
+        .get_user("demo2")
+        .expect("recreated user must be visible");
+    assert!(user.is_active);
+    assert!(
+        state.credentials.verify_password("demo2", "newpass"),
+        "recreated user must carry the new password"
+    );
+    assert!(
+        !state.credentials.verify_password("demo2", "oldpass"),
+        "stale credentials from the dropped user must not survive"
+    );
+}
+
+#[test]
+fn dropped_username_is_free_after_restart() {
+    // The stale identity record must not survive a daemon restart.
+    // A username dropped before restart must be reusable after the
+    // catalog is reloaded from disk.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("system.redb");
+    {
+        let store = CredentialStore::open(&path).unwrap();
+        store
+            .create_user("demo2", "oldpass", TenantId::new(2), vec![Role::ReadWrite])
+            .unwrap();
+        assert!(store.drop_user("demo2").unwrap());
+    }
+
+    // Simulate the daemon restart: reopen the same on-disk catalog.
+    let store = CredentialStore::open(&path).unwrap();
+    store
+        .create_user("demo2", "newpass", TenantId::new(2), vec![Role::ReadWrite])
+        .expect("recreating a dropped user after restart must succeed");
+
+    let user = store
+        .get_user("demo2")
+        .expect("recreated user must be visible after restart");
+    assert!(user.is_active);
+}
+
+#[test]
+fn dropped_username_is_free_for_service_account() {
+    // The CREATE-time uniqueness check for service accounts shares
+    // the user uniqueness store. A name freed by DROP USER must be
+    // available to a new service account.
+    let store = CredentialStore::new();
+    store
+        .create_user("demo2", "oldpass", TenantId::new(2), vec![Role::ReadWrite])
+        .unwrap();
+    assert!(store.drop_user("demo2").unwrap());
+
+    store
+        .create_service_account("demo2", TenantId::new(2), vec![Role::ReadWrite], vec![])
+        .expect("a dropped user's name must be free for a service account");
 }
 
 #[tokio::test]
