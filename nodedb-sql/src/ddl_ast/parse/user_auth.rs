@@ -3,7 +3,7 @@
 //! Parse users/roles/permissions/grants + audit/tenants/constraints/typeguards.
 
 use crate::ddl_ast::statement::{
-    AlterRoleOp, AlterUserOp, AuthStmt, DatabaseStmt, MiscStmt, NodedbStatement,
+    AlterRoleOp, AlterUserOp, AuthStmt, DatabaseStmt, MiscStmt, NodedbStatement, TenantSelector,
 };
 use crate::error::SqlError;
 
@@ -109,19 +109,29 @@ fn parse_create_user(parts: &[&str], _trimmed: &str) -> NodedbStatement {
             }
         });
 
-    // TENANT <id>
-    let tenant_id = parts
+    // TENANT <id> | TENANT '<name>' — numeric ids resolve directly, names
+    // are resolved against the catalog by the handler.
+    let tenant = parts
         .iter()
         .position(|p| p.eq_ignore_ascii_case("TENANT"))
         .and_then(|ti| parts.get(ti + 1))
-        .and_then(|s| s.parse::<u64>().ok());
+        .map(|s| parse_tenant_selector(s));
 
     NodedbStatement::Auth(AuthStmt::CreateUser {
         username,
         password,
         role,
-        tenant_id,
+        tenant,
     })
+}
+
+/// Parse a tenant reference: a bare integer is an id, anything else
+/// (optionally single-quoted) is a name.
+fn parse_tenant_selector(token: &str) -> TenantSelector {
+    match token.parse::<u64>() {
+        Ok(id) => TenantSelector::Id(id),
+        Err(_) => TenantSelector::Name(token.trim_matches('\'').to_string()),
+    }
 }
 
 /// Parse all `ALTER USER <name> ...` forms.
@@ -293,13 +303,13 @@ mod tests {
             username,
             password,
             role,
-            tenant_id,
+            tenant,
         }) = stmt
         {
             assert_eq!(username, "alice");
             assert_eq!(password, "secret");
             assert_eq!(role.as_deref(), Some("read_write"));
-            assert!(tenant_id.is_none());
+            assert!(tenant.is_none());
         } else {
             panic!("expected CreateUser");
         }
@@ -319,8 +329,18 @@ mod tests {
     #[test]
     fn create_user_with_tenant() {
         let stmt = parse("CREATE USER carol WITH PASSWORD 'pw' TENANT 42").unwrap();
-        if let NodedbStatement::Auth(AuthStmt::CreateUser { tenant_id, .. }) = stmt {
-            assert_eq!(tenant_id, Some(42));
+        if let NodedbStatement::Auth(AuthStmt::CreateUser { tenant, .. }) = stmt {
+            assert_eq!(tenant, Some(TenantSelector::Id(42)));
+        } else {
+            panic!("expected CreateUser");
+        }
+    }
+
+    #[test]
+    fn create_user_with_tenant_by_name() {
+        let stmt = parse("CREATE USER dave WITH PASSWORD 'pw' TENANT 'acme'").unwrap();
+        if let NodedbStatement::Auth(AuthStmt::CreateUser { tenant, .. }) = stmt {
+            assert_eq!(tenant, Some(TenantSelector::Name("acme".to_string())));
         } else {
             panic!("expected CreateUser");
         }

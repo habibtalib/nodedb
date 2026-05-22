@@ -30,5 +30,5 @@ pub use parse::parse;
 pub use statement::{
     AlterDatabaseOperation, AlterTenantOperation, AuthStmt, AutomationStmt, CloneAsOf, ClusterStmt,
     CollectionStmt, DatabaseStmt, GraphStmt, MiscStmt, NodedbStatement, OidcClaimMappingClause,
-    PolicyStmt, StreamViewStmt,
+    PolicyStmt, StreamViewStmt, TenantSelector,
 };

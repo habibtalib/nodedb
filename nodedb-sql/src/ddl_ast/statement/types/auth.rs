@@ -5,6 +5,15 @@
 use crate::ddl_ast::alter_ops::{AlterRoleOp, AlterUserOp};
 use crate::ddl_ast::statement::auth::OidcClaimMappingClause;
 
+/// A tenant referenced in DDL — either by numeric id or by display name.
+/// Name references are resolved against the catalog by the handler, so an
+/// admin is not forced to look up numeric ids before creating users.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TenantSelector {
+    Id(u64),
+    Name(String),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AuthStmt {
     // ── User / auth / grant ──────────────────────────────────────
@@ -12,7 +21,7 @@ pub enum AuthStmt {
         username: String,
         password: String,
         role: Option<String>,
-        tenant_id: Option<u64>,
+        tenant: Option<TenantSelector>,
     },
     DropUser {
         username: String,
