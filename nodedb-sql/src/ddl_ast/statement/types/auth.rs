@@ -22,6 +22,7 @@ pub enum AuthStmt {
         password: String,
         role: Option<String>,
         tenant: Option<TenantSelector>,
+        if_not_exists: bool,
     },
     DropUser {
         username: String,

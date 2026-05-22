@@ -76,13 +76,23 @@ fn try_parse_inner(upper: &str, parts: &[&str], trimmed: &str) -> Option<NodedbS
     None
 }
 
-/// Parse `CREATE USER <name> WITH PASSWORD '<password>' [ROLE <role>] [TENANT <id>]`.
+/// Parse `CREATE USER [IF NOT EXISTS] <name> WITH PASSWORD '<password>'
+/// [ROLE <role>] [TENANT <id>]`.
 ///
 /// Extracts fields as primitive types; the handler converts role strings to
 /// the `Role` enum and tenant IDs to `TenantId`.
 fn parse_create_user(parts: &[&str], _trimmed: &str) -> NodedbStatement {
-    // parts[0] = CREATE, parts[1] = USER, parts[2] = <name>
-    let username = parts.get(2).map(|s| s.to_string()).unwrap_or_default();
+    // parts[0] = CREATE, parts[1] = USER, then an optional `IF NOT EXISTS`
+    // clause, then parts[name_idx] = <name>.
+    let if_not_exists = parts.len() > 5
+        && parts[2].eq_ignore_ascii_case("IF")
+        && parts[3].eq_ignore_ascii_case("NOT")
+        && parts[4].eq_ignore_ascii_case("EXISTS");
+    let name_idx = if if_not_exists { 5 } else { 2 };
+    let username = parts
+        .get(name_idx)
+        .map(|s| s.to_string())
+        .unwrap_or_default();
 
     // Find PASSWORD token and extract the quoted string that follows.
     let password = parts
@@ -122,6 +132,7 @@ fn parse_create_user(parts: &[&str], _trimmed: &str) -> NodedbStatement {
         password,
         role,
         tenant,
+        if_not_exists,
     })
 }
 
@@ -304,12 +315,33 @@ mod tests {
             password,
             role,
             tenant,
+            if_not_exists,
         }) = stmt
         {
             assert_eq!(username, "alice");
             assert_eq!(password, "secret");
             assert_eq!(role.as_deref(), Some("read_write"));
             assert!(tenant.is_none());
+            assert!(!if_not_exists);
+        } else {
+            panic!("expected CreateUser");
+        }
+    }
+
+    #[test]
+    fn create_user_if_not_exists() {
+        let stmt = parse("CREATE USER IF NOT EXISTS alice WITH PASSWORD 'secret' ROLE read_write")
+            .unwrap();
+        if let NodedbStatement::Auth(AuthStmt::CreateUser {
+            username,
+            if_not_exists,
+            ..
+        }) = stmt
+        {
+            // The `IF NOT EXISTS` keywords must not be consumed as the
+            // username — `alice` is the real name.
+            assert_eq!(username, "alice");
+            assert!(if_not_exists);
         } else {
             panic!("expected CreateUser");
         }

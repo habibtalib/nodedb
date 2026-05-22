@@ -292,6 +292,7 @@ pub(super) fn try_dispatch_sync(
             password,
             role,
             tenant,
+            if_not_exists,
         }) => Some(create_user(
             state,
             identity,
@@ -299,6 +300,7 @@ pub(super) fn try_dispatch_sync(
             password,
             role.as_deref(),
             tenant.as_ref(),
+            *if_not_exists,
         )),
 
         NodedbStatement::Auth(AuthStmt::AlterUser { username, op }) => {

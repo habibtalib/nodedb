@@ -34,7 +34,7 @@ fn resolve_tenant_selector(
     }
 }
 
-/// CREATE USER <name> WITH PASSWORD '<password>' [ROLE <role>]
+/// CREATE USER [IF NOT EXISTS] <name> WITH PASSWORD '<password>' [ROLE <role>]
 /// [TENANT <id> | TENANT '<name>']
 pub fn create_user(
     state: &SharedState,
@@ -43,6 +43,7 @@ pub fn create_user(
     password: &str,
     role_name: Option<&str>,
     tenant: Option<&TenantSelector>,
+    if_not_exists: bool,
 ) -> PgWireResult<Vec<Response>> {
     require_tenant_admin(identity, "create users")?;
 
@@ -51,6 +52,11 @@ pub fn create_user(
             "42601",
             "syntax: CREATE USER <name> WITH PASSWORD '<password>' [ROLE <role>] [TENANT <id>]",
         ));
+    }
+
+    // `IF NOT EXISTS`: re-creating an existing user is a no-op success.
+    if if_not_exists && state.credentials.get_user(username).is_some() {
+        return Ok(vec![Response::Execution(Tag::new("CREATE USER"))]);
     }
 
     if password.is_empty() {

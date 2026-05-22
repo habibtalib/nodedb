@@ -249,3 +249,41 @@ async fn create_user_tenant_by_name() {
         "TENANT '<name>' must resolve to the named tenant's id"
     );
 }
+
+/// `CREATE USER IF NOT EXISTS <name>` creates a user named `<name>`, not
+/// one named after the `IF` clause keyword.
+#[tokio::test]
+async fn create_user_if_not_exists_names_real_user() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(
+        &state,
+        &su,
+        "CREATE USER IF NOT EXISTS alice WITH PASSWORD 'pw'",
+    )
+    .await;
+
+    assert!(
+        state.credentials.get_user("alice").is_some(),
+        "user must be created under its real name"
+    );
+    assert!(
+        state.credentials.get_user("IF").is_none(),
+        "clause keyword must not be created as a user"
+    );
+}
+
+/// A second `CREATE USER IF NOT EXISTS <name>` for an existing user is a
+/// no-op success, not an `already exists` error.
+#[tokio::test]
+async fn create_user_if_not_exists_is_idempotent() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE USER alice WITH PASSWORD 'pw'").await;
+    ddl_ok(
+        &state,
+        &su,
+        "CREATE USER IF NOT EXISTS alice WITH PASSWORD 'pw2'",
+    )
+    .await;
+}
