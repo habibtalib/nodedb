@@ -230,7 +230,7 @@ async fn grant_comma_separated_permissions() {
         .permissions
         .snapshot_grants()
         .into_iter()
-        .filter(|g| g.grantee == "analyst")
+        .filter(|g| g.grantee == "user:analyst")
         .map(|g| g.permission)
         .collect();
     assert!(
@@ -298,7 +298,7 @@ async fn grant_execute_on_procedure() {
 
     let grants = state.permissions.snapshot_grants();
     assert!(
-        grants.iter().any(|g| g.grantee == "engineer"
+        grants.iter().any(|g| g.grantee == "user:engineer"
             && g.permission == Permission::Execute
             && g.target.starts_with("procedure:")
             && g.target.ends_with(":transfer_funds")),

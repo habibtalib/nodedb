@@ -154,7 +154,7 @@ async fn grant_permission_visible_on_every_node() {
             cluster
                 .nodes
                 .iter()
-                .all(|n| n.has_grant(target, "analyst", "read"))
+                .all(|n| n.has_grant(target, "user:analyst", "read"))
         },
     )
     .await;
@@ -172,7 +172,7 @@ async fn grant_permission_visible_on_every_node() {
             cluster
                 .nodes
                 .iter()
-                .all(|n| !n.has_grant(target, "analyst", "read"))
+                .all(|n| !n.has_grant(target, "user:analyst", "read"))
         },
     )
     .await;

@@ -11,7 +11,7 @@ use pgwire::error::PgWireResult;
 use crate::control::catalog_entry::CatalogEntry;
 use crate::control::metadata_proposer::propose_catalog_entry;
 use crate::control::security::audit::AuditEvent;
-use crate::control::security::identity::{AuthenticatedIdentity, Permission};
+use crate::control::security::identity::{AuthenticatedIdentity, Permission, Role};
 use crate::control::security::permission::{
     format_permission, function_target, parse_permission, procedure_target, tenant_target,
 };
@@ -19,6 +19,31 @@ use crate::control::state::SharedState;
 use crate::types::TenantId;
 
 use super::super::super::types::{require_tenant_admin, sqlstate_error};
+
+/// Resolve a raw grantee token from the AST into its canonical grant-store
+/// form: `user:<name>` for users, the bare role name for roles. Rejects
+/// names that resolve to neither, so unresolved typos don't sink into the
+/// store as silently unenforceable rows.
+fn canonicalize_grantee(state: &SharedState, raw: &str) -> PgWireResult<String> {
+    if state.credentials.get_user(raw).is_some() {
+        return Ok(format!("user:{raw}"));
+    }
+    let parsed: Role = match raw.parse() {
+        Ok(r) => r,
+        Err(e) => match e {},
+    };
+    let is_known_role = match &parsed {
+        Role::Custom(name) => state.roles.get_role(name).is_some(),
+        _ => true,
+    };
+    if is_known_role {
+        return Ok(parsed.to_string());
+    }
+    Err(sqlstate_error(
+        "42704",
+        &format!("grantee '{raw}' is neither a user nor a role"),
+    ))
+}
 
 fn propose_grant(
     state: &SharedState,
@@ -175,9 +200,10 @@ pub fn grant_permission(
     require_tenant_admin(identity, "grant permissions")?;
 
     let perms = resolve_permissions(permissions)?;
+    let canonical = canonicalize_grantee(state, grantee)?;
 
     for perm in &perms {
-        propose_grant(state, &target, grantee, *perm, &identity.username)?;
+        propose_grant(state, &target, &canonical, *perm, &identity.username)?;
     }
 
     state.audit_record(
@@ -209,9 +235,10 @@ pub fn revoke_permission(
     require_tenant_admin(identity, "revoke permissions")?;
 
     let perms = resolve_permissions(permissions)?;
+    let canonical = canonicalize_grantee(state, grantee)?;
 
     for perm in &perms {
-        propose_revoke(state, &target, grantee, *perm)?;
+        propose_revoke(state, &target, &canonical, *perm)?;
     }
 
     state.audit_record(

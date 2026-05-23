@@ -81,6 +81,9 @@ GRANT ALL ON orders TO admin;
 -- Function/procedure execute
 GRANT EXECUTE ON FUNCTION full_name TO analyst;
 GRANT EXECUTE ON PROCEDURE transfer_funds TO data_engineer;
+
+-- Tenant-scoped privileges (apply to every collection in the tenant)
+GRANT BACKUP ON TENANT acme TO ops_user;
 ```
 
 ## Revoking Permissions
