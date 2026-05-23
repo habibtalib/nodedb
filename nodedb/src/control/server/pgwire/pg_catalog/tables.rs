@@ -1,77 +1,64 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-//! Virtual table row generators for each pg_catalog table.
+//! Virtual table materializers for each pg_catalog table. Each function
+//! returns a [`VTable`] which the query evaluator (`vquery::execute`)
+//! then filters / projects / aggregates / sorts according to the client
+//! SELECT.
 
 use nodedb_types::DatabaseId;
-use std::sync::Arc;
-
-use futures::stream;
-use pgwire::api::results::{DataRowEncoder, QueryResponse, Response};
-use pgwire::error::PgWireResult;
 
 use nodedb_types::columnar::ColumnType;
 
 use crate::control::security::identity::AuthenticatedIdentity;
 use crate::control::server::pgwire::pg_catalog::oid::{stable_collection_oid, stable_index_oid};
-use crate::control::server::pgwire::types::{bool_field, int4_field, int8_field, text_field};
+use crate::control::server::pgwire::pg_catalog::vquery::VTable;
+use crate::control::server::pgwire::pg_catalog::vquery::value::{VColumn, VType, VValue};
 use crate::control::state::SharedState;
+use pgwire::error::PgWireResult;
 
-/// `pg_database` — one row: the current database.
-pub fn pg_database() -> PgWireResult<Vec<Response>> {
-    let schema = Arc::new(vec![
-        int8_field("oid"),
-        text_field("datname"),
-        text_field("datdba"),
-        text_field("encoding"),
+pub fn pg_database() -> PgWireResult<VTable> {
+    let mut t = VTable::new(vec![
+        VColumn::new("oid", VType::Int8),
+        VColumn::new("datname", VType::Text),
+        VColumn::new("datdba", VType::Text),
+        VColumn::new("encoding", VType::Text),
     ]);
-    let mut encoder = DataRowEncoder::new(schema.clone());
-    encoder.encode_field(&1i64)?;
-    encoder.encode_field(&"nodedb")?;
-    encoder.encode_field(&"nodedb")?;
-    encoder.encode_field(&"UTF8")?;
-    let rows = vec![Ok(encoder.take_row())];
-    Ok(vec![Response::Query(QueryResponse::new(
-        schema,
-        stream::iter(rows),
-    ))])
+    t.push(vec![
+        VValue::Int8(1),
+        VValue::Text("nodedb".into()),
+        VValue::Text("nodedb".into()),
+        VValue::Text("UTF8".into()),
+    ]);
+    Ok(t)
 }
 
-/// `pg_namespace` — schemas: `public` + `pg_catalog`.
-pub fn pg_namespace() -> PgWireResult<Vec<Response>> {
-    let schema = Arc::new(vec![
-        int8_field("oid"),
-        text_field("nspname"),
-        int8_field("nspowner"),
+pub fn pg_namespace() -> PgWireResult<VTable> {
+    let mut t = VTable::new(vec![
+        VColumn::new("oid", VType::Int8),
+        VColumn::new("nspname", VType::Text),
+        VColumn::new("nspowner", VType::Int8),
     ]);
-    let mut encoder = DataRowEncoder::new(schema.clone());
-    let mut rows = Vec::new();
-
-    encoder.encode_field(&11i64)?;
-    encoder.encode_field(&"pg_catalog")?;
-    encoder.encode_field(&10i64)?;
-    rows.push(Ok(encoder.take_row()));
-
-    encoder.encode_field(&2200i64)?;
-    encoder.encode_field(&"public")?;
-    encoder.encode_field(&10i64)?;
-    rows.push(Ok(encoder.take_row()));
-
-    Ok(vec![Response::Query(QueryResponse::new(
-        schema,
-        stream::iter(rows),
-    ))])
+    t.push(vec![
+        VValue::Int8(11),
+        VValue::Text("pg_catalog".into()),
+        VValue::Int8(10),
+    ]);
+    t.push(vec![
+        VValue::Int8(2200),
+        VValue::Text("public".into()),
+        VValue::Int8(10),
+    ]);
+    Ok(t)
 }
 
-/// `pg_type` — common Postgres type OIDs that client drivers need.
-pub fn pg_type() -> PgWireResult<Vec<Response>> {
-    let schema = Arc::new(vec![
-        int8_field("oid"),
-        text_field("typname"),
-        int8_field("typnamespace"),
-        int4_field("typlen"),
-        text_field("typtype"),
+pub fn pg_type() -> PgWireResult<VTable> {
+    let mut t = VTable::new(vec![
+        VColumn::new("oid", VType::Int8),
+        VColumn::new("typname", VType::Text),
+        VColumn::new("typnamespace", VType::Int8),
+        VColumn::new("typlen", VType::Int4),
+        VColumn::new("typtype", VType::Text),
     ]);
-
     let types: &[(i64, &str, i32, &str)] = &[
         (16, "bool", 1, "b"),
         (17, "bytea", -1, "b"),
@@ -92,172 +79,106 @@ pub fn pg_type() -> PgWireResult<Vec<Response>> {
         (2950, "uuid", 16, "b"),
         (3802, "jsonb", -1, "b"),
     ];
-
-    let mut rows = Vec::with_capacity(types.len());
-    let mut encoder = DataRowEncoder::new(schema.clone());
-
     for &(oid, name, len, typtype) in types {
-        encoder.encode_field(&oid)?;
-        encoder.encode_field(&name)?;
-        encoder.encode_field(&11i64)?;
-        encoder.encode_field(&len)?;
-        encoder.encode_field(&typtype)?;
-        rows.push(Ok(encoder.take_row()));
+        t.push(vec![
+            VValue::Int8(oid),
+            VValue::Text(name.into()),
+            VValue::Int8(11),
+            VValue::Int4(len),
+            VValue::Text(typtype.into()),
+        ]);
     }
-
-    Ok(vec![Response::Query(QueryResponse::new(
-        schema,
-        stream::iter(rows),
-    ))])
+    Ok(t)
 }
 
-/// `pg_class` — one row per active collection (mapped as relation).
-pub fn pg_class(
-    state: &SharedState,
-    identity: &AuthenticatedIdentity,
-) -> PgWireResult<Vec<Response>> {
-    let schema = Arc::new(vec![
-        int8_field("oid"),
-        text_field("relname"),
-        int8_field("relnamespace"),
-        text_field("relkind"),
-        int8_field("relowner"),
+pub fn pg_class(state: &SharedState, identity: &AuthenticatedIdentity) -> PgWireResult<VTable> {
+    let mut t = VTable::new(vec![
+        VColumn::new("oid", VType::Int8),
+        VColumn::new("relname", VType::Text),
+        VColumn::new("relnamespace", VType::Int8),
+        VColumn::new("relkind", VType::Text),
+        VColumn::new("relowner", VType::Int8),
     ]);
-
-    let collections = load_collections(state, identity);
-
-    let mut rows = Vec::with_capacity(collections.len());
-    let mut encoder = DataRowEncoder::new(schema.clone());
-
-    for coll in &collections {
+    for coll in load_collections(state, identity) {
         let oid = stable_collection_oid(coll.tenant_id, &coll.name);
-        encoder.encode_field(&oid)?;
-        encoder.encode_field(&coll.name.as_str())?;
-        encoder.encode_field(&2200i64)?;
-        encoder.encode_field(&"r")?;
-        encoder.encode_field(&10i64)?;
-        rows.push(Ok(encoder.take_row()));
+        t.push(vec![
+            VValue::Int8(oid),
+            VValue::Text(coll.name.clone()),
+            VValue::Int8(2200),
+            VValue::Text("r".into()),
+            VValue::Int8(10),
+        ]);
     }
-
-    Ok(vec![Response::Query(QueryResponse::new(
-        schema,
-        stream::iter(rows),
-    ))])
+    Ok(t)
 }
 
-/// `pg_attribute` — one row per field in strict-schema collections.
-pub fn pg_attribute(
-    state: &SharedState,
-    identity: &AuthenticatedIdentity,
-) -> PgWireResult<Vec<Response>> {
-    let schema = Arc::new(vec![
-        int8_field("attrelid"),
-        text_field("attname"),
-        int8_field("atttypid"),
-        int4_field("attnum"),
-        int4_field("attlen"),
-        bool_field("attnotnull"),
+pub fn pg_attribute(state: &SharedState, identity: &AuthenticatedIdentity) -> PgWireResult<VTable> {
+    let mut t = VTable::new(vec![
+        VColumn::new("attrelid", VType::Int8),
+        VColumn::new("attname", VType::Text),
+        VColumn::new("atttypid", VType::Int8),
+        VColumn::new("attnum", VType::Int4),
+        VColumn::new("attlen", VType::Int4),
+        VColumn::new("attnotnull", VType::Bool),
     ]);
-
-    let collections = load_collections(state, identity);
-
-    let mut rows = Vec::new();
-    let mut encoder = DataRowEncoder::new(schema.clone());
-
-    for coll in &collections {
+    for coll in load_collections(state, identity) {
         let rel_oid = stable_collection_oid(coll.tenant_id, &coll.name);
         for (col_num, (field_name, field_type)) in coll.fields.iter().enumerate() {
             let type_oid = field_type_to_oid(field_type);
-            encoder.encode_field(&rel_oid)?;
-            encoder.encode_field(&field_name.as_str())?;
-            encoder.encode_field(&type_oid)?;
-            encoder.encode_field(&((col_num + 1) as i32))?;
-            encoder.encode_field(&(-1i32))?;
-            encoder.encode_field(&false)?;
-            rows.push(Ok(encoder.take_row()));
+            t.push(vec![
+                VValue::Int8(rel_oid),
+                VValue::Text(field_name.clone()),
+                VValue::Int8(type_oid),
+                VValue::Int4((col_num + 1) as i32),
+                VValue::Int4(-1),
+                VValue::Bool(false),
+            ]);
         }
     }
-
-    Ok(vec![Response::Query(QueryResponse::new(
-        schema,
-        stream::iter(rows),
-    ))])
+    Ok(t)
 }
 
-/// `pg_index` — one row per secondary index across all collections visible
-/// to `identity`. Rows are derived from `StoredCollection::indexes`, which
-/// is the Control-Plane-owned catalog source for secondary KV/strict indexes.
-///
-/// Vector, FTS, spatial, and sparse-vector indexes are not stored in
-/// `StoredCollection::indexes` today; they exist only in Data Plane state.
-/// Reaching into Data Plane state from the Control Plane would violate plane
-/// separation, so those index types are intentionally omitted here. If those
-/// indexes need to appear in `pg_index`, a Control-Plane-visible catalog field
-/// must be added to `StoredCollection` first.
-pub fn pg_index(
-    state: &SharedState,
-    identity: &AuthenticatedIdentity,
-) -> PgWireResult<Vec<Response>> {
-    let schema = Arc::new(vec![
-        int8_field("indexrelid"),
-        int8_field("indrelid"),
-        bool_field("indisunique"),
-        bool_field("indisprimary"),
+pub fn pg_index(state: &SharedState, identity: &AuthenticatedIdentity) -> PgWireResult<VTable> {
+    let mut t = VTable::new(vec![
+        VColumn::new("indexrelid", VType::Int8),
+        VColumn::new("indrelid", VType::Int8),
+        VColumn::new("indisunique", VType::Bool),
+        VColumn::new("indisprimary", VType::Bool),
     ]);
-
-    let collections = load_collections(state, identity);
-
-    let mut rows = Vec::new();
-    let mut encoder = DataRowEncoder::new(schema.clone());
-
-    for coll in &collections {
+    for coll in load_collections(state, identity) {
         let indrelid = stable_collection_oid(coll.tenant_id, &coll.name);
         for index in &coll.indexes {
             let indexrelid = stable_index_oid(coll.tenant_id, &coll.name, &index.name);
-            encoder.encode_field(&indexrelid)?;
-            encoder.encode_field(&indrelid)?;
-            encoder.encode_field(&index.unique)?;
-            encoder.encode_field(&false)?;
-            rows.push(Ok(encoder.take_row()));
+            t.push(vec![
+                VValue::Int8(indexrelid),
+                VValue::Int8(indrelid),
+                VValue::Bool(index.unique),
+                VValue::Bool(false),
+            ]);
         }
     }
-
-    Ok(vec![Response::Query(QueryResponse::new(
-        schema,
-        stream::iter(rows),
-    ))])
+    Ok(t)
 }
 
-/// `pg_authid` — users / roles.
-pub fn pg_authid(
-    state: &SharedState,
-    identity: &AuthenticatedIdentity,
-) -> PgWireResult<Vec<Response>> {
-    let schema = Arc::new(vec![
-        int8_field("oid"),
-        text_field("rolname"),
-        bool_field("rolsuper"),
-        bool_field("rolcanlogin"),
+pub fn pg_authid(state: &SharedState, identity: &AuthenticatedIdentity) -> PgWireResult<VTable> {
+    let mut t = VTable::new(vec![
+        VColumn::new("oid", VType::Int8),
+        VColumn::new("rolname", VType::Text),
+        VColumn::new("rolsuper", VType::Bool),
+        VColumn::new("rolcanlogin", VType::Bool),
     ]);
-
-    let mut rows = Vec::new();
-    let mut encoder = DataRowEncoder::new(schema.clone());
-
     let users = state.credentials.list_users();
     for (i, user) in users.iter().enumerate() {
         let oid = 10i64 + i as i64;
         let is_super = identity.is_superuser && user == &identity.username;
-        encoder.encode_field(&oid)?;
-        encoder.encode_field(&user.as_str())?;
-        encoder.encode_field(&is_super)?;
-        encoder.encode_field(&true)?;
-        rows.push(Ok(encoder.take_row()));
+        t.push(vec![
+            VValue::Int8(oid),
+            VValue::Text(user.clone()),
+            VValue::Bool(is_super),
+            VValue::Bool(true),
+        ]);
     }
-
-    Ok(vec![Response::Query(QueryResponse::new(
-        schema,
-        stream::iter(rows),
-    ))])
+    Ok(t)
 }
 
 fn load_collections(
@@ -282,11 +203,9 @@ fn load_collections(
 }
 
 fn field_type_to_oid(field_type: &str) -> i64 {
-    // Delegate to the canonical ColumnType mapping wherever possible.
     if let Ok(ct) = field_type.parse::<ColumnType>() {
         return ct.to_pg_oid() as i64;
     }
-    // Handle legacy / DataFusion aliases that ColumnType::from_str doesn't cover.
     match field_type.to_lowercase().as_str() {
         "int" | "integer" | "int4" => 23,
         "smallint" | "int2" => 21,
@@ -295,6 +214,6 @@ fn field_type_to_oid(field_type: &str) -> i64 {
         "varchar" => 1043,
         "date" => 1082,
         "timestamptz" => 1184,
-        _ => 25, // TEXT fallback
+        _ => 25,
     }
 }

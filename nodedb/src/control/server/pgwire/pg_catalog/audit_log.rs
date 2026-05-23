@@ -2,10 +2,11 @@
 
 //! `_system.audit_log` virtual view.
 //!
-//! Surfaces the durable audit log with seq and timestamp range pushdown.
-//! The catalog table is ordered by seq (big-endian key), so seq-range scans
-//! are O(range) rather than O(total). Timestamp filtering is applied on the
-//! server side over the seq-filtered rows.
+//! Materializes the durable audit log as a [`VTable`]. The query evaluator
+//! (`vquery::execute`) then applies WHERE / aggregates / projection /
+//! ORDER BY / LIMIT to the returned rows. There is no SQL-level pushdown
+//! here — the caller's row budget is enforced by an unconditional materialize
+//! cap (`MATERIALIZE_LIMIT`) that bounds memory regardless of the client query.
 //!
 //! Columns:
 //! - `seq`          — monotonic sequence number (int8).
@@ -17,45 +18,21 @@
 //! - `prev_hash`    — SHA-256 hex of the previous chain entry (text).
 //!
 //! Permission required: `audit_log:read`, granted to `superuser` and
-//! `monitor` roles. Access is enforced in this handler before any data
-//! is read.
-//!
-//! Default cap: 10,000 most-recent rows when no range filter or LIMIT
-//! is present in the query. Callers may override with an explicit LIMIT or
-//! a WHERE seq/timestamp filter. If both a seq range and a LIMIT are given,
-//! the LIMIT applies first as a safeguard against oversized result sets.
-//!
-//! SQL pushdown behaviour (also used by `_system.audit_log` via
-//! `try_pg_catalog`): the `upper` SQL string is scanned for:
-//!   - `SEQ >= <n>` / `SEQ > <n>` / `SEQ = <n>`
-//!   - `SEQ <= <n>` / `SEQ < <n>`
-//!   - `LIMIT <n>`
-//!
-//! These override the defaults. Non-seq WHERE columns are filtered in-process
-//! by the SQL engine after the virtual view returns its rows.
+//! `monitor` roles. Access is enforced here before any data is read.
 
-use std::sync::Arc;
-
-use futures::stream;
-use pgwire::api::results::{DataRowEncoder, QueryResponse, Response};
 use pgwire::error::PgWireResult;
 
 use crate::control::security::identity::{AuthenticatedIdentity, Role};
-use crate::control::server::pgwire::types::{int8_field, text_field};
+use crate::control::server::pgwire::pg_catalog::vquery::VTable;
+use crate::control::server::pgwire::pg_catalog::vquery::value::{VColumn, VType, VValue};
 use crate::control::state::SharedState;
 
-const DEFAULT_LIMIT: usize = 10_000;
+/// Upper bound on rows materialized for the evaluator. Independent of any
+/// client-supplied LIMIT — the LIMIT is applied by the evaluator after
+/// WHERE / aggregate / ORDER BY. This cap exists only to bound memory.
+const MATERIALIZE_LIMIT: usize = 100_000;
 
-/// Row generator for `_system.audit_log`.
-///
-/// `upper` is the uppercased SQL string; used for simple seq-range and
-/// LIMIT extraction to push down the scan bounds into the catalog layer.
-pub fn audit_log(
-    state: &SharedState,
-    identity: &AuthenticatedIdentity,
-    upper: &str,
-) -> PgWireResult<Vec<Response>> {
-    // Permission: superuser or monitor role required.
+pub fn audit_log(state: &SharedState, identity: &AuthenticatedIdentity) -> PgWireResult<VTable> {
     if !identity.is_superuser && !identity.has_role(&Role::Monitor) {
         return Err(pgwire::error::PgWireError::UserError(Box::new(
             pgwire::error::ErrorInfo::new(
@@ -66,194 +43,74 @@ pub fn audit_log(
         )));
     }
 
-    let schema = Arc::new(vec![
-        int8_field("seq"),
-        int8_field("timestamp_us"),
-        text_field("event"),
-        int8_field("tenant_id"),
-        text_field("source"),
-        text_field("detail"),
-        text_field("prev_hash"),
+    let mut table = VTable::new(vec![
+        VColumn::new("seq", VType::Int8),
+        VColumn::new("timestamp_us", VType::Int8),
+        VColumn::new("event", VType::Text),
+        VColumn::new("tenant_id", VType::Int8),
+        VColumn::new("source", VType::Text),
+        VColumn::new("detail", VType::Text),
+        VColumn::new("prev_hash", VType::Text),
     ]);
 
-    let Some(catalog) = state.credentials.catalog() else {
-        // No persistent catalog — fall back to in-memory entries.
-        return audit_log_from_memory(state, schema);
-    };
+    // Merge catalog-persisted entries with the in-memory tail. The audit log
+    // is flushed from memory to the catalog by a periodic background timer
+    // (`SharedState::flush_audit_log`), so the in-memory log always holds
+    // the most recent entries that have not yet been persisted. Reading
+    // only the catalog would hide those entries from operators querying
+    // `_system.audit_log` between flush ticks. Dedupe by `seq`.
+    let mut seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
 
-    let (from_seq, to_seq, limit) = extract_seq_range_and_limit(upper);
-
-    let entries = catalog
-        .load_audit_entries_ranged(from_seq, to_seq, 0, u64::MAX, limit)
-        .map_err(|e| pgwire::error::PgWireError::ApiError(Box::new(e)))?;
-
-    let mut rows = Vec::with_capacity(entries.len());
-    let mut encoder = DataRowEncoder::new(schema.clone());
-    for entry in &entries {
-        encoder.encode_field(&(entry.seq as i64))?;
-        encoder.encode_field(&(entry.timestamp_us as i64))?;
-        encoder.encode_field(&entry.event.as_str())?;
-        encoder.encode_field(&(entry.tenant_id.unwrap_or(0) as i64))?;
-        encoder.encode_field(&entry.source.as_str())?;
-        encoder.encode_field(&entry.detail.as_str())?;
-        encoder.encode_field(&entry.prev_hash.as_str())?;
-        rows.push(Ok(encoder.take_row()));
+    if let Some(catalog) = state.credentials.catalog() {
+        let entries = catalog
+            .load_audit_entries_ranged(1, u64::MAX, 0, u64::MAX, MATERIALIZE_LIMIT)
+            .map_err(|e| pgwire::error::PgWireError::ApiError(Box::new(e)))?;
+        for e in entries {
+            if !seen.insert(e.seq) {
+                continue;
+            }
+            table.push(vec![
+                VValue::Int8(e.seq as i64),
+                VValue::Int8(e.timestamp_us as i64),
+                VValue::Text(e.event),
+                VValue::Int8(e.tenant_id.unwrap_or(0) as i64),
+                VValue::Text(e.source),
+                VValue::Text(e.detail),
+                if e.prev_hash.is_empty() {
+                    VValue::Null
+                } else {
+                    VValue::Text(e.prev_hash)
+                },
+            ]);
+        }
     }
 
-    Ok(vec![Response::Query(QueryResponse::new(
-        schema,
-        stream::iter(rows),
-    ))])
-}
-
-/// Fall back to in-memory audit log when no persistent catalog is available.
-fn audit_log_from_memory(
-    state: &SharedState,
-    schema: Arc<Vec<pgwire::api::results::FieldInfo>>,
-) -> PgWireResult<Vec<Response>> {
     let log = match state.audit.lock() {
         Ok(l) => l,
         Err(p) => p.into_inner(),
     };
     let all = log.all();
-    let limit = DEFAULT_LIMIT.min(all.len());
-    let skip = all.len().saturating_sub(limit);
-
-    let mut rows = Vec::new();
-    let mut encoder = DataRowEncoder::new(schema.clone());
+    let skip = all.len().saturating_sub(MATERIALIZE_LIMIT);
     for entry in all.iter().skip(skip) {
-        encoder.encode_field(&(entry.seq as i64))?;
-        encoder.encode_field(&(entry.timestamp_us as i64))?;
-        encoder.encode_field(&format!("{:?}", entry.event))?;
-        encoder.encode_field(&(entry.tenant_id.map_or(0i64, |t| t.as_u64() as i64)))?;
-        encoder.encode_field(&entry.source.as_str())?;
-        encoder.encode_field(&entry.detail.as_str())?;
-        encoder.encode_field(&entry.prev_hash.as_str())?;
-        rows.push(Ok(encoder.take_row()));
-    }
-
-    Ok(vec![Response::Query(QueryResponse::new(
-        schema,
-        stream::iter(rows),
-    ))])
-}
-
-/// Extract `from_seq`, `to_seq`, and `LIMIT` from an uppercased SQL string.
-///
-/// Recognises simple patterns:
-///   `SEQ >= <n>` / `SEQ > <n>` / `SEQ = <n>` → from_seq
-///   `SEQ <= <n>` / `SEQ < <n>`                → to_seq
-///   `LIMIT <n>`                                → limit cap
-///
-/// Returns `(from_seq, to_seq, limit)`.
-fn extract_seq_range_and_limit(upper: &str) -> (u64, u64, usize) {
-    let mut from_seq: u64 = 1;
-    let mut to_seq: u64 = u64::MAX;
-    let mut limit: usize = DEFAULT_LIMIT;
-
-    // LIMIT <n>
-    if let Some(pos) = upper.find("LIMIT") {
-        let after = upper[pos + 5..].trim_start();
-        let end = after
-            .find(|c: char| !c.is_ascii_digit())
-            .unwrap_or(after.len());
-        if let Ok(n) = after[..end].parse::<usize>() {
-            limit = n.min(DEFAULT_LIMIT);
+        if !seen.insert(entry.seq) {
+            continue;
         }
+        if table.rows.len() >= MATERIALIZE_LIMIT {
+            break;
+        }
+        table.push(vec![
+            VValue::Int8(entry.seq as i64),
+            VValue::Int8(entry.timestamp_us as i64),
+            VValue::Text(format!("{:?}", entry.event)),
+            VValue::Int8(entry.tenant_id.map_or(0i64, |t| t.as_u64() as i64)),
+            VValue::Text(entry.source.clone()),
+            VValue::Text(entry.detail.clone()),
+            if entry.prev_hash.is_empty() {
+                VValue::Null
+            } else {
+                VValue::Text(entry.prev_hash.clone())
+            },
+        ]);
     }
-
-    // SEQ >= n  or  SEQ > n
-    if let Some(from) = parse_seq_bound(upper, "SEQ >=").or_else(|| parse_seq_bound(upper, "SEQ>="))
-    {
-        from_seq = from;
-    } else if let Some(from) =
-        parse_seq_bound(upper, "SEQ >").or_else(|| parse_seq_bound(upper, "SEQ>"))
-    {
-        from_seq = from.saturating_add(1);
-    } else if let Some(eq) =
-        parse_seq_bound(upper, "SEQ =").or_else(|| parse_seq_bound(upper, "SEQ="))
-    {
-        from_seq = eq;
-        to_seq = eq;
-    }
-
-    // SEQ <= n  or  SEQ < n
-    if let Some(to) = parse_seq_bound(upper, "SEQ <=").or_else(|| parse_seq_bound(upper, "SEQ<=")) {
-        to_seq = to;
-    } else if let Some(to) =
-        parse_seq_bound(upper, "SEQ <").or_else(|| parse_seq_bound(upper, "SEQ<"))
-    {
-        to_seq = to.saturating_sub(1);
-    }
-
-    (from_seq, to_seq, limit)
-}
-
-fn parse_seq_bound(upper: &str, pattern: &str) -> Option<u64> {
-    let pos = upper.find(pattern)?;
-    let after = upper[pos + pattern.len()..].trim_start();
-    let end = after
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(after.len());
-    after[..end].parse::<u64>().ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_no_range_returns_defaults() {
-        let (from, to, limit) = extract_seq_range_and_limit("SELECT * FROM _SYSTEM.AUDIT_LOG");
-        assert_eq!(from, 1);
-        assert_eq!(to, u64::MAX);
-        assert_eq!(limit, DEFAULT_LIMIT);
-    }
-
-    #[test]
-    fn parse_seq_ge_bound() {
-        let (from, to, limit) =
-            extract_seq_range_and_limit("SELECT * FROM _SYSTEM.AUDIT_LOG WHERE SEQ >= 42");
-        assert_eq!(from, 42);
-        assert_eq!(to, u64::MAX);
-        assert_eq!(limit, DEFAULT_LIMIT);
-    }
-
-    #[test]
-    fn parse_seq_le_bound() {
-        let (from, to, _) =
-            extract_seq_range_and_limit("SELECT * FROM _SYSTEM.AUDIT_LOG WHERE SEQ <= 100");
-        assert_eq!(from, 1);
-        assert_eq!(to, 100);
-    }
-
-    #[test]
-    fn parse_limit() {
-        let (_, _, limit) =
-            extract_seq_range_and_limit("SELECT * FROM _SYSTEM.AUDIT_LOG LIMIT 500");
-        assert_eq!(limit, 500);
-    }
-
-    #[test]
-    fn parse_limit_capped_at_default() {
-        let (_, _, limit) =
-            extract_seq_range_and_limit("SELECT * FROM _SYSTEM.AUDIT_LOG LIMIT 99999");
-        assert_eq!(limit, DEFAULT_LIMIT);
-    }
-
-    #[test]
-    fn parse_seq_equality() {
-        let (from, to, _) =
-            extract_seq_range_and_limit("SELECT * FROM _SYSTEM.AUDIT_LOG WHERE SEQ = 77");
-        assert_eq!(from, 77);
-        assert_eq!(to, 77);
-    }
-
-    #[test]
-    fn parse_seq_gt_strict() {
-        let (from, to, _) =
-            extract_seq_range_and_limit("SELECT * FROM _SYSTEM.AUDIT_LOG WHERE SEQ > 10");
-        assert_eq!(from, 11);
-        assert_eq!(to, u64::MAX);
-    }
+    Ok(table)
 }

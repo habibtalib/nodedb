@@ -1,72 +1,37 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-//! `_system.dropped_collections` virtual view.
-//!
-//! Surfaces every soft-deleted collection that is still within its
-//! retention window. Operators use this to audit what the Event-Plane
-//! GC sweeper will hard-delete, and to confirm whether `UNDROP` is
-//! still possible.
-//!
-//! Columns:
-//! - `tenant_id` — numeric tenant id (as `int8`).
-//! - `name` — collection name.
-//! - `owner` — preserved owner username.
-//! - `engine_type` — storage engine slug (`"document_schemaless"`, `"document_strict"`,
-//!   `"columnar"`, `"timeseries"`, `"spatial"`, `"kv"`),
-//!   resolved from `StoredCollection.collection_type.as_str()`.
-//! - `deactivated_at_ns` — HLC wall-clock nanoseconds when
-//!   `is_active` flipped to false (from `StoredCollection.modification_hlc`).
-//! - `retention_expires_at_ns` — same unit, wall-clock ns.
-//!
-//! Column names match the field names on `nodedb_types::DroppedCollection`
-//! so the `NodeDb::list_dropped_collections` client trait decoder can
-//! round-trip rows without an alias mapping.
-//!
-//! Visibility: tenant_admin and superuser see every tenant's entries;
-//! regular users see only their own tenant. Enforced in-handler to
-//! avoid leaking cross-tenant names.
+//! `_system.dropped_collections` virtual view — materializer.
 
-use std::sync::Arc;
-
-use futures::stream;
-use pgwire::api::results::{DataRowEncoder, QueryResponse, Response};
 use pgwire::error::PgWireResult;
 
 use crate::control::security::identity::{AuthenticatedIdentity, Role};
-use crate::control::server::pgwire::types::{int8_field, text_field};
+use crate::control::server::pgwire::pg_catalog::vquery::VTable;
+use crate::control::server::pgwire::pg_catalog::vquery::value::{VColumn, VType, VValue};
 use crate::control::state::SharedState;
 use crate::types::{DatabaseId, TraceId};
 
-/// Row generator for `_system.dropped_collections`.
 pub async fn dropped_collections(
     state: &SharedState,
     identity: &AuthenticatedIdentity,
-) -> PgWireResult<Vec<Response>> {
-    let schema = Arc::new(vec![
-        int8_field("tenant_id"),
-        text_field("name"),
-        text_field("owner"),
-        text_field("engine_type"),
-        int8_field("deactivated_at_ns"),
-        int8_field("retention_expires_at_ns"),
-        int8_field("size_bytes_estimate"),
+) -> PgWireResult<VTable> {
+    let mut table = VTable::new(vec![
+        VColumn::new("tenant_id", VType::Int8),
+        VColumn::new("name", VType::Text),
+        VColumn::new("owner", VType::Text),
+        VColumn::new("engine_type", VType::Text),
+        VColumn::new("deactivated_at_ns", VType::Int8),
+        VColumn::new("retention_expires_at_ns", VType::Int8),
+        VColumn::new("size_bytes_estimate", VType::Int8),
     ]);
 
     let Some(catalog) = state.credentials.catalog() else {
-        return Ok(vec![Response::Query(QueryResponse::new(
-            schema,
-            stream::iter(Vec::<Result<_, pgwire::error::PgWireError>>::new()),
-        ))]);
+        return Ok(table);
     };
 
     let dropped = catalog
         .load_dropped_collections(DatabaseId::DEFAULT)
         .map_err(|e| pgwire::error::PgWireError::ApiError(Box::new(e)))?;
 
-    // Live retention window — reads the same cell the GC sweeper
-    // reads on each tick, so the displayed expiry matches the actual
-    // sweeper behavior after `ALTER SYSTEM SET
-    // deactivated_collection_retention_days = ...`.
     let retention = state
         .retention_settings
         .read()
@@ -77,21 +42,14 @@ pub async fn dropped_collections(
     let is_admin = identity.is_superuser || identity.has_role(&Role::TenantAdmin);
     let caller_tenant = identity.tenant_id.as_u64();
 
-    let mut rows = Vec::new();
-    let mut encoder = DataRowEncoder::new(schema.clone());
     for coll in &dropped {
         if !is_admin && coll.tenant_id != caller_tenant {
             continue;
         }
         let deactivated_ns = coll.modification_hlc.wall_ns;
         let expires_ns = deactivated_ns.saturating_add(retention_ns);
-        let engine_type = coll.collection_type.as_str();
+        let engine_type = coll.collection_type.as_str().to_string();
 
-        // Size estimate: prefer the cached value on the catalog row
-        // if present; otherwise dispatch `MetaOp::QueryCollectionSize`
-        // to core 0 for a live one-core estimate. Per-row dispatch is
-        // acceptable — soft-deleted collection counts are always
-        // small, and the dispatch is bounded by a 500ms timeout.
         let size_estimate = if coll.size_bytes_estimate > 0 {
             coll.size_bytes_estimate
         } else {
@@ -100,25 +58,19 @@ pub async fn dropped_collections(
                 .unwrap_or(0)
         };
 
-        encoder.encode_field(&(coll.tenant_id as i64))?;
-        encoder.encode_field(&coll.name.as_str())?;
-        encoder.encode_field(&coll.owner.as_str())?;
-        encoder.encode_field(&engine_type)?;
-        encoder.encode_field(&(deactivated_ns as i64))?;
-        encoder.encode_field(&(expires_ns as i64))?;
-        encoder.encode_field(&(size_estimate as i64))?;
-        rows.push(Ok(encoder.take_row()));
+        table.push(vec![
+            VValue::Int8(coll.tenant_id as i64),
+            VValue::Text(coll.name.clone()),
+            VValue::Text(coll.owner.clone()),
+            VValue::Text(engine_type),
+            VValue::Int8(deactivated_ns as i64),
+            VValue::Int8(expires_ns as i64),
+            VValue::Int8(size_estimate as i64),
+        ]);
     }
-
-    Ok(vec![Response::Query(QueryResponse::new(
-        schema,
-        stream::iter(rows),
-    ))])
+    Ok(table)
 }
 
-/// Dispatch `MetaOp::QueryCollectionSize` to core 0 and return the
-/// byte-sum response. Returns `None` on dispatch or timeout errors;
-/// the caller falls back to 0 so the view always renders.
 async fn query_collection_size(
     state: &SharedState,
     tenant_id: u64,
