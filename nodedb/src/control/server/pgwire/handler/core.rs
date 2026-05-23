@@ -82,10 +82,21 @@ impl NodeDbPgHandler {
         self.state.next_request_id()
     }
 
-    /// Resolve the authenticated identity from pgwire client metadata.
+    /// Resolve the authenticated identity from pgwire client metadata, then
+    /// overlay the session's superuser tenant override (if any) onto the
+    /// resolved `tenant_id`.
+    ///
+    /// The override is installed via `SET TENANT = '<name>' | <id> | DEFAULT`
+    /// or `SET nodedb.tenant_id = <id>`; the SET handler enforces that only
+    /// superuser sessions may install one and that no active transaction is
+    /// in flight. Honoring it here — at the single chokepoint every query
+    /// path passes through immediately after authentication — keeps every
+    /// downstream `identity.tenant_id` read correct without threading the
+    /// session into 13 unrelated dispatchers.
     pub(crate) fn resolve_identity<C: ClientInfo>(
         &self,
         client: &C,
+        addr: &std::net::SocketAddr,
     ) -> PgWireResult<AuthenticatedIdentity> {
         let username = client
             .metadata()
@@ -93,7 +104,7 @@ impl NodeDbPgHandler {
             .cloned()
             .unwrap_or_else(|| "unknown".to_string());
 
-        match self.auth_mode {
+        let mut identity = match self.auth_mode {
             AuthMode::Trust => {
                 // Strict resolution: `post_startup` has already ensured the
                 // user exists (either because it was already in the store
@@ -108,7 +119,7 @@ impl NodeDbPgHandler {
                             "28000".to_owned(),
                             format!("trust auth: user '{username}' does not exist"),
                         )))
-                    })
+                    })?
             }
             AuthMode::Password | AuthMode::Certificate => self
                 .state
@@ -120,8 +131,24 @@ impl NodeDbPgHandler {
                         "28000".to_owned(),
                         format!("authenticated user '{username}' not found in credential store"),
                     )))
-                }),
+                })?,
+        };
+
+        if let Some(effective) = self.sessions.get_effective_tenant_id(addr) {
+            // The SET handler guarantees the override only gets installed for
+            // superuser sessions. If somehow a non-superuser carries one
+            // (e.g. an ALTER USER demotion landed after the override was
+            // installed), treat the override as cleared — the identity-bound
+            // tenant is the safe fallback. Drop the override so future
+            // requests on this session don't keep paying the check.
+            if identity.is_superuser {
+                identity.tenant_id = effective;
+            } else {
+                self.sessions.set_effective_tenant_id(addr, None);
+            }
         }
+
+        Ok(identity)
     }
 
     /// Enforce that the identity may access the session's current database.
@@ -284,7 +311,7 @@ impl SimpleQueryHandler for NodeDbPgHandler {
         let addr = client.socket_addr();
         self.sessions.ensure_session(addr);
 
-        let identity = self.resolve_identity(client)?;
+        let identity = self.resolve_identity(client, &addr)?;
         self.enforce_database_access(&identity, &addr)?;
 
         // Emit db.id / db.name trace fields at session bind so that any

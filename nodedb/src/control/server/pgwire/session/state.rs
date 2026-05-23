@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use crate::types::{DatabaseId, Lsn};
+use crate::types::{DatabaseId, Lsn, TenantId};
 use nodedb_physical::physical_task::PhysicalTask;
 
 /// PostgreSQL transaction state for ReadyForQuery status byte.
@@ -53,6 +53,19 @@ pub struct PgSession {
     ///
     /// Mutable only via `USE DATABASE <name>`, which issues a full session reset.
     pub current_database: Option<DatabaseId>,
+    /// Per-session tenant override applied only to superuser connections.
+    ///
+    /// `None` means queries route to the identity-bound tenant
+    /// (`AuthenticatedIdentity::tenant_id`). When set — only ever by
+    /// `SET TENANT = '<name>' | <id> | DEFAULT` / `SET nodedb.tenant_id = <id>`
+    /// from a superuser session — `resolve_identity` overlays this value onto
+    /// the resolved identity for every subsequent request on the connection.
+    /// Cleared by `RESET TENANT`, `SET TENANT = DEFAULT`, or `DISCARD ALL`.
+    ///
+    /// Non-superuser sessions never carry an override (the SET handler rejects
+    /// with `42501` before this field is written), so the identity-bound
+    /// invariant continues to hold for tenant-scoped users.
+    pub effective_tenant_id: Option<TenantId>,
     /// Session parameters set via SET commands.
     pub parameters: HashMap<String, String>,
     /// Buffered write tasks accumulated between BEGIN and COMMIT.
@@ -129,6 +142,7 @@ impl PgSession {
         Self {
             tx_state: TransactionState::Idle,
             current_database: None,
+            effective_tenant_id: None,
             parameters,
             tx_buffer: Vec::new(),
             tx_snapshot_lsn: None,

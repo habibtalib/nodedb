@@ -119,12 +119,72 @@ impl NodeDbPgHandler {
             }
         }
 
+        // `SET ROLE <name>` and `SET SESSION AUTHORIZATION '<name>'` use
+        // PostgreSQL's space-not-equals syntax, so `parse_set_command` (which
+        // splits on `=` / `TO`) returns `None` for them. Catch the keywords
+        // before falling through to that parser — both must reject explicitly
+        // rather than land on the silent success path (the root cause behind
+        // SET TENANT looking like a no-op).
+        if upper.starts_with("SET ROLE ") || upper == "SET ROLE" {
+            return Err(sqlstate_error(
+                nodedb_types::error::sqlstate::FEATURE_NOT_SUPPORTED,
+                "SET ROLE is not supported: a session's role set is identity-bound \
+                 at CREATE USER time. Use GRANT/REVOKE ROLE TO <user> to change \
+                 a user's roles, or reconnect with a different user.",
+            ));
+        }
+        if upper.starts_with("SET SESSION AUTHORIZATION") {
+            return Err(sqlstate_error(
+                nodedb_types::error::sqlstate::FEATURE_NOT_SUPPORTED,
+                "SET SESSION AUTHORIZATION is not supported: identity is bound at \
+                 connection time. Reconnect as the target user.",
+            ));
+        }
+
         let (key, value) = match parse_set_command(sql) {
             Some(kv) => kv,
             None => {
-                return Ok(vec![Response::Execution(Tag::new("SET"))]);
+                // Statements that look like `SET <something>` but don't match
+                // any of the recognized shapes (k=v, k TO v, TRANSACTION,
+                // ROLE, SESSION AUTHORIZATION) must NOT silently succeed.
+                // Silent success on unparsed SET is exactly the bug class
+                // that allowed `SET TENANT = 'x'` to look like a no-op.
+                return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                    "ERROR".to_owned(),
+                    "42601".to_owned(),
+                    format!("syntax error in SET command: {sql}"),
+                ))));
             }
         };
+
+        // Identity / security context keys are dispatched before the
+        // generic store-in-session path. Storing them in the parameter bag
+        // without an enforcement contract is the silent-no-op class — every
+        // such key must either be honored end-to-end or rejected explicitly.
+        match key.as_str() {
+            "tenant" => {
+                return self.handle_set_tenant_name_or_id(identity, addr, &value);
+            }
+            "nodedb.tenant_id" => {
+                return self.handle_set_tenant_by_id(identity, addr, &value);
+            }
+            "role" => {
+                return Err(sqlstate_error(
+                    nodedb_types::error::sqlstate::FEATURE_NOT_SUPPORTED,
+                    "SET ROLE is not supported: a session's role set is identity-bound \
+                     at CREATE USER time. Use GRANT/REVOKE ROLE TO <user> to change \
+                     a user's roles, or reconnect with a different user.",
+                ));
+            }
+            "session_authorization" => {
+                return Err(sqlstate_error(
+                    nodedb_types::error::sqlstate::FEATURE_NOT_SUPPORTED,
+                    "SET SESSION AUTHORIZATION is not supported: identity is bound at \
+                     connection time. Reconnect as the target user.",
+                ));
+            }
+            _ => {}
+        }
 
         if key == "nodedb.consistency" {
             match value.as_str() {
@@ -168,14 +228,6 @@ impl NodeDbPgHandler {
             ))));
         }
 
-        if key == "nodedb.tenant_id" && value.parse::<u64>().is_err() {
-            return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                "ERROR".to_owned(),
-                "22023".to_owned(),
-                format!("invalid value for nodedb.tenant_id: '{value}'. Must be an integer."),
-            ))));
-        }
-
         // Eager validation for `nodedb.auth_session`: drive the resolve path
         // now so rate-limit / audit / fingerprint checks fire on each SET
         // rather than being deferred to the next query. A probing client
@@ -207,13 +259,161 @@ impl NodeDbPgHandler {
             }
         }
 
+        // Any key that reaches this point must be a known runtime parameter.
+        // Mirroring the `SHOW` side (params.rs `is_known_pg_runtime_parameter`),
+        // unknown keys return `42704 undefined_object` instead of being
+        // silently stored — silent storage is the class of bug that allowed
+        // `SET TENANT` to look successful while routing nothing.
+        if !super::super::session::is_known_settable_runtime_parameter(&key) {
+            return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                "ERROR".to_owned(),
+                "42704".to_owned(),
+                format!("unrecognized configuration parameter \"{key}\""),
+            ))));
+        }
+
         self.sessions.set_parameter(addr, key, value);
         Ok(vec![Response::Execution(Tag::new("SET"))])
+    }
+
+    /// Apply (or clear) a session-level tenant override after policy checks.
+    ///
+    /// Common path for `SET TENANT = '<name>' | <id> | DEFAULT` and
+    /// `SET nodedb.tenant_id = <id>`. Caller must pass the resolved tenant
+    /// (or `None` for the DEFAULT / reset path).
+    fn apply_tenant_override(
+        &self,
+        identity: &AuthenticatedIdentity,
+        addr: &std::net::SocketAddr,
+        new_tenant: Option<crate::types::TenantId>,
+        source: &str,
+    ) -> PgWireResult<Vec<Response>> {
+        use crate::control::security::audit::AuditEvent;
+        use pgwire::api::results::Tag;
+
+        if !identity.is_superuser {
+            return Err(sqlstate_error(
+                "42501",
+                "only superuser may change session tenant; a regular user's \
+                 tenant is identity-bound at CREATE USER time",
+            ));
+        }
+        if self.sessions.transaction_state(addr) != super::super::session::TransactionState::Idle {
+            return Err(sqlstate_error(
+                "25001",
+                "cannot change session tenant inside an active transaction \
+                 (COMMIT or ROLLBACK first)",
+            ));
+        }
+
+        let prior = self.sessions.get_effective_tenant_id(addr);
+        self.sessions.set_effective_tenant_id(addr, new_tenant);
+
+        let detail = match new_tenant {
+            Some(t) => format!(
+                "{source}: tenant switched from {} to {}",
+                prior.unwrap_or(identity.tenant_id),
+                t
+            ),
+            None => format!(
+                "{source}: tenant reset to identity-bound {}",
+                identity.tenant_id
+            ),
+        };
+        self.state.audit_record(
+            AuditEvent::PrivilegeChange,
+            Some(identity.tenant_id),
+            &identity.username,
+            &detail,
+        );
+
+        Ok(vec![Response::Execution(Tag::new("SET"))])
+    }
+
+    /// Handle `SET TENANT = '<name>' | <id> | DEFAULT`.
+    pub(super) fn handle_set_tenant_name_or_id(
+        &self,
+        identity: &AuthenticatedIdentity,
+        addr: &std::net::SocketAddr,
+        value: &str,
+    ) -> PgWireResult<Vec<Response>> {
+        if value.eq_ignore_ascii_case("default") {
+            return self.apply_tenant_override(identity, addr, None, "SET TENANT = DEFAULT");
+        }
+        let resolved = if let Ok(id) = value.parse::<u64>() {
+            crate::types::TenantId::new(id)
+        } else {
+            let catalog =
+                self.state.credentials.catalog().as_ref().ok_or_else(|| {
+                    sqlstate_error("42704", &format!("tenant '{value}' not found"))
+                })?;
+            let stored = catalog
+                .find_tenant_by_name(value)
+                .map_err(|e| sqlstate_error("XX000", &format!("catalog read: {e}")))?
+                .ok_or_else(|| sqlstate_error("42704", &format!("tenant '{value}' not found")))?;
+            crate::types::TenantId::new(stored.tenant_id)
+        };
+        self.apply_tenant_override(identity, addr, Some(resolved), "SET TENANT")
+    }
+
+    /// Handle `SET nodedb.tenant_id = <id> | DEFAULT`.
+    pub(super) fn handle_set_tenant_by_id(
+        &self,
+        identity: &AuthenticatedIdentity,
+        addr: &std::net::SocketAddr,
+        value: &str,
+    ) -> PgWireResult<Vec<Response>> {
+        if value.eq_ignore_ascii_case("default") {
+            return self.apply_tenant_override(
+                identity,
+                addr,
+                None,
+                "SET nodedb.tenant_id = DEFAULT",
+            );
+        }
+        let id: u64 = value.parse().map_err(|_| {
+            PgWireError::UserError(Box::new(ErrorInfo::new(
+                "ERROR".to_owned(),
+                "22023".to_owned(),
+                format!("invalid value for nodedb.tenant_id: '{value}'. Must be an integer."),
+            )))
+        })?;
+        self.apply_tenant_override(
+            identity,
+            addr,
+            Some(crate::types::TenantId::new(id)),
+            "SET nodedb.tenant_id",
+        )
+    }
+
+    /// Reset the session's tenant override back to the identity-bound tenant.
+    /// Backs the `RESET TENANT` statement.
+    pub(crate) fn handle_reset_tenant(
+        &self,
+        identity: &AuthenticatedIdentity,
+        addr: &std::net::SocketAddr,
+    ) -> PgWireResult<Vec<Response>> {
+        use pgwire::api::results::Tag;
+        // Allow even when no override is installed — RESET should be idempotent.
+        if !identity.is_superuser {
+            // No silent success: matches SET TENANT's policy so a non-superuser
+            // can't probe whether a tenant override exists.
+            return Err(sqlstate_error("42501", "only superuser may RESET TENANT"));
+        }
+        if self.sessions.transaction_state(addr) != super::super::session::TransactionState::Idle {
+            return Err(sqlstate_error(
+                "25001",
+                "cannot RESET TENANT inside an active transaction",
+            ));
+        }
+        self.sessions.set_effective_tenant_id(addr, None);
+        Ok(vec![Response::Execution(Tag::new("RESET"))])
     }
 
     /// Handle SHOW commands: return session parameter values.
     pub(super) fn handle_show(
         &self,
+        identity: &AuthenticatedIdentity,
         addr: &std::net::SocketAddr,
         sql: &str,
     ) -> PgWireResult<Vec<Response>> {
@@ -232,6 +432,40 @@ impl NodeDbPgHandler {
 
         if param == "all" {
             return self.handle_show_all(addr);
+        }
+
+        // `SHOW TENANT` (singular) reports the session's *effective* tenant —
+        // the override installed via `SET TENANT = ...` if any, otherwise the
+        // identity-bound tenant. Returns a single row with `tenant_id` and
+        // `tenant_name` so a session that switched can confirm where its
+        // writes will land. `SHOW TENANTS` (plural) is a separate DDL.
+        if param == "tenant" {
+            let effective = self
+                .sessions
+                .get_effective_tenant_id(addr)
+                .unwrap_or(identity.tenant_id);
+            let name = self
+                .state
+                .credentials
+                .catalog()
+                .as_ref()
+                .and_then(|c| c.load_all_tenants().ok())
+                .and_then(|tenants| {
+                    tenants
+                        .into_iter()
+                        .find(|t| t.tenant_id == effective.as_u64())
+                        .map(|t| t.name)
+                })
+                .unwrap_or_default();
+            let schema = Arc::new(vec![text_field("tenant_id"), text_field("tenant_name")]);
+            let mut encoder = DataRowEncoder::new(schema.clone());
+            encoder.encode_field(&effective.as_u64().to_string())?;
+            encoder.encode_field(&name)?;
+            let row = encoder.take_row();
+            return Ok(vec![Response::Query(QueryResponse::new(
+                schema,
+                futures::stream::iter(vec![Ok(row)]),
+            ))]);
         }
 
         // Resolve the value from the runtime-parameter sources in order:

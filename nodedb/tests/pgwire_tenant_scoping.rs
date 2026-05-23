@@ -261,6 +261,295 @@ async fn trust_mode_unknown_user_cannot_run_superuser_ddl() {
     }
 }
 
+// ── Runtime SET keys that touch identity / security ────────────────────────
+//
+// Superusers may switch session tenant context at runtime via
+// `SET TENANT = '<name>' | <id> | DEFAULT` and `SET nodedb.tenant_id = <id>`.
+// The override is applied at every `resolve_identity` call so every planning
+// / routing path naturally honors it without per-callsite changes. The
+// switch is rejected for non-superusers (42501) and inside active
+// transactions (25001), and invalidates the session's plan and prepared-
+// statement caches so plans against the prior tenant's catalog cannot be
+// reused. `RESET TENANT` (and `SET TENANT = DEFAULT`) restores the
+// identity-bound tenant.
+//
+// `SET ROLE` / `SET SESSION AUTHORIZATION` are not implemented (identity is
+// otherwise bound at connection time) and reject with 0A000 instead of
+// silently storing the value. Unknown runtime parameters reject with 42704,
+// mirroring the existing SHOW asymmetry.
+
+/// Run a single statement under a freshly opened connection and return either
+/// `Ok(())` or the server's error message.
+async fn exec_as(server: &TestServer, user: &str, sql: &str) -> Result<(), String> {
+    let (client, _h) = server.connect_as(user, "x").await?;
+    client
+        .simple_query(sql)
+        .await
+        .map(|_| ())
+        .map_err(|e| pg_err(&e))
+}
+
+fn assert_rejected_with_any(result: Result<(), String>, codes: &[&str], context: &str) {
+    match result {
+        Ok(()) => panic!(
+            "{context}: spec requires rejection so silent identity misrouting is impossible, \
+             but the server returned success"
+        ),
+        Err(msg) => {
+            let lower = msg.to_lowercase();
+            let code_hit = codes.iter().any(|c| msg.contains(c));
+            let wording_hit = lower.contains("not supported")
+                || lower.contains("unrecognized")
+                || lower.contains("unknown")
+                || lower.contains("permission")
+                || lower.contains("insufficient");
+            assert!(
+                code_hit || wording_hit,
+                "{context}: expected one of {codes:?} or an explanatory wording, got: {msg}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn set_tenant_as_superuser_switches_effective_tenant() {
+    // The end-to-end spec: a superuser issues SET TENANT and subsequent
+    // writes land in the target tenant's catalog, not tenant 0. This is
+    // the behavior the silent-no-op bug obscured.
+    let server = TestServer::start().await;
+    server.exec("CREATE TENANT acme ID 2").await.unwrap();
+
+    let (svc, _h) = server.connect_as("nodedb", "nodedb").await.unwrap();
+    svc.simple_query("SET TENANT = 'acme'")
+        .await
+        .expect("superuser SET TENANT must succeed");
+
+    // Collection created under the switched tenant must belong to tenant 2.
+    svc.simple_query(
+        "CREATE COLLECTION switched_under_acme  \
+         (id TEXT PRIMARY KEY, content TEXT NOT NULL) WITH (engine='document_strict')",
+    )
+    .await
+    .expect("CREATE COLLECTION under switched tenant must succeed");
+    svc.simple_query("INSERT INTO switched_under_acme (id, content) VALUES ('a', 'x')")
+        .await
+        .expect("INSERT under switched tenant must succeed");
+
+    // SHOW TENANT (singular) reports the effective tenant on this connection.
+    let msgs = svc.simple_query("SHOW TENANT").await.expect("SHOW TENANT");
+    let row = msgs
+        .iter()
+        .find_map(|m| {
+            if let tokio_postgres::SimpleQueryMessage::Row(r) = m {
+                Some(r)
+            } else {
+                None
+            }
+        })
+        .expect("SHOW TENANT must return a row");
+    assert_eq!(
+        row.get("tenant_id"),
+        Some("2"),
+        "SHOW TENANT must report the switched tenant id"
+    );
+    assert_eq!(
+        row.get("tenant_name"),
+        Some("acme"),
+        "SHOW TENANT must report the tenant name"
+    );
+
+    // The same collection name created under tenant 0 must NOT collide,
+    // because the switched session writes to tenant 2's catalog.
+    server
+        .exec(
+            "CREATE COLLECTION switched_under_acme  \
+             (id TEXT PRIMARY KEY, content TEXT NOT NULL) WITH (engine='document_strict')",
+        )
+        .await
+        .expect("same name in tenant 0 must succeed — proof switched session was tenant 2");
+}
+
+#[tokio::test]
+async fn set_tenant_as_tenant_user_must_not_silently_noop() {
+    let server = TestServer::start().await;
+    bootstrap_tenant_user(&server, "svc_settnt", "t2_settnt").await;
+    server.exec("CREATE TENANT other ID 3").await.unwrap();
+
+    let res = exec_as(&server, "svc_settnt", "SET TENANT = 'other'").await;
+    assert_rejected_with_any(
+        res,
+        &["0A000", "42501"],
+        "SET TENANT as tenant-scoped user crossing tenants",
+    );
+}
+
+#[tokio::test]
+async fn set_nodedb_tenant_id_switches_effective_tenant() {
+    // The integer alias resolves directly without a name lookup. End-to-end:
+    // SET nodedb.tenant_id = 2 → writes route to tenant 2.
+    let server = TestServer::start().await;
+    server.exec("CREATE TENANT acme ID 2").await.unwrap();
+
+    let (svc, _h) = server.connect_as("nodedb", "nodedb").await.unwrap();
+    svc.simple_query("SET nodedb.tenant_id = 2")
+        .await
+        .expect("SET nodedb.tenant_id must succeed for superuser");
+    svc.simple_query(
+        "CREATE COLLECTION numeric_alias_check  \
+         (id TEXT PRIMARY KEY, content TEXT NOT NULL) WITH (engine='document_strict')",
+    )
+    .await
+    .expect("CREATE under integer-alias switch must succeed");
+    server
+        .exec(
+            "CREATE COLLECTION numeric_alias_check  \
+             (id TEXT PRIMARY KEY, content TEXT NOT NULL) WITH (engine='document_strict')",
+        )
+        .await
+        .expect("same name under tenant 0 must succeed — proof switched session was tenant 2");
+}
+
+#[tokio::test]
+async fn reset_tenant_restores_identity_bound_tenant() {
+    let server = TestServer::start().await;
+    server.exec("CREATE TENANT acme ID 2").await.unwrap();
+
+    let (svc, _h) = server.connect_as("nodedb", "nodedb").await.unwrap();
+    svc.simple_query("SET TENANT = 'acme'").await.unwrap();
+    svc.simple_query("RESET TENANT")
+        .await
+        .expect("RESET TENANT must succeed");
+
+    // After RESET, a collection created here lands back in tenant 0; a
+    // duplicate name in tenant 0 must conflict.
+    svc.simple_query(
+        "CREATE COLLECTION post_reset_check  \
+         (id TEXT PRIMARY KEY, content TEXT NOT NULL) WITH (engine='document_strict')",
+    )
+    .await
+    .expect("CREATE after RESET must land in tenant 0");
+    let res = server
+        .exec(
+            "CREATE COLLECTION post_reset_check  \
+             (id TEXT PRIMARY KEY, content TEXT NOT NULL) WITH (engine='document_strict')",
+        )
+        .await;
+    assert!(
+        res.is_err(),
+        "duplicate name in tenant 0 must conflict — proves RESET TENANT actually restored"
+    );
+}
+
+#[tokio::test]
+async fn set_tenant_default_clears_override() {
+    let server = TestServer::start().await;
+    server.exec("CREATE TENANT acme ID 2").await.unwrap();
+
+    let (svc, _h) = server.connect_as("nodedb", "nodedb").await.unwrap();
+    svc.simple_query("SET TENANT = 'acme'").await.unwrap();
+    svc.simple_query("SET TENANT = DEFAULT")
+        .await
+        .expect("SET TENANT = DEFAULT must succeed");
+
+    // SHOW TENANT should now report identity-bound tenant (0 for superuser).
+    let msgs = svc.simple_query("SHOW TENANT").await.unwrap();
+    let row = msgs
+        .iter()
+        .find_map(|m| {
+            if let tokio_postgres::SimpleQueryMessage::Row(r) = m {
+                Some(r)
+            } else {
+                None
+            }
+        })
+        .expect("SHOW TENANT row");
+    assert_ne!(
+        row.get("tenant_id"),
+        Some("2"),
+        "after DEFAULT, SHOW TENANT must not still report tenant 2"
+    );
+}
+
+#[tokio::test]
+async fn set_tenant_inside_transaction_is_rejected() {
+    let server = TestServer::start().await;
+    server.exec("CREATE TENANT acme ID 2").await.unwrap();
+
+    let (svc, _h) = server.connect_as("nodedb", "nodedb").await.unwrap();
+    svc.simple_query("BEGIN").await.unwrap();
+    let res = svc.simple_query("SET TENANT = 'acme'").await;
+    match res {
+        Err(e) => {
+            let msg = pg_err(&e);
+            assert!(
+                msg.contains("25001") || msg.to_lowercase().contains("transaction"),
+                "expected 25001 active_sql_transaction, got: {msg}"
+            );
+        }
+        Ok(_) => panic!(
+            "SET TENANT inside an active transaction must reject — \
+             tenant context cannot change while snapshot / locks are held"
+        ),
+    }
+    let _ = svc.simple_query("ROLLBACK").await;
+}
+
+#[tokio::test]
+async fn set_nodedb_tenant_id_non_integer_value_is_rejected() {
+    // Regression guard for the only currently-correct branch in handle_set:
+    // a non-integer value already returns 22023. Keep it locked.
+    let server = TestServer::start().await;
+
+    let res = exec_as(&server, "nodedb", "SET nodedb.tenant_id = 'not-an-int'").await;
+    match res {
+        Err(msg) => assert!(
+            msg.contains("22023"),
+            "expected 22023 invalid_parameter_value, got: {msg}"
+        ),
+        Ok(()) => panic!("non-integer nodedb.tenant_id must be rejected with 22023"),
+    }
+}
+
+#[tokio::test]
+async fn set_role_must_not_silently_noop() {
+    let server = TestServer::start().await;
+
+    let res = exec_as(&server, "nodedb", "SET ROLE readonly").await;
+    assert_rejected_with_any(
+        res,
+        &["0A000"],
+        "SET ROLE (no runtime role-switch path is wired)",
+    );
+}
+
+#[tokio::test]
+async fn set_session_authorization_must_not_silently_noop() {
+    let server = TestServer::start().await;
+    server
+        .exec("CREATE USER svc_other WITH PASSWORD 'x' ROLE readwrite TENANT 1")
+        .await
+        .unwrap();
+
+    let res = exec_as(&server, "nodedb", "SET SESSION AUTHORIZATION 'svc_other'").await;
+    assert_rejected_with_any(
+        res,
+        &["0A000"],
+        "SET SESSION AUTHORIZATION (no runtime identity-switch path is wired)",
+    );
+}
+
+#[tokio::test]
+async fn set_unknown_runtime_parameter_is_rejected_like_show() {
+    // SHOW <unknown> returns 42704 (params.rs::is_known_pg_runtime_parameter).
+    // SET <unknown> must match — silently storing an arbitrary key in the
+    // session bag is what allowed SET TENANT to look successful in the first
+    // place. The asymmetry between SET and SHOW is the structural flaw.
+    let server = TestServer::start().await;
+
+    let res = exec_as(&server, "nodedb", "SET nodedb.no_such_knob = 'x'").await;
+    assert_rejected_with_any(res, &["42704"], "SET on an unknown runtime parameter");
+}
+
 /// `SHOW TENANTS` reports each tenant's name alongside its id, so a tenant
 /// can be identified by name without grepping the audit log.
 #[tokio::test]

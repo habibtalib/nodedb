@@ -127,6 +127,65 @@ pub const KNOWN_PG_RUNTIME_PARAMETERS: &[&str] = &[
     "rounding_mode",
 ];
 
+/// Settable runtime parameters (case-insensitive). Subset of
+/// [`KNOWN_PG_RUNTIME_PARAMETERS`] — excludes read-only server identity
+/// parameters (`server_version`, `server_version_num`, `is_superuser`,
+/// `integer_datetimes`, etc.) and includes NodeDB-specific knobs and the
+/// identity / security keys handled by their own dispatch branches
+/// (`tenant`, `role`, `session_authorization`). `SET <name>` for any name
+/// outside this set returns `42704 undefined_object`, mirroring the
+/// `SHOW <unknown>` rejection and closing the silent-store class.
+pub const SETTABLE_RUNTIME_PARAMETERS: &[&str] = &[
+    "application_name",
+    "client_encoding",
+    "client_min_messages",
+    "datestyle",
+    "default_transaction_isolation",
+    "default_transaction_read_only",
+    "extra_float_digits",
+    "intervalstyle",
+    "lc_collate",
+    "lc_ctype",
+    "lc_messages",
+    "lc_monetary",
+    "lc_numeric",
+    "lc_time",
+    "search_path",
+    "standard_conforming_strings",
+    "statement_timeout",
+    "timezone",
+    "time zone",
+    "transaction_isolation",
+    "transaction_read_only",
+    "rounding_mode",
+    // Identity / security keys — handled by their own dispatch branches
+    // in `handle_set`; listed here so the allowlist accepts them as known
+    // names before the dispatcher claims them.
+    "tenant",
+    "role",
+    "session_authorization",
+    // NodeDB-specific session knobs settable via SET.
+    "nodedb.consistency",
+    "nodedb.read_consistency",
+    "nodedb.cross_shard_mode",
+    "nodedb.tenant_id",
+    "nodedb.auth_session",
+    // Unprefixed NodeDB session knob — Calvin cross-shard mode (paired
+    // SHOW cross_shard_txn). Read by the routing planner via the session
+    // parameter bag.
+    "cross_shard_txn",
+];
+
+/// Returns `true` if `name` (case-insensitive) is a runtime parameter that
+/// can be set via `SET`. Used to reject unknown SET keys with `42704`,
+/// matching the behavior of `SHOW <unknown>`.
+pub fn is_known_settable_runtime_parameter(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    SETTABLE_RUNTIME_PARAMETERS
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case(&lower))
+}
+
 /// Returns `true` if `name` (case-insensitive) is a known PostgreSQL or
 /// NodeDB session parameter.
 pub fn is_known_pg_runtime_parameter(name: &str) -> bool {

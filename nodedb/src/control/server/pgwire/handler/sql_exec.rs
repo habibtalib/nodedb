@@ -230,6 +230,13 @@ impl NodeDbPgHandler {
 
         if upper.starts_with("RESET ") {
             let param = sql_trimmed[6..].trim().to_lowercase();
+            // `RESET TENANT` is the inverse of `SET TENANT = ...` and must
+            // clear the session's effective_tenant_id override (not just an
+            // entry in the parameter bag). All policy checks (superuser,
+            // no-active-txn) live in handle_reset_tenant.
+            if param == "tenant" {
+                return self.handle_reset_tenant(identity, addr);
+            }
             self.sessions.set_parameter(addr, param, String::new());
             return Ok(vec![Response::Execution(Tag::new("RESET"))]);
         }
@@ -353,7 +360,7 @@ impl NodeDbPgHandler {
         // the known-parameter allowlist; unrecognised names return
         // `42704` instead of being silently swallowed as empty rows.
         if upper.starts_with("SHOW ") {
-            return self.handle_show(addr, sql_trimmed);
+            return self.handle_show(identity, addr, sql_trimmed);
         }
 
         // ── DataFusion-planned query execution ────────────────────────

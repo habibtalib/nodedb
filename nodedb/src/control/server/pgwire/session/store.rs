@@ -8,6 +8,8 @@ use std::sync::RwLock;
 
 use nodedb_types::DatabaseId;
 
+use crate::types::TenantId;
+
 use super::state::{PgSession, TransactionState};
 
 /// Concurrent session store — keyed by socket address.
@@ -123,6 +125,28 @@ impl SessionStore {
         }
     }
 
+    /// Read the session's superuser tenant override, if any. Returns `None`
+    /// when the session has never run `SET TENANT` (the common case).
+    pub fn get_effective_tenant_id(&self, addr: &SocketAddr) -> Option<TenantId> {
+        let sessions = self.sessions.read().unwrap_or_else(|p| p.into_inner());
+        sessions.get(addr).and_then(|s| s.effective_tenant_id)
+    }
+
+    /// Install or clear the session's tenant override. Callers MUST have
+    /// already verified the connection is a superuser and is not inside an
+    /// active transaction — this method performs no policy checks.
+    ///
+    /// Invalidates the session's plan cache and SQL-level prepared statements
+    /// so plans built against the prior tenant's catalog cannot be reused.
+    pub fn set_effective_tenant_id(&self, addr: &SocketAddr, tenant: Option<TenantId>) {
+        let mut sessions = self.sessions.write().unwrap_or_else(|p| p.into_inner());
+        if let Some(session) = sessions.get_mut(addr) {
+            session.effective_tenant_id = tenant;
+            session.plan_cache.clear();
+            session.prepared_stmts.clear();
+        }
+    }
+
     /// Reset per-session state for a `USE DATABASE` switch:
     ///   1. Aborts any open transaction (discards tx_buffer, resets state to Idle).
     ///   2. Clears all SQL-level prepared statements.
@@ -142,6 +166,10 @@ impl SessionStore {
             // Invalidate prepared statements and plan cache.
             session.prepared_stmts.clear();
             session.plan_cache.clear();
+            // A USE DATABASE switch crosses out of any tenant override — the
+            // new database may not exist (or have the same id) in the override
+            // tenant, so the safe contract is to drop the override on switch.
+            session.effective_tenant_id = None;
             // Rebind database.
             session.current_database = Some(new_db);
         }

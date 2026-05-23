@@ -37,7 +37,7 @@ impl NodeDbPgHandler {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let addr = client.socket_addr();
-        let identity = self.resolve_identity(client)?;
+        let identity = self.resolve_identity(client, &addr)?;
         self.enforce_database_access(&identity, &addr)?;
         let stmt = &portal.statement.statement;
         let tenant_id = identity.tenant_id;
