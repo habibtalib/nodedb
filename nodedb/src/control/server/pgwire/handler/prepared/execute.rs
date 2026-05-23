@@ -62,32 +62,34 @@ impl NodeDbPgHandler {
             return self.intent_to_response(&identity, addr, intent).await;
         }
 
-        // pg_catalog virtual tables bypass the planner: they aren't real
-        // collections, but drivers with type introspection (postgres.js
-        // `fetch_types`, JDBC, SQLAlchemy) hit them via prepared statements
-        // on connect. Responses are already column-shaped — pass through.
-        if stmt.pg_catalog_table.is_some() {
-            let upper = stmt.sql.to_uppercase();
-            if let Some(result) = crate::control::server::pgwire::pg_catalog::try_pg_catalog(
-                &self.state,
-                &identity,
-                &upper,
-            )
-            .await
-            {
-                let mut responses = result?;
-                return Ok(responses.pop().unwrap_or(Response::EmptyQuery));
-            }
-        }
-
         // Convert pgwire binary parameters to typed ParamValues for AST/DSL
         // binding. Done once, used by both the DSL path and the planned-SQL
-        // path below.
+        // path below — and by the pg_catalog interceptor when the query
+        // has `$N` placeholders.
         let params = convert_portal_params(
             &portal.parameters,
             &stmt.param_types,
             &portal.parameter_format,
         )?;
+
+        // pg_catalog virtual tables bypass the planner: they aren't real
+        // collections, but drivers with type introspection (postgres.js
+        // `fetch_types`, JDBC, SQLAlchemy) hit them via prepared statements
+        // on connect. The evaluator binds `$N` placeholders to `params`
+        // before parsing so `WHERE col = $1` honors the bound value.
+        if stmt.pg_catalog_table.is_some()
+            && let Some(result) =
+                crate::control::server::pgwire::pg_catalog::try_pg_catalog_with_params(
+                    &self.state,
+                    &identity,
+                    &stmt.sql,
+                    &params,
+                )
+                .await
+        {
+            let mut responses = result?;
+            return Ok(responses.pop().unwrap_or(Response::EmptyQuery));
+        }
 
         // DSL passthroughs (SEARCH, GRAPH, MATCH, UPSERT INTO, etc.) cannot be
         // handled by the planned-SQL path because sqlparser doesn't parse the

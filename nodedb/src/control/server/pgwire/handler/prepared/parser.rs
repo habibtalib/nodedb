@@ -149,8 +149,19 @@ impl QueryParser for NodeDbQueryParser {
         if let Some(table) =
             crate::control::server::pgwire::pg_catalog::extract_pg_catalog_table(&upper)
         {
+            // Parse the SELECT now so Describe can report the *projected*
+            // column schema rather than the full table schema. The
+            // evaluator-produced result must match what Describe announces
+            // — drivers (tokio-postgres, JDBC) decode the wire response
+            // against the Describe shape and will panic on column-count
+            // mismatch. Fall back to the full schema if parsing fails so
+            // drivers that probe with malformed-but-permissive queries still
+            // get a usable Describe.
             let result_fields =
-                crate::control::server::pgwire::pg_catalog::pg_catalog_schema(table)
+                crate::control::server::pgwire::pg_catalog::pg_catalog_projected_schema(sql, table)
+                    .or_else(|| {
+                        crate::control::server::pgwire::pg_catalog::pg_catalog_schema(table)
+                    })
                     .unwrap_or_default();
             let count = count_placeholders(sql).max(types.len());
             let param_types: Vec<Option<Type>> = (0..count)

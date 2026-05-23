@@ -365,7 +365,7 @@ impl NodeDbPgHandler {
 
         // pg_catalog virtual tables — intercept before the normal planner.
         if let Some(result) =
-            super::super::pg_catalog::try_pg_catalog(&self.state, identity, &upper).await
+            super::super::pg_catalog::try_pg_catalog(&self.state, identity, sql_trimmed).await
         {
             return result;
         }
