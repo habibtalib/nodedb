@@ -65,10 +65,6 @@ async fn oid_stable_across_drop_and_recreate() {
 }
 
 /// Two collections with different names must have different OIDs.
-///
-/// Note: pg_catalog virtual tables always return ALL rows — WHERE clauses are
-/// not applied server-side. The test fetches all pg_class rows and filters by
-/// relname in the test code.
 #[tokio::test]
 async fn oid_distinct_for_different_names() {
     let srv = TestServer::start().await;
