@@ -6,6 +6,8 @@
 //! - `ALTER TENANT <name> IN DATABASE <db> SET QUOTA (...)`
 //! - `SHOW TENANT QUOTA FOR <name> IN DATABASE <db>`
 //! - `SHOW TENANT USAGE FOR <name> IN DATABASE <db>`
+//! - `SHOW TENANT <name|id>` (single-tenant introspection)
+//! - `SHOW TENANTS WITH NAME <name>` (filtered list)
 
 use crate::ddl_ast::statement::{AlterTenantOperation, DatabaseStmt, NodedbStatement};
 use crate::error::SqlError;
@@ -75,8 +77,37 @@ fn try_parse_alter_tenant(
 fn try_parse_show_tenant(parts: &[&str]) -> Option<Result<NodedbStatement, SqlError>> {
     // SHOW TENANT QUOTA FOR <name> IN DATABASE <db>
     // SHOW TENANT USAGE FOR <name> IN DATABASE <db>
-    // parts: [SHOW, TENANT, QUOTA|USAGE, FOR, <name>, IN, DATABASE, <db>]
-    if parts.len() < 2 || !parts[1].eq_ignore_ascii_case("TENANT") {
+    // SHOW TENANT <name|id>
+    // SHOW TENANTS WITH NAME <name>
+    if parts.len() < 2 {
+        return None;
+    }
+
+    // SHOW TENANTS WITH NAME <name> — list-filter form.
+    if parts[1].eq_ignore_ascii_case("TENANTS") {
+        if parts.len() == 5
+            && parts[2].eq_ignore_ascii_case("WITH")
+            && parts[3].eq_ignore_ascii_case("NAME")
+        {
+            return Some(Ok(NodedbStatement::Database(
+                DatabaseStmt::ShowTenantsFilteredByName {
+                    name: parts[4].to_string(),
+                },
+            )));
+        }
+        // Bare `SHOW TENANTS` is parsed in `user_auth.rs`. Anything else
+        // starting with `SHOW TENANTS …` that we don't recognise is a
+        // syntax error — falling through would let it silently list all
+        // tenants via the legacy `SHOW TENANTS` route.
+        if parts.len() > 2 {
+            return Some(Err(SqlError::Parse {
+                detail: "expected: SHOW TENANTS WITH NAME <name>".into(),
+            }));
+        }
+        return None;
+    }
+
+    if !parts[1].eq_ignore_ascii_case("TENANT") {
         return None;
     }
     if parts.len() < 3 {
@@ -86,7 +117,18 @@ fn try_parse_show_tenant(parts: &[&str]) -> Option<Result<NodedbStatement, SqlEr
     let is_quota = parts[2].eq_ignore_ascii_case("QUOTA");
     let is_usage = parts[2].eq_ignore_ascii_case("USAGE");
     if !is_quota && !is_usage {
-        return None;
+        // SHOW TENANT <name|id> — single-row introspection. Exactly one
+        // identifier token; anything longer is a syntax error.
+        if parts.len() == 3 {
+            return Some(Ok(NodedbStatement::Database(
+                DatabaseStmt::ShowTenantByIdentifier {
+                    ident: parts[2].to_string(),
+                },
+            )));
+        }
+        return Some(Err(SqlError::Parse {
+            detail: "expected: SHOW TENANT <name|id> | SHOW TENANT QUOTA|USAGE FOR <name> IN DATABASE <db>".into(),
+        }));
     }
 
     // Must have: FOR <name> IN DATABASE <db>

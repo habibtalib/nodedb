@@ -96,6 +96,14 @@ pub(super) fn try_dispatch_database(
             ))
         }
 
+        NodedbStatement::Database(DatabaseStmt::ShowTenantByIdentifier { ident }) => Some(
+            super::super::super::inspect::show_tenant_by_identifier(state, identity, ident),
+        ),
+
+        NodedbStatement::Database(DatabaseStmt::ShowTenantsFilteredByName { name }) => Some(
+            super::super::super::inspect::show_tenants_filtered_by_name(state, identity, name),
+        ),
+
         // UseDatabase is handled before the DDL router in execute_single_sql;
         // if it reaches here, something went wrong in the call chain.
         NodedbStatement::Database(DatabaseStmt::UseDatabase { name }) => Some(Err(sqlstate_error(

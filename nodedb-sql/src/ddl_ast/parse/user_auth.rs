@@ -59,7 +59,11 @@ fn try_parse_inner(
         let username = parts.get(2).map(|s| s.to_string());
         return Some(Ok(NodedbStatement::Auth(AuthStmt::ShowGrants { username })));
     }
-    if upper.starts_with("SHOW TENANTS") {
+    // Only the bare `SHOW TENANTS` form lands here. `SHOW TENANTS WITH
+    // NAME <name>` and `SHOW TENANT <ident>` are parsed by `tenant.rs`
+    // into typed variants — matching them by prefix here would silently
+    // drop the filter / identifier and list every tenant.
+    if upper == "SHOW TENANTS" {
         return Some(Ok(NodedbStatement::Database(DatabaseStmt::ShowTenants)));
     }
     if upper.starts_with("SHOW AUDIT") {

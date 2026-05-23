@@ -409,7 +409,11 @@ pub(super) async fn dispatch(
     if upper.starts_with("SHOW USERS") {
         return Some(super::super::inspect::show_users(state, identity));
     }
-    if upper.starts_with("SHOW TENANTS") {
+    // Exact-match only. Filtered forms (`SHOW TENANTS WITH NAME <name>`,
+    // `SHOW TENANT <ident>`) are parsed into typed variants and routed
+    // through the AST dispatcher; a prefix match here would silently
+    // drop the filter and list every tenant.
+    if upper == "SHOW TENANTS" {
         return Some(super::super::inspect::show_tenants(state, identity));
     }
     if upper == "SHOW ROLES" || upper.starts_with("SHOW ROLES ") {

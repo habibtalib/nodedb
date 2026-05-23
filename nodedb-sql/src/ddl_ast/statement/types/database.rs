@@ -67,6 +67,18 @@ pub enum DatabaseStmt {
     },
     /// `SHOW TENANTS`
     ShowTenants,
+    /// `SHOW TENANT <name|id>` — single-row introspection for a tenant
+    /// identified by name or numeric id. The handler resolves whichever
+    /// form `ident` matches.
+    ShowTenantByIdentifier {
+        ident: String,
+    },
+    /// `SHOW TENANTS WITH NAME <name>` — filtered list form. Same row
+    /// shape as `SHOW TENANTS`, restricted server-side to the named
+    /// tenant.
+    ShowTenantsFilteredByName {
+        name: String,
+    },
     /// `MOVE TENANT <tenant> FROM <db_a> TO <db_b>`
     ///
     /// Returns `FEATURE_NOT_YET_IMPLEMENTED` until the tenant-move subsystem lands.

@@ -334,6 +334,7 @@ fn handle_set_sql(ctx: &DispatchCtx<'_>, seq: u64, sql: &str) -> NativeResponse 
 fn is_session_show(upper: &str) -> bool {
     !upper.starts_with("SHOW USERS")
         && !upper.starts_with("SHOW TENANTS")
+        && !upper.starts_with("SHOW TENANT ")
         && !upper.starts_with("SHOW SESSION")
         && !upper.starts_with("SHOW CLUSTER")
         && !upper.starts_with("SHOW RAFT")
