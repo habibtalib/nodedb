@@ -287,3 +287,162 @@ async fn create_user_if_not_exists_is_idempotent() {
     )
     .await;
 }
+
+// ---------------------------------------------------------------------------
+// Unknown `ALTER USER` syntax must surface a clear parse-level error and
+// must NOT be silently rewritten into a default `AlterUserOp` variant.
+//
+// The parser's catch-all arms in `nodedb-sql/src/ddl_ast/parse/user_auth.rs`
+// currently fall back to `AlterUserOp::SetRole { role: "" }` (and similar
+// silent defaults) whenever the sub-command doesn't match. That produces
+// misleading downstream errors that reference an internal AST form (e.g.
+// "expected role name after SET ROLE") even though the user never typed
+// `SET ROLE`, and in the PASSWORD branch can silently execute a destructive
+// `PasswordNeverExpires` for unknown PASSWORD sub-forms. The fix is parser-
+// level: unknown ALTER USER syntax must be rejected with a message that
+// names the actually-typed input, not an internal default variant.
+// ---------------------------------------------------------------------------
+
+/// `ALTER USER <name> ROLE <role>` (no `SET`) — the reported bug. PostgreSQL
+/// accepts both spellings, and `CREATE USER ... ROLE ...` uses the keyword
+/// without `SET`, so the natural parallel form must be accepted. The role
+/// must actually change.
+#[tokio::test]
+async fn alter_user_role_without_set_keyword_changes_role() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(
+        &state,
+        &su,
+        "CREATE USER eman WITH PASSWORD 'pw' ROLE readonly",
+    )
+    .await;
+
+    ddl_ok(&state, &su, "ALTER USER eman ROLE tenant_admin").await;
+
+    let user = state.credentials.get_user("eman").unwrap();
+    assert!(
+        user.roles.contains(&Role::TenantAdmin),
+        "ALTER USER ... ROLE <role> must update the role: {:?}",
+        user.roles
+    );
+    assert!(!user.roles.contains(&Role::ReadOnly));
+}
+
+/// `ALTER USER <name> WITH ROLE <role>` — another natural variant called out
+/// in the bug report. Accepted as a synonym for `SET ROLE`.
+#[tokio::test]
+async fn alter_user_with_role_changes_role() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(
+        &state,
+        &su,
+        "CREATE USER eman WITH PASSWORD 'pw' ROLE readonly",
+    )
+    .await;
+
+    ddl_ok(&state, &su, "ALTER USER eman WITH ROLE tenant_admin").await;
+
+    let user = state.credentials.get_user("eman").unwrap();
+    assert!(user.roles.contains(&Role::TenantAdmin));
+    assert!(!user.roles.contains(&Role::ReadOnly));
+}
+
+/// The empty-role spelling of the accepted alias still has to be rejected
+/// — `ALTER USER <name> ROLE` with no role name must error rather than
+/// silently routing into the internal `SetRole { role: "" }` default that
+/// produced the original misleading "expected role name after SET ROLE"
+/// message.
+#[tokio::test]
+async fn alter_user_role_alias_without_role_name_rejected_cleanly() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(
+        &state,
+        &su,
+        "CREATE USER eman WITH PASSWORD 'pw' ROLE readonly",
+    )
+    .await;
+
+    let err = ddl_err(&state, &su, "ALTER USER eman ROLE").await;
+
+    assert!(
+        !err.to_lowercase()
+            .contains("expected role name after set role"),
+        "must not surface the misleading legacy wording: {err}"
+    );
+    let user = state.credentials.get_user("eman").unwrap();
+    assert!(user.roles.contains(&Role::ReadOnly));
+}
+
+/// `ALTER USER <name> SET <unknown> ...` — the SET branch's catch-all also
+/// silently rewrites to `SetRole { role: "" }`. The parser must reject this.
+#[tokio::test]
+async fn alter_user_set_unknown_action_rejected_cleanly() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(
+        &state,
+        &su,
+        "CREATE USER eman WITH PASSWORD 'pw' ROLE readonly",
+    )
+    .await;
+
+    let err = ddl_err(&state, &su, "ALTER USER eman SET FOO bar").await;
+
+    assert!(
+        err.to_uppercase().contains("FOO") || err.to_uppercase().contains("UNKNOWN"),
+        "error must name the unrecognized token, not silently route to SET ROLE: {err}"
+    );
+
+    let user = state.credentials.get_user("eman").unwrap();
+    assert!(user.roles.contains(&Role::ReadOnly));
+}
+
+/// `ALTER USER <name> PASSWORD <garbage>` — the PASSWORD branch's catch-all
+/// currently silently falls through to `PasswordNeverExpires`, which is a
+/// destructive privilege change executed with no user input. Parser must
+/// reject unknown PASSWORD sub-forms instead of silently executing a default.
+#[tokio::test]
+async fn alter_user_password_unknown_subform_does_not_silently_execute() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE USER eman WITH PASSWORD 'pw'").await;
+    // Establish a known finite expiry so we can detect a silent overwrite to "never".
+    ddl_ok(&state, &su, "ALTER USER eman PASSWORD EXPIRES IN 30 DAYS").await;
+    let before = state.credentials.get_user("eman").unwrap();
+    let expiry_before = before.password_expires_at;
+    assert!(
+        expiry_before != 0,
+        "test precondition: expiry should be set to a finite value, got {expiry_before}"
+    );
+
+    let err = ddl_err(&state, &su, "ALTER USER eman PASSWORD WHATEVER").await;
+    assert!(
+        err.to_uppercase().contains("WHATEVER") || err.to_uppercase().contains("UNKNOWN"),
+        "error must name the unrecognized token: {err}"
+    );
+
+    let after = state.credentials.get_user("eman").unwrap();
+    assert_eq!(
+        after.password_expires_at, expiry_before,
+        "rejected ALTER USER PASSWORD must not silently overwrite expiry to 'never' (0)"
+    );
+}
+
+/// `ALTER USER <name>` with no sub-command at all — must produce a clear
+/// syntax error, not a silent SetRole-with-empty-role misdirection.
+#[tokio::test]
+async fn alter_user_no_subcommand_rejected_cleanly() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE USER eman WITH PASSWORD 'pw'").await;
+
+    let err = ddl_err(&state, &su, "ALTER USER eman").await;
+    assert!(
+        !err.to_lowercase()
+            .contains("expected role name after set role"),
+        "bare ALTER USER must not be misreported as a SET ROLE failure: {err}"
+    );
+}

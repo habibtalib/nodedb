@@ -403,3 +403,22 @@ async fn drop_role_if_exists_existing_drops() {
         "{details:?}"
     );
 }
+
+/// `ALTER ROLE <name> <unknown>` — the parser currently has a catch-all that
+/// silently rewrites any unrecognized sub-command into `AlterRoleOp::SetInherit`
+/// with an empty parent. Same systemic flaw as the ALTER USER fall-through:
+/// unknown syntax must produce a clear parser error naming the actual input,
+/// not be silently rerouted into a default variant.
+#[tokio::test]
+async fn alter_role_unknown_subcommand_rejected_cleanly() {
+    let state = make_state_with_catalog();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE ROLE auditor").await;
+
+    let err = ddl_err(&state, &su, "ALTER ROLE auditor FROBNICATE foo").await;
+
+    assert!(
+        err.to_uppercase().contains("FROBNICATE"),
+        "error must name the unrecognized token, not silently reroute to SET INHERIT: {err}"
+    );
+}

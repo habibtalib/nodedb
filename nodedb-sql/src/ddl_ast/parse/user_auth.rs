@@ -12,22 +12,26 @@ pub(super) fn try_parse(
     parts: &[&str],
     trimmed: &str,
 ) -> Option<Result<NodedbStatement, SqlError>> {
-    try_parse_inner(upper, parts, trimmed).map(Ok)
+    try_parse_inner(upper, parts, trimmed)
 }
 
-fn try_parse_inner(upper: &str, parts: &[&str], trimmed: &str) -> Option<NodedbStatement> {
+fn try_parse_inner(
+    upper: &str,
+    parts: &[&str],
+    trimmed: &str,
+) -> Option<Result<NodedbStatement, SqlError>> {
     if upper.starts_with("CREATE USER ") {
-        return Some(parse_create_user(parts, trimmed));
+        return Some(Ok(parse_create_user(parts, trimmed)));
     }
     if upper.starts_with("DROP USER ") {
         let username = parts.get(2)?.to_string();
-        return Some(NodedbStatement::Auth(AuthStmt::DropUser { username }));
+        return Some(Ok(NodedbStatement::Auth(AuthStmt::DropUser { username })));
     }
     if upper.starts_with("ALTER USER ") {
         return Some(parse_alter_user(parts, trimmed));
     }
     if upper.starts_with("SHOW USERS") {
-        return Some(NodedbStatement::Auth(AuthStmt::ShowUsers));
+        return Some(Ok(NodedbStatement::Auth(AuthStmt::ShowUsers)));
     }
     if upper.starts_with("ALTER ROLE ") {
         return Some(parse_alter_role(parts, trimmed));
@@ -46,32 +50,32 @@ fn try_parse_inner(upper: &str, parts: &[&str], trimmed: &str) -> Option<NodedbS
             .position(|p| p.eq_ignore_ascii_case("FOR"))
             .and_then(|i| parts.get(i + 1))
             .map(|s| s.to_string());
-        return Some(NodedbStatement::Auth(AuthStmt::ShowPermissions {
+        return Some(Ok(NodedbStatement::Auth(AuthStmt::ShowPermissions {
             on_collection,
             for_grantee,
-        }));
+        })));
     }
     if upper.starts_with("SHOW GRANTS") {
         let username = parts.get(2).map(|s| s.to_string());
-        return Some(NodedbStatement::Auth(AuthStmt::ShowGrants { username }));
+        return Some(Ok(NodedbStatement::Auth(AuthStmt::ShowGrants { username })));
     }
     if upper.starts_with("SHOW TENANTS") {
-        return Some(NodedbStatement::Database(DatabaseStmt::ShowTenants));
+        return Some(Ok(NodedbStatement::Database(DatabaseStmt::ShowTenants)));
     }
     if upper.starts_with("SHOW AUDIT") {
-        return Some(NodedbStatement::Misc(MiscStmt::ShowAuditLog));
+        return Some(Ok(NodedbStatement::Misc(MiscStmt::ShowAuditLog)));
     }
     if upper.starts_with("SHOW CONSTRAINTS ") {
         let collection = parts.get(2)?.to_string();
-        return Some(NodedbStatement::Misc(MiscStmt::ShowConstraints {
+        return Some(Ok(NodedbStatement::Misc(MiscStmt::ShowConstraints {
             collection,
-        }));
+        })));
     }
     if upper.starts_with("SHOW TYPEGUARD") {
         let collection = parts.get(2)?.to_string();
-        return Some(NodedbStatement::Misc(MiscStmt::ShowTypeGuards {
+        return Some(Ok(NodedbStatement::Misc(MiscStmt::ShowTypeGuards {
             collection,
-        }));
+        })));
     }
     None
 }
@@ -150,14 +154,28 @@ fn parse_tenant_selector(token: &str) -> TenantSelector {
 /// Supported forms:
 /// - `ALTER USER <name> SET PASSWORD '<password>'`
 /// - `ALTER USER <name> SET ROLE <role>`
+/// - `ALTER USER <name> ROLE <role>` (alias for `SET ROLE`, matches the
+///   spelling many clients try by analogy with `CREATE USER ... ROLE ...`)
 /// - `ALTER USER <name> MUST CHANGE PASSWORD`
 /// - `ALTER USER <name> PASSWORD NEVER EXPIRES`
 /// - `ALTER USER <name> PASSWORD EXPIRES '<iso8601>'`
 /// - `ALTER USER <name> PASSWORD EXPIRES IN <N> DAYS`
-fn parse_alter_user(parts: &[&str], _trimmed: &str) -> NodedbStatement {
+///
+/// Unknown sub-commands return a parse error naming the offending token —
+/// they are never silently rewritten into a default `AlterUserOp` variant.
+fn parse_alter_user(parts: &[&str], _trimmed: &str) -> Result<NodedbStatement, SqlError> {
     // parts[0] = ALTER, parts[1] = USER, parts[2] = <name>, parts[3] = sub-cmd
     let username = parts.get(2).map(|s| s.to_string()).unwrap_or_default();
-    let sub_owned = parts.get(3).map(|s| s.to_uppercase()).unwrap_or_default();
+    if username.is_empty() {
+        return Err(SqlError::Parse {
+            detail: alter_user_syntax_msg("missing user name"),
+        });
+    }
+    let Some(sub_owned) = parts.get(3).map(|s| s.to_uppercase()) else {
+        return Err(SqlError::Parse {
+            detail: alter_user_syntax_msg("ALTER USER requires a sub-command"),
+        });
+    };
     let sub = sub_owned.as_str();
 
     let op = match sub {
@@ -178,9 +196,58 @@ fn parse_alter_user(parts: &[&str], _trimmed: &str) -> NodedbStatement {
                     let db_name = parts.get(6).map(|s| s.to_string()).unwrap_or_default();
                     AlterUserOp::SetDefaultDatabase { db_name }
                 }
-                _ => AlterUserOp::SetRole {
-                    role: String::new(),
-                },
+                "" => {
+                    return Err(SqlError::Parse {
+                        detail: alter_user_syntax_msg(
+                            "ALTER USER ... SET requires PASSWORD | ROLE | DEFAULT DATABASE",
+                        ),
+                    });
+                }
+                other => {
+                    return Err(SqlError::Parse {
+                        detail: alter_user_syntax_msg(&format!(
+                            "unknown ALTER USER ... SET action '{other}' \
+                             (expected PASSWORD | ROLE | DEFAULT DATABASE)"
+                        )),
+                    });
+                }
+            }
+        }
+        "ROLE" => {
+            // PostgreSQL-compatible alias: `ALTER USER <name> ROLE <role>` —
+            // accept it the same as `SET ROLE`, since `CREATE USER ... ROLE ...`
+            // uses the keyword without `SET` and clients reach for the
+            // parallel form. The empty-role case is enforced by the handler.
+            let role = parts.get(4).map(|s| s.to_string()).unwrap_or_default();
+            if role.is_empty() {
+                return Err(SqlError::Parse {
+                    detail: alter_user_syntax_msg("ALTER USER ... ROLE requires a role name"),
+                });
+            }
+            AlterUserOp::SetRole { role }
+        }
+        "WITH" => {
+            // `ALTER USER <name> WITH ROLE <role>` — also seen in the wild.
+            // Recognise the `WITH ROLE` form; anything else under WITH is
+            // rejected with a clear message.
+            let next = parts.get(4).map(|s| s.to_uppercase()).unwrap_or_default();
+            if next == "ROLE" {
+                let role = parts.get(5).map(|s| s.to_string()).unwrap_or_default();
+                if role.is_empty() {
+                    return Err(SqlError::Parse {
+                        detail: alter_user_syntax_msg(
+                            "ALTER USER ... WITH ROLE requires a role name",
+                        ),
+                    });
+                }
+                AlterUserOp::SetRole { role }
+            } else {
+                return Err(SqlError::Parse {
+                    detail: alter_user_syntax_msg(&format!(
+                        "unknown ALTER USER ... WITH clause '{}' (expected WITH ROLE <role>)",
+                        parts.get(4).copied().unwrap_or("")
+                    )),
+                });
             }
         }
         "MUST" => {
@@ -189,7 +256,8 @@ fn parse_alter_user(parts: &[&str], _trimmed: &str) -> NodedbStatement {
         }
         "PASSWORD" => {
             // parts[4] = NEVER | EXPIRES
-            let next = parts.get(4).map(|s| s.to_uppercase()).unwrap_or_default();
+            let next_raw = parts.get(4).copied().unwrap_or("");
+            let next = next_raw.to_uppercase();
             match next.as_str() {
                 "NEVER" => AlterUserOp::PasswordNeverExpires,
                 "EXPIRES" => {
@@ -206,18 +274,46 @@ fn parse_alter_user(parts: &[&str], _trimmed: &str) -> NodedbStatement {
                         AlterUserOp::PasswordExpiresAt { iso8601 }
                     }
                 }
-                _ => AlterUserOp::PasswordNeverExpires,
+                "" => {
+                    return Err(SqlError::Parse {
+                        detail: alter_user_syntax_msg(
+                            "ALTER USER ... PASSWORD requires NEVER EXPIRES | EXPIRES ...",
+                        ),
+                    });
+                }
+                _ => {
+                    return Err(SqlError::Parse {
+                        detail: alter_user_syntax_msg(&format!(
+                            "unknown ALTER USER ... PASSWORD clause '{next_raw}' \
+                             (expected NEVER EXPIRES | EXPIRES '<iso8601>' | EXPIRES IN <N> DAYS)"
+                        )),
+                    });
+                }
             }
         }
-        _ => {
-            // Unknown sub-command — fall back to a no-op SetRole to avoid panic.
-            AlterUserOp::SetRole {
-                role: String::new(),
-            }
+        other => {
+            return Err(SqlError::Parse {
+                detail: alter_user_syntax_msg(&format!("unknown ALTER USER sub-command '{other}'")),
+            });
         }
     };
 
-    NodedbStatement::Auth(AuthStmt::AlterUser { username, op })
+    Ok(NodedbStatement::Auth(AuthStmt::AlterUser { username, op }))
+}
+
+/// Build the canonical ALTER USER syntax message. The `reason` describes the
+/// specific input that failed; the syntax block lists what's accepted.
+fn alter_user_syntax_msg(reason: &str) -> String {
+    format!(
+        "{reason}. ALTER USER syntax: \
+         ALTER USER <name> SET PASSWORD '<password>' | \
+         ALTER USER <name> SET ROLE <role> | \
+         ALTER USER <name> ROLE <role> | \
+         ALTER USER <name> MUST CHANGE PASSWORD | \
+         ALTER USER <name> PASSWORD NEVER EXPIRES | \
+         ALTER USER <name> PASSWORD EXPIRES '<iso8601>' | \
+         ALTER USER <name> PASSWORD EXPIRES IN <N> DAYS"
+    )
 }
 
 /// Parse `ALTER ROLE <name> GRANT/REVOKE/SET ...`.
@@ -227,10 +323,19 @@ fn parse_alter_user(parts: &[&str], _trimmed: &str) -> NodedbStatement {
 /// - `ALTER ROLE <name> GRANT <perm> ON [<object-type>] <target>`
 /// - `ALTER ROLE <name> REVOKE <perm> ON [<object-type>] <target>`
 /// - `ALTER ROLE <name> SET INHERIT <parent>`
-fn parse_alter_role(parts: &[&str], _trimmed: &str) -> NodedbStatement {
+fn parse_alter_role(parts: &[&str], _trimmed: &str) -> Result<NodedbStatement, SqlError> {
     // parts[0] = ALTER, parts[1] = ROLE, parts[2] = <name>, parts[3] = sub-command
     let name = parts.get(2).map(|s| s.to_string()).unwrap_or_default();
-    let sub_cmd = parts.get(3).map(|s| s.to_uppercase()).unwrap_or_default();
+    if name.is_empty() {
+        return Err(SqlError::Parse {
+            detail: alter_role_syntax_msg("missing role name"),
+        });
+    }
+    let Some(sub_cmd) = parts.get(3).map(|s| s.to_uppercase()) else {
+        return Err(SqlError::Parse {
+            detail: alter_role_syntax_msg("ALTER ROLE requires a sub-command"),
+        });
+    };
 
     let sub_op = match sub_cmd.as_str() {
         "GRANT" => {
@@ -260,15 +365,44 @@ fn parse_alter_role(parts: &[&str], _trimmed: &str) -> NodedbStatement {
                 target_name,
             }
         }
-        _ => {
-            // SET INHERIT <parent> (default / fallback)
-            // parts[3] = SET, parts[4] = INHERIT, parts[5] = <parent>
+        "SET" => {
+            // ALTER ROLE <name> SET INHERIT <parent>
+            let next = parts.get(4).map(|s| s.to_uppercase()).unwrap_or_default();
+            if next != "INHERIT" {
+                return Err(SqlError::Parse {
+                    detail: alter_role_syntax_msg(&format!(
+                        "unknown ALTER ROLE ... SET clause '{}' (expected SET INHERIT <parent>)",
+                        parts.get(4).copied().unwrap_or("")
+                    )),
+                });
+            }
             let parent = parts.get(5).map(|s| s.to_string()).unwrap_or_default();
+            if parent.is_empty() {
+                return Err(SqlError::Parse {
+                    detail: alter_role_syntax_msg(
+                        "ALTER ROLE ... SET INHERIT requires a parent role name",
+                    ),
+                });
+            }
             AlterRoleOp::SetInherit { parent }
+        }
+        other => {
+            return Err(SqlError::Parse {
+                detail: alter_role_syntax_msg(&format!("unknown ALTER ROLE sub-command '{other}'")),
+            });
         }
     };
 
-    NodedbStatement::Auth(AuthStmt::AlterRole { name, sub_op })
+    Ok(NodedbStatement::Auth(AuthStmt::AlterRole { name, sub_op }))
+}
+
+fn alter_role_syntax_msg(reason: &str) -> String {
+    format!(
+        "{reason}. ALTER ROLE syntax: \
+         ALTER ROLE <name> GRANT <perm> ON [<object-type>] <target> | \
+         ALTER ROLE <name> REVOKE <perm> ON [<object-type>] <target> | \
+         ALTER ROLE <name> SET INHERIT <parent>"
+    )
 }
 
 /// Extract a single-quoted string from parts starting at `start`.
