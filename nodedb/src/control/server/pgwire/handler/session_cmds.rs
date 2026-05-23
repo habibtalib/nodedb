@@ -217,7 +217,7 @@ impl NodeDbPgHandler {
         addr: &std::net::SocketAddr,
         sql: &str,
     ) -> PgWireResult<Vec<Response>> {
-        use super::super::session::parse_show_command;
+        use super::super::session::{is_known_pg_runtime_parameter, parse_show_command};
 
         let param = match parse_show_command(sql) {
             Some(p) => p,
@@ -234,13 +234,38 @@ impl NodeDbPgHandler {
             return self.handle_show_all(addr);
         }
 
-        let value = match param.as_str() {
+        // Resolve the value from the runtime-parameter sources in order:
+        // built-in PG runtime constants first, then a value explicitly set
+        // by `SET` in this session. If neither matches and the parameter
+        // is not on the known-parameter allowlist, return `42704`
+        // (`undefined_object`) — the same SQLSTATE PostgreSQL uses when
+        // a client requests an unrecognised runtime parameter. This
+        // prevents administrative commands like `SHOW DATABASES`,
+        // `SHOW ROLES`, `SHOW STATS`, `SHOW METRICS`, `SHOW MEMORY`
+        // from being silently swallowed as if they were unset session
+        // parameters; those commands are routed through the DDL / AST
+        // router before this handler is reached.
+        let builtin = match param.as_str() {
             "server_version" => Some(format!("NodeDB {}", crate::version::VERSION)),
             "server_encoding" => Some("UTF8".into()),
-            _ => self.sessions.get_parameter(addr, &param),
+            _ => None,
         };
+        let session_value = self.sessions.get_parameter(addr, &param);
 
-        let value = value.unwrap_or_else(|| "".into());
+        let value = match (builtin, session_value) {
+            (Some(v), _) => v,
+            (None, Some(v)) => v,
+            (None, None) => {
+                if !is_known_pg_runtime_parameter(&param) {
+                    return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                        "ERROR".to_owned(),
+                        "42704".to_owned(),
+                        format!("unrecognized configuration parameter \"{param}\""),
+                    ))));
+                }
+                String::new()
+            }
+        };
 
         let schema = Arc::new(vec![text_field(&param)]);
         let mut encoder = DataRowEncoder::new(schema.clone());

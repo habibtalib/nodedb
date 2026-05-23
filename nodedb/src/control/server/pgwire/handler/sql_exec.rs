@@ -348,6 +348,14 @@ impl NodeDbPgHandler {
             return result;
         }
 
+        // SHOW commands the DDL / AST router did not claim are PG
+        // runtime-parameter requests. `handle_show` validates against
+        // the known-parameter allowlist; unrecognised names return
+        // `42704` instead of being silently swallowed as empty rows.
+        if upper.starts_with("SHOW ") {
+            return self.handle_show(addr, sql_trimmed);
+        }
+
         // ── DataFusion-planned query execution ────────────────────────
 
         let tenant_id = identity.tenant_id;

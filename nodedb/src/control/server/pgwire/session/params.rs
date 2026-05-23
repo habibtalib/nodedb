@@ -81,6 +81,61 @@ pub fn parse_set_command(sql: &str) -> Option<(String, String)> {
     Some((key.to_lowercase(), value))
 }
 
+/// Known PostgreSQL runtime parameters that `SHOW <name>` is allowed to
+/// resolve through the session-parameter fallback.
+///
+/// Any `SHOW <name>` whose lowercased target is in this set, or that was
+/// explicitly set via `SET <name> = ...` in the current session, is a
+/// runtime-parameter request. Everything else is an administrative SHOW
+/// command and must be routed through the DDL / AST router — the
+/// session-parameter fallback returns `42704` (`undefined_object`) for
+/// unrecognised names instead of silently emitting an empty single-row
+/// response (the failure mode behind the `SHOW DATABASES` / `SHOW ROLES`
+/// / `SHOW STATS` / `SHOW METRICS` / `SHOW MEMORY` ghost-row bug).
+pub const KNOWN_PG_RUNTIME_PARAMETERS: &[&str] = &[
+    "all",
+    "application_name",
+    "client_encoding",
+    "client_min_messages",
+    "datestyle",
+    "default_transaction_isolation",
+    "default_transaction_read_only",
+    "extra_float_digits",
+    "integer_datetimes",
+    "intervalstyle",
+    "is_superuser",
+    "lc_collate",
+    "lc_ctype",
+    "lc_messages",
+    "lc_monetary",
+    "lc_numeric",
+    "lc_time",
+    "server_encoding",
+    "server_version",
+    "server_version_num",
+    "search_path",
+    "session_authorization",
+    "standard_conforming_strings",
+    "statement_timeout",
+    "timezone",
+    "time zone",
+    "transaction_isolation",
+    "transaction_read_only",
+    // NodeDB-specific session knobs settable via SET.
+    "nodedb.consistency",
+    "nodedb.tenant_id",
+    "rounding_mode",
+];
+
+/// Returns `true` if `name` (case-insensitive) is a known PostgreSQL or
+/// NodeDB session parameter.
+pub fn is_known_pg_runtime_parameter(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    KNOWN_PG_RUNTIME_PARAMETERS
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case(&lower))
+}
+
 /// Parse a SHOW command: `SHOW <parameter>` or `SHOW ALL`.
 ///
 /// Returns the parameter name, or "all" for SHOW ALL.
