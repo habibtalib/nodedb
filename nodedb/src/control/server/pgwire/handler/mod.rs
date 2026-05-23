@@ -3,10 +3,12 @@
 mod copy_handler;
 mod core;
 mod cursor_cmds;
+mod cursor_query;
 mod dispatch;
 mod facet;
 pub mod listen_notify;
 mod listen_notify_exec;
+mod live_select;
 mod plan;
 pub mod prepared;
 mod projection;

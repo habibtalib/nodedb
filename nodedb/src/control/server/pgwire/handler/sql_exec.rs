@@ -13,7 +13,6 @@ use pgwire::api::results::{DataRowEncoder, QueryResponse, Response, Tag};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 
 use crate::control::security::identity::AuthenticatedIdentity;
-use crate::types::TraceId;
 
 use super::super::session::TransactionState;
 use super::super::types::text_field;
@@ -220,41 +219,14 @@ impl NodeDbPgHandler {
             ))));
         }
 
-        if upper.starts_with("SHOW ")
-            && !upper.starts_with("SHOW USERS")
-            && !upper.starts_with("SHOW TENANTS")
-            && !upper.starts_with("SHOW SESSION")
-            && !upper.starts_with("SHOW CLUSTER")
-            && !upper.starts_with("SHOW RAFT")
-            && !upper.starts_with("SHOW MIGRATIONS")
-            && !upper.starts_with("SHOW PEER")
-            && !upper.starts_with("SHOW NODES")
-            && !upper.starts_with("SHOW NODE ")
-            && !upper.starts_with("SHOW RANGES")
-            && !upper.starts_with("SHOW ROUTING")
-            && !upper.starts_with("SHOW SCHEMA VERSION")
-            && !upper.starts_with("SHOW COLLECTIONS")
-            && !upper.starts_with("SHOW AUDIT")
-            && !upper.starts_with("SHOW PERMISSIONS")
-            && !upper.starts_with("SHOW GRANTS")
-            && upper != "SHOW CONNECTIONS"
-            && !upper.starts_with("SHOW INDEXES")
-            && !upper.starts_with("SHOW TYPEGUARD")
-            && !upper.starts_with("SHOW CONSTRAINTS")
-            && !upper.starts_with("SHOW CONFLICT POLICY")
-            && upper != "SHOW SYNONYM GROUPS"
-            && upper != "SHOW TYPES"
-            && !upper.starts_with("SHOW CONTINUOUS AGGREGATE")
-            // NodeDB-specific multi-word SHOW commands handled by the AST
-            // router (lineage, quota, usage, mirror status). The session
-            // SHOW handler is for PG runtime parameters only — single-word
-            // identifiers like `SHOW client_encoding` or `SHOW ALL`.
-            && !upper.starts_with("SHOW DATABASE ")
-            && !upper.starts_with("SHOW TENANT ")
-            && !upper.starts_with("SHOW GRAPH STATS")
-        {
-            return self.handle_show(addr, sql_trimmed);
-        }
+        // `SHOW <name>` is routed last — after the DDL / AST router has
+        // had a chance to claim administrative SHOW commands
+        // (`SHOW DATABASES`, `SHOW ROLES`, `SHOW SCHEDULES`, etc.). Only
+        // genuine PostgreSQL runtime-parameter requests (`SHOW
+        // client_encoding`, `SHOW ALL`, ...) fall through to
+        // `handle_show`, which validates against an explicit known-
+        // parameter allowlist and rejects unknown names with `42704`.
+        // See [the dispatch order below].
 
         if upper.starts_with("RESET ") {
             let param = sql_trimmed[6..].trim().to_lowercase();
@@ -400,126 +372,5 @@ impl NodeDbPgHandler {
         }
 
         result
-    }
-
-    /// Handle LIVE SELECT: create a change stream subscription.
-    fn handle_live_select(
-        &self,
-        identity: &AuthenticatedIdentity,
-        addr: &std::net::SocketAddr,
-        sql: &str,
-    ) -> PgWireResult<Vec<Response>> {
-        let coll_name = super::super::ddl::sql_parse::extract_collection_after(sql, " FROM ")
-            .ok_or_else(|| {
-                PgWireError::UserError(Box::new(ErrorInfo::new(
-                    "ERROR".to_owned(),
-                    "42601".to_owned(),
-                    "syntax: LIVE SELECT [*|fields] FROM <collection> [WHERE ...]".to_owned(),
-                )))
-            })?;
-
-        let tenant_id = identity.tenant_id;
-        let sub = self
-            .state
-            .change_stream
-            .subscribe(Some(coll_name.clone()), Some(tenant_id));
-        let sub_id = sub.id;
-        let channel = format!("live_{coll_name}");
-
-        self.sessions
-            .add_live_subscription(addr, channel.clone(), sub);
-
-        tracing::info!(
-            sub_id,
-            collection = coll_name,
-            channel,
-            "LIVE SELECT subscription created"
-        );
-
-        use futures::stream;
-        let schema = Arc::new(vec![
-            text_field("subscription_id"),
-            text_field("channel"),
-            text_field("collection"),
-            text_field("status"),
-        ]);
-        let mut encoder = DataRowEncoder::new(schema.clone());
-        let _ = encoder.encode_field(&sub_id.to_string());
-        let _ = encoder.encode_field(&channel);
-        let _ = encoder.encode_field(&coll_name);
-        let _ = encoder.encode_field(&"active");
-        let row = encoder.take_row();
-        Ok(vec![Response::Query(QueryResponse::new(
-            schema,
-            stream::iter(vec![Ok(row)]),
-        ))])
-    }
-
-    /// Execute a SELECT query and return results as JSON strings for cursor storage.
-    pub(super) async fn execute_query_for_cursor(
-        &self,
-        addr: &std::net::SocketAddr,
-        sql: &str,
-        identity: &AuthenticatedIdentity,
-    ) -> PgWireResult<Vec<String>> {
-        let tenant_id = identity.tenant_id;
-        let query_ctx =
-            crate::control::planner::context::QueryContext::for_state_with_lease(&self.state);
-
-        if let Some(mode) = self.sessions.get_parameter(addr, "rounding_mode") {
-            query_ctx.set_rounding_mode(&mode);
-        }
-
-        let database_id = self
-            .sessions
-            .get_current_database(addr)
-            .unwrap_or(crate::types::DatabaseId::DEFAULT);
-
-        let auth_ctx = crate::control::server::session_auth::build_auth_context(identity);
-        let perm_cache = self.state.permission_cache.read().await;
-        let sec = crate::control::planner::context::PlanSecurityContext {
-            identity,
-            auth: &auth_ctx,
-            rls_store: &self.state.rls,
-            permissions: &self.state.permissions,
-            roles: &self.state.roles,
-            permission_cache: Some(&*perm_cache),
-        };
-        let tasks = query_ctx
-            .plan_sql_with_rls(sql, tenant_id, database_id, &sec)
-            .await
-            .map_err(|e| {
-                PgWireError::UserError(Box::new(ErrorInfo::new(
-                    "ERROR".to_owned(),
-                    "42000".to_owned(),
-                    e.to_string(),
-                )))
-            })?;
-
-        let mut rows = Vec::new();
-        for task in tasks {
-            let resp = crate::control::server::dispatch_utils::dispatch_to_data_plane(
-                &self.state,
-                task.tenant_id,
-                task.vshard_id,
-                task.plan,
-                TraceId::ZERO,
-            )
-            .await
-            .map_err(|e| {
-                PgWireError::UserError(Box::new(ErrorInfo::new(
-                    "ERROR".to_owned(),
-                    "XX000".to_owned(),
-                    e.to_string(),
-                )))
-            })?;
-
-            if !resp.payload.is_empty() {
-                let json =
-                    crate::data::executor::response_codec::decode_payload_to_json(&resp.payload);
-                rows.push(json);
-            }
-        }
-        Ok(rows)
     }
 }
