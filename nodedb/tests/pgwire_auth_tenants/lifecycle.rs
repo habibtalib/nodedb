@@ -1,0 +1,177 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+//! CREATE / DROP TENANT lifecycle, plus the `IF NOT EXISTS` /
+//! `IF EXISTS` / `WITH ADMIN` clause guards.
+
+use crate::common::pgwire_auth_helpers::{
+    assert_readonly_denied, ddl_err, ddl_ok, make_state, make_state_with_catalog, superuser,
+};
+use nodedb::control::security::audit::AuditEvent;
+
+#[tokio::test]
+async fn create_tenant() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE TENANT acme ID 42").await;
+
+    let log = state.audit.lock().unwrap();
+    let events = log.query_by_event(&AuditEvent::TenantCreated);
+    assert!(!events.is_empty());
+    assert!(events.last().unwrap().detail.contains("acme"));
+}
+
+#[tokio::test]
+async fn drop_system_tenant_rejected() {
+    let state = make_state();
+    let su = superuser();
+    let err = ddl_err(&state, &su, "DROP TENANT 0").await;
+    assert!(err.contains("cannot drop system tenant"), "{err}");
+}
+
+#[tokio::test]
+async fn tenant_ops_require_superuser() {
+    let state = make_state();
+    assert_readonly_denied(&state, "CREATE TENANT evil").await;
+}
+
+#[tokio::test]
+async fn show_tenants_requires_superuser() {
+    let state = make_state();
+    assert_readonly_denied(&state, "SHOW TENANTS").await;
+}
+
+// ── IF NOT EXISTS on CREATE TENANT ───────────────────────────────────
+//
+// `CREATE TENANT IF NOT EXISTS <name>` is the standard PostgreSQL idiom.
+// The handler must recognize the `IF NOT EXISTS` clause and name the
+// tenant `<name>` — not consume the clause keywords as the tenant name.
+
+/// `CREATE TENANT IF NOT EXISTS <name>` creates a tenant named `<name>`,
+/// not one named after the `IF` keyword.
+#[tokio::test]
+async fn create_tenant_if_not_exists_names_real_tenant() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE TENANT IF NOT EXISTS acme").await;
+
+    let log = state.audit.lock().unwrap();
+    let events = log.query_by_event(&AuditEvent::TenantCreated);
+    let detail = &events.last().expect("tenant created").detail;
+    assert!(detail.contains("'acme'"), "{detail}");
+    // Regression guard: the `IF NOT EXISTS` keywords must never leak
+    // into the tenant name.
+    assert!(
+        !detail.contains("'IF'"),
+        "clause keyword used as name: {detail}"
+    );
+}
+
+/// The auto-created tenant admin is named after the real tenant
+/// (`acme_admin`), not after a consumed clause keyword (`IF_admin`).
+#[tokio::test]
+async fn create_tenant_if_not_exists_admin_uses_tenant_name() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE TENANT IF NOT EXISTS acme").await;
+
+    let log = state.audit.lock().unwrap();
+    let events = log.query_by_event(&AuditEvent::TenantCreated);
+    let detail = &events.last().expect("tenant created").detail;
+    assert!(detail.contains("acme_admin"), "{detail}");
+    assert!(
+        !detail.contains("IF_admin"),
+        "phantom admin named after clause keyword: {detail}"
+    );
+}
+
+/// `CREATE TENANT IF NOT EXISTS <name> ID <id>` honors both the
+/// `IF NOT EXISTS` clause and the trailing explicit `ID`.
+#[tokio::test]
+async fn create_tenant_if_not_exists_with_explicit_id() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE TENANT IF NOT EXISTS acme ID 7").await;
+
+    let log = state.audit.lock().unwrap();
+    let events = log.query_by_event(&AuditEvent::TenantCreated);
+    let detail = &events.last().expect("tenant created").detail;
+    assert!(detail.contains("'acme'"), "{detail}");
+    assert!(
+        detail.contains("tenant:7"),
+        "explicit ID not honored: {detail}"
+    );
+}
+
+/// A second `CREATE TENANT IF NOT EXISTS <name>` for an existing tenant
+/// is a no-op success — it does not create a second, differently named
+/// tenant.
+#[tokio::test]
+async fn create_tenant_if_not_exists_is_idempotent() {
+    let state = make_state_with_catalog();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE TENANT acme").await;
+    ddl_ok(&state, &su, "CREATE TENANT IF NOT EXISTS acme").await;
+
+    let log = state.audit.lock().unwrap();
+    let events = log.query_by_event(&AuditEvent::TenantCreated);
+    assert_eq!(
+        events.len(),
+        1,
+        "IF NOT EXISTS re-create must be a no-op, got: {:?}",
+        events.iter().map(|e| &e.detail).collect::<Vec<_>>()
+    );
+}
+
+// ── WITH ADMIN clause on CREATE TENANT ───────────────────────────────
+//
+// `CREATE TENANT <name> WITH ADMIN <user>` must name the auto-created
+// tenant admin after `<user>` — not silently ignore the clause and
+// derive `<name>_admin`.
+
+/// `CREATE TENANT <name> WITH ADMIN <user>` names the tenant admin
+/// `<user>`, honoring the explicit clause.
+#[tokio::test]
+async fn create_tenant_with_admin_uses_named_admin() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE TENANT acme WITH ADMIN bootstrap_admin").await;
+
+    let log = state.audit.lock().unwrap();
+    let events = log.query_by_event(&AuditEvent::TenantCreated);
+    let detail = &events.last().expect("tenant created").detail;
+    assert!(detail.contains("'acme'"), "{detail}");
+    assert!(
+        detail.contains("with admin 'bootstrap_admin'"),
+        "WITH ADMIN clause ignored: {detail}"
+    );
+}
+
+// ── IF EXISTS on DROP TENANT ─────────────────────────────────────────
+//
+// `DROP TENANT IF EXISTS <id>` must recognize the `IF EXISTS` clause:
+// dropping a missing tenant is a no-op success, and the clause keywords
+// must not be parsed in place of the tenant id.
+
+/// `DROP TENANT IF EXISTS <id>` on a tenant that does not exist is a
+/// no-op success, not an error.
+#[tokio::test]
+async fn drop_tenant_if_exists_missing_is_noop() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "DROP TENANT IF EXISTS 999").await;
+}
+
+/// `DROP TENANT IF EXISTS <id>` on an existing tenant actually drops it —
+/// the `IF EXISTS` clause must not turn the statement into a total no-op.
+#[tokio::test]
+async fn drop_tenant_if_exists_existing_drops() {
+    let state = make_state();
+    let su = superuser();
+    ddl_ok(&state, &su, "CREATE TENANT acme ID 5").await;
+    ddl_ok(&state, &su, "DROP TENANT IF EXISTS 5").await;
+
+    let log = state.audit.lock().unwrap();
+    let events = log.query_by_event(&AuditEvent::TenantDeleted);
+    let detail = &events.last().expect("tenant dropped").detail;
+    assert!(detail.contains("tenant:5"), "{detail}");
+}
