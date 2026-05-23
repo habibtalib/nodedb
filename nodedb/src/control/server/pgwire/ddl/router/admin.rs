@@ -412,6 +412,31 @@ pub(super) async fn dispatch(
     if upper.starts_with("SHOW TENANTS") {
         return Some(super::super::inspect::show_tenants(state, identity));
     }
+    if upper == "SHOW ROLES" || upper.starts_with("SHOW ROLES ") {
+        return Some(super::super::inspect::show_roles(state, identity));
+    }
+
+    // Administrative observability — server-wide counters, per-engine
+    // memory budgets. `SHOW STATS` and `SHOW SERVER STATS` share a
+    // handler (UX synonyms over the same `SystemMetrics` source);
+    // `SHOW METRICS` adds histogram percentiles; `SHOW MEMORY`
+    // reports per-engine memory governor state.
+    if upper == "SHOW SERVER STATS" || upper.starts_with("SHOW SERVER STATS ") {
+        return Some(super::super::observability::show_server_stats(
+            state, identity,
+        ));
+    }
+    if upper == "SHOW STATS" || upper.starts_with("SHOW STATS ") {
+        return Some(super::super::observability::show_server_stats(
+            state, identity,
+        ));
+    }
+    if upper == "SHOW METRICS" || upper.starts_with("SHOW METRICS ") {
+        return Some(super::super::observability::show_metrics(state, identity));
+    }
+    if upper == "SHOW MEMORY" || upper.starts_with("SHOW MEMORY ") {
+        return Some(super::super::observability::show_memory(state, identity));
+    }
     if upper.starts_with("SHOW SESSION") {
         return Some(super::super::inspect::show_session(identity));
     }

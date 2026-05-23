@@ -123,6 +123,43 @@ pub fn show_tenants(
     ))])
 }
 
+/// SHOW ROLES — list all custom roles. Built-in role enum is fixed
+/// and not enumerated here; this lists the user-defined roles created
+/// via `CREATE ROLE`.
+///
+/// Superuser sees all roles. Non-superusers see roles in their own
+/// tenant only.
+pub fn show_roles(
+    state: &SharedState,
+    identity: &AuthenticatedIdentity,
+) -> PgWireResult<Vec<Response>> {
+    let schema = Arc::new(vec![
+        text_field("name"),
+        int8_field("tenant_id"),
+        text_field("parent"),
+        int8_field("created_at"),
+    ]);
+
+    let roles = state.roles.list_roles();
+    let mut rows = Vec::new();
+    for role in &roles {
+        if !identity.is_superuser && role.tenant_id != identity.tenant_id {
+            continue;
+        }
+        let mut encoder = DataRowEncoder::new(schema.clone());
+        encoder.encode_field(&role.name)?;
+        encoder.encode_field(&(role.tenant_id.as_u64() as i64))?;
+        encoder.encode_field(&role.parent.as_deref().unwrap_or(""))?;
+        encoder.encode_field(&(role.created_at as i64))?;
+        rows.push(Ok(encoder.take_row()));
+    }
+
+    Ok(vec![Response::Query(QueryResponse::new(
+        schema,
+        stream::iter(rows),
+    ))])
+}
+
 /// SHOW SESSION — display current session identity.
 pub fn show_session(identity: &AuthenticatedIdentity) -> PgWireResult<Vec<Response>> {
     let schema = Arc::new(vec![

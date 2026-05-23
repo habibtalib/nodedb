@@ -35,6 +35,7 @@ pub mod maintenance;
 pub mod match_ops;
 pub mod materialized_view;
 pub mod metering_ddl;
+pub mod observability;
 pub mod oidc;
 pub mod org_ddl;
 pub mod owner_propose;
