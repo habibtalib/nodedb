@@ -34,10 +34,6 @@ pub fn collect_merged_term_blocks<B: FtsBackend>(
     governor: Option<&Arc<MemoryGovernor>>,
 ) -> Result<Vec<TermBlocks>, B::Error> {
     let seg_ids = backend.list_segments(tid, collection)?;
-    eprintln!(
-        "[lsm_debug] tid={tid} collection={collection} seg_count={}",
-        seg_ids.len()
-    );
     let mut readers: Vec<SegmentReader> = Vec::new();
     for id in &seg_ids {
         if let Some(data) = backend.read_segment(tid, collection, id)?
@@ -57,7 +53,6 @@ pub fn collect_merged_term_blocks<B: FtsBackend>(
     for token in query_tokens {
         let scoped_term = memtable_key(tid, collection, token);
         let mt_postings = memtable.get_postings(&scoped_term);
-        eprintln!("[lsm_debug] token={token} mt_count={}", mt_postings.len());
 
         let seg_postings: Vec<Vec<CompactPosting>> = readers
             .iter()

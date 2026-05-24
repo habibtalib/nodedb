@@ -148,16 +148,11 @@ impl<B: FtsBackend> FtsIndex<B> {
         tokens: Vec<String>,
     ) -> Result<Vec<String>, B::Error> {
         let groups = self.list_synonym_groups(tid)?;
-        eprintln!(
-            "[synonym_debug] tid={tid} tokens={tokens:?} groups_count={}",
-            groups.len()
-        );
         if groups.is_empty() {
             return Ok(tokens);
         }
         let map = self.build_synonym_map_for_tenant(tid, &groups);
         let expanded = map.expand(&tokens);
-        eprintln!("[synonym_debug] expanded={expanded:?}");
         Ok(expanded)
     }
 

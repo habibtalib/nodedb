@@ -48,11 +48,6 @@ pub fn bmw_search<B: FtsBackend>(
     )?;
 
     let all_empty = lsm_term_blocks.iter().all(|tb| tb.df == 0);
-    eprintln!(
-        "[bmw_inner_debug] all_empty={all_empty} fuzzy={} dfs={:?}",
-        p.fuzzy_enabled,
-        lsm_term_blocks.iter().map(|tb| tb.df).collect::<Vec<_>>()
-    );
     // When the LSM has no entries for any token and fuzzy is disabled, skip the
     // backend exact-lookup pass and return None immediately so the caller falls
     // back to the non-BMW scoring path, which reads from the backend directly.
