@@ -165,6 +165,15 @@ pub struct AlgoParams {
 
     /// Mode for triangle counting / diameter: "global", "per_node", "exact", "approximate".
     pub mode: Option<String>,
+
+    /// Per-node initial rank seed for Personalized PageRank.
+    ///
+    /// When `None`, PageRank initializes uniformly (1.0/n per node) — standard behavior.
+    /// When `Some(map)`, PPR initializes each node `id` to `map[id]` (normalized to sum=1.0);
+    /// nodes missing from the map start at 0.0. Bias toward seed nodes makes them and their
+    /// neighbors rank higher.
+    #[serde(default)]
+    pub personalization_vector: Option<std::collections::HashMap<String, f64>>,
 }
 
 impl AlgoParams {
@@ -196,6 +205,14 @@ impl AlgoParams {
     pub fn louvain_resolution(&self) -> f64 {
         let r = self.resolution.unwrap_or(1.0);
         if r > 0.0 { r } else { 1.0 }
+    }
+
+    /// Personalization vector for Personalized PageRank.
+    ///
+    /// Returns `None` for standard uniform-init PageRank, or `Some(map)` where
+    /// map keys are node ids and values are unnormalized seed weights.
+    pub fn personalization_vector(&self) -> Option<&std::collections::HashMap<String, f64>> {
+        self.personalization_vector.as_ref()
     }
 }
 
