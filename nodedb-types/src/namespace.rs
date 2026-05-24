@@ -65,6 +65,12 @@ pub enum Namespace {
     /// the MessagePack-encoded edge props followed by an 8-byte big-endian
     /// `system_to_ms` (u64::MAX = current / not yet deleted).
     GraphHistory = 14,
+    /// Bitemporal history table for schemaless document collections.
+    ///
+    /// Keys: `{collection}:{doc_id}\x00{system_from_ms:020}` — value is
+    /// `[tag:u8][valid_from_ms:i64 LE][valid_until_ms:i64 LE][body_msgpack...]`.
+    /// `tag = 0x00` (live), `0xFF` (tombstone), `0xFE` (GDPR erased).
+    DocumentHistory = 15,
 }
 
 impl Namespace {
@@ -86,6 +92,7 @@ impl Namespace {
             12 => Some(Self::Fts),
             13 => Some(Self::StrictHistory),
             14 => Some(Self::GraphHistory),
+            15 => Some(Self::DocumentHistory),
             _ => None,
         }
     }
@@ -97,10 +104,10 @@ mod tests {
 
     #[test]
     fn namespace_roundtrip() {
-        for v in 0u8..=14 {
+        for v in 0u8..=15 {
             let ns = Namespace::from_u8(v).unwrap();
             assert_eq!(ns as u8, v);
         }
-        assert!(Namespace::from_u8(15).is_none());
+        assert!(Namespace::from_u8(16).is_none());
     }
 }

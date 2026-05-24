@@ -169,6 +169,52 @@ pub trait NodeDb: NodeDbMarker {
     /// On Remote: `DELETE FROM collection WHERE id = $1`.
     async fn document_delete(&self, collection: &str, id: &str) -> NodeDbResult<()>;
 
+    /// Read a document as-of a system time, optionally filtered by valid_time.
+    ///
+    /// Only valid on collections created `WITH (bitemporal=true)` — returns an
+    /// error on plain (non-bitemporal) collections.
+    ///
+    /// When `as_of_ms` is `None`, returns the current LIVE version (equivalent
+    /// to `document_get`). When `as_of_ms` is `Some(t)`, returns the version
+    /// visible at system time `t`. If `valid_time_ms` is `Some(vt)`, the
+    /// returned version must additionally satisfy
+    /// `valid_from_ms <= vt < valid_until_ms`.
+    ///
+    /// Returns `Err` on implementations that do not support bitemporal reads.
+    async fn document_get_as_of(
+        &self,
+        collection: &str,
+        id: &str,
+        as_of_ms: Option<i64>,
+        valid_time_ms: Option<i64>,
+    ) -> NodeDbResult<Option<Document>> {
+        let _ = (collection, id, as_of_ms, valid_time_ms);
+        Err(NodeDbError::storage(
+            "document_get_as_of is not implemented on this client",
+        ))
+    }
+
+    /// Put a document with explicit valid-time bounds.
+    ///
+    /// Only valid on collections created `WITH (bitemporal=true)`.
+    /// `valid_from_ms` and `valid_until_ms` specify the application-time
+    /// interval for which the version is considered current.  Both default
+    /// to system time / open-ended when `None`.
+    ///
+    /// Returns `Err` on implementations that do not support bitemporal writes.
+    async fn document_put_with_valid_time(
+        &self,
+        collection: &str,
+        doc: Document,
+        valid_from_ms: Option<i64>,
+        valid_until_ms: Option<i64>,
+    ) -> NodeDbResult<()> {
+        let _ = (collection, doc, valid_from_ms, valid_until_ms);
+        Err(NodeDbError::storage(
+            "document_put_with_valid_time is not implemented on this client",
+        ))
+    }
+
     // ─── Named Vector Fields ──────────────────────────────────────────
 
     /// Insert a vector into a named field within a collection.
