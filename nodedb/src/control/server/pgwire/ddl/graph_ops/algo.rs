@@ -72,6 +72,7 @@ pub async fn algo(
         direction,
         resolution,
         mode,
+        personalization_vector: None,
     };
 
     let tenant_id = identity.tenant_id;

@@ -258,6 +258,7 @@ pub(crate) fn build_algo(fields: &TextFields, collection: &str) -> crate::Result
         direction: fields.direction.clone(),
         resolution: None,
         mode: None,
+        personalization_vector: None,
     };
 
     Ok(PhysicalPlan::Graph(GraphOp::Algo { algorithm, params }))
