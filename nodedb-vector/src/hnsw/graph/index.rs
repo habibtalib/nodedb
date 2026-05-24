@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::cell::RefCell;
+use std::sync::Arc;
 
 use crate::distance::dispatch::distance_typed;
 use crate::distance::distance;
@@ -28,6 +29,13 @@ pub struct HnswIndex {
     /// When present, `neighbors_at()` reads from here instead of per-node Vecs.
     /// Cleared on first mutation (insert/delete).
     pub(crate) flat_neighbors: Option<crate::hnsw::flat_neighbors::FlatNeighborStore>,
+    /// Optional backing store for vector data.
+    ///
+    /// When set (graph-checkpoint-only restore path), per-node vector storage
+    /// is left empty and `dist_to_node` falls through to the backing.  Origin
+    /// never sets this field; it is only used by Lite's pagedb segment path.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) backing: Option<Arc<dyn crate::segment_backing::VectorSegmentBacking>>,
     /// Per-invocation scratch arena for beam-search heaps.
     ///
     /// Wrapped in `RefCell` so search methods keep `&self` receivers without
@@ -95,6 +103,8 @@ impl HnswIndex {
             flat_neighbors: None,
             arena: RefCell::new(BeamSearchArena::new(initial_capacity)),
             params,
+            #[cfg(not(target_arch = "wasm32"))]
+            backing: None,
         }
     }
 
@@ -110,7 +120,26 @@ impl HnswIndex {
             flat_neighbors: None,
             arena: RefCell::new(BeamSearchArena::new(initial_capacity)),
             params,
+            #[cfg(not(target_arch = "wasm32"))]
+            backing: None,
         }
+    }
+
+    /// Attach a [`VectorSegmentBacking`] to this index.
+    ///
+    /// After calling this, `dist_to_node` will fall back to the backing whenever
+    /// a node's local vector storage is empty.  This is used by Lite's
+    /// graph-checkpoint-only restore path: the graph topology is loaded from the
+    /// B+ tree blob, but vector data lives in a pagedb segment.
+    ///
+    /// Origin never calls this — its node arenas are always populated.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_backing(
+        &mut self,
+        b: Arc<dyn crate::segment_backing::VectorSegmentBacking>,
+    ) -> &mut Self {
+        self.backing = Some(b);
+        self
     }
 
     pub fn len(&self) -> usize {
@@ -203,6 +232,58 @@ impl HnswIndex {
         self.nodes.get(id as usize).map(|n| n.storage.as_bytes())
     }
 
+    /// Returns a `&[f32]` view of the stored vector for node `id`, consulting
+    /// the pagedb segment backing when the node's local storage is empty.
+    ///
+    /// This is the rerank-safe variant for Lite's graph-checkpoint-only restore
+    /// path: after `from_checkpoint` + `with_backing`, per-node vectors are
+    /// empty placeholders and must be fetched through the backing.
+    ///
+    /// Returns `None` when `id` is out of range, the node has no local vector
+    /// and no backing is set, or the backing does not contain `id`.
+    ///
+    /// Only available on non-WASM targets (the backing type requires mmap).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn get_vector_or_backing(&self, id: u32) -> Option<&[f32]> {
+        let node = self.nodes.get(id as usize)?;
+        let local = node.storage.as_f32_slice();
+        // If local storage is non-empty, return it directly.
+        if let Some(v) = local
+            && !v.is_empty()
+        {
+            return Some(v);
+        }
+        // Local storage is empty — try the segment backing.
+        if let Some(ref b) = self.backing {
+            return b.get_vector(id);
+        }
+        // No backing and empty local storage: caller gets None.
+        None
+    }
+
+    /// Extract all node vectors as owned F32 vecs for segment serialization.
+    ///
+    /// Non-F32 nodes are decoded to F32 via byte-level reinterpretation or
+    /// dtype conversion.  Nodes whose storage is empty (graph-checkpoint-only
+    /// restore) produce an empty vec for that slot.
+    ///
+    /// The second tuple element is always empty — `HnswIndex` has no surrogate
+    /// map.  Surrogates live at the `VectorCollection` layer in Origin.  Lite
+    /// passes an empty slice so `write_vector_segment` writes no surrogate block.
+    pub fn extract_vectors_and_surrogates(&self) -> (Vec<Vec<f32>>, Vec<u64>) {
+        let vectors = self
+            .nodes
+            .iter()
+            .map(|node| match &node.storage {
+                super::types::NodeStorage::F32(v) => v.clone(),
+                super::types::NodeStorage::Bytes { bytes, dtype } => {
+                    crate::dtype::cast_to_f32(bytes, *dtype, self.dim).unwrap_or_default()
+                }
+            })
+            .collect();
+        (vectors, Vec::new())
+    }
+
     pub fn params(&self) -> &HnswParams {
         &self.params
     }
@@ -276,8 +357,28 @@ impl HnswIndex {
     /// `query_bytes` must already be encoded in `self.params.dtype`; callers
     /// encode once at the top of search/insert and pass the same buffer to
     /// every `dist_to_node` call within that operation.
+    ///
+    /// When the node's local vector storage is empty (graph-checkpoint-only
+    /// restore) and a `backing` is attached, the vector bytes are fetched from
+    /// the backing.  This is the Lite cold-load path; Origin never hits it.
     pub(crate) fn dist_to_node(&self, query_bytes: &[u8], node_id: u32) -> f32 {
         let node_bytes = self.nodes[node_id as usize].storage.as_bytes();
+        #[cfg(not(target_arch = "wasm32"))]
+        let node_bytes: &[u8] = if node_bytes.is_empty() {
+            if let Some(ref b) = self.backing {
+                // Backing stores F32 only; convert slice to bytes for distance_typed.
+                if let Some(v) = b.get_vector(node_id) {
+                    // SAFETY: &[f32] → &[u8] cast via bytemuck is always safe.
+                    bytemuck::cast_slice(v)
+                } else {
+                    node_bytes
+                }
+            } else {
+                node_bytes
+            }
+        } else {
+            node_bytes
+        };
         distance_typed(
             self.params.metric,
             self.params.dtype,

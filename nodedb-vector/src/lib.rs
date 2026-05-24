@@ -54,6 +54,10 @@ pub mod ivf;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod mmap_segment;
 
+// Storage abstraction for HNSW vector data (Origin + Lite impls).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod segment_backing;
+
 // Background HNSW builder thread (depends on collection; not on wasm32).
 #[cfg(not(target_arch = "wasm32"))]
 pub mod builder;
@@ -73,3 +77,5 @@ pub use collection::{BuildComplete, BuildRequest, StorageTier, VectorCollection}
 pub use flat::FlatIndex;
 pub use index_config::{IndexConfig, IndexType};
 pub use ivf::{IvfPqIndex, IvfPqParams};
+#[cfg(not(target_arch = "wasm32"))]
+pub use segment_backing::{PlainMmapBacking, VectorSegmentBacking};

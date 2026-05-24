@@ -37,6 +37,44 @@ pub(crate) struct HnswSnapshotRkyv {
 }
 
 impl HnswIndex {
+    /// Serialize ONLY the graph topology (neighbors, entry point, params) to
+    /// rkyv bytes.  Vector data is intentionally omitted — `node_vectors` is
+    /// filled with empty `Vec<f32>` placeholders.
+    ///
+    /// Pair with [`Self::from_graph_checkpoint`] on restore.  The same
+    /// `RKHNS\0` magic and version byte are used so `from_checkpoint` can
+    /// decode the bytes, but the resulting index has empty node storage.
+    ///
+    /// This is the Lite pagedb-segment write path: vectors live in the segment,
+    /// graph topology lives in the B+ tree.  Origin never calls this method.
+    pub fn graph_checkpoint_to_bytes(&self) -> Vec<u8> {
+        let snapshot = HnswSnapshotRkyv {
+            dim: self.dim,
+            m: self.params.m,
+            m0: self.params.m0,
+            ef_construction: self.params.ef_construction,
+            metric: self.params.metric as u8,
+            entry_point: self.entry_point,
+            max_layer: self.max_layer,
+            rng_state: self.rng.0,
+            // Placeholder: one empty vec per node so the node count is preserved.
+            node_vectors: vec![Vec::new(); self.nodes.len()],
+            node_neighbors: if let Some(ref flat) = self.flat_neighbors {
+                flat.to_nested(self.nodes.len())
+            } else {
+                self.nodes.iter().map(|n| n.neighbors.clone()).collect()
+            },
+            node_deleted: self.nodes.iter().map(|n| n.deleted).collect(),
+        };
+        let rkyv_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&snapshot)
+            .expect("HNSW graph-only rkyv serialization should not fail");
+        let mut buf = Vec::with_capacity(HNSW_RKYV_MAGIC.len() + 1 + rkyv_bytes.len());
+        buf.extend_from_slice(HNSW_RKYV_MAGIC);
+        buf.push(HNSW_FORMAT_VERSION);
+        buf.extend_from_slice(&rkyv_bytes);
+        buf
+    }
+
     /// Serialize the index to rkyv bytes (with magic header) for storage.
     ///
     /// Magic header `RKHNS\0` allows `from_checkpoint` to detect format.
@@ -140,6 +178,8 @@ impl HnswIndex {
             rng: Xorshift64::new(snap.rng_state),
             flat_neighbors: Some(flat),
             arena: RefCell::new(BeamSearchArena::new(initial_capacity)),
+            #[cfg(not(target_arch = "wasm32"))]
+            backing: None,
         })
     }
 }
