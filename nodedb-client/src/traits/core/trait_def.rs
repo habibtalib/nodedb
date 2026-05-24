@@ -145,6 +145,28 @@ pub trait NodeDb: NodeDbMarker {
         as_of: Option<i64>,
     ) -> NodeDbResult<Vec<GraphStats>>;
 
+    /// Run PageRank on a graph collection's edges.
+    ///
+    /// When `personalization` is `Some`, computes Personalized PageRank — initial
+    /// rank is biased toward the seed nodes in the map (values are normalized).
+    /// When `None`, runs standard uniform-init PageRank.
+    ///
+    /// `damping` defaults to 0.85 when `None`. `max_iterations` defaults to 20.
+    ///
+    /// Returns `(node_id, rank)` pairs sorted by rank descending. Ranks sum to 1.0.
+    async fn graph_pagerank(
+        &self,
+        collection: &str,
+        personalization: Option<std::collections::HashMap<String, f64>>,
+        damping: Option<f64>,
+        max_iterations: Option<u32>,
+    ) -> NodeDbResult<Vec<(String, f64)>> {
+        let _ = (collection, personalization, damping, max_iterations);
+        Err(NodeDbError::storage(
+            "graph_pagerank is not implemented for this NodeDb backend",
+        ))
+    }
+
     // ─── Document Operations ─────────────────────────────────────────
 
     /// Get a document by ID from `collection`.
