@@ -59,6 +59,7 @@ async fn text_search_returns_real_matches() {
             "machine learning",
             10,
             TextSearchParams::default(),
+            None,
         )
         .await
         .expect("text_search must return Ok with real matches against indexed content");

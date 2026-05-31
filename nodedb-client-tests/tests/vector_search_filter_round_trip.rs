@@ -64,7 +64,7 @@ async fn vector_search_with_metadata_filter_round_trips_through_pgwire() {
     // "filter rejected at the client boundary" silent-wrong shape.
     let filter = MetadataFilter::eq("category", Value::String("ai".into()));
     let results = remote
-        .vector_search("embeddings", &[0.1, 0.2, 0.3], 5, Some(&filter))
+        .vector_search("embeddings", &[0.1, 0.2, 0.3], 5, Some(&filter), None)
         .await
         .expect("vector_search with filter must return Ok end-to-end");
     assert!(
