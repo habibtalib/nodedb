@@ -41,7 +41,10 @@ pub(super) async fn handle_shape_subscribe_async(
     // Dispatch a query to the Data Plane to get matching data for this shape.
     shared.tenant_request_start(tid);
     let snapshot_data = match &msg.shape.shape_type {
-        nodedb_types::sync::shape::ShapeType::Document { collection, .. } => {
+        nodedb_types::sync::shape::ShapeType::Document {
+            collection,
+            predicate,
+        } => {
             // Query the Data Plane for all documents in this collection.
             let plan = PhysicalPlan::Document(DocumentOp::RangeScan {
                 collection: collection.clone(),
@@ -59,10 +62,9 @@ pub(super) async fn handle_shape_subscribe_async(
             )
             .await
             {
-                Ok(payload) => super::shape::handler::ShapeSnapshotData {
-                    data: payload,
-                    doc_count: 1, // Approximate — actual count in payload.
-                },
+                Ok(payload) => {
+                    filter_snapshot_by_predicate(payload, predicate, &msg.shape.shape_id)
+                }
                 Err(e) => {
                     tracing::warn!(
                         shape_id = %msg.shape.shape_id,
@@ -280,6 +282,73 @@ pub(super) async fn validate_delta_constraints(
                 compensation: Some(hint),
             };
             SyncFrame::try_encode(SyncMessageType::DeltaReject, &reject)
+        }
+    }
+}
+
+// ── Snapshot predicate filtering ──────────────────────────────────────────────
+
+/// Filter a raw snapshot payload by a shape predicate.
+///
+/// Decodes the msgpack document rows, evaluates each document's data bytes
+/// against the `MetadataFilter` decoded from `predicate_bytes`, and re-encodes
+/// only the matching rows. An empty predicate returns the payload unchanged.
+/// A predicate that fails to decode is logged as a warning and the entire
+/// snapshot is returned empty (fail-closed, consistent with delta routing).
+fn filter_snapshot_by_predicate(
+    payload: Vec<u8>,
+    predicate_bytes: &[u8],
+    shape_id: &str,
+) -> super::shape::handler::ShapeSnapshotData {
+    use crate::data::executor::response_codec::{
+        decode_raw_scan_to_docs, encode_raw_document_rows,
+    };
+    use nodedb_query::metadata_filter::matches_metadata_filter;
+    use nodedb_types::filter::MetadataFilter;
+
+    if predicate_bytes.is_empty() {
+        let doc_count = decode_raw_scan_to_docs(&payload).len();
+        return super::shape::handler::ShapeSnapshotData {
+            data: payload,
+            doc_count,
+        };
+    }
+
+    let filter = match zerompk::from_msgpack::<MetadataFilter>(predicate_bytes) {
+        Ok(f) => f,
+        Err(err) => {
+            warn!(
+                shape_id,
+                error = %err,
+                "shape snapshot: failed to decode predicate; sending empty snapshot"
+            );
+            return super::shape::handler::ShapeSnapshotData::empty();
+        }
+    };
+
+    let docs = decode_raw_scan_to_docs(&payload);
+    let mut matching: Vec<(String, Vec<u8>)> = Vec::new();
+
+    for (doc_id, data_bytes) in docs {
+        let doc_json = crate::control::server::sync::security::delta_bytes_to_json(&data_bytes);
+        if matches_metadata_filter(&doc_json, &filter) {
+            matching.push((doc_id, data_bytes));
+        }
+    }
+
+    let doc_count = matching.len();
+    match encode_raw_document_rows(&matching) {
+        Ok(data) => super::shape::handler::ShapeSnapshotData { data, doc_count },
+        Err(err) => {
+            // Fail closed: a re-encode failure must not ship a header whose
+            // doc_count disagrees with its (empty) body. Drop the snapshot,
+            // matching the predicate-decode failure path above.
+            warn!(
+                shape_id,
+                error = %err,
+                "shape snapshot: failed to encode filtered rows; sending empty snapshot"
+            );
+            super::shape::handler::ShapeSnapshotData::empty()
         }
     }
 }

@@ -141,6 +141,10 @@ pub fn handle_unsubscribe(session_id: &str, msg: &ShapeUnsubscribeMsg, registry:
 ///
 /// Called by the WAL tail loop when a committed mutation is observed.
 /// Returns `(session_id, SyncFrame)` pairs for each matching subscription.
+///
+/// The delta bytes are decoded to JSON for predicate evaluation. Opaque CRDT
+/// deltas that cannot be decoded yield an empty object, so all field predicates
+/// pass vacuously — consistent with the RLS evaluator behaviour for such deltas.
 pub fn evaluate_and_generate_deltas(
     tenant_id: u64,
     collection: &str,
@@ -150,7 +154,8 @@ pub fn evaluate_and_generate_deltas(
     lsn: u64,
     registry: &ShapeRegistry,
 ) -> Vec<(String, SyncFrame)> {
-    let matches = registry.evaluate_mutation(tenant_id, collection, doc_id);
+    let doc_json = crate::control::server::sync::security::delta_bytes_to_json(delta);
+    let matches = registry.evaluate_mutation(tenant_id, collection, doc_id, &doc_json);
 
     matches
         .into_iter()

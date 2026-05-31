@@ -254,7 +254,7 @@ pub fn log_silent_rejection(
 /// Tries JSON parse first; if that fails, tries msgpack decode. Opaque CRDT
 /// deltas that cannot be decoded return an empty object — all field predicates
 /// pass vacuously, matching the historical behaviour for pure CRDT operations.
-fn delta_bytes_to_json(delta_bytes: &[u8]) -> serde_json::Value {
+pub(super) fn delta_bytes_to_json(delta_bytes: &[u8]) -> serde_json::Value {
     if let Ok(json) = sonic_rs::from_slice::<serde_json::Value>(delta_bytes) {
         return json;
     }

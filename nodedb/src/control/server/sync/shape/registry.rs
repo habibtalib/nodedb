@@ -7,9 +7,12 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 use std::time::Instant;
 
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
-use super::definition::{ShapeDefinition, ShapeId};
+use nodedb_query::metadata_filter::matches_metadata_filter;
+use nodedb_types::filter::MetadataFilter;
+
+use super::definition::{ShapeDefinition, ShapeId, ShapeType};
 
 /// Per-session shape subscription state.
 struct ClientShapes {
@@ -110,11 +113,18 @@ impl ShapeRegistry {
     /// Returns a list of `(session_id, shape_id)` pairs for shapes that
     /// match the mutation. The caller then pushes ShapeDelta messages
     /// to the matching sessions.
+    ///
+    /// For `ShapeType::Document` shapes with a non-empty predicate, the
+    /// predicate bytes (MessagePack-encoded `MetadataFilter`) are decoded
+    /// and evaluated against `doc_json`. An empty predicate matches all
+    /// documents in the collection. A predicate that cannot be decoded is
+    /// logged as a warning and treated as non-matching (fail-closed).
     pub fn evaluate_mutation(
         &self,
         tenant_id: u64,
         collection: &str,
         doc_id: &str,
+        doc_json: &serde_json::Value,
     ) -> Vec<(String, ShapeId)> {
         let sessions =
             crate::control::lock_utils::read_or_recover(self.sessions.read(), "shape_sessions");
@@ -125,9 +135,29 @@ impl ShapeRegistry {
                 continue;
             }
             for (shape_id, shape) in &client.shapes {
-                if shape.could_match(collection, doc_id) {
-                    matches.push((session_id.clone(), shape_id.clone()));
+                if !shape.could_match(collection, doc_id) {
+                    continue;
                 }
+                if let ShapeType::Document { predicate, .. } = &shape.shape_type
+                    && !predicate.is_empty()
+                {
+                    match zerompk::from_msgpack::<MetadataFilter>(predicate) {
+                        Ok(filter) => {
+                            if !matches_metadata_filter(doc_json, &filter) {
+                                continue;
+                            }
+                        }
+                        Err(err) => {
+                            warn!(
+                                shape_id = %shape_id,
+                                error = %err,
+                                "failed to decode shape predicate; treating shape as non-matching"
+                            );
+                            continue;
+                        }
+                    }
+                }
+                matches.push((session_id.clone(), shape_id.clone()));
             }
         }
 
@@ -276,7 +306,8 @@ mod tests {
         reg.subscribe("s2", 1, make_doc_shape("sh2", "orders"));
         reg.subscribe("s3", 2, make_doc_shape("sh3", "orders")); // Different tenant.
 
-        let matches = reg.evaluate_mutation(1, "orders", "o1");
+        let doc = serde_json::json!({"status": "open"});
+        let matches = reg.evaluate_mutation(1, "orders", "o1", &doc);
         assert_eq!(matches.len(), 2); // s1 and s2, not s3 (wrong tenant).
     }
 
@@ -308,8 +339,105 @@ mod tests {
         let reg = ShapeRegistry::new();
         reg.subscribe("s1", 1, make_doc_shape("sh1", "orders"));
 
-        let matches = reg.evaluate_mutation(1, "users", "u1");
+        let doc = serde_json::json!({});
+        let matches = reg.evaluate_mutation(1, "users", "u1", &doc);
         assert!(matches.is_empty());
+    }
+
+    fn make_doc_shape_with_predicate(
+        id: &str,
+        collection: &str,
+        predicate: Vec<u8>,
+    ) -> ShapeDefinition {
+        ShapeDefinition {
+            shape_id: id.into(),
+            tenant_id: 1,
+            shape_type: ShapeType::Document {
+                collection: collection.into(),
+                predicate,
+            },
+            description: format!("filtered {collection}"),
+            field_filter: vec![],
+        }
+    }
+
+    #[test]
+    fn predicate_eq_routes_matching_doc() {
+        use nodedb_types::filter::MetadataFilter;
+        let reg = ShapeRegistry::new();
+        let filter = MetadataFilter::eq("kind", "Rule");
+        let predicate = zerompk::to_msgpack_vec(&filter).expect("encode");
+        reg.subscribe(
+            "s1",
+            1,
+            make_doc_shape_with_predicate("sh1", "entries", predicate),
+        );
+
+        let matching = serde_json::json!({"kind": "Rule", "name": "test"});
+        let non_matching = serde_json::json!({"kind": "Note", "name": "test"});
+
+        let m1 = reg.evaluate_mutation(1, "entries", "doc1", &matching);
+        assert_eq!(m1.len(), 1, "matching doc must route to shape");
+
+        let m2 = reg.evaluate_mutation(1, "entries", "doc2", &non_matching);
+        assert!(m2.is_empty(), "non-matching doc must not route to shape");
+    }
+
+    #[test]
+    fn predicate_and_routes_correctly() {
+        use nodedb_types::filter::MetadataFilter;
+        let reg = ShapeRegistry::new();
+        let filter = MetadataFilter::and(vec![
+            MetadataFilter::eq("kind", "Rule"),
+            MetadataFilter::eq("share", "team"),
+        ]);
+        let predicate = zerompk::to_msgpack_vec(&filter).expect("encode");
+        reg.subscribe(
+            "s1",
+            1,
+            make_doc_shape_with_predicate("sh1", "entries", predicate),
+        );
+
+        let both_match = serde_json::json!({"kind": "Rule", "share": "team"});
+        let partial = serde_json::json!({"kind": "Rule", "share": "personal"});
+
+        assert_eq!(
+            reg.evaluate_mutation(1, "entries", "d1", &both_match).len(),
+            1
+        );
+        assert!(
+            reg.evaluate_mutation(1, "entries", "d2", &partial)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn empty_predicate_matches_all() {
+        let reg = ShapeRegistry::new();
+        reg.subscribe("s1", 1, make_doc_shape("sh1", "entries"));
+
+        let any_doc = serde_json::json!({"anything": "goes"});
+        let matches = reg.evaluate_mutation(1, "entries", "d1", &any_doc);
+        assert_eq!(matches.len(), 1);
+    }
+
+    #[test]
+    fn invalid_predicate_bytes_excluded() {
+        let reg = ShapeRegistry::new();
+        // Garbage bytes — cannot decode to MetadataFilter.
+        let bad_predicate = vec![0xFF, 0xFE, 0x01, 0x02];
+        reg.subscribe(
+            "s1",
+            1,
+            make_doc_shape_with_predicate("sh1", "entries", bad_predicate),
+        );
+
+        let doc = serde_json::json!({"kind": "Rule"});
+        let matches = reg.evaluate_mutation(1, "entries", "d1", &doc);
+        assert!(
+            matches.is_empty(),
+            "bad predicate must be non-matching (fail-closed)"
+        );
     }
 
     fn make_array_shape(id: &str, array: &str) -> ShapeDefinition {
