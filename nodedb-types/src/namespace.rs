@@ -71,6 +71,17 @@ pub enum Namespace {
     /// `[tag:u8][valid_from_ms:i64 LE][valid_until_ms:i64 LE][body_msgpack...]`.
     /// `tag = 0x00` (live), `0xFF` (tombstone), `0xFE` (GDPR erased).
     DocumentHistory = 15,
+    /// O(1) pointer to the currently-live DocumentHistory version.
+    ///
+    /// Keys: `{collection}:{doc_id}` — value is the `system_from_ms` of the
+    /// live row encoded as a 20-digit zero-padded ASCII decimal (matching the
+    /// suffix used in `DocumentHistory` keys).  Absent when no live version
+    /// exists (document never written, tombstoned, or GDPR-erased).
+    ///
+    /// Written atomically alongside every `DocumentHistory` mutation so that
+    /// `versioned_get_current` can resolve the current version with one index
+    /// lookup + one history fetch instead of a full prefix scan.
+    LatestVersion = 16,
 }
 
 impl Namespace {
@@ -93,6 +104,7 @@ impl Namespace {
             13 => Some(Self::StrictHistory),
             14 => Some(Self::GraphHistory),
             15 => Some(Self::DocumentHistory),
+            16 => Some(Self::LatestVersion),
             _ => None,
         }
     }
@@ -104,10 +116,10 @@ mod tests {
 
     #[test]
     fn namespace_roundtrip() {
-        for v in 0u8..=15 {
+        for v in 0u8..=16 {
             let ns = Namespace::from_u8(v).unwrap();
             assert_eq!(ns as u8, v);
         }
-        assert!(Namespace::from_u8(16).is_none());
+        assert!(Namespace::from_u8(17).is_none());
     }
 }
