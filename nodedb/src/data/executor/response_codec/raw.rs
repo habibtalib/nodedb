@@ -16,9 +16,11 @@ use super::super::msgpack_utils::write_str;
 /// the decode→re-encode cycle that was the main serialization tax on document reads.
 ///
 /// Output format: msgpack array of `{"id": "<doc_id>", "data": <raw_msgpack_value>}`.
-pub(in crate::data::executor) fn encode_raw_document_rows(
-    rows: &[(String, Vec<u8>)],
-) -> crate::Result<Vec<u8>> {
+///
+/// Visibility is `pub(crate)` (not Data-Plane-only) so the Control Plane sync
+/// layer can re-encode the rows that survive shape-predicate filtering before
+/// shipping a snapshot to subscribers.
+pub(crate) fn encode_raw_document_rows(rows: &[(String, Vec<u8>)]) -> crate::Result<Vec<u8>> {
     let data_size: usize = rows.iter().map(|(id, d)| id.len() + d.len() + 16).sum();
     let mut buf = Vec::with_capacity(data_size + 8);
 
@@ -43,13 +45,16 @@ pub(in crate::data::executor) fn encode_raw_document_rows(
 
 /// Decode concatenated row payloads into `(doc_id, msgpack_data)` pairs.
 ///
+/// Also used by the Control Plane sync layer to filter snapshot documents
+/// by a shape predicate before sending them to subscribers.
+///
 /// Input: zero or more msgpack arrays back-to-back. Elements may be either:
 /// - raw scan rows from `encode_raw_document_rows` with `{id, data}` wrappers
 /// - plain msgpack rows from aggregate/join paths serialized via `encode_json_vec`
 ///
 /// For wrapped scan rows, the `data` field's raw bytes are extracted. For
 /// plain rows, the entire row value is returned as `msgpack_data`.
-pub(in crate::data::executor) fn decode_raw_scan_to_docs(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
+pub(crate) fn decode_raw_scan_to_docs(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
     use nodedb_query::msgpack_scan;
 
     let mut results = Vec::new();

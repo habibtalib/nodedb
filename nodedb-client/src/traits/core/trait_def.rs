@@ -14,6 +14,8 @@
 //! supertraits would break the `Arc<dyn NodeDb>` pattern all callers depend
 //! on and is therefore out of scope for any mechanical refactor.
 
+use std::collections::HashSet;
+
 use async_trait::async_trait;
 
 use nodedb_types::document::Document;
@@ -49,16 +51,21 @@ pub trait NodeDb: NodeDbMarker {
     /// Search for the `k` nearest vectors to `query` in `collection`.
     ///
     /// Returns results ordered by ascending distance. Optional metadata
-    /// filter constrains which vectors are considered.
+    /// filter constrains which vectors are considered. When `allowed_ids`
+    /// is `Some`, only documents whose string ID appears in the set are
+    /// eligible — the filter is pushed into HNSW traversal on Lite so
+    /// the returned top-k is drawn exclusively from the allowed set.
     ///
-    /// On Lite: direct in-memory HNSW search. Sub-millisecond.
-    /// On Remote: translated to `SELECT ... ORDER BY embedding <-> $1 LIMIT $2`.
+    /// On Lite: direct in-memory HNSW search with optional ID prefilter. Sub-millisecond.
+    /// On Remote: translated to `SELECT ... ORDER BY embedding <-> $1 LIMIT $2`
+    /// (allowed_ids is ignored on the remote path — pass `None`).
     async fn vector_search(
         &self,
         collection: &str,
         query: &[f32],
         k: usize,
         filter: Option<&MetadataFilter>,
+        allowed_ids: Option<&HashSet<String>>,
     ) -> NodeDbResult<Vec<SearchResult>>;
 
     /// Insert a vector with optional metadata into `collection`.
@@ -190,6 +197,33 @@ pub trait NodeDb: NodeDbMarker {
     /// On Lite: Loro delete + CRDT tombstone.
     /// On Remote: `DELETE FROM collection WHERE id = $1`.
     async fn document_delete(&self, collection: &str, id: &str) -> NodeDbResult<()>;
+
+    /// Put a document and insert its embedding vector in a single CRDT lock acquisition.
+    ///
+    /// Equivalent to calling `document_put` then `vector_insert`, but acquires the
+    /// CRDT lock only once — halving the per-insert oplog-walk cost on Lite. When
+    /// `embedding` is empty this behaves identically to `document_put`.
+    ///
+    /// `vector_collection` names the vector index to insert into (may differ from
+    /// the document `collection`).
+    ///
+    /// The default implementation falls back to two separate calls. Implementations
+    /// that can batch the two operations under one lock should override this method.
+    async fn document_put_with_vector(
+        &self,
+        doc_collection: &str,
+        doc: Document,
+        vector_collection: &str,
+        id: &str,
+        embedding: &[f32],
+    ) -> NodeDbResult<()> {
+        self.document_put(doc_collection, doc).await?;
+        if !embedding.is_empty() {
+            self.vector_insert(vector_collection, id, embedding, None)
+                .await?;
+        }
+        Ok(())
+    }
 
     /// Read a document as-of a system time, optionally filtered by valid_time.
     ///
@@ -379,6 +413,9 @@ pub trait NodeDb: NodeDbMarker {
     /// missing implementation. Implementations must override (e.g., a
     /// `SEARCH IN '<collection>' FIELD '<field>' QUERY '<q>'` round-trip
     /// via `execute_sql`).
+    /// Full-text BM25 search. When `allowed_ids` is `Some`, only documents
+    /// whose ID is in the set are returned. On Lite, the filter is applied
+    /// after an over-fetch; on Remote, `allowed_ids` is ignored (pass `None`).
     async fn text_search(
         &self,
         collection: &str,
@@ -386,8 +423,9 @@ pub trait NodeDb: NodeDbMarker {
         query: &str,
         top_k: usize,
         params: TextSearchParams,
+        allowed_ids: Option<&HashSet<String>>,
     ) -> NodeDbResult<Vec<SearchResult>> {
-        let _ = (collection, field, query, top_k, params);
+        let _ = (collection, field, query, top_k, params, allowed_ids);
         Err(NodeDbError::storage(
             "text_search is not implemented on this client",
         ))
@@ -557,6 +595,7 @@ mod tests {
             _query: &[f32],
             _k: usize,
             _filter: Option<&MetadataFilter>,
+            _allowed_ids: Option<&HashSet<String>>,
         ) -> NodeDbResult<Vec<SearchResult>> {
             Ok(vec![SearchResult {
                 id: "vec-1".into(),
@@ -659,7 +698,7 @@ mod tests {
     async fn mock_vector_search() {
         let db = MockDb;
         let results = db
-            .vector_search("embeddings", &[0.1, 0.2, 0.3], 5, None)
+            .vector_search("embeddings", &[0.1, 0.2, 0.3], 5, None, None)
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -749,7 +788,7 @@ mod tests {
         let db: Arc<dyn NodeDb> = Arc::new(MockDb);
 
         let results = db
-            .vector_search("knowledge_base", &[0.1, 0.2], 5, None)
+            .vector_search("knowledge_base", &[0.1, 0.2], 5, None, None)
             .await
             .unwrap();
         assert!(!results.is_empty());

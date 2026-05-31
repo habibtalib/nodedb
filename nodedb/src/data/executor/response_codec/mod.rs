@@ -43,4 +43,4 @@ pub(in crate::data::executor) use hits::{
     NeighborEntry, NeighborMultiEntry, SubgraphEdge, VectorSearchHit,
 };
 pub use raw::encode_binary_rows;
-pub(in crate::data::executor) use raw::{decode_raw_scan_to_docs, encode_raw_document_rows};
+pub(crate) use raw::{decode_raw_scan_to_docs, encode_raw_document_rows};

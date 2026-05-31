@@ -58,6 +58,7 @@ impl NodeDb for NativeClient {
         query: &[f32],
         k: usize,
         filter: Option<&MetadataFilter>,
+        _allowed_ids: Option<&std::collections::HashSet<String>>,
     ) -> NodeDbResult<Vec<SearchResult>> {
         self.vector_search_impl(collection, query, k, filter).await
     }
