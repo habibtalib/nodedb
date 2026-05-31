@@ -73,6 +73,71 @@ pub fn reciprocal_rank_fusion(
         b.rrf_score
             .partial_cmp(&a.rrf_score)
             .unwrap_or(std::cmp::Ordering::Equal)
+            // Deterministic tie-break: RRF produces many equal scores, and the
+            // score map iterates in nondeterministic order, so without a stable
+            // secondary key the output ranking varies run-to-run. document_id
+            // is unique, giving a total deterministic order.
+            .then_with(|| a.document_id.cmp(&b.document_id))
+    });
+    fused.truncate(top_k);
+    fused
+}
+
+/// Fuse ranked lists with per-list **linear weights**.
+///
+/// Each list's reciprocal-rank contribution is scaled by its weight, so a
+/// more-trusted source can dominate: `contribution = weight_i / (k + rank + 1)`.
+/// Unlike [`reciprocal_rank_fusion_weighted`] (which varies the `k` decay
+/// constant per list), this scales contribution magnitude directly, which is
+/// the right lever when one source (e.g. BM25) is far more reliable than another
+/// (e.g. a weak dense index) — equal-weight RRF would let the weak source drag
+/// down the strong source's ranking. `weights.len()` must equal
+/// `ranked_lists.len()`.
+pub fn reciprocal_rank_fusion_linear(
+    ranked_lists: &[Vec<RankedResult>],
+    k: Option<f64>,
+    weights: &[f64],
+    top_k: usize,
+) -> Vec<FusedResult> {
+    assert_eq!(
+        ranked_lists.len(),
+        weights.len(),
+        "weights length must match ranked_lists length"
+    );
+    let k = k.unwrap_or(DEFAULT_RRF_K);
+
+    let mut scores: std::collections::HashMap<String, Vec<(&'static str, f64)>> =
+        std::collections::HashMap::new();
+
+    for (list_idx, list) in ranked_lists.iter().enumerate() {
+        let w = weights[list_idx];
+        for result in list {
+            let contribution = w / (k + result.rank as f64 + 1.0);
+            scores
+                .entry(result.document_id.clone())
+                .or_default()
+                .push((result.source, contribution));
+        }
+    }
+
+    let mut fused: Vec<FusedResult> = scores
+        .into_iter()
+        .map(|(doc_id, contributions)| {
+            let rrf_score = contributions.iter().map(|(_, s)| s).sum();
+            FusedResult {
+                document_id: doc_id,
+                rrf_score,
+                contributions,
+            }
+        })
+        .collect();
+
+    fused.sort_unstable_by(|a, b| {
+        b.rrf_score
+            .partial_cmp(&a.rrf_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            // Deterministic tie-break by unique document_id (see note above).
+            .then_with(|| a.document_id.cmp(&b.document_id))
     });
     fused.truncate(top_k);
     fused
@@ -127,6 +192,8 @@ pub fn reciprocal_rank_fusion_weighted(
         b.rrf_score
             .partial_cmp(&a.rrf_score)
             .unwrap_or(std::cmp::Ordering::Equal)
+            // Deterministic tie-break by unique document_id (see note above).
+            .then_with(|| a.document_id.cmp(&b.document_id))
     });
     fused.truncate(top_k);
     fused
