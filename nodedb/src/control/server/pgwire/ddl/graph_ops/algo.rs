@@ -35,6 +35,7 @@ pub async fn algo(
     source_node: Option<String>,
     direction: Option<String>,
     mode: Option<String>,
+    personalization: Option<String>,
 ) -> PgWireResult<Vec<Response>> {
     let algorithm = match algorithm_name {
         "PAGERANK" => crate::engine::graph::algo::GraphAlgorithm::PageRank,
@@ -60,6 +61,7 @@ pub async fn algo(
 
     let max_iterations = clamp_opt(max_iterations, "ITERATIONS", MAX_ITERATIONS_CAP)?;
     let sample_size = clamp_opt(sample_size, "SAMPLE", MAX_SAMPLE_CAP)?;
+    let personalization_vector = parse_personalization(personalization.as_deref())?;
 
     let params = crate::engine::graph::algo::AlgoParams {
         collection: collection.clone(),
@@ -72,7 +74,7 @@ pub async fn algo(
         direction,
         resolution,
         mode,
-        personalization_vector: None,
+        personalization_vector,
     };
 
     let tenant_id = identity.tenant_id;
@@ -82,6 +84,28 @@ pub async fn algo(
         Ok(resp) => algo_payload_to_query_response(&resp.payload, algorithm),
         Err(e) => Err(sqlstate_error("XX000", &e.to_string())),
     }
+}
+
+/// Parse the `PERSONALIZATION {…}` JSON object literal into a `node_id → weight`
+/// seed map for Personalized PageRank. Returns `Ok(None)` when absent; a
+/// malformed object surfaces a structured `22023` error rather than being
+/// silently dropped.
+fn parse_personalization(
+    raw: Option<&str>,
+) -> PgWireResult<Option<std::collections::HashMap<String, f64>>> {
+    let Some(text) = raw else {
+        return Ok(None);
+    };
+    let map: std::collections::HashMap<String, f64> = sonic_rs::from_str(text).map_err(|e| {
+        sqlstate_error(
+            "22023",
+            &format!("invalid PERSONALIZATION object (expected JSON node→weight map): {e}"),
+        )
+    })?;
+    if map.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(map))
 }
 
 fn clamp_opt(value: Option<usize>, field: &'static str, cap: usize) -> PgWireResult<Option<usize>> {

@@ -38,25 +38,43 @@ pub fn run(csr: &CsrIndex, params: &AlgoParams) -> AlgoResultBatch {
     let mut reporter =
         ProgressReporter::new(GraphAlgorithm::PageRank, max_iter, Some(tolerance), n);
 
-    // Initialize ranks uniformly.
-    let init_rank = 1.0 / n as f64;
-    let mut rank = vec![init_rank; n];
+    // Personalization distribution for Personalized PageRank (PPR). `None`
+    // recovers standard PageRank with a uniform 1/n teleport. When present,
+    // teleport mass and dangling-node mass both redistribute according to the
+    // seed distribution instead of uniformly, biasing rank toward seed nodes.
+    let personalization = build_personalization(csr, params, n);
+
+    // Initialize ranks: from the seed distribution for PPR (already sums to
+    // 1.0), uniformly otherwise.
+    let mut rank = match &personalization {
+        Some(p) => p.clone(),
+        None => vec![1.0 / n as f64; n],
+    };
     let mut next_rank = vec![0.0f64; n];
 
     // Precompute out-degrees and dangling mask for SIMD dangling sum.
     let out_degrees: Vec<usize> = (0..n).map(|i| csr.out_degree_raw(i as u32)).collect();
     let is_dangling: Vec<bool> = out_degrees.iter().map(|&d| d == 0).collect();
 
-    let teleport = (1.0 - damping) / n as f64;
-
     for iter in 1..=max_iter {
         // ── SIMD: dangling node rank sum ──
         let dangling_sum = simd::simd_dangling_sum(&rank, &is_dangling);
-        let dangling_contrib = damping * dangling_sum / n as f64;
-        let base_rank = teleport + dangling_contrib;
 
-        // ── SIMD: broadcast fill next_rank with base_rank ──
-        simd::simd_fill_f64(&mut next_rank, base_rank);
+        // Total mass to redistribute per the teleport/seed distribution:
+        // the (1 - damping) teleport budget plus the damped dangling mass.
+        let redistributed = (1.0 - damping) + damping * dangling_sum;
+
+        match &personalization {
+            // ── SIMD: broadcast fill next_rank with the uniform base rank ──
+            None => simd::simd_fill_f64(&mut next_rank, redistributed / n as f64),
+            // PPR: each node's base rank is its seed share of the redistributed
+            // mass. Per-node base, so the SIMD broadcast fill does not apply.
+            Some(p) => {
+                for (slot, &seed) in next_rank.iter_mut().zip(p.iter()) {
+                    *slot = redistributed * seed;
+                }
+            }
+        }
 
         // ── Scatter: distribute rank contributions via outbound edges ──
         // This is inherently scatter (random write) — not SIMD-able per se,
@@ -96,6 +114,33 @@ pub fn run(csr: &CsrIndex, params: &AlgoParams) -> AlgoResultBatch {
         batch.push_node_f64(csr.node_name_raw(node_id as u32).to_string(), r);
     }
     batch
+}
+
+/// Build the normalized per-node seed distribution for Personalized PageRank.
+///
+/// Returns `None` (→ standard uniform PageRank) when no personalization vector
+/// is supplied, or when none of its seed nodes exist in the graph / all seed
+/// weights are non-positive — falling back to uniform rather than emitting an
+/// all-zero ranking. Negative weights are clamped to 0.0. The returned vector
+/// is indexed by CSR node ordinal and sums to 1.0.
+fn build_personalization(csr: &CsrIndex, params: &AlgoParams, n: usize) -> Option<Vec<f64>> {
+    let seeds = params.personalization_vector()?;
+    let mut p = vec![0.0f64; n];
+    let mut sum = 0.0;
+    for (i, slot) in p.iter_mut().enumerate() {
+        if let Some(&w) = seeds.get(csr.node_name_raw(i as u32)) {
+            let w = w.max(0.0);
+            *slot = w;
+            sum += w;
+        }
+    }
+    if sum <= 0.0 {
+        return None;
+    }
+    for v in &mut p {
+        *v /= sum;
+    }
+    Some(p)
 }
 
 #[cfg(test)]
@@ -200,6 +245,65 @@ mod tests {
         };
         let batch = run(&csr, &params);
         assert_eq!(batch.len(), 3);
+    }
+
+    #[test]
+    fn personalized_pagerank_biases_toward_seed() {
+        use std::collections::HashMap;
+
+        // Symmetric cycle: standard PageRank gives all three nodes ~1/3.
+        // Seeding the teleport on "a" must lift "a" above its peers.
+        let csr = triangle_csr();
+        let mut seed = HashMap::new();
+        seed.insert("a".to_string(), 1.0);
+        let params = AlgoParams {
+            max_iterations: Some(100),
+            tolerance: Some(1e-10),
+            personalization_vector: Some(seed),
+            ..Default::default()
+        };
+        let batch = run(&csr, &params);
+        let json = batch.to_json().unwrap();
+        let rows: Vec<serde_json::Value> = serde_json::from_slice(&json).unwrap();
+        let ranks: std::collections::HashMap<&str, f64> = rows
+            .iter()
+            .map(|r| (r["node_id"].as_str().unwrap(), r["rank"].as_f64().unwrap()))
+            .collect();
+
+        assert!(
+            ranks["a"] > ranks["b"] && ranks["a"] > ranks["c"],
+            "seed node a={} should outrank b={} and c={}",
+            ranks["a"],
+            ranks["b"],
+            ranks["c"]
+        );
+        let total: f64 = ranks.values().sum();
+        assert!(
+            (total - 1.0).abs() < 1e-6,
+            "ranks must sum to 1.0, got {total}"
+        );
+    }
+
+    #[test]
+    fn personalized_pagerank_unknown_seed_falls_back_to_uniform() {
+        use std::collections::HashMap;
+
+        // A seed naming only nonexistent nodes must not zero out the result —
+        // it falls back to standard uniform PageRank.
+        let csr = triangle_csr();
+        let mut seed = HashMap::new();
+        seed.insert("ghost".to_string(), 1.0);
+        let params = AlgoParams {
+            personalization_vector: Some(seed),
+            ..Default::default()
+        };
+        let batch = run(&csr, &params);
+        let json = batch.to_json().unwrap();
+        let rows: Vec<serde_json::Value> = serde_json::from_slice(&json).unwrap();
+        for row in &rows {
+            let rank = row["rank"].as_f64().unwrap();
+            assert!((rank - 1.0 / 3.0).abs() < 1e-6, "rank {rank} != 1/3");
+        }
     }
 
     #[test]

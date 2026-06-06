@@ -247,6 +247,8 @@ pub(crate) fn build_algo(fields: &TextFields, collection: &str) -> crate::Result
         }
     };
 
+    let personalization_vector = parse_algo_personalization(fields.algo_params.as_ref())?;
+
     let params = crate::engine::graph::algo::params::AlgoParams {
         collection: collection.to_string(),
         edge_label: None,
@@ -258,10 +260,42 @@ pub(crate) fn build_algo(fields: &TextFields, collection: &str) -> crate::Result
         direction: fields.direction.clone(),
         resolution: None,
         mode: None,
-        personalization_vector: None,
+        personalization_vector,
     };
 
     Ok(PhysicalPlan::Graph(GraphOp::Algo { algorithm, params }))
+}
+
+/// Extract the Personalized PageRank seed map from the raw-protocol
+/// `algo_params` object (`{"personalization_vector": {"alice": 1.0, …}}`).
+///
+/// Returns `Ok(None)` when absent or empty. A present-but-malformed value
+/// (not an object, or a non-numeric weight) surfaces a structured
+/// `BadRequest` rather than being silently dropped. Parses the JSON object
+/// directly (no runtime JSON de/serialization functions).
+fn parse_algo_personalization(
+    algo_params: Option<&serde_json::Value>,
+) -> crate::Result<Option<std::collections::HashMap<String, f64>>> {
+    let Some(pv) = algo_params.and_then(|p| p.get("personalization_vector")) else {
+        return Ok(None);
+    };
+    if pv.is_null() {
+        return Ok(None);
+    }
+    let obj = pv.as_object().ok_or_else(|| crate::Error::BadRequest {
+        detail: "personalization_vector must be a JSON object of node_id → weight".to_string(),
+    })?;
+    let mut map = std::collections::HashMap::with_capacity(obj.len());
+    for (node, weight) in obj {
+        let w = weight.as_f64().ok_or_else(|| crate::Error::BadRequest {
+            detail: format!("personalization_vector weight for '{node}' must be a number"),
+        })?;
+        map.insert(node.clone(), w);
+    }
+    if map.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(map))
 }
 
 pub(crate) fn build_match(fields: &TextFields, _collection: &str) -> crate::Result<PhysicalPlan> {
@@ -283,4 +317,67 @@ pub(crate) fn build_match(fields: &TextFields, _collection: &str) -> crate::Resu
         query,
         frontier_bitmap: None,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn algo_fields(algo_params: Option<serde_json::Value>) -> TextFields {
+        TextFields {
+            algorithm: Some("pagerank".to_string()),
+            algo_params,
+            ..Default::default()
+        }
+    }
+
+    fn params_of(plan: PhysicalPlan) -> crate::engine::graph::algo::params::AlgoParams {
+        let PhysicalPlan::Graph(GraphOp::Algo { params, .. }) = plan else {
+            panic!("expected GraphOp::Algo");
+        };
+        params
+    }
+
+    #[test]
+    fn build_algo_parses_personalization_from_algo_params() {
+        let fields = algo_fields(Some(json!({
+            "personalization_vector": { "alice": 1.0, "bob": 0.5 }
+        })));
+        let pv = params_of(build_algo(&fields, "social").unwrap())
+            .personalization_vector
+            .expect("personalization present");
+        assert_eq!(pv.get("alice"), Some(&1.0));
+        assert_eq!(pv.get("bob"), Some(&0.5));
+    }
+
+    #[test]
+    fn build_algo_without_personalization_is_none() {
+        assert!(
+            params_of(build_algo(&algo_fields(None), "social").unwrap())
+                .personalization_vector
+                .is_none()
+        );
+        // An algo_params object that omits the key is also None.
+        let fields = algo_fields(Some(json!({ "other": 1 })));
+        assert!(
+            params_of(build_algo(&fields, "social").unwrap())
+                .personalization_vector
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn build_algo_rejects_non_numeric_weight() {
+        let fields = algo_fields(Some(
+            json!({ "personalization_vector": { "alice": "high" } }),
+        ));
+        assert!(build_algo(&fields, "social").is_err());
+    }
+
+    #[test]
+    fn build_algo_rejects_non_object_personalization() {
+        let fields = algo_fields(Some(json!({ "personalization_vector": [1, 2, 3] })));
+        assert!(build_algo(&fields, "social").is_err());
+    }
 }

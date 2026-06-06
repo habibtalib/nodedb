@@ -83,6 +83,7 @@ pub async fn dispatch_typed(
             source_node,
             direction,
             mode,
+            personalization,
         }) => Some(
             algo::algo(
                 state,
@@ -98,6 +99,7 @@ pub async fn dispatch_typed(
                 source_node,
                 direction,
                 mode,
+                personalization,
             )
             .await,
         ),
