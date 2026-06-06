@@ -456,3 +456,176 @@ fn apply_v_nth_value(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::expr::types::SqlExpr;
+    use crate::window::spec::WindowFrame;
+
+    fn ci(names: &[&str]) -> HashMap<String, usize> {
+        names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.to_string(), i))
+            .collect()
+    }
+
+    fn spec(
+        func: &str,
+        args: Vec<SqlExpr>,
+        partition_by: Vec<SqlExpr>,
+        order_by: Vec<(SqlExpr, bool)>,
+    ) -> WindowFuncSpec {
+        WindowFuncSpec {
+            alias: format!("w_{func}"),
+            func_name: func.to_string(),
+            args,
+            partition_by,
+            order_by,
+            frame: WindowFrame::default(),
+        }
+    }
+
+    fn col(name: &str) -> SqlExpr {
+        SqlExpr::Column(name.to_string())
+    }
+
+    /// Single-column rows under name "v"; the window result lands at index 1.
+    fn rows_v(vals: &[i64]) -> Vec<Vec<Value>> {
+        vals.iter().map(|&v| vec![Value::Integer(v)]).collect()
+    }
+
+    fn out_int(rows: &[Vec<Value>], col_idx: usize) -> Vec<i64> {
+        rows.iter()
+            .map(|r| match &r[col_idx] {
+                Value::Integer(n) => *n,
+                other => panic!("expected integer, got {other:?}"),
+            })
+            .collect()
+    }
+
+    fn out_f64(rows: &[Vec<Value>], col_idx: usize) -> Vec<f64> {
+        rows.iter().map(|r| r[col_idx].as_f64().unwrap()).collect()
+    }
+
+    #[test]
+    fn row_number_sequential() {
+        let mut rows = rows_v(&[5, 5, 5]);
+        let cols = ci(&["v"]);
+        let s = spec("row_number", vec![], vec![], vec![]);
+        evaluate_window_functions_value(&mut rows, &cols, &[s]).unwrap();
+        assert_eq!(out_int(&rows, 1), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn rank_handles_ties() {
+        let mut rows = rows_v(&[10, 10, 20]);
+        let cols = ci(&["v"]);
+        let s = spec("rank", vec![], vec![], vec![(col("v"), true)]);
+        evaluate_window_functions_value(&mut rows, &cols, &[s]).unwrap();
+        assert_eq!(out_int(&rows, 1), vec![1, 1, 3]);
+    }
+
+    #[test]
+    fn dense_rank_handles_ties() {
+        let mut rows = rows_v(&[10, 10, 20]);
+        let cols = ci(&["v"]);
+        let s = spec("dense_rank", vec![], vec![], vec![(col("v"), true)]);
+        evaluate_window_functions_value(&mut rows, &cols, &[s]).unwrap();
+        assert_eq!(out_int(&rows, 1), vec![1, 1, 2]);
+    }
+
+    #[test]
+    fn ntile_buckets() {
+        let mut rows = rows_v(&[1, 2, 3]);
+        let cols = ci(&["v"]);
+        let s = spec(
+            "ntile",
+            vec![SqlExpr::Literal(Value::Integer(2))],
+            vec![],
+            vec![(col("v"), true)],
+        );
+        evaluate_window_functions_value(&mut rows, &cols, &[s]).unwrap();
+        assert_eq!(out_int(&rows, 1), vec![1, 1, 2]);
+    }
+
+    #[test]
+    fn lag_default_and_offset() {
+        let mut rows = rows_v(&[1, 2, 3]);
+        let cols = ci(&["v"]);
+        let s = spec("lag", vec![col("v")], vec![], vec![(col("v"), true)]);
+        evaluate_window_functions_value(&mut rows, &cols, &[s]).unwrap();
+        // First row has no predecessor → Null; rest carry the prior value.
+        assert!(matches!(rows[0][1], Value::Null));
+        assert_eq!(rows[1][1].as_f64().unwrap() as i64, 1);
+        assert_eq!(rows[2][1].as_f64().unwrap() as i64, 2);
+    }
+
+    #[test]
+    fn lead_boundary() {
+        let mut rows = rows_v(&[1, 2, 3]);
+        let cols = ci(&["v"]);
+        let s = spec("lead", vec![col("v")], vec![], vec![(col("v"), true)]);
+        evaluate_window_functions_value(&mut rows, &cols, &[s]).unwrap();
+        assert_eq!(rows[0][1].as_f64().unwrap() as i64, 2);
+        assert_eq!(rows[1][1].as_f64().unwrap() as i64, 3);
+        // Last row has no successor → Null.
+        assert!(matches!(rows[2][1], Value::Null));
+    }
+
+    #[test]
+    fn percent_rank_and_cume_dist() {
+        let cols = ci(&["v"]);
+
+        let mut rows = rows_v(&[10, 10, 20]);
+        let pr = spec("percent_rank", vec![], vec![], vec![(col("v"), true)]);
+        evaluate_window_functions_value(&mut rows, &cols, &[pr]).unwrap();
+        let pr_out = out_f64(&rows, 1);
+        assert!((pr_out[0] - 0.0).abs() < 1e-9);
+        assert!((pr_out[1] - 0.0).abs() < 1e-9);
+        assert!((pr_out[2] - 1.0).abs() < 1e-9);
+
+        let mut rows = rows_v(&[10, 10, 20]);
+        let cd = spec("cume_dist", vec![], vec![], vec![(col("v"), true)]);
+        evaluate_window_functions_value(&mut rows, &cols, &[cd]).unwrap();
+        let cd_out = out_f64(&rows, 1);
+        assert!((cd_out[0] - 2.0 / 3.0).abs() < 1e-9);
+        assert!((cd_out[1] - 2.0 / 3.0).abs() < 1e-9);
+        assert!((cd_out[2] - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn partition_resets_row_number() {
+        let cols = ci(&["g", "v"]);
+        let mut rows = vec![
+            vec![Value::Integer(1), Value::Integer(100)],
+            vec![Value::Integer(1), Value::Integer(101)],
+            vec![Value::Integer(2), Value::Integer(102)],
+        ];
+        let s = spec("row_number", vec![], vec![col("g")], vec![]);
+        evaluate_window_functions_value(&mut rows, &cols, &[s]).unwrap();
+        // Two rows in partition g=1 → 1,2; one row in g=2 → 1. Result at idx 2.
+        assert_eq!(out_int(&rows, 2), vec![1, 2, 1]);
+    }
+
+    #[test]
+    fn unknown_function_errors() {
+        let mut rows = rows_v(&[1]);
+        let cols = ci(&["v"]);
+        let s = spec("nonexistent", vec![], vec![], vec![]);
+        let err = evaluate_window_functions_value(&mut rows, &cols, &[s]).unwrap_err();
+        assert!(matches!(err, WindowError::ArgEval { .. }));
+    }
+
+    #[test]
+    fn missing_partition_column_is_null_keyed() {
+        // Partitioning on an absent column must not panic — every row keys to
+        // Null and lands in one partition.
+        let cols = ci(&["v"]);
+        let mut rows = rows_v(&[1, 2]);
+        let s = spec("row_number", vec![], vec![col("missing")], vec![]);
+        evaluate_window_functions_value(&mut rows, &cols, &[s]).unwrap();
+        assert_eq!(out_int(&rows, 1), vec![1, 2]);
+    }
+}

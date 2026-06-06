@@ -410,3 +410,208 @@ fn v_groups_bound_to_group(bound: &FrameBound, current_group: usize, max_group: 
         FrameBound::Following(n) => (current_group + *n as usize).min(max_group),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::expr::types::SqlExpr;
+
+    fn col(name: &str) -> SqlExpr {
+        SqlExpr::Column(name.to_string())
+    }
+
+    fn ci(names: &[&str]) -> HashMap<String, usize> {
+        names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.to_string(), i))
+            .collect()
+    }
+
+    fn rows_v(vals: &[i64]) -> Vec<Vec<Value>> {
+        vals.iter().map(|&v| vec![Value::Integer(v)]).collect()
+    }
+
+    fn agg_spec(func: &str, frame: WindowFrame, order_by: Vec<(SqlExpr, bool)>) -> WindowFuncSpec {
+        WindowFuncSpec {
+            alias: format!("w_{func}"),
+            func_name: func.to_string(),
+            args: vec![col("v")],
+            partition_by: vec![],
+            order_by,
+            frame,
+        }
+    }
+
+    /// Drive `apply_v_aggregate` over the whole single-partition row set the
+    /// same way `evaluate_window_functions_value` does (push a Null cell, then
+    /// fill it), returning the produced column.
+    fn run_agg(rows: &mut [Vec<Value>], cols: &HashMap<String, usize>, spec: &WindowFuncSpec) {
+        let write_col = rows.first().map(|r| r.len()).unwrap_or(0);
+        for row in rows.iter_mut() {
+            row.push(Value::Null);
+        }
+        let indices: Vec<usize> = (0..rows.len()).collect();
+        apply_v_aggregate(rows, &indices, cols, spec, write_col);
+    }
+
+    fn frame(mode: &str, start: FrameBound, end: FrameBound) -> WindowFrame {
+        WindowFrame {
+            mode: mode.into(),
+            start,
+            end,
+        }
+    }
+
+    #[test]
+    fn running_sum_is_cumulative() {
+        // Default frame (range, unbounded preceding → current row) with a
+        // strictly increasing order key → cumulative sum.
+        let cols = ci(&["v"]);
+        let mut rows = rows_v(&[1, 2, 3]);
+        let s = agg_spec("sum", WindowFrame::default(), vec![(col("v"), true)]);
+        run_agg(&mut rows, &cols, &s);
+        let got: Vec<f64> = rows.iter().map(|r| r[1].as_f64().unwrap()).collect();
+        assert_eq!(got, vec![1.0, 3.0, 6.0]);
+    }
+
+    #[test]
+    fn running_sum_shares_value_across_peers() {
+        // Tied order keys form a peer group; the running aggregate assigns the
+        // group's running total to every peer.
+        let cols = ci(&["v"]);
+        let mut rows = rows_v(&[5, 5, 9]);
+        let s = agg_spec("sum", WindowFrame::default(), vec![(col("v"), true)]);
+        run_agg(&mut rows, &cols, &s);
+        let got: Vec<f64> = rows.iter().map(|r| r[1].as_f64().unwrap()).collect();
+        assert_eq!(got, vec![10.0, 10.0, 19.0]);
+    }
+
+    #[test]
+    fn rows_frame_sliding_sum() {
+        let cols = ci(&["v"]);
+        let mut rows = rows_v(&[10, 20, 30]);
+        let s = agg_spec(
+            "sum",
+            frame("rows", FrameBound::Preceding(1), FrameBound::CurrentRow),
+            vec![(col("v"), true)],
+        );
+        run_agg(&mut rows, &cols, &s);
+        let got: Vec<f64> = rows.iter().map(|r| r[1].as_f64().unwrap()).collect();
+        assert_eq!(got, vec![10.0, 30.0, 50.0]);
+    }
+
+    #[test]
+    fn rows_frame_count_and_avg() {
+        let cols = ci(&["v"]);
+        let f = frame(
+            "rows",
+            FrameBound::UnboundedPreceding,
+            FrameBound::CurrentRow,
+        );
+
+        let mut rows = rows_v(&[4, 8, 12]);
+        let cnt = agg_spec("count", f.clone(), vec![(col("v"), true)]);
+        run_agg(&mut rows, &cols, &cnt);
+        let counts: Vec<i64> = rows
+            .iter()
+            .map(|r| match r[1] {
+                Value::Integer(n) => n,
+                _ => panic!("count must be integer"),
+            })
+            .collect();
+        assert_eq!(counts, vec![1, 2, 3]);
+
+        let mut rows = rows_v(&[4, 8, 12]);
+        let avg = agg_spec("avg", f, vec![(col("v"), true)]);
+        run_agg(&mut rows, &cols, &avg);
+        let avgs: Vec<f64> = rows.iter().map(|r| r[1].as_f64().unwrap()).collect();
+        assert_eq!(avgs, vec![4.0, 6.0, 8.0]);
+    }
+
+    #[test]
+    fn rows_frame_min_max() {
+        let cols = ci(&["v"]);
+        let f = frame(
+            "rows",
+            FrameBound::UnboundedPreceding,
+            FrameBound::UnboundedFollowing,
+        );
+
+        let mut rows = rows_v(&[3, 1, 2]);
+        let mn = agg_spec("min", f.clone(), vec![]);
+        run_agg(&mut rows, &cols, &mn);
+        assert!((rows[0][1].as_f64().unwrap() - 1.0).abs() < 1e-9);
+
+        let mut rows = rows_v(&[3, 1, 2]);
+        let mx = agg_spec("max", f, vec![]);
+        run_agg(&mut rows, &cols, &mx);
+        assert!((rows[0][1].as_f64().unwrap() - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn first_and_last_value() {
+        let cols = ci(&["v"]);
+        let f = frame(
+            "rows",
+            FrameBound::UnboundedPreceding,
+            FrameBound::UnboundedFollowing,
+        );
+
+        let mut rows = rows_v(&[7, 8, 9]);
+        let fv = agg_spec("first_value", f.clone(), vec![]);
+        run_agg(&mut rows, &cols, &fv);
+        assert_eq!(rows[2][1].as_f64().unwrap() as i64, 7);
+
+        let mut rows = rows_v(&[7, 8, 9]);
+        let lv = agg_spec("last_value", f, vec![]);
+        run_agg(&mut rows, &cols, &lv);
+        assert_eq!(rows[0][1].as_f64().unwrap() as i64, 9);
+    }
+
+    #[test]
+    fn rows_bounds_resolution() {
+        let order = vec![];
+        let groups = vec![];
+        let f = frame("rows", FrameBound::Preceding(1), FrameBound::Following(1));
+        // Middle of a 5-row partition → window [pos-1, pos+1].
+        assert_eq!(evaluate_v_frame_bounds(&f, 2, 5, &order, &groups), (1, 3));
+        // First row clamps the preceding bound to 0.
+        assert_eq!(evaluate_v_frame_bounds(&f, 0, 5, &order, &groups), (0, 1));
+        // Last row clamps the following bound to len-1.
+        assert_eq!(evaluate_v_frame_bounds(&f, 4, 5, &order, &groups), (3, 4));
+    }
+
+    #[test]
+    fn range_bounds_expand_over_peers() {
+        // RANGE with CURRENT ROW spans the whole peer group of equal keys.
+        let order = vec![Value::Integer(10), Value::Integer(10), Value::Integer(20)];
+        let f = frame(
+            "range",
+            FrameBound::UnboundedPreceding,
+            FrameBound::CurrentRow,
+        );
+        // pos 0 (key 10) → end extends across both 10s.
+        assert_eq!(evaluate_v_frame_bounds(&f, 0, 3, &order, &[]), (0, 1));
+        // pos 2 (key 20) → spans everything up to and including itself.
+        assert_eq!(evaluate_v_frame_bounds(&f, 2, 3, &order, &[]), (0, 2));
+    }
+
+    #[test]
+    fn groups_bounds_resolution() {
+        // Peer groups: [g0, g0, g1, g2]. GROUPS 1 PRECEDING → CURRENT ROW at
+        // pos 2 (group 1) covers groups 0..=1 → indices 0..=1.
+        let peer_groups = vec![0usize, 0, 1, 2];
+        let order = vec![
+            Value::Integer(1),
+            Value::Integer(1),
+            Value::Integer(2),
+            Value::Integer(3),
+        ];
+        let f = frame("groups", FrameBound::Preceding(1), FrameBound::CurrentRow);
+        assert_eq!(
+            evaluate_v_frame_bounds(&f, 2, 4, &order, &peer_groups),
+            (0, 2)
+        );
+    }
+}
