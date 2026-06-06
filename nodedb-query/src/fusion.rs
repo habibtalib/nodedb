@@ -93,6 +93,10 @@ pub fn reciprocal_rank_fusion(
 /// (e.g. a weak dense index) — equal-weight RRF would let the weak source drag
 /// down the strong source's ranking. `weights.len()` must equal
 /// `ranked_lists.len()`.
+///
+/// # Panics
+///
+/// Panics if `weights.len() != ranked_lists.len()`.
 pub fn reciprocal_rank_fusion_linear(
     ranked_lists: &[Vec<RankedResult>],
     k: Option<f64>,
@@ -244,8 +248,43 @@ mod tests {
     }
 
     #[test]
+    fn linear_weight_lets_strong_source_dominate() {
+        // `a1` is ranked #1 by the strong source and #2 by the weak source;
+        // `b1` is ranked #1 only by the weak source. With a heavy weight on
+        // the strong source, `a1` must outrank `b1` — equal-weight RRF would
+        // tie/flip them on the weak source's #1.
+        let strong = make_ranked(&["a1", "a2"], "strong");
+        let weak = make_ranked(&["b1", "a1"], "weak");
+        let fused = reciprocal_rank_fusion_linear(&[strong, weak], None, &[4.0, 0.25], 10);
+
+        let a1 = fused.iter().position(|f| f.document_id == "a1").unwrap();
+        let b1 = fused.iter().position(|f| f.document_id == "b1").unwrap();
+        assert!(a1 < b1, "a1 (rank {a1}) should outrank b1 (rank {b1})");
+
+        let a1_res = &fused[a1];
+        assert_eq!(a1_res.contributions.len(), 2);
+        // Contribution magnitude scales linearly with the per-list weight.
+        let strong_contrib = a1_res
+            .contributions
+            .iter()
+            .find(|(src, _)| *src == "strong")
+            .map(|(_, s)| *s)
+            .unwrap();
+        let expected = 4.0 / (DEFAULT_RRF_K + 0.0 + 1.0);
+        assert!((strong_contrib - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    #[should_panic(expected = "weights length must match ranked_lists length")]
+    fn linear_mismatched_weights_panics() {
+        let list = make_ranked(&["d1"], "vector");
+        let _ = reciprocal_rank_fusion_linear(&[list], None, &[1.0, 2.0], 10);
+    }
+
+    #[test]
     fn empty() {
         assert!(reciprocal_rank_fusion(&[], None, 10).is_empty());
+        assert!(reciprocal_rank_fusion_linear(&[], None, &[], 10).is_empty());
         assert!(reciprocal_rank_fusion_weighted(&[], &[], 10).is_empty());
     }
 }

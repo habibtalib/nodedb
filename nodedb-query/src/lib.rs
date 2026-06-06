@@ -32,7 +32,7 @@ pub use chunk_text::{ChunkError, ChunkStrategy, TextChunk, chunk_text};
 pub use expr::{BinaryOp, CastType, ComputedColumn, SqlExpr};
 pub use fusion::{
     DEFAULT_RRF_K, FusedResult, RankedResult, reciprocal_rank_fusion,
-    reciprocal_rank_fusion_weighted,
+    reciprocal_rank_fusion_linear, reciprocal_rank_fusion_weighted,
 };
 pub use scan_filter::ScanFilter;
 pub use window::{
