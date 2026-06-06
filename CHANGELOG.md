@@ -7,6 +7,35 @@ NodeDB uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.3.0] - 2026-06-07
+
+### ⚠️ Breaking changes
+
+- **`NodeDb` trait** — `vector_search` and `text_search` gained an `allowed_ids` prefilter parameter. Existing callers and trait implementors must update their signatures.
+- **`GraphStmt::GraphAlgo`** — added a `personalization` field; `GRAPH ALGO ... ON <collection>` now also accepts a quoted collection name. Exhaustive matches on this variant must be updated.
+
+### Added
+
+- **Personalized PageRank (PPR)** — seed-biased PageRank end to end: `GRAPH ALGO PAGERANK ... PERSONALIZATION {"node": weight, ...}` over the SQL DSL and via the raw native protocol (`algo_params.personalization_vector`); honored by the engine's teleport/dangling redistribution. `graph_pagerank` exposed on the `NodeDb` trait and both client transports.
+- **Hybrid-search prefiltering** — `allowed_ids` candidate restriction on `vector_search` and `text_search`; predicate-filtered shape subscriptions and snapshots in sync.
+- **Linear-weight RRF fusion** — `reciprocal_rank_fusion_linear` with per-list weights and deterministic tie-breaking across all fusion variants.
+- **Graph observability** — `SHOW GRAPH STATS` with persistent O(1) edge-store counters, tenant-wide aggregation, and `AS OF SYSTEM TIME`; `GraphStats` wire type. `graph_stats` on the `NodeDb` trait and both backends.
+- **pgwire / SQL surface** — in-process evaluator for `pg_catalog` virtual tables; `SHOW ROLES`, `SHOW STATS`, `SHOW METRICS`, `SHOW MEMORY`, `SHOW TENANT <name|id>`, `SHOW TENANTS WITH NAME`; superuser session tenant switching via `SET TENANT`; `CREATE INDEX` / `DROP INDEX` planning; `IF [NOT] EXISTS` and `WITH ADMIN` on auth DDL; `COLLECTION` / `TABLE` / `TENANT` object types in `GRANT` / `REVOKE`; `TenantSelector` for name-based tenant references; `SEARCH` function alias and JSON vector literals.
+- **Bitemporal documents** — `NodedbStatement` and `Namespace` extended for bitemporal document reads/writes; `LatestVersion` namespace for O(1) live-version lookups; history namespaces.
+- **Sync** — inbound sync handlers and wire types for columnar, vector, FTS, and spatial engines; Data-Plane sync ingest ops; DDL changes broadcast to connected Lite sessions after catalog commit.
+- **Vector** — multi-dtype storage for HNSW indexes with `storage_dtype` propagated through vector-primary DDL and the upsert path; `VectorSegmentBacking` trait + `PlainMmapBacking`; versioned envelope for quantization codecs.
+- **wasm32** — compatibility guards across memory governor, WAL, and vector so the embedded/WASM build links.
+
+### Fixed
+
+- `ALTER USER` / `ALTER ROLE` parsers no longer apply silent fallbacks on unrecognized clauses.
+- `GRANT` grantees canonicalized as `user:<name>` or bare role name.
+- `SHOW` commands routed through the DDL router before session-parameter handling.
+- Native client edge properties serialized without a runtime JSON pass and no longer silently dropped on a serializer error.
+- FTS hot paths no longer emit debug `eprintln`.
+
+---
+
 ## [0.2.0] - 2026-05-11
 
 ### Added
