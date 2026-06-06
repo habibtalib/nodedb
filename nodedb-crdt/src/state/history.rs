@@ -27,7 +27,10 @@ impl CrdtState {
         version: &loro::VersionVector,
     ) -> Result<Option<LoroValue>> {
         let frontiers = self.doc.vv_to_frontiers(version);
-        let forked = self.doc.fork_at(&frontiers);
+        let forked = self
+            .doc
+            .fork_at(&frontiers)
+            .map_err(|e| CrdtError::Loro(format!("fork at version: {e}")))?;
 
         let coll = forked.get_map(collection);
         match coll.get(row_id) {
