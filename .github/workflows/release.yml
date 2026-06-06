@@ -106,7 +106,7 @@ jobs:
             # For pre-release versions, pin internal dep requirements so semver
             # "0.0.0" doesn't fail to match "0.0.0-beta.1"
             if [[ "$VERSION" == *-* ]]; then
-              sed -i -E 's/(nodedb-(codec|bridge|wal|mem|crdt|raft|fts|types|vector|graph|spatial|strict|client|columnar|cluster|query|sql|array) = \{ [^}]*version = )"[^"]*"/\1"='"$VERSION"'"/' Cargo.toml
+              sed -i -E 's/(nodedb-(codec|bridge|wal|mem|crdt|raft|fts|types|vector|graph|spatial|strict|client|columnar|cluster|query|sql|array|physical) = \{ [^}]*version = )"[^"]*"/\1"='"$VERSION"'"/' Cargo.toml
               echo "Updated internal dep versions to =$VERSION"
             fi
 
@@ -131,8 +131,10 @@ jobs:
           TIER5="nodedb-query"
           # Tier 6: depends on tier 5 (nodedb-sql depends on nodedb-query, nodedb-spatial)
           TIER6="nodedb-sql"
-          # Tier 7: depends on tier 6 (nodedb depends on all crates including nodedb-sql)
-          TIER7="nodedb"
+          # Tier 7: depends on tier 6 (nodedb-physical depends on nodedb-sql, -query, -graph, -array)
+          TIER7="nodedb-physical"
+          # Tier 8: depends on tier 7 (nodedb depends on all crates including nodedb-physical)
+          TIER8="nodedb"
           is_published() {
             curl -sf \
               -H "User-Agent: nodedb-ci (github.com/NodeDB-Lab/nodedb)" \
@@ -184,6 +186,7 @@ jobs:
           publish_tier "5 (depends on tier 4)" $TIER5
           publish_tier "6 (depends on tier 5)" $TIER6
           publish_tier "7 (depends on tier 6)" $TIER7
+          publish_tier "8 (depends on tier 7)" $TIER8
 
   # ── Build nodedb server binary (Linux only — requires io_uring) ──────────────
   build-server:
@@ -230,7 +233,7 @@ jobs:
             # For pre-release versions, pin internal dep requirements so semver
             # "0" doesn't fail to match "0.0.0-beta.3"
             if [[ "$VERSION" == *-* ]]; then
-              sed -i -E 's/(nodedb-(codec|bridge|wal|mem|crdt|raft|fts|types|vector|graph|spatial|strict|client|columnar|cluster|query|sql|array) = \{ [^}]*version = )"[^"]*"/\1"='"$VERSION"'"/' Cargo.toml
+              sed -i -E 's/(nodedb-(codec|bridge|wal|mem|crdt|raft|fts|types|vector|graph|spatial|strict|client|columnar|cluster|query|sql|array|physical) = \{ [^}]*version = )"[^"]*"/\1"='"$VERSION"'"/' Cargo.toml
               echo "Updated internal dep versions to =$VERSION"
             fi
 
