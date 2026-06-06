@@ -25,6 +25,12 @@ mod row_decode;
 #[cfg(any(feature = "native", feature = "remote"))]
 mod sql_escape;
 
+/// Shared graph-DSL builders and result parsers. Used by both clients so the
+/// `GRAPH ALGO …` SQL construction and row decoding exist once, not per
+/// transport.
+#[cfg(any(feature = "native", feature = "remote"))]
+mod graph_dsl;
+
 #[cfg(feature = "remote")]
 pub mod remote;
 #[cfg(feature = "remote")]

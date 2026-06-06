@@ -156,6 +156,23 @@ impl NodeDbRemote {
         parse_graph_stats_response(&columns, &rows)
     }
 
+    pub(super) async fn graph_pagerank_impl(
+        &self,
+        collection: &str,
+        personalization: Option<&std::collections::HashMap<String, f64>>,
+        damping: Option<f64>,
+        max_iterations: Option<u32>,
+    ) -> NodeDbResult<Vec<(String, f64)>> {
+        let sql = crate::graph_dsl::build_pagerank_sql(
+            collection,
+            personalization,
+            damping,
+            max_iterations,
+        )?;
+        let (columns, rows) = self.simple_query_raw(&sql).await?;
+        crate::graph_dsl::parse_pagerank_rows(&columns, &rows)
+    }
+
     pub(super) async fn graph_shortest_path_impl(
         &self,
         collection: &str,

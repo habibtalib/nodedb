@@ -111,6 +111,22 @@ impl NodeDb for NodeDbRemote {
         self.graph_stats_impl(collection, as_of).await
     }
 
+    async fn graph_pagerank(
+        &self,
+        collection: &str,
+        personalization: Option<std::collections::HashMap<String, f64>>,
+        damping: Option<f64>,
+        max_iterations: Option<u32>,
+    ) -> NodeDbResult<Vec<(String, f64)>> {
+        self.graph_pagerank_impl(
+            collection,
+            personalization.as_ref(),
+            damping,
+            max_iterations,
+        )
+        .await
+    }
+
     async fn graph_shortest_path(
         &self,
         collection: &str,

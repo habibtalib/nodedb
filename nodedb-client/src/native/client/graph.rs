@@ -46,7 +46,18 @@ impl NativeClient {
         edge_type: &str,
         properties: Option<Document>,
     ) -> NodeDbResult<EdgeId> {
-        let props_json = properties.and_then(|d| serde_json::to_value(d.fields).ok());
+        // Convert the document fields to a `serde_json::Value` via the
+        // type-level `From<nodedb_types::Value>` conversion — no runtime JSON
+        // serialization, and infallible, so properties are never silently
+        // dropped on a serializer error.
+        let props_json = properties.map(|d| {
+            serde_json::Value::Object(
+                d.fields
+                    .into_iter()
+                    .map(|(k, v)| (k, serde_json::Value::from(v)))
+                    .collect(),
+            )
+        });
         let mut conn = self.pool.acquire().await?;
         conn.send(
             OpCode::EdgePut,
@@ -92,6 +103,23 @@ impl NativeClient {
         let sql = build_native_graph_stats_sql(collection, as_of);
         let result = self.query(&sql).await?;
         parse_native_graph_stats(&result.columns, &result.rows)
+    }
+
+    pub(super) async fn graph_pagerank_impl(
+        &self,
+        collection: &str,
+        personalization: Option<&std::collections::HashMap<String, f64>>,
+        damping: Option<f64>,
+        max_iterations: Option<u32>,
+    ) -> NodeDbResult<Vec<(String, f64)>> {
+        let sql = crate::graph_dsl::build_pagerank_sql(
+            collection,
+            personalization,
+            damping,
+            max_iterations,
+        )?;
+        let result = self.query(&sql).await?;
+        crate::graph_dsl::parse_pagerank_rows(&result.columns, &result.rows)
     }
 }
 

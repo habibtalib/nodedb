@@ -113,6 +113,22 @@ impl NodeDb for NativeClient {
         self.graph_stats_impl(collection, as_of).await
     }
 
+    async fn graph_pagerank(
+        &self,
+        collection: &str,
+        personalization: Option<std::collections::HashMap<String, f64>>,
+        damping: Option<f64>,
+        max_iterations: Option<u32>,
+    ) -> NodeDbResult<Vec<(String, f64)>> {
+        self.graph_pagerank_impl(
+            collection,
+            personalization.as_ref(),
+            damping,
+            max_iterations,
+        )
+        .await
+    }
+
     async fn document_get(&self, collection: &str, id: &str) -> NodeDbResult<Option<Document>> {
         self.document_get_impl(collection, id).await
     }
