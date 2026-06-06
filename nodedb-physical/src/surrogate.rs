@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BUSL-1.1
+// SPDX-License-Identifier: Apache-2.0
 
 //! Surrogate-allocation contract used by the shared SqlPlan → PhysicalPlan
 //! converter. Origin's WAL-durable, Raft-replicated allocator implements this

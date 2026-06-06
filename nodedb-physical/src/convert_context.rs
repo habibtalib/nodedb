@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BUSL-1.1
+// SPDX-License-Identifier: Apache-2.0
 
 //! Deployment-neutral context threaded through the shared `SqlPlan →
 //! PhysicalPlan` converter helpers in `crate::convert`.
