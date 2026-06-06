@@ -225,10 +225,10 @@ A few things to keep in mind:
 
 NodeDB uses a dual-license model:
 
-| Crates                                                                                                                                                                                             | License                      |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `nodedb-types`, `nodedb-client`, `nodedb-query`, `nodedb-codec`, `nodedb-spatial`, `nodedb-graph`, `nodedb-vector`, `nodedb-fts`, `nodedb-strict`, `nodedb-columnar`, `nodedb-array`, `nodedb-sql` | [Apache 2.0](LICENSE-APACHE) |
-| `nodedb` (server), `nodedb-bridge`, `nodedb-wal`, `nodedb-mem`, `nodedb-crdt`, `nodedb-raft`, `nodedb-cluster`                                                                                     | [BUSL-1.1](LICENSE)       |
+| Crates                                                                                                                                                                                             | License                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `nodedb-types`, `nodedb-client`, `nodedb-query`, `nodedb-codec`, `nodedb-spatial`, `nodedb-graph`, `nodedb-vector`, `nodedb-fts`, `nodedb-strict`, `nodedb-columnar`, `nodedb-array`, `nodedb-sql` | [Apache 2.0](LICENSE.APACHE-2.0) |
+| `nodedb` (server), `nodedb-bridge`, `nodedb-wal`, `nodedb-mem`, `nodedb-crdt`, `nodedb-raft`, `nodedb-cluster`                                                                                     | [BUSL-1.1](LICENSE)              |
 
 **What this means for contributors:** contributions to Apache-2.0 crates are under Apache 2.0; contributions to server crates are under BUSL-1.1. No CLA is required for either.
 

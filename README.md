@@ -240,5 +240,5 @@ Pre-1.0 versions may change internals between releases — those changes are cri
 
 NodeDB uses a dual-license model:
 
-- **Shared engine crates** (`nodedb-types`, `nodedb-vector`, `nodedb-graph`, `nodedb-fts`, `nodedb-spatial`, `nodedb-codec`, `nodedb-columnar`, `nodedb-array`, `nodedb-sql`, `nodedb-client`, `nodedb-query`, `nodedb-strict`) — [Apache 2.0](LICENSE-APACHE). Use them freely in your own projects, SDKs, and tools.
+- **Shared engine crates** (`nodedb-types`, `nodedb-vector`, `nodedb-graph`, `nodedb-fts`, `nodedb-spatial`, `nodedb-codec`, `nodedb-columnar`, `nodedb-array`, `nodedb-sql`, `nodedb-client`, `nodedb-query`, `nodedb-strict`) — [Apache 2.0](LICENSE.APACHE-2.0). Use them freely in your own projects, SDKs, and tools.
 - **Server crates** (`nodedb`, `nodedb-wal`, `nodedb-raft`, `nodedb-cluster`, `nodedb-bridge`, `nodedb-mem`, `nodedb-crdt`) — [Business Source License 1.1](LICENSE). Free for any use except offering NodeDB as a hosted database service (DBaaS). Converts to Apache 2.0 on 2030-05-01.
