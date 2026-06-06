@@ -54,6 +54,10 @@ pub enum GraphStmt {
         source_node: Option<String>,
         direction: Option<String>,
         mode: Option<String>,
+        /// Raw JSON object literal for Personalized PageRank seed weights,
+        /// e.g. `PERSONALIZATION {"alice": 1.0, "bob": 0.5}`. Parsed into a
+        /// `node_id → weight` map by the handler. `None` = standard PageRank.
+        personalization: Option<String>,
     },
     /// `MATCH (x)-[:l]->(y) RETURN x, y` — body forwarded verbatim to the graph pattern compiler.
     MatchQuery { body: String },

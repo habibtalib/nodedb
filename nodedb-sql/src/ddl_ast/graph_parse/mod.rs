@@ -226,6 +226,35 @@ mod tests {
     }
 
     #[test]
+    fn parse_graph_algo_personalization() {
+        let stmt = try_parse(
+            r#"GRAPH ALGO PAGERANK ON 'users' DAMPING 0.9 PERSONALIZATION {"alice": 1.0, "bob": 0.5}"#,
+        )
+        .unwrap();
+        match stmt {
+            NodedbStatement::Graph(GraphStmt::GraphAlgo {
+                algorithm,
+                collection,
+                damping,
+                personalization,
+                ..
+            }) => {
+                assert_eq!(algorithm, "PAGERANK");
+                assert_eq!(collection, "users");
+                assert_eq!(damping, Some(0.9));
+                let raw = personalization.expect("personalization object present");
+                assert!(raw.contains("alice"));
+                assert!(raw.contains("bob"));
+                // Round-trips as a JSON node→weight map.
+                let map: std::collections::HashMap<String, f64> = sonic_rs::from_str(&raw).unwrap();
+                assert_eq!(map.get("alice"), Some(&1.0));
+                assert_eq!(map.get("bob"), Some(&0.5));
+            }
+            other => panic!("expected GraphAlgo, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn parse_match_query_captures_raw() {
         let stmt = try_parse("MATCH (x)-[:l]->(y) RETURN x, y").unwrap();
         match stmt {

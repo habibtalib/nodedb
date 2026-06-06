@@ -93,13 +93,16 @@ pub(super) fn parse_algo(toks: &[Tok<'_>]) -> Option<NodedbStatement> {
             _ => None,
         })?;
 
+    // Accept either a bare word (`ON users`) or a quoted literal (`ON 'users'`)
+    // so clients can escape collection names safely.
+    //
     // Reject the `ON (subquery)` form early: the tokenizer strips `(` and `)`,
     // so `ON (SELECT …)` becomes the token sequence `[ON, SELECT, …]`.
-    // `word_after("ON")` would return `"SELECT"` which would be silently stored
-    // as the collection name and then ignored — producing tenant-wide results.
-    // Returning None here causes the statement to be treated as unparseable,
-    // surfacing a structured error rather than silent wrong data.
-    let collection_raw = word_after(toks, "ON")?;
+    // `quoted_after("ON")` would return `"SELECT"` which would be silently
+    // stored as the collection name and then ignored — producing tenant-wide
+    // results. Returning None here causes the statement to be treated as
+    // unparseable, surfacing a structured error rather than silent wrong data.
+    let collection_raw = quoted_after(toks, "ON")?;
     const SUBQUERY_KEYWORDS: &[&str] = &["SELECT", "WITH", "VALUES", "TABLE"];
     if SUBQUERY_KEYWORDS
         .iter()
@@ -121,6 +124,7 @@ pub(super) fn parse_algo(toks: &[Tok<'_>]) -> Option<NodedbStatement> {
         source_node: quoted_after(toks, "FROM").or_else(|| quoted_after(toks, "SOURCE")),
         direction: word_after(toks, "DIRECTION"),
         mode: word_after(toks, "MODE"),
+        personalization: super::helpers::object_after(toks, "PERSONALIZATION"),
     }))
 }
 

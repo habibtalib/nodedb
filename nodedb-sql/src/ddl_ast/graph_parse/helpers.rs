@@ -32,6 +32,18 @@ pub(super) fn quoted_list_after(toks: &[Tok<'_>], keyword: &str) -> Vec<String> 
         .collect()
 }
 
+/// Extract a brace-balanced object literal (`{…}`, braces included) that
+/// immediately follows `keyword`. Used for `PERSONALIZATION {…}` in
+/// `GRAPH ALGO`. Returns `None` when the keyword is absent or is not followed
+/// by an object token.
+pub(super) fn object_after(toks: &[Tok<'_>], keyword: &str) -> Option<String> {
+    let pos = find_keyword(toks, keyword)?;
+    match toks.get(pos + 1)? {
+        Tok::Object(s) => Some((*s).to_string()),
+        _ => None,
+    }
+}
+
 pub(super) fn word_after(toks: &[Tok<'_>], keyword: &str) -> Option<String> {
     let pos = find_keyword(toks, keyword)?;
     if let Tok::Word(w) = toks.get(pos + 1)? {
