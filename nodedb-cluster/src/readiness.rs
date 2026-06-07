@@ -13,7 +13,7 @@
 //! no-op so the server builds and runs unchanged; `sd-notify` itself
 //! is only compiled in on Linux via a target-gated Cargo dependency.
 
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Signal that the server is fully initialised.
 ///
